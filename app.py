@@ -24,7 +24,10 @@ from models import (init_db, create_user, authenticate_user, get_user_by_id,
                     create_job, get_jobs_by_status, get_all_jobs, mark_job_sent,
                     get_dashboard_stats, has_permission, get_role_permissions,
                     update_role_permissions,
-                    reset_jobs, reset_clients, reset_users, reset_all)
+                    reset_jobs, reset_clients, reset_users, reset_all,
+                    log_activity, get_activity_logs,
+                    add_job_comment, get_job_comments, update_job_notes,
+                    get_job_by_id, get_db_path)
 
 app = Flask(__name__, template_folder=BASE_DIR, static_folder=BASE_DIR, static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY', 'ramya-tech-2026-secret-v3')
@@ -38,7 +41,7 @@ os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
 init_db()
 
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
-ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer']
+ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs']
 
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -96,6 +99,8 @@ def login():
         user = authenticate_user(request.form['username'], request.form['password'])
         if user:
             session['user_id'] = user['id']
+            log_activity(user['id'], user['full_name'], 'Connexion', 
+                        f"Connexion réussie", request.remote_addr)
             flash(f"Bienvenue {user['full_name']} !", "success")
             return redirect(url_for('dashboard'))
         flash("Identifiants incorrects", "error")
@@ -333,6 +338,10 @@ def traitement_generate():
         create_job(job_id, session['user_id'], client_name, provider_name,
                    filename, pdf_name, xlsx_out, len(emps), period, hp_text, client_id)
         
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Traitement', f"Rapport PDF généré — {client_name}, {len(emps)} employés",
+                    request.remote_addr)
         flash(f"Rapport généré avec succès — {len(emps)} employés, {client_name}", "success")
         return send_file(output_path, as_attachment=True, download_name=pdf_name, mimetype='application/pdf')
     
@@ -373,6 +382,9 @@ def fichiers_download(job_id, ftype):
 @permission_required('envoyer')
 def fichiers_marquer(job_id):
     mark_job_sent(job_id, session['user_id'])
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?',
+                'Envoi', f"Rapport {job_id} marqué comme envoyé", request.remote_addr)
     flash("Fichier marqué comme envoyé", "success")
     return redirect(url_for('fichiers'))
 
@@ -446,31 +458,35 @@ def admin_add_user():
 @permission_required('admin')
 def admin_reset():
     target = request.form.get('target', '')
+    user = get_user_by_id(session['user_id'])
+    uname = user['full_name'] if user else '?'
     
     if target == 'jobs':
         reset_jobs()
-        # Supprimer les fichiers physiques
         files_dir = app.config['FILES_FOLDER']
         if os.path.exists(files_dir):
             shutil.rmtree(files_dir)
             os.makedirs(files_dir, exist_ok=True)
+        log_activity(session['user_id'], uname, 'Réinitialisation', 'Tous les rapports supprimés', request.remote_addr)
         flash("Tous les rapports ont été supprimés", "success")
     
     elif target == 'clients':
         reset_clients()
+        log_activity(session['user_id'], uname, 'Réinitialisation', 'Tous les clients supprimés', request.remote_addr)
         flash("Tous les clients ont été supprimés", "success")
     
     elif target == 'users':
         reset_users()
+        log_activity(session['user_id'], uname, 'Réinitialisation', 'Utilisateurs non-admin supprimés', request.remote_addr)
         flash("Tous les utilisateurs (sauf admin) ont été supprimés", "success")
     
     elif target == 'all':
         reset_all()
-        # Supprimer tous les fichiers
         for folder in [app.config['FILES_FOLDER'], app.config['UPLOAD_FOLDER']]:
             if os.path.exists(folder):
                 shutil.rmtree(folder)
                 os.makedirs(folder, exist_ok=True)
+        log_activity(session['user_id'], uname, 'Réinitialisation', 'RÉINITIALISATION COMPLÈTE', request.remote_addr)
         flash("Réinitialisation complète effectuée", "success")
     
     return redirect(url_for('admin_page'))
@@ -513,6 +529,86 @@ def admin_permissions():
     update_role_permissions('admin', ALL_PERMISSIONS)
     flash("Permissions mises à jour", "success")
     return redirect(url_for('admin_page'))
+
+
+# ======================== LOGS D'ACTIVITÉ ========================
+
+@app.route('/logs')
+@permission_required('logs')
+def logs_page():
+    logs = get_activity_logs(200)
+    return render_template('logs.html', page='logs', logs=logs)
+
+
+# ======================== DÉTAIL RAPPORT + COMMENTAIRES ========================
+
+@app.route('/job/<job_id>')
+@login_required
+def job_detail(job_id):
+    job = get_job_by_id(job_id)
+    if not job:
+        flash("Rapport non trouvé", "error")
+        return redirect(url_for('dashboard'))
+    comments = get_job_comments(job_id)
+    return render_template('job_detail.html', page='fichiers', job=job, comments=comments)
+
+@app.route('/job/<job_id>/comment', methods=['POST'])
+@login_required
+def job_add_comment(job_id):
+    comment = request.form.get('comment', '').strip()
+    if comment:
+        user = get_user_by_id(session['user_id'])
+        add_job_comment(job_id, session['user_id'], user['full_name'] if user else '?', comment)
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Commentaire', f"Commentaire ajouté sur rapport {job_id}", request.remote_addr)
+    return redirect(url_for('job_detail', job_id=job_id))
+
+@app.route('/job/<job_id>/notes', methods=['POST'])
+@login_required
+def job_update_notes(job_id):
+    notes = request.form.get('notes', '').strip()
+    update_job_notes(job_id, notes)
+    flash("Notes mises à jour", "success")
+    return redirect(url_for('job_detail', job_id=job_id))
+
+
+# ======================== SAUVEGARDE BDD ========================
+
+@app.route('/admin/backup')
+@permission_required('admin')
+def admin_backup():
+    db_path = get_db_path()
+    if os.path.exists(db_path):
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Sauvegarde', 'Téléchargement de la base de données', request.remote_addr)
+        return send_file(db_path, as_attachment=True,
+                        download_name=f"ramya_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db")
+    flash("Base de données introuvable", "error")
+    return redirect(url_for('admin_page'))
+
+
+# ======================== PWA MANIFEST ========================
+
+@app.route('/manifest.json')
+def pwa_manifest():
+    manifest = {
+        "name": "RAMYA Rapport de Pointage",
+        "short_name": "RAMYA",
+        "start_url": "/dashboard",
+        "display": "standalone",
+        "background_color": "#0d3b36",
+        "theme_color": "#1a7a6d",
+        "icons": [
+            {"src": "/static/logo_ramya_ROIND.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/logo_ramya_ROIND.png", "sizes": "512x512", "type": "image/png"}
+        ]
+    }
+    return jsonify(manifest)
+
+@app.route('/sw.js')
+def service_worker():
+    return app.send_static_file('sw.js') if os.path.exists(os.path.join(BASE_DIR, 'sw.js')) else ('', 204)
 
 
 # ======================== UTILS ========================

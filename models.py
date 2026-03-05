@@ -81,11 +81,32 @@ def init_db():
             permission TEXT NOT NULL,
             UNIQUE(role, permission)
         );
+        
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            user_name TEXT,
+            action TEXT NOT NULL,
+            detail TEXT,
+            ip_address TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS job_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            user_name TEXT,
+            comment TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     ''')
     
-    # Permissions par défaut
+    # Permissions par défaut — ajouter 'logs' pour admin
     default_perms = {
-        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer'],
+        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs'],
         'rh': ['fichiers', 'clients', 'dashboard', 'envoyer'],
         'technicien': ['traitement', 'dashboard'],
     }
@@ -379,5 +400,79 @@ def reset_all():
     conn.execute("DELETE FROM jobs")
     conn.execute("DELETE FROM clients")
     conn.execute("DELETE FROM users WHERE role != 'admin'")
+    conn.execute("DELETE FROM activity_logs")
+    conn.execute("DELETE FROM job_comments")
     conn.commit()
     conn.close()
+
+
+# ======================== ACTIVITY LOGS ========================
+
+def log_activity(user_id, user_name, action, detail='', ip_address=''):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO activity_logs (user_id, user_name, action, detail, ip_address)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, user_name, action, detail, ip_address))
+    conn.commit()
+    conn.close()
+
+def get_activity_logs(limit=100):
+    conn = get_db()
+    logs = conn.execute("""
+        SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(l) for l in logs]
+
+def get_user_activity(user_id, limit=50):
+    conn = get_db()
+    logs = conn.execute("""
+        SELECT * FROM activity_logs WHERE user_id=? ORDER BY created_at DESC LIMIT ?
+    """, (user_id, limit)).fetchall()
+    conn.close()
+    return [dict(l) for l in logs]
+
+
+# ======================== JOB COMMENTS ========================
+
+def add_job_comment(job_id, user_id, user_name, comment):
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO job_comments (job_id, user_id, user_name, comment)
+        VALUES (?, ?, ?, ?)
+    """, (job_id, user_id, user_name, comment))
+    conn.commit()
+    conn.close()
+
+def get_job_comments(job_id):
+    conn = get_db()
+    comments = conn.execute("""
+        SELECT * FROM job_comments WHERE job_id=? ORDER BY created_at ASC
+    """, (job_id,)).fetchall()
+    conn.close()
+    return [dict(c) for c in comments]
+
+def update_job_notes(job_id, notes):
+    conn = get_db()
+    conn.execute("UPDATE jobs SET notes=? WHERE job_id=?", (notes, job_id))
+    conn.commit()
+    conn.close()
+
+def get_job_by_id(job_id):
+    conn = get_db()
+    job = conn.execute("""
+        SELECT j.*, u.full_name as user_name, su.full_name as sent_by_name
+        FROM jobs j 
+        LEFT JOIN users u ON j.user_id = u.id
+        LEFT JOIN users su ON j.sent_by = su.id
+        WHERE j.job_id = ?
+    """, (job_id,)).fetchone()
+    conn.close()
+    return dict(job) if job else None
+
+
+# ======================== BACKUP ========================
+
+def get_db_path():
+    return DB_PATH

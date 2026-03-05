@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a7a6d">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/static/logo_ramya_ROIND.png">
     <title>{% block title %}RAMYA{% endblock %}</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
@@ -166,6 +171,12 @@
             {% if 'admin' in permissions %}
             <div class="separator"></div>
             <a href="/admin" class="{% if page == 'admin' %}active{% endif %}">👥 Administration</a>
+            {% endif %}
+            {% if 'logs' in permissions %}
+            <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">📋 Logs d'activité</a>
+            {% endif %}
+            {% if 'admin' in permissions %}
+            <a href="/admin/backup" class="{% if page == 'backup' %}active{% endif %}">💾 Sauvegarde BDD</a>
             {% endif %}
         </div>
         <div class="sidebar-footer">

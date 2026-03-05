@@ -28,7 +28,7 @@
                 {% for job in pending %}
                 <tr>
                     <td>{{ job.created_at[:16] }}</td>
-                    <td><strong>{{ job.client_name }}</strong></td>
+                    <td><a href="/job/{{ job.job_id }}" style="color:#1a7a6d;font-weight:600;text-decoration:none">{{ job.client_name }}</a></td>
                     <td>{{ job.employee_count }}</td>
                     <td>{{ job.user_name }}</td>
                     <td style="display:flex;gap:6px;flex-wrap:wrap">
@@ -64,7 +64,7 @@
                 {% for job in sent %}
                 <tr>
                     <td>{{ job.created_at[:16] }}</td>
-                    <td><strong>{{ job.client_name }}</strong></td>
+                    <td><a href="/job/{{ job.job_id }}" style="color:#1a7a6d;font-weight:600;text-decoration:none">{{ job.client_name }}</a></td>
                     <td>{{ job.employee_count }}</td>
                     <td>{{ job.sent_at[:16] if job.sent_at else '-' }}</td>
                     <td>{{ job.sent_by_name or '-' }}</td>
