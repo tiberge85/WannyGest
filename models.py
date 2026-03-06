@@ -145,6 +145,29 @@ def init_db():
             FOREIGN KEY (sent_by) REFERENCES users(id)
         );
         
+        CREATE TABLE IF NOT EXISTS devis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT UNIQUE,
+            doc_type TEXT DEFAULT 'devis',
+            client_id INTEGER,
+            client_name TEXT,
+            client_code TEXT,
+            contact_commercial TEXT,
+            objet TEXT,
+            items_json TEXT,
+            total_ht REAL DEFAULT 0,
+            petites_fournitures REAL DEFAULT 0,
+            total_ttc REAL DEFAULT 0,
+            main_oeuvre REAL DEFAULT 0,
+            remise REAL DEFAULT 0,
+            status TEXT DEFAULT 'brouillon',
+            notes TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (client_id) REFERENCES clients(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+        
         CREATE TABLE IF NOT EXISTS visit_reports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             client_id INTEGER,
@@ -898,3 +921,158 @@ def update_payslip(pid, **kwargs):
         conn.execute(f"UPDATE payslips SET {k}=? WHERE id=?", (v, pid))
     conn.commit()
     conn.close()
+
+
+# ======================== DEVIS / PROFORMA ========================
+
+def init_devis_tables():
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS devis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT UNIQUE,
+            doc_type TEXT DEFAULT 'DEVIS',
+            client_id INTEGER,
+            client_name TEXT,
+            client_contact TEXT,
+            client_code TEXT,
+            objet TEXT,
+            commercial TEXT,
+            items TEXT,
+            total_pieces REAL DEFAULT 0,
+            main_oeuvre REAL DEFAULT 0,
+            total_ht REAL DEFAULT 0,
+            remise REAL DEFAULT 0,
+            petites_fournitures REAL DEFAULT 0,
+            total_ttc REAL DEFAULT 0,
+            notes TEXT,
+            status TEXT DEFAULT 'brouillon',
+            sent_at TEXT,
+            sent_by INTEGER,
+            accepted_at TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (client_id) REFERENCES clients(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+    ''')
+    conn.commit()
+    conn.close()
+
+def create_devis(**kwargs):
+    conn = get_db()
+    cols = ', '.join(kwargs.keys())
+    placeholders = ', '.join(['?' for _ in kwargs])
+    conn.execute(f"INSERT INTO devis ({cols}) VALUES ({placeholders})", list(kwargs.values()))
+    conn.commit()
+    did = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return did
+
+def get_all_devis(status=None):
+    conn = get_db()
+    if status:
+        rows = conn.execute("SELECT d.*, u.full_name as created_by_name FROM devis d LEFT JOIN users u ON d.created_by=u.id WHERE d.status=? ORDER BY d.created_at DESC", (status,)).fetchall()
+    else:
+        rows = conn.execute("SELECT d.*, u.full_name as created_by_name FROM devis d LEFT JOIN users u ON d.created_by=u.id ORDER BY d.created_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_devis_by_id(did):
+    conn = get_db()
+    d = conn.execute("SELECT d.*, u.full_name as created_by_name FROM devis d LEFT JOIN users u ON d.created_by=u.id WHERE d.id=?", (did,)).fetchone()
+    conn.close()
+    return dict(d) if d else None
+
+def update_devis_status(did, status, user_id=None):
+    conn = get_db()
+    now = datetime.now().isoformat()
+    if status == 'envoye':
+        conn.execute("UPDATE devis SET status=?, sent_at=?, sent_by=? WHERE id=?", (status, now, user_id, did))
+    elif status == 'accepte':
+        conn.execute("UPDATE devis SET status=?, accepted_at=? WHERE id=?", (status, now, did))
+    else:
+        conn.execute("UPDATE devis SET status=? WHERE id=?", (status, did))
+    conn.commit()
+    conn.close()
+
+def get_devis_stats():
+    conn = get_db()
+    s = {}
+    s['brouillon'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='brouillon'").fetchone()[0]
+    s['envoye'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='envoye'").fetchone()[0]
+    s['accepte'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='accepte'").fetchone()[0]
+    s['decline'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='decline'").fetchone()[0]
+    s['total'] = conn.execute("SELECT COUNT(*) FROM devis").fetchone()[0]
+    s['total_amount'] = conn.execute("SELECT COALESCE(SUM(total_ttc),0) FROM devis WHERE status='accepte'").fetchone()[0]
+    conn.close()
+    return s
+
+def get_next_devis_ref(doc_type='DEV'):
+    conn = get_db()
+    year = datetime.now().strftime('%y')
+    prefix = f"{doc_type}-"
+    count = conn.execute("SELECT COUNT(*) FROM devis WHERE reference LIKE ?", (f'{prefix}%{year}',)).fetchone()[0]
+    conn.close()
+    return f"{prefix}{str(count+1).zfill(6)}-{year}"
+
+
+# ======================== DEVIS / PROFORMA ========================
+
+def create_devis(client_id, client_name, client_code, contact_commercial,
+                 objet, items_json, total_ht, petites_fournitures, total_ttc,
+                 main_oeuvre, remise, notes, created_by, doc_type='devis'):
+    conn = get_db()
+    # Auto-generate reference
+    year = datetime.now().strftime('%y')
+    count = conn.execute("SELECT COUNT(*) FROM devis WHERE doc_type=?", (doc_type,)).fetchone()[0] + 1
+    prefix = 'DEV' if doc_type == 'devis' else 'PRO'
+    reference = f"{prefix}-{count:06d}-{year}"
+    
+    conn.execute("""INSERT INTO devis (reference, doc_type, client_id, client_name, client_code,
+        contact_commercial, objet, items_json, total_ht, petites_fournitures, total_ttc,
+        main_oeuvre, remise, notes, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (reference, doc_type, client_id, client_name, client_code,
+         contact_commercial, objet, items_json, total_ht, petites_fournitures, total_ttc,
+         main_oeuvre, remise, notes, created_by))
+    conn.commit()
+    did = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return did, reference
+
+def get_all_devis(doc_type=None):
+    conn = get_db()
+    if doc_type:
+        rows = conn.execute("""SELECT d.*, u.full_name as created_by_name FROM devis d
+            LEFT JOIN users u ON d.created_by=u.id WHERE d.doc_type=? ORDER BY d.created_at DESC""", (doc_type,)).fetchall()
+    else:
+        rows = conn.execute("""SELECT d.*, u.full_name as created_by_name FROM devis d
+            LEFT JOIN users u ON d.created_by=u.id ORDER BY d.created_at DESC""").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_devis_by_id(did):
+    conn = get_db()
+    d = conn.execute("""SELECT d.*, u.full_name as created_by_name FROM devis d
+        LEFT JOIN users u ON d.created_by=u.id WHERE d.id=?""", (did,)).fetchone()
+    conn.close()
+    return dict(d) if d else None
+
+def update_devis_status(did, status):
+    conn = get_db()
+    conn.execute("UPDATE devis SET status=? WHERE id=?", (status, did))
+    conn.commit()
+    conn.close()
+
+def get_devis_stats():
+    conn = get_db()
+    s = {}
+    s['brouillon'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='brouillon'").fetchone()[0]
+    s['envoye'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='envoye'").fetchone()[0]
+    s['accepte'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='accepte'").fetchone()[0]
+    s['refuse'] = conn.execute("SELECT COUNT(*) FROM devis WHERE status='refuse'").fetchone()[0]
+    s['total'] = conn.execute("SELECT COUNT(*) FROM devis").fetchone()[0]
+    s['montant_total'] = conn.execute("SELECT COALESCE(SUM(total_ttc),0) FROM devis WHERE status='accepte'").fetchone()[0]
+    conn.close()
+    return s

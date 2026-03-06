@@ -39,7 +39,10 @@ from models import (init_db, create_user, authenticate_user, get_user_by_id,
                     create_invoice, get_invoices_by_status, get_all_invoices,
                     update_invoice_status, get_invoice_stats,
                     create_visit_report, get_visit_reports, get_visit_by_id,
-                    update_visit_proforma, get_visit_stats)
+                    update_visit_proforma, get_visit_stats,
+                    create_devis, get_all_devis, get_devis_by_id,
+                    update_devis_status, get_devis_stats)
+from devis_generator import generate_devis_pdf
 
 app = Flask(__name__, template_folder=BASE_DIR, static_folder=BASE_DIR, static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY', 'ramya-tech-2026-secret-v3')
@@ -58,6 +61,10 @@ from models import (init_rh_tables, get_all_employees, get_employee_by_id,
                     get_leaves, create_leave, update_leave_status,
                     get_payslips, create_payslip, update_payslip)
 init_rh_tables()
+
+from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
+                    update_devis_status, get_devis_stats, get_next_devis_ref)
+init_devis_tables()
 
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma']
@@ -161,7 +168,9 @@ def dashboard():
     stats = get_dashboard_stats()
     inv_stats = get_invoice_stats()
     v_stats = get_visit_stats()
-    return render_template('dashboard.html', page='dashboard', stats=stats, inv_stats=inv_stats, v_stats=v_stats)
+    d_stats = get_devis_stats()
+    return render_template('dashboard.html', page='dashboard', stats=stats, 
+                          inv_stats=inv_stats, v_stats=v_stats, d_stats=d_stats)
 
 
 # ======================== TRAITEMENT ========================
@@ -1019,6 +1028,89 @@ def export_stats():
     
     return send_file(output, as_attachment=True,
                     download_name=f"stats_ramya_{datetime.now().strftime('%Y%m')}.pdf")
+
+
+# ======================== DEVIS / PROFORMA ========================
+
+@app.route('/devis')
+@permission_required('proforma')
+def devis_page():
+    tab = request.args.get('tab', 'all')
+    d_stats = get_devis_stats()
+    devis_list = get_all_devis(tab if tab in ('devis', 'proforma') else None)
+    return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list, d_stats=d_stats)
+
+@app.route('/devis/new', methods=['GET', 'POST'])
+@permission_required('proforma')
+def devis_new():
+    if request.method == 'POST':
+        items = []
+        i = 1
+        while request.form.get(f'item_{i}_designation'):
+            items.append({
+                'num': i,
+                'designation': request.form.get(f'item_{i}_designation', ''),
+                'detail': request.form.get(f'item_{i}_detail', ''),
+                'qty': int(request.form.get(f'item_{i}_qty', 1) or 1),
+                'prix': float(request.form.get(f'item_{i}_prix', 0) or 0),
+                'remise': float(request.form.get(f'item_{i}_remise', 0) or 0),
+            })
+            i += 1
+        
+        total_ht = sum(it['qty'] * it['prix'] - it['remise'] for it in items)
+        main_oeuvre = float(request.form.get('main_oeuvre', 0) or 0)
+        petites_fourn = float(request.form.get('petites_fournitures', 0) or 0)
+        remise_glob = float(request.form.get('remise', 0) or 0)
+        total_ttc = total_ht + petites_fourn - remise_glob
+        
+        client_id = request.form.get('client_id', '')
+        client_id = int(client_id) if client_id else None
+        
+        did, ref = create_devis(
+            client_id, request.form.get('client_name', ''),
+            request.form.get('client_code', ''),
+            request.form.get('contact_commercial', ''),
+            request.form.get('objet', ''),
+            json.dumps(items), total_ht, petites_fourn, total_ttc,
+            main_oeuvre, remise_glob,
+            request.form.get('notes', ''),
+            session['user_id'],
+            request.form.get('doc_type', 'devis')
+        )
+        
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Devis', f"{ref} créé pour {request.form.get('client_name', '')}", request.remote_addr)
+        flash(f"Devis {ref} créé — {total_ttc:,.0f} FCFA TTC", "success")
+        return redirect(url_for('devis_page'))
+    
+    clients = get_all_clients()
+    return render_template('devis_new.html', page='devis', clients=clients)
+
+@app.route('/devis/pdf/<int:did>')
+@login_required
+def devis_pdf(did):
+    devis = get_devis_by_id(did)
+    if not devis:
+        flash("Devis non trouvé", "error")
+        return redirect(url_for('devis_page'))
+    
+    export_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'devis')
+    os.makedirs(export_dir, exist_ok=True)
+    output = os.path.join(export_dir, f"{devis['reference']}.pdf")
+    
+    devis['date'] = devis.get('created_at', '')[:10]
+    generate_devis_pdf(devis, output)
+    
+    return send_file(output, as_attachment=True, download_name=f"{devis['reference']}.pdf")
+
+@app.route('/devis/status/<int:did>/<status>')
+@permission_required('proforma')
+def devis_status(did, status):
+    if status in ('brouillon', 'envoye', 'accepte', 'refuse'):
+        update_devis_status(did, status)
+        flash(f"Statut mis à jour : {status}", "success")
+    return redirect(url_for('devis_page'))
 
 
 # ======================== RH MODULE ========================

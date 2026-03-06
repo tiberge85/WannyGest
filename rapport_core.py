@@ -215,14 +215,11 @@ def calc_employee_stats(emp, hp=0):
             total_overtime += overtime
             
             # === RESPECT HORAIRE ===
-            # Temps effectif dans la plage du planning
-            effective_end = min(ad, se)
-            effective_in_schedule = max(0, effective_end - effective_start)
-            
-            if effective_in_schedule >= required:
+            # Si les heures travaillées >= heures obligatoires (tolérance 5 min) → OUI
+            if worked >= (required - 5):
                 respect = "OUI"
             else:
-                deficit = required - effective_in_schedule
+                deficit = required - worked
                 total_deficit += deficit
                 respect = f"NON (-{m2h(deficit)})"
         
@@ -343,7 +340,7 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         # Tableau détail
         hdrs = ["N°","Date","Planning","État","Arrivée",
                 "Départ","H.<br/>travail.","Retard",
-                "H.<br/>obligat.","Respect","H. sup."]
+                "H.<br/>obligat.","H.<br/>Respectée","H. sup."]
         cw = [7*mm,16*mm,18*mm,16*mm,13*mm,13*mm,14*mm,13*mm,14*mm,18*mm,14*mm]
         
         td = [[Paragraph(x, S['h']) for x in hdrs]]

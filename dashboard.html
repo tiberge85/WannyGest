@@ -69,6 +69,14 @@
     </div>
 </div>
 
+<!-- Devis & Commercial -->
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon blue">📝</div><div class="stat-info"><div class="stat-num">{{ d_stats.brouillon if d_stats else 0 }}</div><div class="stat-label">Devis brouillons</div></div></div>
+    <div class="stat-card"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-num">{{ d_stats.envoye if d_stats else 0 }}</div><div class="stat-label">Devis envoyés</div></div></div>
+    <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ d_stats.accepte if d_stats else 0 }}</div><div class="stat-label">Devis acceptés</div></div></div>
+    <div class="stat-card"><div class="stat-icon teal">💵</div><div class="stat-info"><div class="stat-num">{{ '{:,.0f}'.format(d_stats.montant_total if d_stats else 0) }}</div><div class="stat-label">CA devis acceptés (F)</div></div></div>
+</div>
+
 <div class="card">
     <div class="card-header">
         <h3>📋 Derniers traitements</h3>
