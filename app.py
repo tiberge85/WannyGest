@@ -34,7 +34,12 @@ from models import (init_db, create_user, authenticate_user, get_user_by_id,
                     get_job_by_id, get_db_path,
                     create_contract, get_client_contracts, get_all_contracts,
                     get_contract_by_id, update_contract, delete_contract,
-                    get_client_monthly_stats)
+                    get_client_monthly_stats,
+                    save_smtp_settings, get_smtp_settings,
+                    create_invoice, get_invoices_by_status, get_all_invoices,
+                    update_invoice_status, get_invoice_stats,
+                    create_visit_report, get_visit_reports, get_visit_by_id,
+                    update_visit_proforma, get_visit_stats)
 
 app = Flask(__name__, template_folder=BASE_DIR, static_folder=BASE_DIR, static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY', 'ramya-tech-2026-secret-v3')
@@ -48,7 +53,7 @@ os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
 init_db()
 
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
-ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats']
+ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma']
 
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -147,7 +152,9 @@ def logout():
 @login_required
 def dashboard():
     stats = get_dashboard_stats()
-    return render_template('dashboard.html', page='dashboard', stats=stats)
+    inv_stats = get_invoice_stats()
+    v_stats = get_visit_stats()
+    return render_template('dashboard.html', page='dashboard', stats=stats, inv_stats=inv_stats, v_stats=v_stats)
 
 
 # ======================== TRAITEMENT ========================
@@ -316,7 +323,7 @@ def traitement_generate():
         period = f"Période du {all_dates[0]} au {all_dates[-1]}" if all_dates else "Rapport"
         
         base = os.path.splitext(filename)[0]
-        pdf_name = f"{base}_RAPPORT_COMPLET.pdf"
+        pdf_name = f"{base}_RAPPORT_DE_PRESENCE.pdf"
         output_path = os.path.join(job_dir, pdf_name)
         
         generate_full_pdf(emps, output_path, provider_name, provider_info,
@@ -389,10 +396,13 @@ def fichiers_download(job_id, ftype):
 @permission_required('envoyer')
 def fichiers_marquer(job_id):
     mark_job_sent(job_id, session['user_id'])
+    job = get_job_by_id(job_id)
+    if job:
+        create_invoice(job_id, job.get('client_id'), job.get('client_name', ''))
     user = get_user_by_id(session['user_id'])
     log_activity(session['user_id'], user['full_name'] if user else '?',
                 'Envoi', f"Rapport {job_id} marqué comme envoyé", request.remote_addr)
-    flash("Fichier marqué comme envoyé", "success")
+    flash("Fichier envoyé — facture créée pour la comptabilité", "success")
     return redirect(url_for('fichiers'))
 
 
@@ -770,10 +780,15 @@ def fichiers_email(job_id):
         smtp_user = request.form.get('smtp_user', '').strip()
         smtp_pass = request.form.get('smtp_pass', '').strip()
         
+        # Sauvegarder les paramètres SMTP
+        if smtp_host and smtp_user:
+            save_smtp_settings(session['user_id'], smtp_host, smtp_port, smtp_user, smtp_pass)
+        
         if not all([to_email, subject, smtp_host, smtp_user, smtp_pass]):
             flash("Tous les champs SMTP sont obligatoires", "error")
+            smtp = get_smtp_settings(session['user_id'])
             return render_template('email_send.html', page='fichiers', job=job,
-                                 default_email=default_email)
+                                 default_email=default_email, smtp=smtp)
         
         # Préparer le fichier PDF
         files_dir = os.path.join(app.config['FILES_FOLDER'], secure_filename(job_id))
@@ -821,7 +836,97 @@ def fichiers_email(job_id):
         except Exception as e:
             flash(f"Erreur d'envoi : {str(e)}", "error")
     
-    return render_template('email_send.html', page='fichiers', job=job, default_email=default_email)
+    smtp = get_smtp_settings(session['user_id'])
+    return render_template('email_send.html', page='fichiers', job=job, default_email=default_email, smtp=smtp)
+
+
+# ======================== COMPTABILITÉ ========================
+
+@app.route('/comptabilite')
+@permission_required('comptabilite')
+def comptabilite_page():
+    tab = request.args.get('tab', 'a_envoyer')
+    inv_stats = get_invoice_stats()
+    invoices = get_invoices_by_status(tab) if tab != 'all' else get_all_invoices()
+    return render_template('comptabilite.html', page='comptabilite', tab=tab,
+                          invoices=invoices, inv_stats=inv_stats)
+
+@app.route('/comptabilite/status/<int:inv_id>/<status>')
+@permission_required('comptabilite')
+def comptabilite_status(inv_id, status):
+    if status in ('envoyee', 'en_attente_paiement', 'payee', 'a_envoyer'):
+        update_invoice_status(inv_id, status, session.get('user_id'))
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Facture', f"Facture #{inv_id} → {status}", request.remote_addr)
+        flash(f"Statut mis à jour : {status}", "success")
+    return redirect(url_for('comptabilite_page'))
+
+
+# ======================== RAPPORTS DE VISITE ========================
+
+@app.route('/visites')
+@permission_required('visites')
+def visites_page():
+    tab = request.args.get('tab', 'en_attente')
+    visits = get_visit_reports(tab if tab != 'all' else None)
+    v_stats = get_visit_stats()
+    return render_template('visites.html', page='visites', tab=tab, visits=visits, v_stats=v_stats)
+
+@app.route('/visites/new', methods=['GET', 'POST'])
+@permission_required('visites')
+def visites_new():
+    if request.method == 'POST':
+        client_id = request.form.get('client_id', '')
+        client_id = int(client_id) if client_id else None
+        client_name = request.form.get('client_name', '').strip()
+        
+        if client_id and not client_name:
+            c = get_client_by_id(client_id)
+            if c: client_name = c['name']
+        
+        create_visit_report(
+            client_id, client_name,
+            request.form.get('site_name', ''),
+            request.form.get('site_address', ''),
+            request.form.get('site_location', ''),
+            request.form.get('contact_name', ''),
+            request.form.get('contact_tel', ''),
+            request.form.get('visit_date', ''),
+            request.form.get('needs', ''),
+            request.form.get('observations', ''),
+            request.form.get('equipment', ''),
+            session['user_id']
+        )
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Visite', f"Rapport de visite créé — {client_name}", request.remote_addr)
+        flash("Rapport de visite créé — En attente de proforma", "success")
+        return redirect(url_for('visites_page'))
+    
+    clients = get_all_clients()
+    return render_template('visite_new.html', page='visites', clients=clients)
+
+@app.route('/visites/<int:vid>')
+@login_required
+def visite_detail(vid):
+    visit = get_visit_by_id(vid)
+    if not visit:
+        flash("Rapport non trouvé", "error")
+        return redirect(url_for('visites_page'))
+    return render_template('visite_detail.html', page='visites', visit=visit)
+
+@app.route('/visites/proforma/<int:vid>', methods=['POST'])
+@permission_required('proforma')
+def visites_proforma(vid):
+    ref = request.form.get('proforma_ref', '').strip()
+    amount = float(request.form.get('proforma_amount', 0) or 0)
+    update_visit_proforma(vid, ref, amount, session['user_id'])
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?',
+                'Proforma', f"Proforma {ref} envoyé pour visite #{vid}", request.remote_addr)
+    flash(f"Proforma {ref} envoyé", "success")
+    return redirect(url_for('visites_page'))
 
 
 # ======================== LANGUE ========================

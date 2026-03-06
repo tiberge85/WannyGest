@@ -3,77 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RAMYA - Gestion des Rapports de Pointage</title>
+    <meta name="theme-color" content="#1a7a6d">
+    <link rel="manifest" href="/manifest.json">
+    <title>RAMYA_GEST — Plateforme de Gestion</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0d3b36 0%,#1a7a6d 50%,#0d3b36 100%);min-height:100vh;color:#333;display:flex;align-items:center;justify-content:center}
-        .container{max-width:900px;margin:0 auto;padding:30px 20px;text-align:center}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0d3b36 0%,#1a7a6d 50%,#0d3b36 100%);min-height:100vh;color:#333}
+        .container{max-width:960px;margin:0 auto;padding:30px 20px;text-align:center}
         .hero img{height:100px;margin-bottom:16px}
-        .hero h1{color:#fff;font-size:32px;font-weight:800;margin-bottom:8px}
-        .hero h2{color:rgba(255,255,255,0.7);font-size:16px;font-weight:400;margin-bottom:32px}
-        .hero-desc{color:rgba(255,255,255,0.85);font-size:15px;line-height:1.7;max-width:600px;margin:0 auto 36px;text-align:left}
-        .features{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:36px}
-        .feat{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:20px;color:#fff;text-align:center}
-        .feat .icon{font-size:28px;margin-bottom:8px}
-        .feat h3{font-size:14px;font-weight:600;margin-bottom:4px}
-        .feat p{font-size:12px;opacity:0.7}
-        .actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+        .hero h1{color:#fff;font-size:28px;font-weight:800;margin-bottom:4px}
+        .hero .brand{color:#e8672a;font-size:38px;font-weight:900}
+        .hero h2{color:rgba(255,255,255,0.65);font-size:15px;font-weight:400;margin-bottom:28px}
+        .hero-desc{color:rgba(255,255,255,0.85);font-size:14px;line-height:1.7;max-width:680px;margin:0 auto 32px;text-align:left}
+        .modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px}
+        .module{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:24px 16px;color:#fff;text-align:center;transition:all 0.3s}
+        .module:hover{background:rgba(255,255,255,0.18);transform:translateY(-2px)}
+        .module .icon{font-size:36px;margin-bottom:10px}
+        .module h3{font-size:15px;font-weight:700;margin-bottom:6px}
+        .module p{font-size:12px;opacity:0.7;line-height:1.4}
+        .actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:24px}
         .btn-hero{padding:14px 36px;border-radius:12px;font-size:16px;font-weight:700;text-decoration:none;transition:all 0.3s;display:inline-block}
         .btn-login{background:linear-gradient(135deg,#e8672a,#d45a20);color:#fff;box-shadow:0 6px 20px rgba(232,103,42,0.4)}
-        .btn-login:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(232,103,42,0.5)}
+        .btn-login:hover{transform:translateY(-2px)}
         .btn-register{background:rgba(255,255,255,0.15);color:#fff;border:2px solid rgba(255,255,255,0.3)}
         .btn-register:hover{background:rgba(255,255,255,0.25)}
-        .footer{margin-top:30px;color:rgba(255,255,255,0.4);font-size:12px}
-        @media(max-width:600px){.features{grid-template-columns:1fr}.actions{flex-direction:column}}
+        .footer{margin-top:20px;color:rgba(255,255,255,0.4);font-size:12px}
+        .flash{background:rgba(255,255,255,0.15);border-radius:10px;padding:12px;margin-bottom:16px;color:#fff;font-size:14px}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="hero">
-            <img src="/static/logo_ramya_ROIND.jpg" alt="RAMYA" onerror="this.style.display='none'">
+            <img src="/static/logo_ramya_ROIND.png" alt="RAMYA">
             <h1>RAMYA TECHNOLOGIE & INNOVATION</h1>
-            <h2>Plateforme de Gestion des Rapports de Pointage</h2>
+            <div class="brand">RAMYA_GEST</div>
+            <h2>Plateforme intégrée de gestion — Abidjan, Côte d'Ivoire</h2>
         </div>
-        
         <div class="hero-desc">
-            Cette plateforme permet de générer automatiquement des rapports de pointage enrichis à partir de fichiers Excel. 
-            Elle fusionne les données d'enregistrement et de transactions, calcule les heures travaillées, 
-            les retards, les heures supplémentaires, et produit un PDF complet avec graphiques et classements.
-            Le service RH peut ensuite valider et envoyer les rapports aux clients.
+            <strong>RAMYA_GEST</strong> centralise la gestion de votre activité : calcul automatique des heures de présence,
+            rapports de visite technique pour l'édition de proformas, suivi de facturation par la comptabilité,
+            gestion des clients et du personnel RH. Chaque service dispose de son propre espace avec les fonctionnalités adaptées.
         </div>
-        
-        <div class="features">
-            <div class="feat">
-                <div class="icon">⚙️</div>
-                <h3>Traitement automatique</h3>
-                <p>Fusion des fichiers, calcul des heures, génération PDF</p>
-            </div>
-            <div class="feat">
-                <div class="icon">📊</div>
-                <h3>Tableau de bord</h3>
-                <p>Suivi des traitements, statistiques, historique</p>
-            </div>
-            <div class="feat">
-                <div class="icon">👥</div>
-                <h3>Gestion des accès</h3>
-                <p>Rôles admin, RH, technicien avec permissions</p>
-            </div>
+        <div class="modules">
+            <div class="module"><div class="icon">⏱️</div><h3>Calcul d'heures</h3><p>Fusion pointages, rapports de présence, heures sup, retards</p></div>
+            <div class="module"><div class="icon">🔍</div><h3>Rapports de visite</h3><p>Fiches terrain, besoins client, demande de proforma</p></div>
+            <div class="module"><div class="icon">💰</div><h3>Comptabilité</h3><p>Suivi factures, paiements, relances</p></div>
+            <div class="module"><div class="icon">👥</div><h3>Gestion RH</h3><p>Fichiers clients, envoi rapports, alertes</p></div>
         </div>
-        
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        {% for category, message in messages %}
-        <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:12px;margin-bottom:16px;color:#fff;font-size:14px">{{ message }}</div>
-        {% endfor %}
-        {% endif %}
-        {% endwith %}
-        
+        {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat, msg in messages %}<div class="flash">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}
         <div class="actions">
             <a href="/login" class="btn-hero btn-login">🔐 Se connecter</a>
             <a href="/register" class="btn-hero btn-register">📝 Créer un compte</a>
         </div>
-        
-        <div class="footer">RAMYA TECHNOLOGIE & INNOVATION © 2026 — Abidjan,Cocody,Abatta Côte d'Ivoire</div>
+        <div class="footer">RAMYA TECHNOLOGIE & INNOVATION © 2026 — Powered by RAMYA_GEST</div>
     </div>
 </body>
 </html>

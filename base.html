@@ -147,7 +147,7 @@
     <nav class="sidebar">
         <div class="sidebar-header">
             <img src="/static/logo_ramya_ROIND.png" alt="RAMYA" onerror="this.style.display='none'">
-            <h2>RAMYA TECHNOLOGIE</h2>
+            <h2>RAMYA_GEST</h2>
         </div>
         <div class="sidebar-user">
             <div class="name">{{ current_user.full_name }}</div>
@@ -156,13 +156,20 @@
         <div class="sidebar-nav">
             <a href="/dashboard" class="{% if page == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
             {% if 'traitement' in permissions %}
-            <a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">⚙️ Traitement</a>
+            <a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">⚙️ Calcul d'heures</a>
             {% endif %}
             {% if 'fichiers' in permissions %}
             <a href="/fichiers" class="{% if page == 'fichiers' %}active{% endif %}">
-                📁 Fichiers à envoyer
+                📁 Fichiers RH
                 {% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}
             </a>
+            {% endif %}
+            {% if 'visites' in permissions %}
+            <div class="separator"></div>
+            <a href="/visites" class="{% if page == 'visites' %}active{% endif %}">🔍 Rapports de visite</a>
+            {% endif %}
+            {% if 'comptabilite' in permissions %}
+            <a href="/comptabilite" class="{% if page == 'comptabilite' %}active{% endif %}">💰 Comptabilité</a>
             {% endif %}
             <a href="/alertes" class="{% if page == 'alertes' %}active{% endif %}">🚨 Alertes</a>
             <a href="/comparaison" class="{% if page == 'comparaison' %}active{% endif %}">📈 Comparaison</a>
@@ -178,19 +185,14 @@
             <a href="/admin" class="{% if page == 'admin' %}active{% endif %}">👥 Administration</a>
             {% endif %}
             {% if 'logs' in permissions %}
-            <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">📋 Logs d'activité</a>
+            <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">📋 Logs</a>
             {% endif %}
             {% if 'admin' in permissions %}
-            <a href="/admin/backup">💾 Sauvegarde BDD</a>
-            <a href="/export/stats">📊 Export statistiques</a>
+            <a href="/admin/backup">💾 Sauvegarde</a>
+            <a href="/export/stats">📊 Export stats</a>
             {% endif %}
         </div>
         <div class="sidebar-footer">
-            <div style="margin-bottom:8px">
-                <a href="/lang/fr" style="{% if session.get('lang','fr')=='fr' %}color:#fff;font-weight:700{% endif %}">FR</a>
-                <span style="opacity:0.3"> | </span>
-                <a href="/lang/en" style="{% if session.get('lang')=='en' %}color:#fff;font-weight:700{% endif %}">EN</a>
-            </div>
             <a href="/logout">🚪 Déconnexion</a>
         </div>
     </nav>

@@ -3,10 +3,10 @@
 """
 =============================================================================
   PROGRAMME DE TRAITEMENT DES RAPPORTS DE POINTAGE
-  Générateur de rapport (heures sup / respect horaire)
+  Générateur de rapport enrichi (heures sup / respect horaire)
 =============================================================================
   Entrée  : Fichier Excel (.xlsx) de présence
-  Sortie  : PDF (portrait) avec :
+  Sortie  : PDF enrichi (portrait) avec :
             - Rapports individuels par employé
             - Rapport de présence global
             - Classement retards & absences
@@ -311,7 +311,7 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         
         story.append(make_header(S, provider_name, provider_info, client_name, client_info))
         story.append(Spacer(1, 3*mm))
-        story.append(Paragraph("RAPPORT INDIVIDUEL", S['ti']))
+        story.append(Paragraph("RAPPORT INDIVIDUEL ENRICHI", S['ti']))
         story.append(Paragraph(period, S['st']))
         story.append(Paragraph(f"Employé: {emp['name']}  |  Réf: {emp['ref']}", S['ei']))
         story.append(Spacer(1, 2*mm))
@@ -400,7 +400,7 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
             ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
             ('LEFTPADDING',(0,0),(-1,-1),4)]))
         story.extend([tt, Spacer(1,2*mm),
-            Paragraph(f"Généré le {now} | {safe(client_name)} - Rapport", S['ft'])])
+            Paragraph(f"Généré le {now} | {safe(client_name)} - Rapport enrichi", S['ft'])])
 
 # ======================== PAGE : RAPPORT DE PRÉSENCE ========================
 
@@ -695,7 +695,7 @@ def generate_full_pdf(emps, output_path, provider_name, provider_info, client_na
 
 def main():
     print("\n╔══════════════════════════════════════════════════════════════╗")
-    print("║   Générateur de Rapport de Pointage                       ║")
+    print("║   Générateur de Rapport de Pointage Enrichi               ║")
     print("║   (heures sup / respect horaire / classement / graphique) ║")
     print("╚══════════════════════════════════════════════════════════════╝\n")
     

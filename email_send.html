@@ -31,12 +31,12 @@ RAMYA TECHNOLOGIE & INNOVATION</textarea>
                 <h4 style="color:#1a7a6d;margin-bottom:10px;font-size:14px">⚙️ Configuration SMTP</h4>
                 <div class="hint" style="margin-bottom:10px">Paramètres de votre serveur email (Gmail, Outlook, etc.)</div>
                 <div class="form-row">
-                    <div class="form-group"><label>Serveur SMTP *</label><input type="text" name="smtp_host" required placeholder="smtp.gmail.com" value="smtp.gmail.com"></div>
-                    <div class="form-group"><label>Port *</label><input type="number" name="smtp_port" required value="587"></div>
+                    <div class="form-group"><label>Serveur SMTP *</label><input type="text" name="smtp_host" required placeholder="smtp.gmail.com" value="{{ smtp.smtp_host }}"></div>
+                    <div class="form-group"><label>Port *</label><input type="number" name="smtp_port" required value="{{ smtp.smtp_port }}"></div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group"><label>Email expéditeur *</label><input type="email" name="smtp_user" required placeholder="votre.email@gmail.com"></div>
-                    <div class="form-group"><label>Mot de passe app *</label><input type="password" name="smtp_pass" required placeholder="Mot de passe d'application"></div>
+                    <div class="form-group"><label>Email expéditeur *</label><input type="email" name="smtp_user" required value="{{ smtp.smtp_user }}" placeholder="votre.email@gmail.com"></div>
+                    <div class="form-group"><label>Mot de passe app *</label><input type="password" name="smtp_pass" required value="{{ smtp.smtp_pass }}" placeholder="Mot de passe d'application"></div>
                 </div>
                 <div class="hint">Pour Gmail : utilisez un <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:#1a7a6d">mot de passe d'application</a>, pas votre mot de passe habituel.</div>
             </div>

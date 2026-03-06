@@ -117,13 +117,66 @@ def init_db():
             FOREIGN KEY (client_id) REFERENCES clients(id),
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
+        
+        CREATE TABLE IF NOT EXISTS smtp_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE NOT NULL,
+            smtp_host TEXT DEFAULT 'smtp.gmail.com',
+            smtp_port INTEGER DEFAULT 587,
+            smtp_user TEXT,
+            smtp_pass TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT,
+            client_id INTEGER,
+            client_name TEXT,
+            reference TEXT,
+            amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'a_envoyer',
+            sent_at TEXT,
+            sent_by INTEGER,
+            paid_at TEXT,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (client_id) REFERENCES clients(id),
+            FOREIGN KEY (sent_by) REFERENCES users(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS visit_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER,
+            client_name TEXT,
+            site_name TEXT,
+            site_address TEXT,
+            site_location TEXT,
+            contact_name TEXT,
+            contact_tel TEXT,
+            visit_date TEXT,
+            needs TEXT,
+            observations TEXT,
+            equipment TEXT,
+            status TEXT DEFAULT 'en_attente',
+            proforma_ref TEXT,
+            proforma_amount REAL DEFAULT 0,
+            proforma_sent_at TEXT,
+            proforma_sent_by INTEGER,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (client_id) REFERENCES clients(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
     ''')
     
-    # Permissions par défaut — ajouter 'logs' pour admin
+    # Permissions par défaut — tous les rôles
     default_perms = {
-        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats'],
+        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma'],
         'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats'],
-        'technicien': ['traitement', 'dashboard'],
+        'technicien': ['traitement', 'dashboard', 'visites'],
+        'commercial': ['dashboard', 'clients', 'visites', 'proforma'],
+        'comptable': ['dashboard', 'comptabilite', 'clients'],
     }
     for role, perms in default_perms.items():
         for perm in perms:
@@ -491,6 +544,120 @@ def get_job_by_id(job_id):
 
 def get_db_path():
     return DB_PATH
+
+
+# ======================== SMTP SETTINGS ========================
+
+def save_smtp_settings(user_id, smtp_host, smtp_port, smtp_user, smtp_pass):
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO smtp_settings (user_id, smtp_host, smtp_port, smtp_user, smtp_pass) VALUES (?,?,?,?,?)",
+                 (user_id, smtp_host, smtp_port, smtp_user, smtp_pass))
+    conn.commit()
+    conn.close()
+
+def get_smtp_settings(user_id):
+    conn = get_db()
+    s = conn.execute("SELECT * FROM smtp_settings WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    return dict(s) if s else {'smtp_host': 'smtp.gmail.com', 'smtp_port': 587, 'smtp_user': '', 'smtp_pass': ''}
+
+
+# ======================== INVOICES ========================
+
+def create_invoice(job_id, client_id, client_name, reference='', amount=0, notes=''):
+    conn = get_db()
+    conn.execute("INSERT INTO invoices (job_id, client_id, client_name, reference, amount, notes) VALUES (?,?,?,?,?,?)",
+                 (job_id, client_id, client_name, reference, amount, notes))
+    conn.commit()
+    conn.close()
+
+def get_invoices_by_status(status):
+    conn = get_db()
+    invoices = conn.execute("SELECT i.*, su.full_name as sent_by_name FROM invoices i LEFT JOIN users su ON i.sent_by=su.id WHERE i.status=? ORDER BY i.created_at DESC", (status,)).fetchall()
+    conn.close()
+    return [dict(i) for i in invoices]
+
+def get_all_invoices():
+    conn = get_db()
+    invoices = conn.execute("SELECT i.*, su.full_name as sent_by_name FROM invoices i LEFT JOIN users su ON i.sent_by=su.id ORDER BY i.created_at DESC").fetchall()
+    conn.close()
+    return [dict(i) for i in invoices]
+
+def update_invoice_status(invoice_id, status, user_id=None):
+    conn = get_db()
+    now = datetime.now().isoformat()
+    if status == 'envoyee':
+        conn.execute("UPDATE invoices SET status=?, sent_at=?, sent_by=? WHERE id=?", (status, now, user_id, invoice_id))
+    elif status == 'en_attente_paiement':
+        conn.execute("UPDATE invoices SET status=? WHERE id=?", (status, invoice_id))
+    elif status == 'payee':
+        conn.execute("UPDATE invoices SET status=?, paid_at=? WHERE id=?", (status, now, invoice_id))
+    else:
+        conn.execute("UPDATE invoices SET status=? WHERE id=?", (status, invoice_id))
+    conn.commit()
+    conn.close()
+
+def get_invoice_stats():
+    conn = get_db()
+    stats = {}
+    stats['a_envoyer'] = conn.execute("SELECT COUNT(*) FROM invoices WHERE status='a_envoyer'").fetchone()[0]
+    stats['envoyee'] = conn.execute("SELECT COUNT(*) FROM invoices WHERE status='envoyee'").fetchone()[0]
+    stats['en_attente_paiement'] = conn.execute("SELECT COUNT(*) FROM invoices WHERE status='en_attente_paiement'").fetchone()[0]
+    stats['payee'] = conn.execute("SELECT COUNT(*) FROM invoices WHERE status='payee'").fetchone()[0]
+    stats['total_amount'] = conn.execute("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE status='payee'").fetchone()[0]
+    conn.close()
+    return stats
+
+
+# ======================== VISIT REPORTS ========================
+
+def create_visit_report(client_id, client_name, site_name, site_address, site_location,
+                        contact_name, contact_tel, visit_date, needs, observations, equipment, created_by):
+    conn = get_db()
+    conn.execute("""INSERT INTO visit_reports (client_id, client_name, site_name, site_address, site_location,
+        contact_name, contact_tel, visit_date, needs, observations, equipment, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (client_id, client_name, site_name, site_address, site_location,
+         contact_name, contact_tel, visit_date, needs, observations, equipment, created_by))
+    conn.commit()
+    conn.close()
+
+def get_visit_reports(status=None):
+    conn = get_db()
+    if status:
+        visits = conn.execute("""SELECT v.*, u.full_name as created_by_name, su.full_name as proforma_sent_by_name
+            FROM visit_reports v LEFT JOIN users u ON v.created_by=u.id LEFT JOIN users su ON v.proforma_sent_by=su.id
+            WHERE v.status=? ORDER BY v.created_at DESC""", (status,)).fetchall()
+    else:
+        visits = conn.execute("""SELECT v.*, u.full_name as created_by_name, su.full_name as proforma_sent_by_name
+            FROM visit_reports v LEFT JOIN users u ON v.created_by=u.id LEFT JOIN users su ON v.proforma_sent_by=su.id
+            ORDER BY v.created_at DESC""").fetchall()
+    conn.close()
+    return [dict(v) for v in visits]
+
+def get_visit_by_id(visit_id):
+    conn = get_db()
+    v = conn.execute("""SELECT v.*, u.full_name as created_by_name
+        FROM visit_reports v LEFT JOIN users u ON v.created_by=u.id WHERE v.id=?""", (visit_id,)).fetchone()
+    conn.close()
+    return dict(v) if v else None
+
+def update_visit_proforma(visit_id, proforma_ref, proforma_amount, sent_by):
+    conn = get_db()
+    conn.execute("""UPDATE visit_reports SET status='proforma_envoye', proforma_ref=?, proforma_amount=?,
+        proforma_sent_at=?, proforma_sent_by=? WHERE id=?""",
+        (proforma_ref, proforma_amount, datetime.now().isoformat(), sent_by, visit_id))
+    conn.commit()
+    conn.close()
+
+def get_visit_stats():
+    conn = get_db()
+    stats = {}
+    stats['en_attente'] = conn.execute("SELECT COUNT(*) FROM visit_reports WHERE status='en_attente'").fetchone()[0]
+    stats['proforma_envoye'] = conn.execute("SELECT COUNT(*) FROM visit_reports WHERE status='proforma_envoye'").fetchone()[0]
+    stats['total'] = conn.execute("SELECT COUNT(*) FROM visit_reports").fetchone()[0]
+    conn.close()
+    return stats
 
 
 # ======================== CONTRACTS ========================

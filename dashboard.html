@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}RAMYA - Tableau de bord{% endblock %}
+{% block title %}RAMYA_GEST - Tableau de bord{% endblock %}
 {% block content %}
 <div class="page-header">
     <h1>👋 Bienvenue, {{ current_user.full_name }}</h1>
-    <p>Tableau de bord — Vue d'ensemble de l'activité</p>
+    <p>RAMYA_GEST — Vue d'ensemble de l'activité</p>
 </div>
 
 <div class="stats-grid">
@@ -32,7 +32,39 @@
         <div class="stat-icon blue">🏢</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.total_clients }}</div>
-            <div class="stat-label">Clients enregistrés</div>
+            <div class="stat-label">Clients</div>
+        </div>
+    </div>
+</div>
+
+<!-- Comptabilité & Visites -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon orange">💰</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ inv_stats.a_envoyer }}</div>
+            <div class="stat-label">Factures à envoyer</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon blue">⏳</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ inv_stats.en_attente_paiement }}</div>
+            <div class="stat-label">Attente paiement</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon green">💵</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ inv_stats.payee }}</div>
+            <div class="stat-label">Factures payées</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon teal">🔍</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ v_stats.en_attente }}</div>
+            <div class="stat-label">Visites → proforma</div>
         </div>
     </div>
 </div>
