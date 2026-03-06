@@ -3,59 +3,181 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#1a7a6d">
+    <meta name="theme-color" content="#1a3a5c">
     <link rel="manifest" href="/manifest.json">
-    <title>RAMYA_GEST — Plateforme de Gestion</title>
+    <title>WannyGest — Pilotez votre entreprise avec précision</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#0d3b36 0%,#1a7a6d 50%,#0d3b36 100%);min-height:100vh;color:#333}
-        .container{max-width:960px;margin:0 auto;padding:30px 20px;text-align:center}
-        .hero img{height:100px;margin-bottom:16px}
-        .hero h1{color:#fff;font-size:28px;font-weight:800;margin-bottom:4px}
-        .hero .brand{color:#e8672a;font-size:38px;font-weight:900}
-        .hero h2{color:rgba(255,255,255,0.65);font-size:15px;font-weight:400;margin-bottom:28px}
-        .hero-desc{color:rgba(255,255,255,0.85);font-size:14px;line-height:1.7;max-width:680px;margin:0 auto 32px;text-align:left}
-        .modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px}
-        .module{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:14px;padding:24px 16px;color:#fff;text-align:center;transition:all 0.3s}
-        .module:hover{background:rgba(255,255,255,0.18);transform:translateY(-2px)}
-        .module .icon{font-size:36px;margin-bottom:10px}
-        .module h3{font-size:15px;font-weight:700;margin-bottom:6px}
-        .module p{font-size:12px;opacity:0.7;line-height:1.4}
-        .actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:24px}
-        .btn-hero{padding:14px 36px;border-radius:12px;font-size:16px;font-weight:700;text-decoration:none;transition:all 0.3s;display:inline-block}
-        .btn-login{background:linear-gradient(135deg,#e8672a,#d45a20);color:#fff;box-shadow:0 6px 20px rgba(232,103,42,0.4)}
-        .btn-login:hover{transform:translateY(-2px)}
-        .btn-register{background:rgba(255,255,255,0.15);color:#fff;border:2px solid rgba(255,255,255,0.3)}
-        .btn-register:hover{background:rgba(255,255,255,0.25)}
-        .footer{margin-top:20px;color:rgba(255,255,255,0.4);font-size:12px}
-        .flash{background:rgba(255,255,255,0.15);border-radius:10px;padding:12px;margin-bottom:16px;color:#fff;font-size:14px}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#333}
+        
+        /* Navbar */
+        .navbar{background:#fff;padding:14px 40px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.06);position:sticky;top:0;z-index:100}
+        .navbar img{height:40px}
+        .nav-links{display:flex;gap:28px;align-items:center}
+        .nav-links a{text-decoration:none;color:#1a3a5c;font-size:14px;font-weight:500}
+        .nav-links a:hover{color:#e8672a}
+        .btn-nav{background:#e8672a;color:#fff !important;padding:9px 22px;border-radius:8px;font-weight:700;font-size:13px}
+        .btn-nav:hover{background:#d45a20}
+        
+        /* Hero */
+        .hero{background:linear-gradient(135deg,#0d2b3e 0%,#1a4a6c 40%,#1a7a6d 100%);padding:80px 40px 60px;display:flex;align-items:center;gap:50px;position:relative;overflow:hidden}
+        .hero::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
+        .hero-text{flex:1;color:#fff;position:relative;z-index:1}
+        .hero-text h1{font-size:48px;font-weight:900;margin-bottom:4px}
+        .hero-text h1 span{color:#e8672a}
+        .hero-text .slogan{font-size:22px;font-weight:400;opacity:0.85;margin-bottom:20px}
+        .hero-text p{font-size:15px;line-height:1.8;opacity:0.8;max-width:500px;margin-bottom:30px}
+        .hero-actions{display:flex;gap:14px}
+        .btn-hero{padding:14px 32px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;transition:all 0.3s;display:inline-block}
+        .btn-start{background:#e8672a;color:#fff;box-shadow:0 6px 20px rgba(232,103,42,0.4)}
+        .btn-start:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(232,103,42,0.5)}
+        .btn-login-hero{background:rgba(255,255,255,0.15);color:#fff;border:2px solid rgba(255,255,255,0.4)}
+        .btn-login-hero:hover{background:rgba(255,255,255,0.25)}
+        .hero-img{flex:0 0 420px;position:relative;z-index:1}
+        .hero-img img{width:100%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+        
+        /* Features */
+        .features{padding:50px 40px;background:#f8faf9}
+        .features-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;max-width:1100px;margin:0 auto}
+        .feat-card{background:#fff;border-radius:14px;padding:28px 20px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.06);transition:all 0.3s;border-top:3px solid transparent}
+        .feat-card:hover{transform:translateY(-4px);border-top-color:#e8672a}
+        .feat-card .icon{font-size:36px;margin-bottom:12px}
+        .feat-card h3{font-size:16px;font-weight:700;color:#1a3a5c;margin-bottom:8px}
+        .feat-card p{font-size:13px;color:#888;line-height:1.5}
+        
+        /* Why section */
+        .why{padding:40px 40px;background:#fff}
+        .why-inner{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:30px}
+        .why-inner img{height:50px}
+        .why-inner h3{font-size:20px;color:#1a3a5c;font-weight:700;font-style:italic}
+        .why-inner h3 span{color:#e8672a}
+        .why-badges{display:flex;gap:30px;margin-left:auto}
+        .why-badge{display:flex;align-items:center;gap:8px;font-size:14px;color:#1a3a5c;font-weight:500}
+        .why-badge::before{content:'✅';font-size:16px}
+        
+        /* Footer */
+        .footer{background:#0d2b3e;color:#fff;padding:40px 40px 20px}
+        .footer-grid{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:250px 1fr 1fr 1fr;gap:30px;margin-bottom:30px}
+        .footer-brand img{height:40px;margin-bottom:12px}
+        .footer-brand p{font-size:12px;opacity:0.6;line-height:1.5}
+        .footer-col h4{font-size:14px;font-weight:700;margin-bottom:12px;color:#e8672a}
+        .footer-col a{display:block;color:rgba(255,255,255,0.6);text-decoration:none;font-size:13px;margin-bottom:6px}
+        .footer-col a:hover{color:#fff}
+        .footer-bottom{max-width:1100px;margin:0 auto;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;font-size:12px;opacity:0.5}
+        
+        .flash{max-width:600px;margin:0 auto 16px;background:rgba(255,255,255,0.15);border-radius:10px;padding:12px;color:#fff;font-size:14px;text-align:center}
+        
+        @media(max-width:768px){
+            .hero{flex-direction:column;padding:40px 20px}
+            .hero-img{display:none}
+            .features-grid{grid-template-columns:1fr 1fr}
+            .footer-grid{grid-template-columns:1fr 1fr}
+            .why-inner{flex-direction:column;text-align:center}
+            .why-badges{margin-left:0;flex-wrap:wrap;justify-content:center}
+            .navbar{padding:10px 16px}
+            .nav-links{gap:14px}
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="hero">
-            <img src="/static/logo_ramya_ROIND.png" alt="RAMYA">
-            <h1>RAMYA TECHNOLOGIE & INNOVATION</h1>
-            <div class="brand">RAMYA_GEST</div>
-            <h2>Plateforme intégrée de gestion — Abidjan, Côte d'Ivoire</h2>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <img src="/static/logo_wannygest.png" alt="WannyGest">
+        <div class="nav-links">
+            <a href="/">Accueil</a>
+            <a href="#features">Fonctionnalités</a>
+            <a href="#solutions">Solutions</a>
+            <a href="/register">Créer un compte</a>
+            <a href="/login" class="btn-nav">Se connecter</a>
         </div>
-        <div class="hero-desc">
-            <strong>RAMYA_GEST</strong> centralise la gestion de votre activité : calcul automatique des heures de présence,
-            rapports de visite technique pour l'édition de proformas, suivi de facturation par la comptabilité,
-            gestion des clients et du personnel RH. Chaque service dispose de son propre espace avec les fonctionnalités adaptées.
+    </nav>
+    
+    <!-- Hero -->
+    <section class="hero">
+        <div class="hero-text">
+            <h1>Wanny<span>Gest</span></h1>
+            <div class="slogan">Pilotez votre entreprise avec précision.</div>
+            <p>WannyGest est une plateforme intelligente qui centralise la gestion des heures de travail, des rapports techniques, de la facturation et des ressources humaines dans une seule interface.</p>
+            {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat, msg in messages %}<div class="flash">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}
+            <div class="hero-actions">
+                <a href="/register" class="btn-hero btn-start">Commencer maintenant</a>
+                <a href="/login" class="btn-hero btn-login-hero">🔐 Se connecter</a>
+            </div>
         </div>
-        <div class="modules">
-            <div class="module"><div class="icon">⏱️</div><h3>Calcul d'heures</h3><p>Fusion pointages, rapports de présence, heures sup, retards</p></div>
-            <div class="module"><div class="icon">🔍</div><h3>Rapports de visite</h3><p>Fiches terrain, besoins client, demande de proforma</p></div>
-            <div class="module"><div class="icon">💰</div><h3>Comptabilité</h3><p>Suivi factures, paiements, relances</p></div>
-            <div class="module"><div class="icon">👥</div><h3>Gestion RH</h3><p>Fichiers clients, envoi rapports, alertes</p></div>
+        <div class="hero-img">
+            <img src="/static/accueil_mockup.png" alt="Dashboard WannyGest" onerror="this.style.display='none'">
         </div>
-        {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat, msg in messages %}<div class="flash">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}
-        <div class="actions">
-            <a href="/login" class="btn-hero btn-login">🔐 Se connecter</a>
-            <a href="/register" class="btn-hero btn-register">📝 Créer un compte</a>
+    </section>
+    
+    <!-- Features -->
+    <section class="features" id="features">
+        <div class="features-grid">
+            <div class="feat-card">
+                <div class="icon">⏱️</div>
+                <h3>Gestion du temps</h3>
+                <p>Calcul automatique des heures, retards et heures supplémentaires</p>
+            </div>
+            <div class="feat-card">
+                <div class="icon">🔍</div>
+                <h3>Rapports techniques</h3>
+                <p>Création rapide de rapports d'intervention et demandes de proforma</p>
+            </div>
+            <div class="feat-card">
+                <div class="icon">💰</div>
+                <h3>Comptabilité</h3>
+                <p>Suivi des factures, paiements et relances clients</p>
+            </div>
+            <div class="feat-card">
+                <div class="icon">👥</div>
+                <h3>Gestion RH</h3>
+                <p>Gestion du personnel, dossiers, congés, paie et accès</p>
+            </div>
         </div>
-        <div class="footer">RAMYA TECHNOLOGIE & INNOVATION © 2026 — Powered by RAMYA_GEST</div>
-    </div>
+    </section>
+    
+    <!-- Why -->
+    <section class="why" id="solutions">
+        <div class="why-inner">
+            <img src="/static/logo_wannygest.png" alt="WannyGest" style="height:40px">
+            <h3>Pourquoi choisir Wanny<span>Gest</span></h3>
+            <div class="why-badges">
+                <div class="why-badge">Gestion centralisée</div>
+                <div class="why-badge">Gain de temps administratif</div>
+                <div class="why-badge">Suivi précis de votre activité</div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-grid">
+            <div class="footer-brand">
+                <img src="/static/logo_wannygest_clean.png" alt="WannyGest" onerror="this.style.display='none'">
+                <p>© 2026 WANNYGEST<br>RAMYA TECHNOLOGIE<br>& INNOVATION<br>Abidjan · Côte d'Ivoire</p>
+            </div>
+            <div class="footer-col">
+                <h4>Fonctionnalités</h4>
+                <a href="#">Gestion du temps</a>
+                <a href="#">Rapports techniques</a>
+                <a href="#">Comptabilité</a>
+                <a href="#">Gestion RH</a>
+            </div>
+            <div class="footer-col">
+                <h4>Solutions</h4>
+                <a href="#">Petites entreprises</a>
+                <a href="#">PME</a>
+                <a href="#">Grandes entreprises</a>
+            </div>
+            <div class="footer-col">
+                <h4>Support</h4>
+                <a href="#">Centre d'aide</a>
+                <a href="#">Nous contacter</a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <span>Confidentialité · Contact · Support</span>
+            <span>Powered by WannyGest</span>
+        </div>
+    </footer>
 </body>
 </html>

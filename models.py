@@ -743,3 +743,158 @@ def get_client_monthly_stats():
             stats[client][month]['pending'] += 1
     
     return stats
+
+
+# ======================== RH - PERSONNEL ========================
+
+def init_rh_tables():
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS employees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            matricule TEXT UNIQUE,
+            email TEXT,
+            tel TEXT,
+            position TEXT,
+            department TEXT,
+            hire_date TEXT,
+            contract_type TEXT DEFAULT 'CDI',
+            salary REAL DEFAULT 0,
+            insurance TEXT,
+            insurance_number TEXT,
+            emergency_contact TEXT,
+            emergency_tel TEXT,
+            status TEXT DEFAULT 'actif',
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        CREATE TABLE IF NOT EXISTS leaves (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            leave_type TEXT DEFAULT 'conge_annuel',
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            days INTEGER DEFAULT 0,
+            reason TEXT,
+            status TEXT DEFAULT 'en_attente',
+            approved_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS payslips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            period TEXT NOT NULL,
+            base_salary REAL DEFAULT 0,
+            worked_hours REAL DEFAULT 0,
+            overtime_hours REAL DEFAULT 0,
+            overtime_amount REAL DEFAULT 0,
+            bonus REAL DEFAULT 0,
+            commission REAL DEFAULT 0,
+            deductions REAL DEFAULT 0,
+            insurance_amount REAL DEFAULT 0,
+            tax_amount REAL DEFAULT 0,
+            net_salary REAL DEFAULT 0,
+            status TEXT DEFAULT 'brouillon',
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        );
+    ''')
+    conn.commit()
+    conn.close()
+
+
+def get_all_employees(status='actif'):
+    conn = get_db()
+    if status:
+        emps = conn.execute("SELECT * FROM employees WHERE status=? ORDER BY last_name", (status,)).fetchall()
+    else:
+        emps = conn.execute("SELECT * FROM employees ORDER BY last_name").fetchall()
+    conn.close()
+    return [dict(e) for e in emps]
+
+def get_employee_by_id(eid):
+    conn = get_db()
+    e = conn.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()
+    conn.close()
+    return dict(e) if e else None
+
+def create_employee(**kwargs):
+    conn = get_db()
+    cols = ', '.join(kwargs.keys())
+    placeholders = ', '.join(['?' for _ in kwargs])
+    conn.execute(f"INSERT INTO employees ({cols}) VALUES ({placeholders})", list(kwargs.values()))
+    conn.commit()
+    conn.close()
+
+def update_employee(eid, **kwargs):
+    conn = get_db()
+    for k, v in kwargs.items():
+        conn.execute(f"UPDATE employees SET {k}=? WHERE id=?", (v, eid))
+    conn.commit()
+    conn.close()
+
+def get_employee_stats():
+    conn = get_db()
+    s = {}
+    s['total'] = conn.execute("SELECT COUNT(*) FROM employees WHERE status='actif'").fetchone()[0]
+    s['cdi'] = conn.execute("SELECT COUNT(*) FROM employees WHERE contract_type='CDI' AND status='actif'").fetchone()[0]
+    s['cdd'] = conn.execute("SELECT COUNT(*) FROM employees WHERE contract_type='CDD' AND status='actif'").fetchone()[0]
+    s['pending_leaves'] = conn.execute("SELECT COUNT(*) FROM leaves WHERE status='en_attente'").fetchone()[0]
+    conn.close()
+    return s
+
+def get_leaves(status=None):
+    conn = get_db()
+    if status:
+        leaves = conn.execute("""SELECT l.*, e.first_name||' '||e.last_name as employee_name
+            FROM leaves l LEFT JOIN employees e ON l.employee_id=e.id WHERE l.status=? ORDER BY l.created_at DESC""", (status,)).fetchall()
+    else:
+        leaves = conn.execute("""SELECT l.*, e.first_name||' '||e.last_name as employee_name
+            FROM leaves l LEFT JOIN employees e ON l.employee_id=e.id ORDER BY l.created_at DESC""").fetchall()
+    conn.close()
+    return [dict(l) for l in leaves]
+
+def create_leave(employee_id, leave_type, start_date, end_date, days, reason):
+    conn = get_db()
+    conn.execute("INSERT INTO leaves (employee_id, leave_type, start_date, end_date, days, reason) VALUES (?,?,?,?,?,?)",
+                 (employee_id, leave_type, start_date, end_date, days, reason))
+    conn.commit()
+    conn.close()
+
+def update_leave_status(leave_id, status, approved_by=None):
+    conn = get_db()
+    conn.execute("UPDATE leaves SET status=?, approved_by=? WHERE id=?", (status, approved_by, leave_id))
+    conn.commit()
+    conn.close()
+
+def get_payslips(period=None):
+    conn = get_db()
+    if period:
+        slips = conn.execute("""SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.matricule
+            FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id WHERE p.period=? ORDER BY e.last_name""", (period,)).fetchall()
+    else:
+        slips = conn.execute("""SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.matricule
+            FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id ORDER BY p.period DESC, e.last_name""").fetchall()
+    conn.close()
+    return [dict(s) for s in slips]
+
+def create_payslip(**kwargs):
+    conn = get_db()
+    cols = ', '.join(kwargs.keys())
+    placeholders = ', '.join(['?' for _ in kwargs])
+    conn.execute(f"INSERT INTO payslips ({cols}) VALUES ({placeholders})", list(kwargs.values()))
+    conn.commit()
+    conn.close()
+
+def update_payslip(pid, **kwargs):
+    conn = get_db()
+    for k, v in kwargs.items():
+        conn.execute(f"UPDATE payslips SET {k}=? WHERE id=?", (v, pid))
+    conn.commit()
+    conn.close()

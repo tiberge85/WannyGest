@@ -52,6 +52,13 @@ os.makedirs(app.config['FILES_FOLDER'], exist_ok=True)
 
 init_db()
 
+# Init HR tables
+from models import (init_rh_tables, get_all_employees, get_employee_by_id,
+                    create_employee, update_employee, get_employee_stats,
+                    get_leaves, create_leave, update_leave_status,
+                    get_payslips, create_payslip, update_payslip)
+init_rh_tables()
+
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma']
 
@@ -293,7 +300,7 @@ def traitement_generate():
                 logo_path = os.path.join(job_dir, 'custom_logo.png')
                 lf.save(logo_path)
         if not logo_path:
-            for n in ['logo_ramya_ROIND.png', 'logo.png']:
+            for n in ['logo_wannygest.png', 'logo.png']:
                 c = os.path.join(BASE_DIR, n)
                 if os.path.exists(c):
                     logo_path = os.path.join(job_dir, n)
@@ -617,8 +624,8 @@ def pwa_manifest():
         "background_color": "#0d3b36",
         "theme_color": "#1a7a6d",
         "icons": [
-            {"src": "/static/logo_ramya_ROIND.png", "sizes": "192x192", "type": "image/png"},
-            {"src": "/static/logo_ramya_ROIND.png", "sizes": "512x512", "type": "image/png"}
+            {"src": "/static/logo_wannygest.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/logo_wannygest.png", "sizes": "512x512", "type": "image/png"}
         ]
     }
     return jsonify(manifest)
@@ -1012,6 +1019,129 @@ def export_stats():
     
     return send_file(output, as_attachment=True,
                     download_name=f"stats_ramya_{datetime.now().strftime('%Y%m')}.pdf")
+
+
+# ======================== RH MODULE ========================
+
+@app.route('/rh')
+@permission_required('fichiers')
+def rh_dashboard():
+    emp_stats = get_employee_stats()
+    return render_template('rh_dashboard.html', page='rh', emp_stats=emp_stats)
+
+@app.route('/rh/personnel')
+@permission_required('fichiers')
+def rh_personnel():
+    employees = get_all_employees()
+    return render_template('rh_personnel.html', page='personnel', employees=employees)
+
+@app.route('/rh/personnel/add', methods=['GET', 'POST'])
+@permission_required('fichiers')
+def rh_personnel_add():
+    if request.method == 'POST':
+        create_employee(
+            first_name=request.form['first_name'],
+            last_name=request.form['last_name'],
+            matricule=request.form.get('matricule', ''),
+            email=request.form.get('email', ''),
+            tel=request.form.get('tel', ''),
+            position=request.form.get('position', ''),
+            department=request.form.get('department', ''),
+            hire_date=request.form.get('hire_date', ''),
+            contract_type=request.form.get('contract_type', 'CDI'),
+            salary=float(request.form.get('salary', 0) or 0),
+            insurance=request.form.get('insurance', ''),
+            insurance_number=request.form.get('insurance_number', ''),
+            emergency_contact=request.form.get('emergency_contact', ''),
+            emergency_tel=request.form.get('emergency_tel', ''),
+        )
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?', 'RH',
+                    f"Employé ajouté: {request.form['first_name']} {request.form['last_name']}", request.remote_addr)
+        flash("Employé ajouté", "success")
+        return redirect(url_for('rh_personnel'))
+    return render_template('rh_personnel_add.html', page='personnel')
+
+@app.route('/rh/personnel/edit/<int:eid>', methods=['GET', 'POST'])
+@permission_required('fichiers')
+def rh_personnel_edit(eid):
+    emp = get_employee_by_id(eid)
+    if not emp:
+        flash("Employé non trouvé", "error")
+        return redirect(url_for('rh_personnel'))
+    if request.method == 'POST':
+        update_employee(eid,
+            first_name=request.form['first_name'], last_name=request.form['last_name'],
+            matricule=request.form.get('matricule', ''), email=request.form.get('email', ''),
+            tel=request.form.get('tel', ''), position=request.form.get('position', ''),
+            department=request.form.get('department', ''), hire_date=request.form.get('hire_date', ''),
+            contract_type=request.form.get('contract_type', 'CDI'),
+            salary=float(request.form.get('salary', 0) or 0),
+            insurance=request.form.get('insurance', ''), insurance_number=request.form.get('insurance_number', ''),
+            status=request.form.get('status', 'actif'))
+        flash("Employé modifié", "success")
+        return redirect(url_for('rh_personnel'))
+    return render_template('rh_personnel_edit.html', page='personnel', emp=emp)
+
+@app.route('/rh/conges')
+@permission_required('fichiers')
+def rh_conges():
+    tab = request.args.get('tab', 'en_attente')
+    leaves = get_leaves(tab if tab != 'all' else None)
+    employees = get_all_employees()
+    return render_template('rh_conges.html', page='conges', tab=tab, leaves=leaves, employees=employees)
+
+@app.route('/rh/conges/add', methods=['POST'])
+@permission_required('fichiers')
+def rh_conges_add():
+    create_leave(
+        int(request.form['employee_id']),
+        request.form.get('leave_type', 'conge_annuel'),
+        request.form['start_date'],
+        request.form['end_date'],
+        int(request.form.get('days', 0) or 0),
+        request.form.get('reason', '')
+    )
+    flash("Demande de congé créée", "success")
+    return redirect(url_for('rh_conges'))
+
+@app.route('/rh/conges/approve/<int:lid>/<status>')
+@permission_required('fichiers')
+def rh_conges_status(lid, status):
+    if status in ('approuve', 'refuse'):
+        update_leave_status(lid, status, session.get('user_id'))
+        flash(f"Congé {'approuvé' if status == 'approuve' else 'refusé'}", "success")
+    return redirect(url_for('rh_conges'))
+
+@app.route('/rh/paie')
+@permission_required('fichiers')
+def rh_paie():
+    period = request.args.get('period', '')
+    payslips = get_payslips(period if period else None)
+    employees = get_all_employees()
+    return render_template('rh_paie.html', page='paie', payslips=payslips, employees=employees, period=period)
+
+@app.route('/rh/paie/add', methods=['POST'])
+@permission_required('fichiers')
+def rh_paie_add():
+    base = float(request.form.get('base_salary', 0) or 0)
+    bonus = float(request.form.get('bonus', 0) or 0)
+    commission = float(request.form.get('commission', 0) or 0)
+    overtime = float(request.form.get('overtime_amount', 0) or 0)
+    deductions = float(request.form.get('deductions', 0) or 0)
+    insurance = float(request.form.get('insurance_amount', 0) or 0)
+    tax = float(request.form.get('tax_amount', 0) or 0)
+    net = base + bonus + commission + overtime - deductions - insurance - tax
+    
+    create_payslip(
+        employee_id=int(request.form['employee_id']),
+        period=request.form['period'],
+        base_salary=base, bonus=bonus, commission=commission,
+        overtime_amount=overtime, deductions=deductions,
+        insurance_amount=insurance, tax_amount=tax, net_salary=net
+    )
+    flash(f"Bulletin de paie créé — Net: {net:,.0f} FCFA", "success")
+    return redirect(url_for('rh_paie'))
 
 
 # ======================== UTILS ========================
