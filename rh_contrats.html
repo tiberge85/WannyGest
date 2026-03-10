@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block title %}WannyGest - Contrats RH{% endblock %}{% block content %}
+<div class="page-header"><h1>📑 Contrats du personnel</h1></div>
+<div class="card"><div class="card-header"><h3>Contrats</h3><button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Contrat</button></div><div class="card-body">
+{% if contracts %}<div class="table-wrap"><table>
+<thead><tr><th>ID</th><th>Code</th><th>Personnel</th><th>Type</th><th>Début</th><th>Fin</th><th>Salaire</th><th>Statut</th></tr></thead>
+<tbody>{% for c in contracts %}<tr>
+<td>{{ c.id }}</td><td>{{ c.code or '-' }}</td><td><strong>{{ c.employee_name }}</strong></td><td>{{ c.contract_type }}</td>
+<td>{{ c.start_date or '-' }}</td><td>{{ c.end_date or '-' }}</td><td>{{ '{:,.0f}'.format(c.salary) }} F</td>
+<td><span class="badge-status {% if c.status=='actif' %}sent{% elif c.status=='expire' %}pending{% else %}{% endif %}">{{ c.status }}</span></td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun contrat</p>{% endif %}
+</div></div>
+<div class="modal-bg" id="addM"><div class="modal"><h3>📑 Nouveau contrat</h3><form method="post" action="/rh/contrats-rh/add">
+<div class="form-row"><div class="form-group"><label>Code contrat</label><input type="text" name="code" placeholder="CTR-001"></div>
+<div class="form-group"><label>Personnel *</label><select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.first_name }} {{ e.last_name }}</option>{% endfor %}</select></div></div>
+<div class="form-row"><div class="form-group"><label>Type</label><select name="contract_type"><option>CDI</option><option>CDD</option><option>Stage</option><option>Freelance</option></select></div>
+<div class="form-group"><label>Salaire (F)</label><input type="number" name="salary" step="1000" value="0"></div></div>
+<div class="form-row"><div class="form-group"><label>Début validité</label><input type="date" name="start_date"></div>
+<div class="form-group"><label>Fin validité</label><input type="date" name="end_date"></div></div>
+<div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px"></textarea></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Ajouter</button></div></form></div></div>
+{% endblock %}

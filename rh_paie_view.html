@@ -1,0 +1,56 @@
+{% extends "base.html" %}{% block title %}WannyGest - Bulletin de paie{% endblock %}{% block content %}
+<style>
+.payslip{max-width:700px;margin:0 auto;background:#fff;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,0.1);overflow:hidden}
+.ps-header{background:#1a3a5c;color:#fff;padding:20px;display:flex;justify-content:space-between;align-items:center}
+.ps-header h2{font-size:18px}.ps-header .period{font-size:14px;opacity:0.8}
+.ps-body{padding:24px}
+.ps-info{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px;font-size:13px}
+.ps-info .label{color:#888;font-size:11px}.ps-info .val{font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
+th{background:#f0f4f8;padding:8px 12px;text-align:left;font-weight:600;color:#555;border-bottom:2px solid #ddd}
+td{padding:8px 12px;border-bottom:1px solid #f0f0f0}
+.gain{color:#2e7d32}.retenue{color:#c53030}
+.net-box{background:#1a3a5c;color:#fff;border-radius:10px;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.net-box .label{font-size:14px;font-weight:600}.net-box .amount{font-size:28px;font-weight:800}
+.actions{display:flex;gap:8px;justify-content:center;margin-bottom:16px;flex-wrap:wrap}
+.btn{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px;border:none;cursor:pointer}
+.btn-navy{background:#1a3a5c;color:#fff}.btn-orange{background:#e8672a;color:#fff}.btn-outline{background:#fff;border:1.5px solid #ddd;color:#666}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.badge.brouillon{background:#e3f2fd;color:#1565c0}.badge.valide{background:#e8f5e9;color:#2e7d32}.badge.envoye{background:#fff3e0;color:#e8672a}
+@media print{.actions,.page-header{display:none}.payslip{box-shadow:none}}
+</style>
+<div class="page-header"><h1>🧾 Bulletin de paie — {{ p.period }}</h1></div>
+<div class="actions">
+    <button class="btn btn-navy" onclick="window.print()">🖨️ Imprimer</button>
+    <a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-orange">📥 Télécharger PDF</a>
+    {% if p.status == 'brouillon' %}<a href="/rh/paie/{{ p.id }}/status/valide" class="btn btn-outline">✅ Valider</a>{% endif %}
+    {% if p.status == 'valide' %}<a href="/rh/paie/{{ p.id }}/status/envoye" class="btn btn-outline">📧 Marquer envoyé</a>{% endif %}
+    <span class="badge {{ p.status }}">{{ p.status }}</span>
+</div>
+<div class="payslip">
+    <div class="ps-header"><div><h2>BULLETIN DE PAIE</h2><div class="period">{{ p.period }}</div></div><div>WannyGest</div></div>
+    <div class="ps-body">
+        <div class="ps-info">
+            <div><div class="label">Nom complet</div><div class="val">{{ p.employee_name }}</div></div>
+            <div><div class="label">Matricule</div><div class="val">{{ p.matricule or '-' }}</div></div>
+            <div><div class="label">Poste</div><div class="val">{{ p.position or '-' }}</div></div>
+            <div><div class="label">Département</div><div class="val">{{ p.department or '-' }}</div></div>
+        </div>
+        <table>
+            <thead><tr><th>Rubrique</th><th style="text-align:right">Gains</th><th style="text-align:right">Retenues</th></tr></thead>
+            <tbody>
+            <tr><td>Salaire de base</td><td class="gain" style="text-align:right">{{ '{:,.0f}'.format(p.base_salary) }}</td><td></td></tr>
+            {% if p.overtime_amount %}<tr><td>Heures supplémentaires</td><td class="gain" style="text-align:right">{{ '{:,.0f}'.format(p.overtime_amount) }}</td><td></td></tr>{% endif %}
+            {% if p.bonus %}<tr><td>Bonus / KPI</td><td class="gain" style="text-align:right">{{ '{:,.0f}'.format(p.bonus) }}</td><td></td></tr>{% endif %}
+            {% if p.commission %}<tr><td>Commissions</td><td class="gain" style="text-align:right">{{ '{:,.0f}'.format(p.commission) }}</td><td></td></tr>{% endif %}
+            <tr style="background:#f0f4f8"><td><strong>Total brut</strong></td><td class="gain" style="text-align:right"><strong>{{ '{:,.0f}'.format(p.base_salary + p.overtime_amount + p.bonus + p.commission) }}</strong></td><td></td></tr>
+            {% if p.deductions %}<tr><td>Déductions</td><td></td><td class="retenue" style="text-align:right">{{ '{:,.0f}'.format(p.deductions) }}</td></tr>{% endif %}
+            {% if p.insurance_amount %}<tr><td>Assurance ({{ p.insurance or '' }})</td><td></td><td class="retenue" style="text-align:right">{{ '{:,.0f}'.format(p.insurance_amount) }}</td></tr>{% endif %}
+            {% if p.tax_amount %}<tr><td>Impôt sur le revenu</td><td></td><td class="retenue" style="text-align:right">{{ '{:,.0f}'.format(p.tax_amount) }}</td></tr>{% endif %}
+            <tr style="background:#fde8e8"><td><strong>Total retenues</strong></td><td></td><td class="retenue" style="text-align:right"><strong>{{ '{:,.0f}'.format(p.deductions + p.insurance_amount + p.tax_amount) }}</strong></td></tr>
+            </tbody>
+        </table>
+        <div class="net-box"><div class="label">NET À PAYER</div><div class="amount">{{ '{:,.0f}'.format(p.net_salary) }} FCFA</div></div>
+    </div>
+</div>
+{% endblock %}

@@ -1371,3 +1371,61 @@ def get_unread_count(user_id):
     c = conn.execute("SELECT COUNT(*) FROM messages WHERE receiver_id=? AND read=0", (user_id,)).fetchone()[0]
     conn.close()
     return c
+
+
+# ======================== MIGRATIONS V4 ========================
+
+def migrate_v4():
+    conn = get_db()
+    # Employee photo + files
+    for col in ['photo', 'files', 'code_rh', 'birth_date', 'gender', 'blood_type']:
+        try: conn.execute(f"ALTER TABLE employees ADD COLUMN {col} TEXT DEFAULT ''")
+        except: pass
+    # Payslip status actions
+    try: conn.execute("ALTER TABLE payslips ADD COLUMN sent_at TEXT")
+    except: pass
+    # RH Contracts
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS rh_contracts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT, employee_id INTEGER, contract_type TEXT DEFAULT 'CDI',
+            start_date TEXT, end_date TEXT, status TEXT DEFAULT 'actif',
+            salary REAL DEFAULT 0, notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees(id)
+        );
+        CREATE TABLE IF NOT EXISTS tech_center (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER, client_name TEXT, system_type TEXT,
+            installation_date TEXT, next_maintenance TEXT,
+            maintenance_interval INTEGER DEFAULT 90,
+            last_maintenance TEXT, status TEXT DEFAULT 'actif',
+            notes TEXT, created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (client_id) REFERENCES clients(id)
+        );
+    ''')
+    # Trainings enriched
+    for col in ['department', 'cost', 'files']:
+        try: conn.execute(f"ALTER TABLE rh_trainings ADD COLUMN {col} TEXT DEFAULT ''")
+        except: pass
+    conn.commit(); conn.close()
+
+
+def get_payslip_detail(pid):
+    conn = get_db()
+    p = conn.execute("""SELECT p.*, e.first_name||' '||e.last_name as employee_name,
+        e.matricule, e.position, e.department, e.insurance, e.insurance_number
+        FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id WHERE p.id=?""", (pid,)).fetchone()
+    conn.close()
+    return dict(p) if p else None
+
+
+def get_maintenance_due():
+    """Retourne les systèmes dont la maintenance est due."""
+    conn = get_db()
+    today = datetime.now().strftime('%Y-%m-%d')
+    rows = conn.execute("""SELECT * FROM tech_center WHERE status='actif'
+        AND (next_maintenance <= ? OR next_maintenance IS NULL) ORDER BY next_maintenance ASC""", (today,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

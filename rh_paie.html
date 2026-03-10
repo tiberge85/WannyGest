@@ -12,13 +12,19 @@
 </div>
 <div class="card"><div class="card-body">
 {% if payslips %}<div class="table-wrap"><table>
-<thead><tr><th>Période</th><th>Employé</th><th>Matricule</th><th>Base</th><th>Bonus</th><th>Déductions</th><th>Net</th><th>Statut</th></tr></thead>
+<thead><tr><th>Période</th><th>Employé</th><th>Matricule</th><th>Base</th><th>Bonus</th><th>Déductions</th><th>Net</th><th>Statut</th><th>Actions</th></tr></thead>
 <tbody>{% for p in payslips %}<tr>
 <td>{{ p.period }}</td><td><strong>{{ p.employee_name }}</strong></td><td>{{ p.matricule or '-' }}</td>
 <td>{{ '{:,.0f}'.format(p.base_salary) }}</td><td style="color:#2e7d32">+{{ '{:,.0f}'.format(p.bonus + p.commission + p.overtime_amount) }}</td>
 <td style="color:#c53030">-{{ '{:,.0f}'.format(p.deductions + p.insurance_amount + p.tax_amount) }}</td>
 <td><strong>{{ '{:,.0f}'.format(p.net_salary) }} F</strong></td>
-<td><span class="badge-status {% if p.status=='valide' %}sent{% else %}pending{% endif %}">{{ p.status }}</span></td>
+<td><span class="badge-status {% if p.status=='valide' %}sent{% elif p.status=='envoye' %}{% else %}pending{% endif %}">{{ p.status }}</span></td>
+<td style="display:flex;gap:3px;flex-wrap:wrap">
+<a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm">👁️</a>
+<a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm">📥</a>
+{% if p.status=='brouillon' %}<a href="/rh/paie/{{ p.id }}/status/valide" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅</a>{% endif %}
+{% if p.status=='valide' %}<a href="/rh/paie/{{ p.id }}/status/envoye" class="btn btn-sm" style="background:#e8672a;color:#fff">📧</a>{% endif %}
+</td>
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun bulletin</p>{% endif %}
 </div></div>

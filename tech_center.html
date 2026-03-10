@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% block title %}WannyGest - Centre technique{% endblock %}{% block content %}
+<div class="page-header"><h1>🔧 Centre technique</h1><p>Suivi des systèmes clients — rappels maintenance et dépannage</p></div>
+{% if due %}
+<div class="card" style="border-left:4px solid #c53030;margin-bottom:16px"><div class="card-header"><h3 style="color:#c53030">⚠️ Maintenances dues ({{ due|length }})</h3></div><div class="card-body">
+<div class="table-wrap"><table>
+<thead><tr><th>Client</th><th>Système</th><th>Prochaine maintenance</th><th>Dernière</th></tr></thead>
+<tbody>{% for s in due %}<tr style="background:#fde8e8">
+<td><strong>{{ s.client_name }}</strong></td><td>{{ s.system_type }}</td><td style="color:#c53030;font-weight:700">{{ s.next_maintenance or 'Non planifiée' }}</td><td>{{ s.last_maintenance or '-' }}</td>
+</tr>{% endfor %}</tbody></table></div></div></div>
+{% endif %}
+<div class="card"><div class="card-header"><h3>Systèmes suivis ({{ systems|length }})</h3><button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Système</button></div><div class="card-body">
+{% if systems %}<div class="table-wrap"><table>
+<thead><tr><th>Client</th><th>Type système</th><th>Installation</th><th>Prochaine maint.</th><th>Intervalle</th><th>Statut</th></tr></thead>
+<tbody>{% for s in systems %}<tr{% if s.id in (due|map(attribute='id')|list) %} style="background:#fde8e8"{% endif %}>
+<td><strong>{{ s.client_name }}</strong></td><td>{{ s.system_type }}</td><td>{{ s.installation_date or '-' }}</td>
+<td>{{ s.next_maintenance or '-' }}</td><td>{{ s.maintenance_interval }} jours</td>
+<td><span class="badge-status {% if s.status=='actif' %}sent{% else %}pending{% endif %}">{{ s.status }}</span></td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun système enregistré</p>{% endif %}
+</div></div>
+<div class="modal-bg" id="addM"><div class="modal"><h3>🔧 Ajouter un système</h3><form method="post" action="/centre-technique/add">
+<div class="form-group"><label>Client</label><select name="client_id" onchange="var o=this.options[this.selectedIndex];document.getElementById('cn').value=o.text||''"><option value="">— Sélectionner —</option>{% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+<div class="form-group"><label>Nom client</label><input type="text" name="client_name" id="cn" required></div>
+<div class="form-row"><div class="form-group"><label>Type de système</label><select name="system_type"><option>Vidéosurveillance</option><option>Clôture électrique</option><option>Contrôle d'accès</option><option>Alarme</option><option>Réseau informatique</option><option>Autre</option></select></div>
+<div class="form-group"><label>Date installation</label><input type="date" name="installation_date"></div></div>
+<div class="form-row"><div class="form-group"><label>Prochaine maintenance</label><input type="date" name="next_maintenance"></div>
+<div class="form-group"><label>Intervalle (jours)</label><input type="number" name="maintenance_interval" value="90"></div></div>
+<div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px"></textarea></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Ajouter</button></div></form></div></div>
+{% endblock %}

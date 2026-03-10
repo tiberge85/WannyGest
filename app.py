@@ -70,8 +70,10 @@ from models import init_mg_tables
 init_mg_tables()
 
 from models import (init_chat_tables, get_messages, get_direct_messages, 
-                    send_message, get_unread_count, db_get_all)
+                    send_message, get_unread_count, db_get_all,
+                    migrate_v4, get_payslip_detail, get_maintenance_due)
 init_chat_tables()
+migrate_v4()
 
 # Register module routes
 from modules_routes import modules_bp
@@ -1223,6 +1225,7 @@ def rh_personnel():
 @permission_required('fichiers')
 def rh_personnel_add():
     if request.method == 'POST':
+        from models import get_db
         create_employee(
             first_name=request.form['first_name'],
             last_name=request.form['last_name'],
@@ -1238,7 +1241,27 @@ def rh_personnel_add():
             insurance_number=request.form.get('insurance_number', ''),
             emergency_contact=request.form.get('emergency_contact', ''),
             emergency_tel=request.form.get('emergency_tel', ''),
+            code_rh=request.form.get('code_rh', ''),
+            birth_date=request.form.get('birth_date', ''),
+            gender=request.form.get('gender', ''),
+            blood_type=request.form.get('blood_type', ''),
         )
+        # Get new employee ID for photo
+        conn = get_db()
+        new_emp = conn.execute("SELECT id FROM employees ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        # Handle photo
+        if new_emp and 'photo' in request.files:
+            f = request.files['photo']
+            if f and f.filename:
+                from werkzeug.utils import secure_filename
+                ext = os.path.splitext(f.filename)[1].lower()
+                if ext in ('.jpg','.jpeg','.png','.webp'):
+                    photo_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'photos')
+                    os.makedirs(photo_dir, exist_ok=True)
+                    fname = f"emp_{new_emp['id']}{ext}"
+                    f.save(os.path.join(photo_dir, fname))
+                    update_employee(new_emp['id'], photo=fname)
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?', 'RH',
                     f"Employé ajouté: {request.form['first_name']} {request.form['last_name']}", request.remote_addr)
@@ -1327,6 +1350,229 @@ def rh_paie_add():
     flash(f"Bulletin de paie créé — Net: {net:,.0f} FCFA", "success")
     return redirect(url_for('rh_paie'))
 
+@app.route('/rh/paie/<int:pid>/pdf')
+@permission_required('fichiers')
+def rh_paie_pdf(pid):
+    """Génère le bulletin de paie PDF."""
+    p = get_payslip_detail(pid)
+    if not p: flash("Bulletin non trouvé","error"); return redirect(url_for('rh_paie'))
+    
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+    
+    output = os.path.join(app.config['UPLOAD_FOLDER'], f'bulletin_{p["period"]}_{p["employee_name"].replace(" ","_")}.pdf')
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    doc = SimpleDocTemplate(output, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=15*mm, bottomMargin=15*mm)
+    
+    NAVY = HexColor('#1a3a5c'); ORANGE = HexColor('#e8672a'); GREY = HexColor('#888')
+    s_t = ParagraphStyle('t', fontSize=18, fontName='Helvetica-Bold', textColor=NAVY, alignment=TA_CENTER)
+    s_s = ParagraphStyle('s', fontSize=10, alignment=TA_CENTER, textColor=GREY)
+    s_n = ParagraphStyle('n', fontSize=10, leading=13)
+    s_b = ParagraphStyle('b', fontSize=10, fontName='Helvetica-Bold')
+    s_h = ParagraphStyle('h', fontSize=9, fontName='Helvetica-Bold', textColor=HexColor('#fff'))
+    s_c = ParagraphStyle('c', fontSize=9)
+    s_r = ParagraphStyle('r', fontSize=9, alignment=TA_RIGHT)
+    
+    story = []
+    story.append(Paragraph("BULLETIN DE PAIE", s_t))
+    story.append(Paragraph(f"Période : {p['period']}", s_s))
+    story.append(Spacer(1, 3*mm))
+    story.append(HRFlowable(width="100%", thickness=2, color=NAVY))
+    story.append(Spacer(1, 5*mm))
+    
+    # Employee info
+    info = [
+        [Paragraph("<b>Employé</b>", s_b), Paragraph(p.get('employee_name',''), s_n)],
+        [Paragraph("Matricule", s_n), Paragraph(p.get('matricule','') or '-', s_n)],
+        [Paragraph("Poste", s_n), Paragraph(p.get('position','') or '-', s_n)],
+        [Paragraph("Département", s_n), Paragraph(p.get('department','') or '-', s_n)],
+    ]
+    it = Table(info, colWidths=[40*mm, 130*mm])
+    it.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.5,HexColor('#ddd')),('BACKGROUND',(0,0),(0,-1),HexColor('#f0f4f8')),
+        ('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),4),('LEFTPADDING',(0,0),(-1,-1),8)]))
+    story.append(it)
+    story.append(Spacer(1, 6*mm))
+    
+    # Pay details
+    fmt = lambda x: f"{x:,.0f}"
+    gains = p['base_salary'] + p['bonus'] + p['commission'] + p['overtime_amount']
+    retenues = p['deductions'] + p['insurance_amount'] + p['tax_amount']
+    
+    rows = [
+        [Paragraph(h, s_h) for h in ['Rubrique', 'Base', 'Gains', 'Retenues']],
+        [Paragraph('Salaire de base', s_c), Paragraph(fmt(p['base_salary']), s_r), Paragraph(fmt(p['base_salary']), s_r), Paragraph('', s_r)],
+        [Paragraph('Heures supplémentaires', s_c), Paragraph('', s_r), Paragraph(fmt(p['overtime_amount']), s_r), Paragraph('', s_r)],
+        [Paragraph('Bonus / KPI', s_c), Paragraph('', s_r), Paragraph(fmt(p['bonus']), s_r), Paragraph('', s_r)],
+        [Paragraph('Commissions', s_c), Paragraph('', s_r), Paragraph(fmt(p['commission']), s_r), Paragraph('', s_r)],
+        [Paragraph('<b>Total brut</b>', s_c), Paragraph('', s_r), Paragraph(f'<b>{fmt(gains)}</b>', s_r), Paragraph('', s_r)],
+        [Paragraph('Déductions', s_c), Paragraph('', s_r), Paragraph('', s_r), Paragraph(fmt(p['deductions']), s_r)],
+        [Paragraph('Assurance maladie', s_c), Paragraph(p.get('insurance','') or '', s_c), Paragraph('', s_r), Paragraph(fmt(p['insurance_amount']), s_r)],
+        [Paragraph('Impôt sur le revenu', s_c), Paragraph('', s_r), Paragraph('', s_r), Paragraph(fmt(p['tax_amount']), s_r)],
+        [Paragraph('<b>Total retenues</b>', s_c), Paragraph('', s_r), Paragraph('', s_r), Paragraph(f'<b>{fmt(retenues)}</b>', s_r)],
+    ]
+    cw = [60*mm, 35*mm, 35*mm, 35*mm]
+    t = Table(rows, colWidths=cw)
+    t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),NAVY),('GRID',(0,0),(-1,-1),0.5,HexColor('#ddd')),
+        ('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),
+        ('BACKGROUND',(0,5),(-1,5),HexColor('#e8f0f5')),('BACKGROUND',(0,9),(-1,9),HexColor('#fde8e8'))]))
+    story.append(t)
+    story.append(Spacer(1, 4*mm))
+    
+    # Net salary
+    net_row = [[Paragraph('<b>NET À PAYER</b>', ParagraphStyle('net', fontSize=14, fontName='Helvetica-Bold', textColor=HexColor('#fff'))),
+                Paragraph(f'<b>{fmt(p["net_salary"])} FCFA</b>', ParagraphStyle('netv', fontSize=14, fontName='Helvetica-Bold', textColor=HexColor('#fff'), alignment=TA_RIGHT))]]
+    nt = Table(net_row, colWidths=[100*mm, 70*mm])
+    nt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),NAVY),('TOPPADDING',(0,0),(-1,-1),8),('BOTTOMPADDING',(0,0),(-1,-1),8),('LEFTPADDING',(0,0),(-1,-1),12),('RIGHTPADDING',(0,0),(-1,-1),12)]))
+    story.append(nt)
+    story.append(Spacer(1, 12*mm))
+    
+    # Signatures
+    story.append(Table([[Paragraph("Signature employeur", s_n), Paragraph("Signature employé", s_n)]],
+        colWidths=[85*mm, 85*mm]))
+    story.append(Spacer(1, 15*mm))
+    story.append(Paragraph("Document généré par WannyGest — Ce bulletin fait foi", ParagraphStyle('f', fontSize=8, alignment=TA_CENTER, textColor=GREY)))
+    
+    doc.build(story)
+    return send_file(output, as_attachment=True, download_name=f"Bulletin_{p['period']}_{p['employee_name']}.pdf")
+
+@app.route('/rh/paie/<int:pid>/view')
+@permission_required('fichiers')
+def rh_paie_view(pid):
+    p = get_payslip_detail(pid)
+    if not p: flash("Non trouvé","error"); return redirect(url_for('rh_paie'))
+    return render_template('rh_paie_view.html', page='paie', p=p)
+
+@app.route('/rh/paie/<int:pid>/status/<status>')
+@permission_required('fichiers')
+def rh_paie_status(pid, status):
+    if status in ('brouillon','valide','envoye'):
+        update_payslip(pid, status=status)
+        if status == 'envoye':
+            update_payslip(pid, sent_at=datetime.now().isoformat())
+        flash(f"Statut → {status}", "success")
+    return redirect(url_for('rh_paie'))
+
+# ======================== EMPLOYEE PHOTO ========================
+
+@app.route('/rh/personnel/photo/<int:eid>', methods=['POST'])
+@permission_required('fichiers')
+def rh_personnel_photo(eid):
+    if 'photo' in request.files:
+        f = request.files['photo']
+        if f and f.filename:
+            from werkzeug.utils import secure_filename
+            ext = os.path.splitext(f.filename)[1].lower()
+            if ext in ('.jpg','.jpeg','.png','.webp'):
+                photo_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'photos')
+                os.makedirs(photo_dir, exist_ok=True)
+                fname = f"emp_{eid}{ext}"
+                f.save(os.path.join(photo_dir, fname))
+                update_employee(eid, photo=fname)
+                flash("Photo mise à jour", "success")
+    return redirect(url_for('rh_personnel'))
+
+@app.route('/uploads/photos/<path:filename>')
+def employee_photo(filename):
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'photos'), filename)
+
+# ======================== IMPORT CLIENTS EXCEL ========================
+
+@app.route('/clients/import', methods=['POST'])
+@permission_required('clients')
+def clients_import():
+    if 'file' not in request.files:
+        flash("Aucun fichier", "error"); return redirect(url_for('clients_page'))
+    f = request.files['file']
+    if f.filename.endswith(('.xlsx','.xls')):
+        import openpyxl
+        tmp = os.path.join(app.config['UPLOAD_FOLDER'], 'import_tmp.xlsx')
+        f.save(tmp)
+        wb = openpyxl.load_workbook(tmp, data_only=True)
+        ws = wb.active
+        count = 0
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if row[0]:
+                try:
+                    create_client(str(row[0]), str(row[1] or ''), str(row[2] or ''), str(row[3] or ''))
+                    count += 1
+                except: pass
+        flash(f"{count} clients importés depuis Excel", "success")
+        os.remove(tmp)
+    else:
+        flash("Format non supporté (xlsx uniquement)", "error")
+    return redirect(url_for('clients_page'))
+
+# ======================== CENTRE TECHNIQUE ========================
+
+@app.route('/centre-technique')
+@login_required
+def tech_center():
+    from models import db_get_all, db_insert, db_update
+    systems = db_get_all('tech_center', order='next_maintenance ASC')
+    due = get_maintenance_due()
+    clients = get_all_clients()
+    return render_template('tech_center.html', page='tech_center', systems=systems, due=due, clients=clients)
+
+@app.route('/centre-technique/add', methods=['POST'])
+@login_required
+def tech_center_add():
+    from models import db_insert
+    db_insert('tech_center', client_name=request.form.get('client_name',''),
+        client_id=int(request.form['client_id']) if request.form.get('client_id') else None,
+        system_type=request.form.get('system_type',''),
+        installation_date=request.form.get('installation_date',''),
+        next_maintenance=request.form.get('next_maintenance',''),
+        maintenance_interval=int(request.form.get('maintenance_interval', 90) or 90),
+        notes=request.form.get('notes',''), created_by=session['user_id'])
+    flash("Système ajouté au centre technique", "success")
+    return redirect(url_for('tech_center'))
+
+# ======================== CONTRATS RH ========================
+
+@app.route('/rh/contrats-rh')
+@permission_required('fichiers')
+def rh_contracts():
+    from models import db_get_all
+    contracts = db_get_all('rh_contracts', order='end_date ASC')
+    # Enrich with employee names
+    employees = get_all_employees(status=None)
+    emp_map = {e['id']: f"{e['first_name']} {e['last_name']}" for e in employees}
+    for c in contracts:
+        c['employee_name'] = emp_map.get(c.get('employee_id'), '-')
+    return render_template('rh_contrats.html', page='contrats_rh', contracts=contracts, employees=employees)
+
+@app.route('/rh/contrats-rh/add', methods=['POST'])
+@permission_required('fichiers')
+def rh_contracts_add():
+    from models import db_insert
+    db_insert('rh_contracts', code=request.form.get('code',''),
+        employee_id=int(request.form['employee_id']),
+        contract_type=request.form.get('contract_type','CDI'),
+        start_date=request.form.get('start_date',''),
+        end_date=request.form.get('end_date',''),
+        salary=float(request.form.get('salary',0) or 0),
+        notes=request.form.get('notes',''))
+    flash("Contrat RH ajouté", "success")
+    return redirect(url_for('rh_contracts'))
+
+
+# ======================== ORGANIGRAMME ========================
+
+@app.route('/rh/organigramme')
+@permission_required('fichiers')
+def rh_organigramme():
+    employees = get_all_employees()
+    depts = {}
+    for e in employees:
+        d = e.get('department') or 'Non assigné'
+        if d not in depts: depts[d] = []
+        depts[d].append(e)
+    return render_template('rh_organigramme.html', page='organigramme', depts=depts)
+
 
 # ======================== CHAT ========================
 
@@ -1406,7 +1652,9 @@ def rh_formations_add():
     from models import db_insert
     db_insert('rh_trainings', title=request.form['title'], description=request.form.get('description',''),
         trainer=request.form.get('trainer',''), date=request.form.get('date',''),
-        duration=request.form.get('duration',''))
+        duration=request.form.get('duration',''),
+        department=request.form.get('department',''),
+        cost=request.form.get('cost','0'))
     flash("Formation ajoutée", "success"); return redirect(url_for('rh_formations'))
 
 @app.route('/rh/annonces')
