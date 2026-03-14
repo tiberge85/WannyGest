@@ -48,7 +48,9 @@
     {% if s.comptabilise %}<span style="font-size:9px;color:#2e7d32">📗</span>{% endif %}
 </td>
 <td style="display:flex;gap:3px;flex-wrap:wrap">
+    <a href="/caisse-sortie/{{ s.id }}/preview" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px">👁️</a>
     <a href="/caisse-sortie/{{ s.id }}/pdf" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px">📥</a>
+    {% if current_user.role in ('admin','dg','directeur') %}<a href="/caisse-sortie/{{ s.id }}/edit" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px">✏️</a>{% endif %}
     {% if s.status == 'en_attente' and current_user.role in ('admin','directeur') %}
     <a href="/caisse-sortie/{{ s.id }}/valider" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:10px;padding:2px 6px" onclick="return confirm('Valider cette sortie ?')">✅</a>
     <a href="/caisse-sortie/{{ s.id }}/refuser" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px;padding:2px 6px" onclick="return confirm('Refuser ?')">❌</a>

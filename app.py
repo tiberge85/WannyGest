@@ -91,7 +91,7 @@ from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by
 init_devis_tables()
 
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
-ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets']
+ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets', 'caisse_sortie']
 
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -134,7 +134,7 @@ def inject_globals():
             ctx['pending_count'] = len(get_jobs_by_status('traite'))
             try: ctx['unread_messages'] = get_unread_count(user['id'])
             except: pass
-            if user['role'] in ('admin', 'directeur'):
+            if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
                     from models import get_db as _gdb
                     _c = _gdb()
@@ -605,7 +605,7 @@ def clients_delete(cid):
 def admin_page():
     users = get_all_users()
     stats = get_dashboard_stats()
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique']}
     return render_template('admin.html', page='admin', users=users, stats=stats,
                           all_permissions=ALL_PERMISSIONS, role_perms=role_perms)
 
@@ -688,7 +688,7 @@ def admin_toggle_user(uid):
 @app.route('/admin/permissions', methods=['POST'])
 @permission_required('admin')
 def admin_permissions():
-    for role in ['rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique']:
+    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique']:
         perms = [p for p in ALL_PERMISSIONS if request.form.get(f'{role}_{p}')]
         update_role_permissions(role, perms)
     # Admin always has all
@@ -2031,7 +2031,7 @@ def caisse_valider(sid):
     from models import get_db
     """DG ou admin valide la demande."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'directeur'):
+    if not user or user['role'] not in ('admin', 'dg', 'directeur'):
         flash("Seul le DG peut valider les sorties de caisse", "error")
         return redirect(url_for('caisse_sortie'))
     conn = get_db()
@@ -2051,7 +2051,7 @@ def caisse_valider(sid):
 def caisse_refuser(sid):
     from models import get_db
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'directeur'):
+    if not user or user['role'] not in ('admin', 'dg', 'directeur'):
         flash("Seul le DG peut refuser", "error")
         return redirect(url_for('caisse_sortie'))
     conn = get_db()
@@ -2080,6 +2080,59 @@ def caisse_comptabiliser(sid):
     conn.commit(); conn.close()
     flash("Décaissement comptabilisé", "success")
     return redirect(url_for('caisse_sortie'))
+
+@app.route('/caisse-sortie/<int:sid>/edit', methods=['GET','POST'])
+@login_required
+def caisse_edit(sid):
+    from models import get_db
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'dg', 'directeur'):
+        flash("Seul l'admin ou le DG peut modifier", "error"); return redirect(url_for('caisse_sortie'))
+    conn = get_db()
+    s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    conn.close()
+    if not s: flash("Non trouvé","error"); return redirect(url_for('caisse_sortie'))
+    if request.method == 'POST':
+        conn = get_db()
+        conn.execute("""UPDATE caisse_sorties SET beneficiaire=?, type_beneficiaire=?, montant=?,
+            nature=?, motif=?, date=? WHERE id=?""",
+            (request.form['beneficiaire'], request.form.get('type_beneficiaire','particulier'),
+             float(request.form.get('montant',0) or 0), request.form.get('nature','espece'),
+             request.form.get('motif',''), request.form.get('date',''), sid))
+        conn.commit(); conn.close()
+        flash("Sortie de caisse modifiée", "success")
+        return redirect(url_for('caisse_sortie'))
+    return render_template('caisse_edit.html', page='caisse_sortie', s=dict(s))
+
+@app.route('/caisse-sortie/<int:sid>/preview')
+@login_required
+def caisse_preview(sid):
+    from models import get_db
+    conn = get_db()
+    s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    conn.close()
+    if not s: flash("Non trouvé","error"); return redirect(url_for('caisse_sortie'))
+    return render_template('caisse_preview.html', page='caisse_sortie', s=dict(s))
+
+@app.route('/caisse-sortie/<int:sid>/signer', methods=['POST'])
+@login_required
+def caisse_signer(sid):
+    """Enregistre la signature (base64 canvas)."""
+    from models import get_db
+    sig_type = request.form.get('type', 'beneficiaire')  # beneficiaire, caisse, autorisation
+    sig_data = request.form.get('signature', '')
+    conn = get_db()
+    # Store signatures in notes as JSON
+    import json
+    s = conn.execute("SELECT notes FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    try: sigs = json.loads(s['notes'] or '{}') if s else {}
+    except: sigs = {}
+    if not isinstance(sigs, dict): sigs = {}
+    sigs[f'sig_{sig_type}'] = sig_data
+    conn.execute("UPDATE caisse_sorties SET notes=? WHERE id=?", (json.dumps(sigs), sid))
+    conn.commit(); conn.close()
+    flash(f"Signature {sig_type} enregistrée", "success")
+    return redirect(f'/caisse-sortie/{sid}/preview')
 
 @app.route('/caisse-sortie/<int:sid>/pdf')
 @login_required

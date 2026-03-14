@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% block title %}WannyGest - Modifier sortie{% endblock %}{% block content %}
+<div class="page-header"><h1>✏️ Modifier sortie {{ s.reference }}</h1></div>
+<div class="card" style="max-width:600px"><div class="card-body">
+<form method="post">
+    <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ s.date or '' }}" required></div>
+    <div class="form-group"><label>Bénéficiaire *</label><input type="text" name="beneficiaire" value="{{ s.beneficiaire }}" required></div>
+    <div class="form-group"><label>Type</label>
+        <div style="display:flex;gap:16px;margin-top:4px">
+            <label style="font-size:13px"><input type="radio" name="type_beneficiaire" value="entreprise" {% if s.type_beneficiaire=='entreprise' %}checked{% endif %}> Entreprise</label>
+            <label style="font-size:13px"><input type="radio" name="type_beneficiaire" value="particulier" {% if s.type_beneficiaire=='particulier' %}checked{% endif %}> Particulier</label>
+            <label style="font-size:13px"><input type="radio" name="type_beneficiaire" value="autre" {% if s.type_beneficiaire=='autre' %}checked{% endif %}> Autre</label>
+        </div></div>
+    <div class="form-group"><label>Montant (FCFA) *</label><input type="number" name="montant" value="{{ s.montant }}" step="100" required></div>
+    <div class="form-group"><label>Nature</label>
+        <div style="display:flex;gap:16px;margin-top:4px">
+            <label style="font-size:13px"><input type="radio" name="nature" value="espece" {% if s.nature=='espece' %}checked{% endif %}> Espèce</label>
+            <label style="font-size:13px"><input type="radio" name="nature" value="cheque" {% if s.nature=='cheque' %}checked{% endif %}> Chèque</label>
+            <label style="font-size:13px"><input type="radio" name="nature" value="virement" {% if s.nature=='virement' %}checked{% endif %}> Virement</label>
+        </div></div>
+    <div class="form-group"><label>Motif</label><textarea name="motif" rows="3" style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px">{{ s.motif or '' }}</textarea></div>
+    <div style="display:flex;gap:10px"><a href="/caisse-sortie" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-primary" style="flex:1">💾 Sauvegarder</button></div>
+</form></div></div>
+{% endblock %}

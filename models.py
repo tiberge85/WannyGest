@@ -196,11 +196,12 @@ def init_db():
     
     # Permissions par défaut — tous les rôles
     default_perms = {
-        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets'],
+        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets', 'caisse_sortie'],
+        'dg': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets', 'caisse_sortie'],
         'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats'],
         'technicien': ['traitement', 'dashboard', 'visites'],
         'commercial': ['dashboard', 'clients', 'visites', 'proforma', 'contrats'],
-        'comptable': ['dashboard', 'comptabilite', 'clients'],
+        'comptable': ['dashboard', 'comptabilite', 'clients', 'caisse_sortie'],
         'moyens_generaux': ['dashboard', 'moyens_generaux', 'clients'],
         'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets'],
     }
