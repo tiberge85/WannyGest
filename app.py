@@ -609,6 +609,19 @@ def clients_edit(cid):
         update_client(cid, name=request.form['name'], tel=request.form.get('tel', ''),
                       email=request.form.get('email', ''), contact_name=request.form.get('contact_name', ''),
                       address=request.form.get('address', ''), notes=request.form.get('notes', ''))
+        # Update enriched fields
+        from models import get_db as _gdb3
+        conn = _gdb3()
+        for field in ['sector','city','country','website','rc_number','cnps_number',
+                      'contact_title','contact_tel2','contact_email2','payment_terms',
+                      'source','status']:
+            val = request.form.get(field, '')
+            try: conn.execute(f"UPDATE clients SET {field}=? WHERE id=?", (val, cid))
+            except: pass
+        if request.form.get('credit_limit'):
+            try: conn.execute("UPDATE clients SET credit_limit=? WHERE id=?", (float(request.form.get('credit_limit',0) or 0), cid))
+            except: pass
+        conn.commit(); conn.close()
         user = get_user_by_id(session['user_id'])
         log_audit(session['user_id'], user['full_name'] if user else '?', 'clients', cid, 'update', 'name', client['name'], request.form['name'])
         flash("Client modifié", "success")
@@ -1022,8 +1035,49 @@ def comptabilite_page():
     tab = request.args.get('tab', 'a_envoyer')
     inv_stats = get_invoice_stats()
     invoices = get_invoices_by_status(tab) if tab != 'all' else get_all_invoices()
+    
+    # Dashboard data
+    conn = _gdb()
+    # Monthly revenue (paid invoices)
+    monthly = [dict(r) for r in conn.execute("""
+        SELECT strftime('%Y-%m', created_at) as month, SUM(amount) as total 
+        FROM invoices WHERE status='payee' GROUP BY month ORDER BY month DESC LIMIT 12
+    """).fetchall()]
+    monthly.reverse()
+    
+    # Monthly expenses (from pieces_caisse)
+    expenses = [dict(r) for r in conn.execute("""
+        SELECT strftime('%Y-%m', date) as month, SUM(amount) as total 
+        FROM pieces_caisse GROUP BY month ORDER BY month DESC LIMIT 12
+    """).fetchall()]
+    expenses.reverse()
+    
+    # Totals
+    total_revenue = conn.execute("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE status='payee'").fetchone()[0]
+    total_pending = conn.execute("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE status IN ('envoyee','en_attente_paiement')").fetchone()[0]
+    total_expenses = conn.execute("SELECT COALESCE(SUM(amount),0) FROM pieces_caisse").fetchone()[0]
+    
+    # Expense by category
+    exp_cats = [dict(r) for r in conn.execute("""
+        SELECT category, SUM(amount) as total FROM pieces_caisse GROUP BY category ORDER BY total DESC LIMIT 8
+    """).fetchall()]
+    conn.close()
+    
+    chart_data = {
+        'months': [m['month'] for m in monthly],
+        'revenue': [m['total'] for m in monthly],
+        'exp_months': [e['month'] for e in expenses],
+        'exp_totals': [e['total'] for e in expenses],
+        'exp_cats': [c['category'] for c in exp_cats],
+        'exp_cat_vals': [c['total'] for c in exp_cats],
+        'total_revenue': total_revenue,
+        'total_pending': total_pending,
+        'total_expenses': total_expenses,
+        'profit': total_revenue - total_expenses,
+    }
+    
     return render_template('comptabilite.html', page='comptabilite', tab=tab,
-                          invoices=invoices, inv_stats=inv_stats)
+                          invoices=invoices, inv_stats=inv_stats, chart=chart_data)
 
 @app.route('/comptabilite/status/<int:inv_id>/<status>')
 @permission_required('comptabilite')
@@ -1243,7 +1297,9 @@ def devis_new():
         return redirect(url_for('devis_page'))
     
     clients = get_all_clients()
-    return render_template('devis_new.html', page='devis', clients=clients)
+    from models import db_get_all
+    stock_items = db_get_all('stock_items', order='name ASC')
+    return render_template('devis_new.html', page='devis', clients=clients, stock_items=stock_items)
 
 @app.route('/devis/pdf/<int:did>')
 @login_required
@@ -1721,12 +1777,14 @@ def chat_page():
 def chat_send():
     content = request.form.get('content', '').strip()
     channel = request.form.get('channel', 'general')
+    dm_id = None
+    if channel.startswith('dm_'):
+        dm_id = int(channel.split('_')[1])
     if content:
-        dm_id = None
-        if channel.startswith('dm_'):
-            dm_id = int(channel.split('_')[1])
-            channel = 'direct'
-        send_message(session['user_id'], content, channel, dm_id)
+        if dm_id:
+            send_message(session['user_id'], content, 'direct', dm_id)
+        else:
+            send_message(session['user_id'], content, channel, None)
     if dm_id:
         return redirect(f'/chat?dm={dm_id}')
     return redirect(f'/chat?channel={channel}')
@@ -2505,7 +2563,7 @@ def _cleanup_old(upload_dir, max_age_hours=2):
 from models import get_db as _gdb, db_insert as _dbi
 
 @app.route('/rapports-journaliers')
-@login_required
+@permission_required('rapports_j')
 def rapports_journaliers():
     u = dict(get_user_by_id(session['user_id']))
     conn = _gdb()

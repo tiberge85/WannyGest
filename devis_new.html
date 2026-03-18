@@ -21,15 +21,25 @@
     <div class="form-group"><label>Objet *</label><input type="text" name="objet" required placeholder="Ex: FOURNITURE ET INSTALLATION DE VIDEO-SURVEILLANCE"></div>
     
     <h3 style="color:#1a3a5c;margin:16px 0 10px;font-size:15px">📦 Articles</h3>
+    {% if stock_items %}
+    <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px">
+        <strong>📋 Sélection rapide depuis le stock :</strong>
+        <select id="stockSelect" onchange="fillFromStock()" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin-left:6px">
+            <option value="">— Choisir un article du stock —</option>
+            {% for s in stock_items %}<option value="{{ s.name }}" data-price="{{ s.unit_price or 0 }}" data-ref="{{ s.reference or '' }}">{{ s.name }} {% if s.reference %}({{ s.reference }}){% endif %} — {{ '{:,.0f}'.format(s.unit_price or 0) }} F</option>{% endfor %}
+        </select>
+    </div>
+    {% endif %}
     <div id="items">
         <div class="item-row" style="display:flex;gap:6px;margin-bottom:8px;align-items:end;flex-wrap:wrap">
-            <div style="flex:3"><label style="font-size:11px">Désignation</label><input type="text" name="item_1_designation" required placeholder="Ex: CAMERA FIXE ANALOGIQUE"></div>
-            <div style="flex:2"><label style="font-size:11px">Détail</label><input type="text" name="item_1_detail" placeholder="HYBRID LIGHT"></div>
+            <div style="flex:3"><label style="font-size:11px">Désignation</label><input type="text" name="item_1_designation" id="desig_1" required placeholder="Ex: CAMERA FIXE ANALOGIQUE" list="stockList"></div>
+            <div style="flex:2"><label style="font-size:11px">Détail</label><input type="text" name="item_1_detail" id="detail_1" placeholder="HYBRID LIGHT"></div>
             <div style="flex:0 0 60px"><label style="font-size:11px">Qté</label><input type="number" name="item_1_qty" value="1" min="1"></div>
-            <div style="flex:0 0 100px"><label style="font-size:11px">Prix unit.</label><input type="number" name="item_1_prix" step="500" value="0"></div>
+            <div style="flex:0 0 100px"><label style="font-size:11px">Prix unit.</label><input type="number" name="item_1_prix" id="prix_1" step="500" value="0"></div>
             <div style="flex:0 0 80px"><label style="font-size:11px">Remise</label><input type="number" name="item_1_remise" value="0"></div>
         </div>
     </div>
+    <datalist id="stockList">{% for s in stock_items %}<option value="{{ s.name }}">{% endfor %}</datalist>
     <button type="button" class="btn btn-outline btn-sm" onclick="addItem()" style="margin-bottom:14px">+ Ajouter une ligne</button>
     
     <div class="form-row">
@@ -49,14 +59,36 @@ let itemCount = 1;
 function addItem() {
     itemCount++;
     const html = `<div class="item-row" style="display:flex;gap:6px;margin-bottom:8px;align-items:end;flex-wrap:wrap">
-        <div style="flex:3"><input type="text" name="item_${itemCount}_designation" required placeholder="Désignation"></div>
-        <div style="flex:2"><input type="text" name="item_${itemCount}_detail" placeholder="Détail"></div>
+        <div style="flex:3"><input type="text" name="item_${itemCount}_designation" id="desig_${itemCount}" required placeholder="Désignation" list="stockList"></div>
+        <div style="flex:2"><input type="text" name="item_${itemCount}_detail" id="detail_${itemCount}" placeholder="Détail"></div>
         <div style="flex:0 0 60px"><input type="number" name="item_${itemCount}_qty" value="1" min="1"></div>
-        <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" step="500" value="0"></div>
+        <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" id="prix_${itemCount}" step="500" value="0"></div>
         <div style="flex:0 0 80px"><input type="number" name="item_${itemCount}_remise" value="0"></div>
         <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px;padding:4px">×</button>
     </div>`;
     document.getElementById('items').insertAdjacentHTML('beforeend', html);
+}
+function fillFromStock() {
+    var sel = document.getElementById('stockSelect');
+    if (!sel || !sel.value) return;
+    var opt = sel.options[sel.selectedIndex];
+    var name = sel.value;
+    var price = parseFloat(opt.dataset.price || 0);
+    var ref = opt.dataset.ref || '';
+    // Fill the last empty row or add a new one
+    var lastDesig = document.getElementById('desig_' + itemCount);
+    if (lastDesig && lastDesig.value) {
+        addItem();
+        lastDesig = document.getElementById('desig_' + itemCount);
+    }
+    if (lastDesig) {
+        lastDesig.value = name;
+        var detail = document.getElementById('detail_' + itemCount);
+        if (detail && ref) detail.value = ref;
+        var prix = document.getElementById('prix_' + itemCount);
+        if (prix && price) prix.value = price;
+    }
+    sel.value = '';
 }
 </script>
 {% endblock %}

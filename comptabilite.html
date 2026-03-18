@@ -1,7 +1,37 @@
 {% extends "base.html" %}
 {% block title %}WannyGest - Comptabilité{% endblock %}
 {% block content %}
-<div class="page-header"><h1>💰 Comptabilité</h1><p>Suivi des factures clients</p></div>
+<div class="page-header"><h1>💰 Comptabilité</h1><p>Suivi financier</p></div>
+
+<!-- Dashboard financier -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+    <div class="stat-card"><div class="stat-icon green">💵</div><div class="stat-info"><div class="stat-num" style="color:#2e7d32">{{ '{:,.0f}'.format(chart.total_revenue) }}</div><div class="stat-label">Revenus encaissés (F)</div></div></div>
+    <div class="stat-card"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-num" style="color:#e8672a">{{ '{:,.0f}'.format(chart.total_pending) }}</div><div class="stat-label">En attente (F)</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#fde8e8;color:#c53030">📉</div><div class="stat-info"><div class="stat-num" style="color:#c53030">{{ '{:,.0f}'.format(chart.total_expenses) }}</div><div class="stat-label">Dépenses (F)</div></div></div>
+    <div class="stat-card"><div class="stat-icon {% if chart.profit >= 0 %}green{% else %}orange{% endif %}">{% if chart.profit >= 0 %}📈{% else %}📉{% endif %}</div><div class="stat-info"><div class="stat-num" style="color:{% if chart.profit >= 0 %}#2e7d32{% else %}#c53030{% endif %}">{{ '{:,.0f}'.format(chart.profit) }}</div><div class="stat-label">Bénéfice net (F)</div></div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:16px">
+    <div class="card"><div class="card-header"><h3>📊 Revenus vs Dépenses</h3></div><div class="card-body" style="height:220px"><canvas id="revenueChart"></canvas></div></div>
+    <div class="card"><div class="card-header"><h3>🥧 Dépenses par catégorie</h3></div><div class="card-body" style="height:220px"><canvas id="expenseChart"></canvas></div></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script>
+new Chart(document.getElementById('revenueChart'),{type:'bar',data:{
+    labels:{{ chart.months | tojson }},
+    datasets:[
+        {label:'Revenus',data:{{ chart.revenue | tojson }},backgroundColor:'rgba(46,125,50,0.6)',borderRadius:4},
+        {label:'Dépenses',data:{{ chart.exp_totals | tojson }},backgroundColor:'rgba(197,48,48,0.5)',borderRadius:4}
+    ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},scales:{y:{ticks:{callback:function(v){return (v/1000)+'K'}}}}}});
+{% if chart.exp_cats %}
+new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
+    labels:{{ chart.exp_cats | tojson }},
+    datasets:[{data:{{ chart.exp_cat_vals | tojson }},backgroundColor:['#e8672a','#1a7a6d','#B8860B','#1565c0','#c53030','#6a1b9a','#00838f','#ef6c00']}]
+},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:10}}}}}});
+{% endif %}
+</script>
+
+<!-- Factures -->
 <div class="stats-grid">
     <div class="stat-card"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-num">{{ inv_stats.a_envoyer }}</div><div class="stat-label">À envoyer</div></div></div>
     <div class="stat-card"><div class="stat-icon blue">📧</div><div class="stat-info"><div class="stat-num">{{ inv_stats.envoyee }}</div><div class="stat-label">Envoyées</div></div></div>

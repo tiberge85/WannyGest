@@ -196,14 +196,14 @@ def init_db():
     
     # Permissions par défaut — tous les rôles
     default_perms = {
-        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets', 'caisse_sortie'],
-        'dg': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets', 'caisse_sortie'],
-        'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats'],
-        'technicien': ['traitement', 'dashboard', 'visites'],
-        'commercial': ['dashboard', 'clients', 'visites', 'proforma', 'contrats'],
-        'comptable': ['dashboard', 'comptabilite', 'clients', 'caisse_sortie'],
-        'moyens_generaux': ['dashboard', 'moyens_generaux', 'clients'],
-        'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets'],
+        'admin': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets', 'caisse_sortie', 'rapports_j'],
+        'dg': ['traitement', 'fichiers', 'clients', 'admin', 'dashboard', 'envoyer', 'logs', 'contrats', 'comptabilite', 'visites', 'proforma', 'moyens_generaux', 'informatique', 'projets', 'caisse_sortie', 'rapports_j'],
+        'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats', 'rapports_j'],
+        'technicien': ['traitement', 'dashboard', 'visites', 'rapports_j'],
+        'commercial': ['dashboard', 'clients', 'visites', 'proforma', 'contrats', 'rapports_j'],
+        'comptable': ['dashboard', 'comptabilite', 'clients', 'caisse_sortie', 'rapports_j'],
+        'moyens_generaux': ['dashboard', 'moyens_generaux', 'clients', 'rapports_j'],
+        'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets', 'rapports_j'],
     }
     for role, perms in default_perms.items():
         for perm in perms:

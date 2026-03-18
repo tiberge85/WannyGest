@@ -134,7 +134,9 @@
         </div>
         <div class="sidebar-nav">
             <a href="/dashboard" class="{% if page == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
+            {% if 'rapports_j' in permissions %}
             <a href="/rapports-journaliers" class="{% if page == 'rapports_j' %}active{% endif %}">📝 Rapport journalier</a>
+            {% endif %}
             
             {% if 'traitement' in permissions %}
             <!-- Gestion du temps -->
