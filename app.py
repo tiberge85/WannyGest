@@ -1258,6 +1258,14 @@ def dpci_generate():
     f = request.files['excel_file']
     client_name = request.form.get('client_name', '').strip() or 'DPCI'
     default_cost = float(request.form.get('default_cost', 0) or 0)
+    try:
+        hp = float(request.form.get('required_hours', 0) or 0)
+    except:
+        hp = 0
+    try:
+        hp_weekend = float(request.form.get('required_hours_weekend', 0) or 0)
+    except:
+        hp_weekend = 0
     
     try:
         employee_costs = json.loads(request.form.get('employee_costs_json', '{}'))
@@ -1298,7 +1306,7 @@ def dpci_generate():
         
         generate_dpci_pdf(emps, output_path, client_name, period_str,
                          schedules_map=schedules_map, employee_costs=employee_costs,
-                         default_cost=default_cost)
+                         default_cost=default_cost, hp=hp, hp_weekend=hp_weekend)
         
         if not os.path.exists(output_path):
             flash("Erreur de génération PDF", "error")
