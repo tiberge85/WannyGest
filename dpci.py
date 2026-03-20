@@ -350,8 +350,8 @@ def generate_dpci_pdf(emps, output_path, client_name, period, schedules_map=None
 
             # TABLEAU DETAIL
             hdrs = ["N\u00b0", "Date", "Emploi du temps", "Arriv\u00e9e", "D\u00e9but\npause",
-                    "Retour\npause", "D\u00e9part", "H.\nobligatoire", "H.\ntravaill\u00e9es", "Respect"]
-            cw_d = [8*mm, 18*mm, 22*mm, 17*mm, 17*mm, 17*mm, 17*mm, 18*mm, 18*mm, 16*mm]
+                    "Retour\npause", "D\u00e9part", "Pause", "H.\nobligatoire", "H.\ntravaill\u00e9es", "Respect"]
+            cw_d = [7*mm, 17*mm, 20*mm, 15*mm, 15*mm, 15*mm, 15*mm, 14*mm, 17*mm, 17*mm, 15*mm]
 
             td = [[Paragraph(x.replace("\n", "<br/>"), th) for x in hdrs]]
 
@@ -375,6 +375,7 @@ def generate_dpci_pdf(emps, output_path, client_name, period, schedules_map=None
                     Paragraph(rec['pause_start'] if rec['pause_start'] != '-' else '-', tc),
                     Paragraph(rec['pause_end'] if rec['pause_end'] != '-' else '-', tc),
                     Paragraph(rec['departure'] if rec['departure'] != '-' else '-', tcb),
+                    Paragraph(rec.get('pause', '00:00'), tc),
                     Paragraph(req_display, tc),
                     Paragraph(rec['worked'], tcb),
                     rp,
