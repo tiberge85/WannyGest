@@ -302,9 +302,9 @@ def generate_dpci_pdf(emps, output_path, client_name, period, schedules_map=None
 
             # TITRE + PERIODE (s\u00e9par\u00e9s)
             story.append(Paragraph("<b>RAPPORT INDIVIDUEL</b>",
-                ParagraphStyle('tit', fontName='Helvetica-Bold', fontSize=18, textColor=BLK, alignment=TA_CENTER)))
+                ParagraphStyle('tit', fontName='Helvetica-Bold', fontSize=18, textColor=BLK, alignment=TA_CENTER, spaceAfter=3*mm)))
             story.append(Paragraph(period,
-                ParagraphStyle('sub', fontSize=9, textColor=HexColor('#555'), alignment=TA_CENTER)))
+                ParagraphStyle('sub', fontSize=9, textColor=HexColor('#666'), alignment=TA_CENTER, spaceBefore=1*mm)))
             story.append(Spacer(1, 5 * mm))
 
             # EMPLOYE

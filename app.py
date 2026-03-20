@@ -1301,7 +1301,13 @@ def dpci_generate():
                 schedules_map[name] = s  # Use first found (e.g., Monday schedule)
         
         # Generate PDF
-        period_str = period if period else f"Rapport DPCI"
+        if period and ' - ' in period:
+            parts = period.split(' - ')
+            period_str = f"Débuté le {parts[0].strip()} au {parts[1].strip()}"
+        elif period:
+            period_str = period
+        else:
+            period_str = "Rapport DPCI"
         pdf_name = f"DPCI_{client_name.replace(' ', '_')}_{job_id}.pdf"
         output_path = os.path.join(job_dir, pdf_name)
         
