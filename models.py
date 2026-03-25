@@ -196,14 +196,16 @@ def init_db():
     
     # Permissions par défaut — tous les rôles
     default_perms = {
-        'admin': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet'],
-        'dg': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet'],
-        'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats', 'rapports_j'],
-        'technicien': ['traitement', 'dashboard', 'visites', 'rapports_j'],
-        'commercial': ['dashboard', 'clients', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'contrats', 'rapports_j'],
-        'comptable': ['dashboard', 'comptabilite', 'comptabilite_edit', 'clients', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet'],
-        'moyens_generaux': ['dashboard', 'moyens_generaux', 'moyens_generaux_edit', 'clients', 'rapports_j'],
-        'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets', 'rapports_j'],
+        'admin': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat'],
+        'dg': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat'],
+        'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats', 'rapports_j', 'chat'],
+        'technicien': ['traitement', 'dashboard', 'visites', 'rapports_j', 'centre_technique', 'chat'],
+        'commercial': ['dashboard', 'clients', 'clients_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'contrats', 'rapports_j', 'chat'],
+        'comptable': ['dashboard', 'comptabilite', 'comptabilite_edit', 'clients', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'chat'],
+        'moyens_generaux': ['dashboard', 'moyens_generaux', 'moyens_generaux_edit', 'clients', 'rapports_j', 'chat'],
+        'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets', 'rapports_j', 'centre_technique', 'chat'],
+        'resp_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'proforma', 'chat'],
+        'gestionnaire_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'clients_edit', 'rapports_j', 'proforma', 'proforma_edit', 'visites', 'centre_technique', 'chat'],
     }
     for role, perms in default_perms.items():
         for perm in perms:

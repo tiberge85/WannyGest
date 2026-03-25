@@ -900,7 +900,7 @@ def admin_delete_user(uid):
 @app.route('/admin/permissions', methods=['POST'])
 @permission_required('admin')
 def admin_permissions():
-    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique']:
+    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'gestionnaire_projet']:
         perms = [p for p in ALL_PERMISSIONS if request.form.get(f'{role}_{p}')]
         update_role_permissions(role, perms)
     # Admin always has all

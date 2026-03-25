@@ -54,7 +54,7 @@
             <div class="table-wrap">
                 <table>
                     <thead><tr><th style="min-width:180px">Module</th>
-                    {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet'] %}
+                    {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet','gestionnaire_projet'] %}
                     <th style="font-size:10px;text-align:center;writing-mode:vertical-lr;transform:rotate(180deg);height:80px">{{ role }}</th>
                     {% endfor %}</tr></thead>
                     <tbody>
@@ -91,7 +91,7 @@
                     {% for label, perm, parent in perm_groups %}
                     <tr style="{% if '_edit' in perm or 'Modification' in label %}background:#fef9e7{% endif %}">
                         <td style="font-size:12px">{% if 'Modification' in label %}   <span style="color:#e8672a">✏️</span>{% elif 'Consultation' in label %}<span style="color:#1a7a6d">👁️</span>{% endif %} {{ label }}</td>
-                        {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet'] %}
+                        {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet','gestionnaire_projet'] %}
                         <td style="text-align:center"><input type="checkbox" name="{{ role }}_{{ perm }}" {% if perm in role_perms.get(role, []) %}checked{% endif %} {% if role == 'admin' %}disabled checked{% endif %} style="width:16px;height:16px"></td>
                         {% endfor %}
                     </tr>
@@ -139,7 +139,9 @@
                         <option value="comptable">Comptable</option>
                         <option value="rh">RH</option>
                         <option value="moyens_generaux">Moyens Généraux</option>
-                        <option value="informatique">Informatique</option>
+                        <option value="informatique">Informatique / IT</option>
+                        <option value="resp_projet">Responsable Projet</option>
+                        <option value="gestionnaire_projet">Gestionnaire de Projet</option>
                         <option value="dg">Directeur Général</option>
                         <option value="admin">Admin</option>
                     </select>
