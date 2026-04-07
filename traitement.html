@@ -318,6 +318,7 @@ function handleFile(file) {
             previewBox.classList.add('visible');
             buildCostInputs(data.employees);
             buildRestDayInputs(data.employees);
+        }).catch(()=>{});
 }
 
 var _employees = [];
