@@ -3305,6 +3305,94 @@ def rh_paie_delete(pid):
     conn.close()
     return redirect(url_for('rh_paie'))
 
+@app.route('/rh/paie/<int:pid>/email', methods=['GET','POST'])
+@permission_required('fichiers')
+def rh_paie_email(pid):
+    p = get_payslip_detail_v2(pid)
+    if not p: flash("Non trouvé","error"); return redirect(url_for('rh_paie'))
+    
+    if request.method == 'POST':
+        to_email = request.form.get('to_email','').strip()
+        smtp_host = request.form.get('smtp_host','').strip()
+        smtp_port = int(request.form.get('smtp_port', 587) or 587)
+        smtp_user = request.form.get('smtp_user','').strip()
+        smtp_pass = request.form.get('smtp_pass','').strip()
+        
+        if smtp_host and smtp_user:
+            save_smtp_settings(session['user_id'], smtp_host, smtp_port, smtp_user, smtp_pass)
+        
+        if not all([to_email, smtp_host, smtp_user, smtp_pass]):
+            flash("Paramètres SMTP requis","error")
+            smtp = get_smtp_settings(session['user_id'])
+            return render_template('rh_paie_view.html', page='paie', p=p, send_email=True, smtp=smtp)
+        
+        # Generate PDF first
+        import io
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        pdf_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'paie_email')
+        os.makedirs(pdf_dir, exist_ok=True)
+        pdf_path = os.path.join(pdf_dir, f"bulletin_{p['period']}_{p['employee_name'].replace(' ','_')}.pdf")
+        
+        # Use the existing PDF generation via internal request
+        with app.test_client() as tc:
+            # Copy session
+            with tc.session_transaction() as sess:
+                sess['user_id'] = session['user_id']
+            resp = tc.get(f'/rh/paie/{pid}/pdf')
+            if resp.status_code == 200:
+                with open(pdf_path, 'wb') as f:
+                    f.write(resp.data)
+        
+        if not os.path.exists(pdf_path):
+            flash("Erreur génération PDF","error")
+            return redirect(url_for('rh_paie'))
+        
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = smtp_user
+            msg['To'] = to_email
+            msg['Subject'] = f"Bulletin de paie — {p['period']} — {p['employee_name']}"
+            
+            body = f"""Bonjour {p['employee_name']},
+
+Veuillez trouver ci-joint votre bulletin de paie pour la période {p['period']}.
+
+Net à payer : {p.get('net_salary',0):,.0f} FCFA
+
+Cordialement,
+RAMYA TECHNOLOGIE & INNOVATION
+Service des Ressources Humaines"""
+            
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+            
+            with open(pdf_path, 'rb') as f:
+                part = MIMEBase('application', 'pdf')
+                part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header('Content-Disposition', f'attachment; filename="Bulletin_{p["period"]}_{p["employee_name"]}.pdf"')
+                msg.attach(part)
+            
+            server = smtplib.SMTP(smtp_host, smtp_port)
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+            server.quit()
+            
+            # Mark as sent
+            update_payslip(pid, status='envoye', sent_at=datetime.now().isoformat())
+            user = get_user_by_id(session['user_id'])
+            log_activity(session['user_id'], user['full_name'] if user else '?',
+                        'Email Paie', f"Bulletin {p['period']} envoyé à {to_email}", request.remote_addr)
+            
+            flash(f"Bulletin envoyé par email à {to_email}", "success")
+            return redirect(url_for('rh_paie'))
+        except Exception as e:
+            flash(f"Erreur d'envoi : {str(e)}", "error")
+    
+    smtp = get_smtp_settings(session['user_id'])
+    return render_template('rh_paie_view.html', page='paie', p=p, send_email=True, smtp=smtp)
+
 # ======================== EMPLOYEE PHOTO ========================
 
 @app.route('/rh/personnel/photo/<int:eid>', methods=['POST'])
