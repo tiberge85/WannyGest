@@ -2467,9 +2467,29 @@ def migrate_v26():
             duree TEXT DEFAULT 'journee',
             justificatif INTEGER DEFAULT 0,
             notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'en_attente',
+            approved_by INTEGER,
             created_by INTEGER,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (employee_id) REFERENCES employees(id)
         );
     ''')
+    for col, typ in [('status','TEXT DEFAULT "en_attente"'),('approved_by','INTEGER')]:
+        try: conn.execute(f"ALTER TABLE absences ADD COLUMN {col} {typ}")
+        except: pass
+    conn.commit(); conn.close()
+
+def migrate_v27():
+    conn = get_db()
+    try: conn.execute("ALTER TABLE absences ADD COLUMN status TEXT DEFAULT 'en_attente'")
+    except: pass
+    try: conn.execute("ALTER TABLE absences ADD COLUMN approved_by INTEGER")
+    except: pass
+    conn.commit(); conn.close()
+
+def migrate_v27():
+    conn = get_db()
+    for col, typ in [('status','TEXT DEFAULT "en_attente"'),('approved_by','INTEGER')]:
+        try: conn.execute(f"ALTER TABLE absences ADD COLUMN {col} {typ}")
+        except: pass
     conn.commit(); conn.close()

@@ -2,40 +2,35 @@
 {% block title %}WannyGest - {% if page == 'absences' %}Absences{% else %}Congés{% endif %}{% endblock %}
 {% block content %}
 {% if page == 'absences' %}
-<!-- ============ ABSENCES ============ -->
-<div class="page-header"><h1>📋 Gestion des absences</h1>
+<div class="page-header"><h1>📋 Gestion des absences {% if pending_count %}<span class="badge" style="background:#e8672a;color:#fff;padding:2px 10px;border-radius:12px;font-size:12px">{{ pending_count }} en attente</span>{% endif %}</h1>
 <button class="btn btn-primary btn-sm" onclick="document.getElementById('addA').classList.add('active')">+ Déclarer une absence</button></div>
-
 <div class="card"><div class="card-body" style="padding:0">
 {% if absences %}<div class="table-wrap"><table>
-<thead><tr><th>Date</th><th>Employé</th><th>Type</th><th>Durée</th><th>Motif</th><th>Justif.</th><th>Actions</th></tr></thead>
+<thead><tr><th>Date</th><th>Employé</th><th>Type</th><th>Durée</th><th>Motif</th><th>Justif.</th><th>Statut</th>{% if is_rh %}<th>Actions</th>{% endif %}</tr></thead>
 <tbody>{% for a in absences %}<tr>
 <td style="font-weight:600">{{ a.date }}</td>
 <td><strong>{{ a.employee_name }}</strong></td>
-<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;
-{% if a.type == 'injustifiee' %}background:#fde8e8;color:#c53030{% elif a.type == 'justifiee' %}background:#e8f5e9;color:#2e7d32{% elif a.type == 'retard' %}background:#fff3e0;color:#e8672a{% else %}background:#f5f5f5;color:#888{% endif %}">{{ a.type|replace('_',' ')|capitalize }}</span></td>
+<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;{% if a.type == 'injustifiee' %}background:#fde8e8;color:#c53030{% elif a.type == 'justifiee' %}background:#e8f5e9;color:#2e7d32{% elif a.type == 'retard' %}background:#fff3e0;color:#e8672a{% else %}background:#f5f5f5;color:#888{% endif %}">{{ a.type|replace('_',' ')|capitalize }}</span></td>
 <td>{{ a.duree|replace('journee','Journée')|replace('demi_journee','½ journée')|replace('heure','Heure(s)') }}</td>
 <td style="font-size:11px">{{ a.motif or '-' }}</td>
 <td>{% if a.justificatif %}<span style="color:#2e7d32">✅</span>{% else %}<span style="color:#c53030">❌</span>{% endif %}</td>
-<td><a href="/rh/absences/delete/{{ a.id }}" class="btn btn-sm" style="color:#c53030" onclick="return confirm('Supprimer ?')">🗑️</a></td>
+<td>{% if a.status == 'approuve' %}<span class="badge-status sent">✅ Approuvé</span>{% elif a.status == 'refuse' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">❌ Refusé</span>{% else %}<span class="badge-status pending">⏳ En attente</span>{% endif %}</td>
+{% if is_rh %}<td style="white-space:nowrap">{% if a.status != 'approuve' and a.status != 'refuse' %}<a href="/rh/absences/approve/{{ a.id }}/approuve" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:9px">✅</a> <a href="/rh/absences/approve/{{ a.id }}/refuse" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:9px">❌</a>{% endif %} <a href="/rh/absences/delete/{{ a.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a></td>{% endif %}
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune absence enregistrée</p>{% endif %}
 </div></div>
-
 <div class="modal-bg" id="addA"><div class="modal" style="max-width:500px"><h3>📋 Déclarer une absence</h3>
 <form method="post" action="/rh/absences/add">
-<div class="form-row"><div class="form-group"><label>Employé *</label><select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.first_name }} {{ e.last_name }}</option>{% endfor %}</select></div>
-<div class="form-group"><label>Date *</label><input type="date" name="date" required></div></div>
-<div class="form-row"><div class="form-group"><label>Type</label><select name="type"><option value="injustifiee">Injustifiée</option><option value="justifiee">Justifiée</option><option value="retard">Retard</option><option value="maladie">Maladie</option><option value="autre">Autre</option></select></div>
-<div class="form-group"><label>Durée</label><select name="duree"><option value="journee">Journée entière</option><option value="demi_journee">½ journée</option><option value="heure">Heure(s)</option></select></div></div>
-<div class="form-group"><label>Motif</label><input type="text" name="motif" placeholder="Motif de l'absence..."></div>
+{% if is_rh %}<div class="form-group"><label>Employé *</label><select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.first_name }} {{ e.last_name }}</option>{% endfor %}</select></div>{% endif %}
+<div class="form-row"><div class="form-group"><label>Date *</label><input type="date" name="date" required></div>
+<div class="form-group"><label>Type</label><select name="type"><option value="injustifiee">Injustifiée</option><option value="justifiee">Justifiée</option><option value="retard">Retard</option><option value="maladie">Maladie</option><option value="autre">Autre</option></select></div></div>
+<div class="form-row"><div class="form-group"><label>Durée</label><select name="duree"><option value="journee">Journée entière</option><option value="demi_journee">½ journée</option><option value="heure">Heure(s)</option></select></div>
+<div class="form-group"><label>Motif *</label><input type="text" name="motif" required placeholder="Motif..."></div></div>
 <div class="form-group"><label><input type="checkbox" name="justificatif" value="1"> Justificatif fourni</label></div>
 <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
 </form></div></div>
-
 {% else %}
-<!-- ============ CONGES ============ -->
 <div class="page-header"><h1>🏖️ Gestion des congés</h1></div>
 <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
     {% for t,l in [('en_attente','⏳ En attente'),('approuve','✅ Approuvés'),('refuse','❌ Refusés'),('all','📋 Tous')] %}
@@ -46,11 +41,10 @@
 {% if leaves %}<div class="table-wrap"><table>
 <thead><tr><th>Employé</th><th>Type</th><th>Du</th><th>Au</th><th>Jours</th><th>Motif</th><th>Statut</th><th>Actions</th></tr></thead>
 <tbody>{% for l in leaves %}<tr>
-<td><strong>{{ l.employee_name }}</strong></td>
-<td>{{ l.leave_type }}</td><td>{{ l.start_date }}</td><td>{{ l.end_date }}</td><td>{{ l.days }}</td>
+<td><strong>{{ l.employee_name }}</strong></td><td>{{ l.leave_type }}</td><td>{{ l.start_date }}</td><td>{{ l.end_date }}</td><td>{{ l.days }}</td>
 <td style="font-size:12px">{{ l.reason or '-' }}</td>
 <td>{% if l.status=='en_attente' %}<span class="badge-status pending">⏳</span>{% elif l.status=='approuve' %}<span class="badge-status sent">✅</span>{% else %}<span class="badge-status" style="background:#fde8e8;color:#c53030">❌</span>{% endif %}</td>
-<td>{% if l.status=='en_attente' %}<a href="/rh/conges/approve/{{ l.id }}/approuve" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅</a><a href="/rh/conges/approve/{{ l.id }}/refuse" class="btn btn-danger btn-sm">❌</a>{% endif %}</td>
+<td>{% if l.status=='en_attente' %}<a href="/rh/conges/approve/{{ l.id }}/approuve" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅</a> <a href="/rh/conges/approve/{{ l.id }}/refuse" class="btn btn-danger btn-sm">❌</a>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune demande</p>{% endif %}
 </div></div>

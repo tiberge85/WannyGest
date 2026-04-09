@@ -108,54 +108,58 @@
         .modal-bg.active{display:flex}
         .modal{background:#fff;border-radius:14px;padding:24px;width:520px;max-width:90%;max-height:80vh;overflow-y:auto}
         .modal h3{font-size:17px;color:#1a3a5c;margin-bottom:14px}
-        @media(max-width:1024px){
-            .main{padding:16px}
-        }
+        .rg{display:grid}
+        @media(max-width:1024px){.main{padding:16px}}
         @media(max-width:768px){
-            body{display:block}
-            .sidebar{transform:translateX(-260px);transition:transform 0.3s}
+            body{display:block!important}
+            .sidebar{transform:translateX(-260px);transition:transform 0.3s;position:fixed}
             .sidebar.open{transform:translateX(0)}
-            .main{margin-left:0;padding:12px 10px;min-height:100vh}
-            .stats-grid{grid-template-columns:1fr 1fr}
-            .form-row{flex-direction:column;gap:0}
-            .page-header{flex-direction:column;align-items:flex-start;gap:6px}
+            .main{margin-left:0!important;padding:12px 8px!important;min-height:100vh;width:100%!important}
+            .stats-grid{grid-template-columns:1fr 1fr!important}
+            .form-row{flex-direction:column!important;gap:0}
+            .page-header{flex-direction:column!important;align-items:flex-start!important;gap:6px}
             .page-header h1{font-size:16px}
             .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-            .table-wrap table{min-width:600px;font-size:12px}
-            .card{border-radius:8px;margin-bottom:12px}
-            .card-header{padding:10px 14px;flex-wrap:wrap;gap:6px}
-            .card-body{padding:12px}
-            .mobile-toggle{display:block!important;position:fixed;top:10px;left:10px;z-index:150;background:#1a3a5c;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3)}
+            .table-wrap table{min-width:480px;font-size:11px}
+            th,td{padding:5px 6px}
+            .card{border-radius:8px;margin-bottom:10px}
+            .card-header{padding:10px 12px;flex-wrap:wrap;gap:6px}
+            .card-body{padding:10px}
+            .mobile-toggle{display:block!important;position:fixed;top:8px;left:8px;z-index:150;background:#1a3a5c;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.3)}
             .mobile-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:99}
             .mobile-overlay.open{display:block}
-            .modal{max-width:95vw!important;max-height:85vh;overflow-y:auto;padding:16px}
-            .modal h3{font-size:15px}
-            .f3{grid-template-columns:1fr 1fr!important}
-            .f2{grid-template-columns:1fr!important}
-            .emp-tabs{overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch;gap:0!important}
-            .emp-tab{white-space:nowrap;flex-shrink:0;padding:8px 12px!important;font-size:11px!important}
-            .chat-app{flex-direction:column;height:auto;min-height:80vh}
-            .chat-sb{width:100%!important;max-height:35vh;border-right:none;border-bottom:1px solid #e8e8e8}
-            .chat-msgs{min-height:35vh;padding:10px 16px!important}
-            .chat-in{padding:6px 8px!important}
-            .kanban{grid-template-columns:1fr 1fr!important}
-            #championBanner{flex-direction:column;text-align:center;gap:8px;padding:12px!important}
-            .stat-card{padding:12px!important}
-            .stat-info .stat-num{font-size:20px}
-            .btn{padding:6px 12px;font-size:12px}
-            .btn-sm{padding:4px 8px;font-size:11px}
-            .upload-zone{padding:12px}
+            .modal-bg{align-items:flex-start!important;padding:12px!important}
+            .modal{max-width:96vw!important;max-height:88vh;overflow-y:auto;padding:12px!important;width:96vw!important}
+            .modal h3{font-size:14px}
+            .emp-tabs{overflow-x:auto!important;-webkit-overflow-scrolling:touch;display:flex!important;flex-wrap:nowrap!important}
+            .emp-tab{flex-shrink:0!important;padding:7px 10px!important;font-size:10px!important}
+            .chat-app{flex-direction:column!important;height:auto!important}
+            .chat-sb{width:100%!important;max-height:35vh;border-right:none!important}
+            .kanban{grid-template-columns:1fr!important}
+            #championBanner{flex-direction:column!important;text-align:center;gap:6px;padding:10px!important}
+            .stat-card{padding:10px!important}
+            .stat-info .stat-num{font-size:18px}
+            .btn{padding:5px 10px;font-size:11px}
+            .btn-sm{padding:3px 6px;font-size:10px}
+            .upload-zone{padding:10px}
+            .step{margin-bottom:10px;padding-bottom:10px}
+            .sidebar-nav a{padding:8px 14px;font-size:12px}
+            /* Force ALL inline grids to stack */
+            [style*="grid-template-columns"]{grid-template-columns:1fr 1fr!important}
+            [style*="display:grid"][style*="repeat(5"]{grid-template-columns:1fr 1fr!important}
+            [style*="display:grid"][style*="repeat(4"]{grid-template-columns:1fr 1fr!important}
+            [style*="display:grid"][style*="repeat(3"]{grid-template-columns:1fr 1fr!important}
+            [style*="display:flex"][style*="gap"]{flex-wrap:wrap!important}
+            [style*="display:grid"][style*="1fr 1fr;gap:14px"]{grid-template-columns:1fr!important}
         }
         @media(max-width:480px){
-            .stats-grid{grid-template-columns:1fr}
-            .main{padding:8px 6px}
-            .f3{grid-template-columns:1fr!important}
-            .kanban{grid-template-columns:1fr!important}
-            .chat-sb{max-height:30vh}
-            table{font-size:11px}
-            th,td{padding:6px 8px}
+            .stats-grid{grid-template-columns:1fr!important}
+            .main{padding:6px 4px!important}
+            table{font-size:10px}
+            th,td{padding:5px 6px}
             .page-header h1{font-size:14px}
             .sidebar{width:240px}
+            .btn-block{font-size:13px!important;padding:10px!important}
         }
     </style>
 </head>
@@ -243,7 +247,7 @@
                     <a href="/rh/personnel" class="{% if page == 'personnel' %}active{% endif %}">Personnel</a>
                     <a href="/rh/postes" class="{% if page == 'postes' %}active{% endif %}">Descriptions d'emploi</a>
                     <a href="/rh/conges" class="{% if page == 'conges' %}active{% endif %}">Congés</a>
-                    <a href="/rh/absences" class="{% if page == 'absences' %}active{% endif %}">Absences</a>
+                    <a href="/rh/absences" class="{% if page == 'absences' %}active{% endif %}">Absences{% if pending_absences %} <span class="badge">{{ pending_absences }}</span>{% endif %}</a>
                     <a href="/rh/paie" class="{% if page == 'paie' %}active{% endif %}">Paie</a>
                     <a href="/rh/formations" class="{% if page == 'formations' %}active{% endif %}">Formations</a>
                     <a href="/rh/contrats-rh" class="{% if page == 'contrats_rh' %}active{% endif %}">Contrats personnel</a>
@@ -338,8 +342,8 @@
         <div class="flash {{ category }}">{{ message }}</div>
         {% endfor %}{% endif %}{% endwith %}
         
-        {% if weekly_champion and show_champion %}
-        <div id="championBanner" style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 40%,#0f3460 100%);border-radius:14px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.15);flex-wrap:wrap">
+        {% if weekly_champion %}
+        <div id="championBanner" style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 40%,#0f3460 100%);border-radius:14px;padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.15);flex-wrap:wrap">
             <div style="position:absolute;top:-20px;right:-10px;font-size:80px;opacity:0.08;transform:rotate(15deg)">🏆</div>
             <div style="min-width:48px;height:48px;background:linear-gradient(135deg,#B8860B,#DAA520);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 4px 12px rgba(184,134,11,0.4)">🏆</div>
             <div style="flex:1;min-width:150px">
@@ -350,41 +354,36 @@
             <div style="text-align:center;min-width:60px"><div style="font-size:24px;font-weight:900;color:#DAA520">{{ weekly_champion.nb_rapports }}</div><div style="font-size:9px;color:#8899aa">rapports</div></div>
             <div style="text-align:center;min-width:60px"><div style="font-size:18px;font-weight:800;color:#2ecc71">{{ weekly_champion.avg_completion|int }}%</div><div style="font-size:9px;color:#8899aa">réalisation</div></div>
             <a href="/rapports-journaliers/assiduite" style="padding:5px 12px;background:linear-gradient(135deg,#B8860B,#DAA520);color:#1a1a2e;border-radius:8px;font-size:10px;font-weight:700;text-decoration:none;white-space:nowrap">Voir le classement →</a>
-            {% if 'admin' in permissions %}
-            <a href="/admin/toggle-champion" style="position:absolute;top:6px;right:8px;color:#555;font-size:12px;text-decoration:none" title="Masquer le champion">✕</a>
-            {% endif %}
         </div>
-        {% elif not show_champion and 'dashboard_general' in permissions %}
-        <!-- Ticker appels d'offres -->
-        <div style="background:linear-gradient(135deg,#0d1b2a,#1b2838);border-radius:10px;padding:8px 16px;margin-bottom:14px;overflow:hidden;position:relative">
+        {% endif %}
+        {% if 'dashboard_general' in permissions %}
+        <!-- Ticker appels d'offres — toujours visible -->
+        <div style="background:linear-gradient(135deg,#0d1b2a,#1b2838);border-radius:10px;padding:6px 14px;margin-bottom:14px;overflow:hidden">
             <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:14px;flex-shrink:0">📡</span>
+                <span style="font-size:12px;flex-shrink:0">📡</span>
                 <div style="overflow:hidden;flex:1;white-space:nowrap">
-                    <div style="display:inline-block;animation:ticker {{ (active_tenders|length * 8 + 30)|int }}s linear infinite;white-space:nowrap">
-                        <span style="color:#DAA520;font-size:11px;font-weight:600;margin-right:40px">🔔 Appels d'offres sécurité électronique — En cours de validité</span>
+                    <div style="display:inline-block;animation:ticker {{ (active_tenders|length * 8 + 35)|int }}s linear infinite;white-space:nowrap">
+                        <span style="color:#DAA520;font-size:10px;font-weight:600;margin-right:40px">🔔 Appels d'offres sécurité électronique</span>
                         {% if active_tenders %}
                         {% for t in active_tenders %}
-                        <a href="{{ t.url }}" target="_blank" style="color:#4fc3f7;font-size:11px;text-decoration:none;margin-right:40px">📋 {{ t.title }}{% if t.source %} — {{ t.source }}{% endif %}{% if t.deadline %} ⏰ {{ t.deadline }}{% endif %}</a>
+                        <a href="{{ t.url }}" target="_blank" style="color:#4fc3f7;font-size:10px;text-decoration:none;margin-right:40px">📋 {{ t.title }}{% if t.source %} — {{ t.source }}{% endif %}{% if t.deadline %} ⏰ {{ t.deadline }}{% endif %}</a>
                         {% endfor %}
                         {% endif %}
-                        <a href="https://sigomap.gouv.ci/" target="_blank" style="color:#aaa;font-size:11px;text-decoration:none;margin-right:40px">🌐 SIGOMAP — Marchés publics CI</a>
-                        <a href="https://www.marchespublics.ci/appel_offre" target="_blank" style="color:#aaa;font-size:11px;text-decoration:none;margin-right:40px">🌐 DGMP — Appels d'offres</a>
-                        <a href="https://arcop.ci/" target="_blank" style="color:#aaa;font-size:11px;text-decoration:none;margin-right:40px">🌐 ARCOP CI</a>
-                        <a href="https://www.bceao.int/fr/appels-offres/appels-offres-marches-publics-achats" target="_blank" style="color:#aaa;font-size:11px;text-decoration:none;margin-right:40px">🌐 BCEAO Appels d'offres</a>
-                        <a href="https://www.j360.info/appels-d-offres/afrique/cote-divoire/" target="_blank" style="color:#aaa;font-size:11px;text-decoration:none;margin-right:40px">🌐 J360 — CI Tenders</a>
+                        <a href="https://sigomap.gouv.ci/" target="_blank" style="color:#aaa;font-size:10px;text-decoration:none;margin-right:40px">🌐 SIGOMAP</a>
+                        <a href="https://www.marchespublics.ci/appel_offre" target="_blank" style="color:#aaa;font-size:10px;text-decoration:none;margin-right:40px">🌐 DGMP</a>
+                        <a href="https://arcop.ci/" target="_blank" style="color:#aaa;font-size:10px;text-decoration:none;margin-right:40px">🌐 ARCOP</a>
+                        <a href="https://www.bceao.int/fr/appels-offres/appels-offres-marches-publics-achats" target="_blank" style="color:#aaa;font-size:10px;text-decoration:none;margin-right:40px">🌐 BCEAO</a>
                         {% if not active_tenders %}
-                        <span style="color:#888;font-size:11px;margin-right:40px">Aucun appel d'offres ajouté — <a href="/admin/appels-offres" style="color:#DAA520">Ajouter →</a></span>
+                        <span style="color:#888;font-size:10px;margin-right:40px">Aucun appel d'offres — <a href="/admin/appels-offres" style="color:#DAA520">Ajouter →</a></span>
                         {% endif %}
-                        <!-- Duplicate for seamless loop -->
-                        <span style="color:#DAA520;font-size:11px;font-weight:600;margin-right:40px">🔔 Appels d'offres sécurité électronique</span>
+                        <span style="color:#DAA520;font-size:10px;font-weight:600;margin-right:40px">🔔 Appels d'offres sécurité électronique</span>
                         {% for t in active_tenders %}
-                        <a href="{{ t.url }}" target="_blank" style="color:#4fc3f7;font-size:11px;text-decoration:none;margin-right:40px">📋 {{ t.title }}{% if t.deadline %} ⏰ {{ t.deadline }}{% endif %}</a>
+                        <a href="{{ t.url }}" target="_blank" style="color:#4fc3f7;font-size:10px;text-decoration:none;margin-right:40px">📋 {{ t.title }}{% if t.deadline %} ⏰ {{ t.deadline }}{% endif %}</a>
                         {% endfor %}
                     </div>
                 </div>
                 {% if 'admin' in permissions %}
-                <a href="/admin/appels-offres" style="color:#DAA520;font-size:10px;text-decoration:none;flex-shrink:0" title="Gérer">⚙️</a>
-                <a href="/admin/toggle-champion" style="color:#888;font-size:10px;text-decoration:none;flex-shrink:0;margin-left:4px" title="Réactiver champion">🏆</a>
+                <a href="/admin/appels-offres" style="color:#DAA520;font-size:10px;text-decoration:none;flex-shrink:0">⚙️</a>
                 {% endif %}
             </div>
         </div>
@@ -528,5 +527,25 @@
     @keyframes btnPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
     </style>
     {% endif %}
+<script>
+// Force responsive grids on mobile
+function fixMobileGrids(){
+    if(window.innerWidth<=768){
+        document.querySelectorAll('[style]').forEach(function(el){
+            var s=el.style;
+            if(s.gridTemplateColumns && s.gridTemplateColumns.indexOf('repeat')>=0){
+                var cols=parseInt(s.gridTemplateColumns.match(/repeat\((\d+)/)?.[1]||0);
+                if(cols>=4) s.gridTemplateColumns='repeat(2,1fr)';
+                if(cols>=3 && window.innerWidth<=480) s.gridTemplateColumns='1fr';
+            }
+            if(s.gridTemplateColumns==='1fr 1fr' && s.gap && parseInt(s.gap)>=14){
+                s.gridTemplateColumns='1fr';
+            }
+        });
+    }
+}
+fixMobileGrids();
+window.addEventListener('resize',fixMobileGrids);
+</script>
 </body>
 </html>
