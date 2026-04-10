@@ -281,6 +281,14 @@ def internal_error(e):
     traceback.print_exc()
     return f"<h1>Erreur serveur</h1><p>{str(e)}</p><a href='/'>Retour</a>", 500
 
+@app.after_request
+def add_no_cache(response):
+    if 'text/html' in response.content_type:
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 @app.errorhandler(404)
 def not_found(e):
     return f"<h1>Page non trouvée</h1><a href='/'>Retour à l'accueil</a>", 404
