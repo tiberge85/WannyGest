@@ -4,14 +4,14 @@
 <div class="page-header"><h1>💰 Comptabilité</h1><p>Suivi financier</p></div>
 
 <!-- Dashboard financier -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+<div class="g4" style="margin-bottom:16px">
     <div class="stat-card"><div class="stat-icon green">💵</div><div class="stat-info"><div class="stat-num" style="color:#2e7d32">{{ '{:,.0f}'.format(chart.total_revenue) }}</div><div class="stat-label">Revenus encaissés (F)</div></div></div>
     <div class="stat-card"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-num" style="color:#e8672a">{{ '{:,.0f}'.format(chart.total_pending) }}</div><div class="stat-label">En attente (F)</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:#fde8e8;color:#c53030">📉</div><div class="stat-info"><div class="stat-num" style="color:#c53030">{{ '{:,.0f}'.format(chart.total_expenses) }}</div><div class="stat-label">Dépenses (F)</div></div></div>
     <div class="stat-card"><div class="stat-icon {% if chart.profit >= 0 %}green{% else %}orange{% endif %}">{% if chart.profit >= 0 %}📈{% else %}📉{% endif %}</div><div class="stat-info"><div class="stat-num" style="color:{% if chart.profit >= 0 %}#2e7d32{% else %}#c53030{% endif %}">{{ '{:,.0f}'.format(chart.profit) }}</div><div class="stat-label">Bénéfice net (F)</div></div></div>
 </div>
 
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:16px">
+<div class="g21" style="margin-bottom:16px">
     <div class="card"><div class="card-header"><h3>📊 Revenus vs Dépenses</h3></div><div class="card-body" style="height:220px"><canvas id="revenueChart"></canvas></div></div>
     <div class="card"><div class="card-header"><h3>🥧 Dépenses par catégorie</h3></div><div class="card-body" style="height:220px"><canvas id="expenseChart"></canvas></div></div>
 </div>

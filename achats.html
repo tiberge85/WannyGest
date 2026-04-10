@@ -141,7 +141,7 @@
 
 {% elif tab == 'rapports' %}
 <div class="card"><div class="card-header"><h3>📊 Rapport achats</h3></div><div class="card-body">
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+<div class="g3" style="margin-bottom:16px">
     <div style="padding:16px;background:#f8faf9;border-radius:10px;text-align:center"><div style="font-size:22px;font-weight:800;color:#1a7a6d">{{ fournisseurs|length }}</div><div style="font-size:11px;color:#555">Fournisseurs actifs</div></div>
     <div style="padding:16px;background:#fff3e0;border-radius:10px;text-align:center"><div style="font-size:22px;font-weight:800;color:#e8672a">{{ commandes|length }}</div><div style="font-size:11px;color:#555">Commandes passées</div></div>
     <div style="padding:16px;background:#e3f2fd;border-radius:10px;text-align:center"><div style="font-size:22px;font-weight:800;color:#1565c0">{{ '{:,.0f}'.format(total_commandes) }} F</div><div style="font-size:11px;color:#555">Total achats</div></div>

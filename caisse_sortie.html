@@ -42,7 +42,7 @@
 
 {% else %}
 <!-- SORTIES -->
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+<div class="g4" style="margin-bottom:14px">
     <div style="background:#fafbfc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e8e8e8"><div style="font-size:22px;font-weight:700;color:#6b7280">{{ stats.en_attente }}</div><div style="font-size:10px;color:#aaa">En attente</div></div>
     <div style="background:#fafbfc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e8e8e8"><div style="font-size:22px;font-weight:700;color:#6b7280">{{ stats.valide }}</div><div style="font-size:10px;color:#aaa">Validées</div></div>
     <div style="background:#fafbfc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e8e8e8"><div style="font-size:22px;font-weight:700;color:#6b7280">{{ stats.refuse }}</div><div style="font-size:10px;color:#aaa">Refusées</div></div>

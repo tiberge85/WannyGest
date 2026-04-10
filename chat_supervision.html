@@ -1,14 +1,14 @@
 {% extends "base.html" %}{% block title %}WannyGest - Supervision Chat{% endblock %}{% block content %}
 <div class="page-header"><h1>📊 Supervision Chat</h1><a href="/chat" class="btn btn-outline btn-sm">← Chat</a></div>
 
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+<div class="g4" style="margin-bottom:16px">
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #1565c0"><div style="font-size:28px;font-weight:800;color:#1565c0">{{ stats.total_messages }}</div><div style="font-size:10px;color:#888">Messages total</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #2e7d32"><div style="font-size:28px;font-weight:800;color:#2e7d32">{{ stats.today }}</div><div style="font-size:10px;color:#888">Aujourd'hui</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #e8672a"><div style="font-size:28px;font-weight:800;color:#e8672a">{{ stats.active_users }}</div><div style="font-size:10px;color:#888">Utilisateurs actifs (24h)</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #c53030"><div style="font-size:28px;font-weight:800;color:#c53030">{{ stats.unread_total }}</div><div style="font-size:10px;color:#888">Non lus</div></div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+<div class="g2g">
 <div class="card"><div class="card-header"><h3>👥 Activité par utilisateur</h3></div><div class="card-body" style="padding:0">
 {% for u in user_stats %}
 <div style="padding:8px 14px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:10px;font-size:12px">

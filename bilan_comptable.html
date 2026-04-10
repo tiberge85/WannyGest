@@ -20,12 +20,12 @@
 
 {% if tab == 'mensuel' and data %}
 <!-- MONTHLY VIEW -->
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+<div class="g3" style="margin-bottom:14px">
     <div class="card" style="text-align:center;padding:14px;border-left:4px solid #2e7d32"><div style="font-size:10px;color:#888">ENTREES</div><div style="font-size:22px;font-weight:800;color:#2e7d32">{{ '{:,.0f}'.format(data.total_entrees) }} F</div></div>
     <div class="card" style="text-align:center;padding:14px;border-left:4px solid #c53030"><div style="font-size:10px;color:#888">SORTIES</div><div style="font-size:22px;font-weight:800;color:#c53030">{{ '{:,.0f}'.format(data.total_sorties) }} F</div></div>
     <div class="card" style="text-align:center;padding:14px;border-left:4px solid {% if data.solde >= 0 %}#2e7d32{% else %}#c53030{% endif %}"><div style="font-size:10px;color:#888">SOLDE</div><div style="font-size:22px;font-weight:800;color:{% if data.solde >= 0 %}#2e7d32{% else %}#c53030{% endif %}">{{ '{:,.0f}'.format(data.solde) }} F</div></div>
 </div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+<div class="g2" style="margin-bottom:12px">
     <div class="card"><div class="card-header"><h3 style="color:#2e7d32">📈 Entrées</h3></div><div class="card-body">
     <table style="width:100%;font-size:12px">
     {% for label, val in [('Factures payées', data.factures_payees), ('Entrées caisse', data.caisse_entrees), ('Recettes banque', data.treso_recettes)] %}
@@ -100,7 +100,7 @@
 {% if bilan.equilibre %}<span class="badge-status sent" style="font-size:12px">✓ ÉQUILIBRE VÉRIFIÉ</span>{% else %}<span class="badge-status" style="font-size:12px;background:#fde8e8;color:#c53030">⚠ ÉCART DÉTECTÉ</span>{% endif %}
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+<div class="g2" style="margin-bottom:14px">
 <!-- ACTIF -->
 <div class="card"><div class="card-header" style="background:#e3f2fd"><h3 style="color:#1565c0">ACTIF</h3></div><div class="card-body" style="padding:0"><div class="table-wrap"><table style="font-size:12px">
 <thead><tr style="background:#4472C4;color:#fff"><th>N°</th><th>Libellé</th><th style="text-align:right">Montant</th></tr></thead>
@@ -129,7 +129,7 @@
 
 <!-- Résultat -->
 <div class="card" style="margin-bottom:12px"><div class="card-body">
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
+<div class="g3" style="text-align:center">
     <div><div style="font-size:10px;color:#888">Produits (classe 7)</div><div style="font-size:20px;font-weight:700;color:#2e7d32">{{ '{:,.0f}'.format(bilan.t_produits) }} F</div></div>
     <div><div style="font-size:10px;color:#888">Charges (classe 6)</div><div style="font-size:20px;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(bilan.t_charges) }} F</div></div>
     <div><div style="font-size:10px;color:#888">Résultat net</div><div style="font-size:20px;font-weight:700;color:{% if bilan.resultat >= 0 %}#2e7d32{% else %}#c53030{% endif %}">{{ '{:,.0f}'.format(bilan.resultat) }} F</div></div>

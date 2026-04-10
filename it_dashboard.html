@@ -1,14 +1,14 @@
 {% extends "base.html" %}{% block title %}WannyGest - IT{% endblock %}{% block content %}
 <div class="page-header"><h1>🖥️ Dashboard IT</h1></div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+<div class="g4" style="margin-bottom:16px">
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #1565c0"><div style="font-size:28px;font-weight:800;color:#1565c0">{{ equip_total }}</div><div style="font-size:10px;color:#888">Équipements</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #2e7d32"><div style="font-size:28px;font-weight:800;color:#2e7d32">{{ equip_actif }}</div><div style="font-size:10px;color:#888">Actifs</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #e8672a"><div style="font-size:28px;font-weight:800;color:#e8672a">{{ tickets_open }}</div><div style="font-size:10px;color:#888">Tickets ouverts</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #2e7d32"><div style="font-size:28px;font-weight:800;color:#2e7d32">{{ tickets_resolved }}</div><div style="font-size:10px;color:#888">Résolus</div></div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
+<div class="g2g">
 <div class="card"><div class="card-header"><h3>🛠️ Tickets récents</h3></div><div class="card-body" style="padding:0">
 {% if tickets_recent %}
 {% for t in tickets_recent %}

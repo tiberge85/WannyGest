@@ -15,7 +15,7 @@
 </div>
 
 <!-- 3 columns: Factures / Devis / Visites -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+<div class="g3" style="margin-bottom:16px">
     <div class="card"><div class="card-header"><h3>Aperçu des factures</h3></div><div class="card-body" style="font-size:12px">
         <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0f0f0"><span>{{ inv_stats.a_envoyer }} Non envoyé</span><div style="background:#42a5f5;height:8px;width:{{ [inv_stats.a_envoyer * 5, 100] | min }}px;border-radius:4px"></div></div>
         <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0f0f0;color:#c53030"><span>{{ inv_stats.en_attente_paiement }} Impayée</span><div style="background:#ef5350;height:8px;width:{{ [inv_stats.en_attente_paiement * 5, 100] | min }}px;border-radius:4px"></div></div>
@@ -33,7 +33,7 @@
 </div>
 
 <!-- Charts row -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+<div class="g2g" style="margin-bottom:16px">
     <div class="card"><div class="card-header"><h3>📊 Factures</h3></div><div class="card-body" style="height:200px"><canvas id="c1"></canvas></div></div>
     <div class="card"><div class="card-header"><h3>📈 Commercial</h3></div><div class="card-body" style="height:200px"><canvas id="c2"></canvas></div></div>
 </div>

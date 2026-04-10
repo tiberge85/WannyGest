@@ -6,18 +6,18 @@
 <!-- EDIT FORM -->
 <div class="card" style="margin-bottom:14px;border-left:4px solid #e8672a"><div class="card-header"><h3>✏️ Modifier le contrat #{{ edit_contract.id }}</h3></div><div class="card-body">
 <form method="post" action="/rh/contrats-rh/edit/{{ edit_contract.id }}">
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div class="g3">
         <div class="form-group"><label>Code contrat</label><input type="text" name="code" value="{{ edit_contract.code or '' }}"></div>
         <div class="form-group"><label>Employé</label><select name="employee_id">{% for e in employees %}<option value="{{ e.id }}" {% if e.id == edit_contract.employee_id %}selected{% endif %}>{{ e.first_name }} {{ e.last_name }}</option>{% endfor %}</select></div>
         <div class="form-group"><label>Type</label><select name="contract_type">{% for t in ['CDI','CDD','Stage','Freelance','Intérim'] %}<option {% if edit_contract.contract_type==t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+    <div class="g4">
         <div class="form-group"><label>Début validité</label><input type="date" name="start_date" value="{{ edit_contract.start_date or '' }}"></div>
         <div class="form-group"><label>Fin validité</label><input type="date" name="end_date" value="{{ edit_contract.end_date or '' }}"></div>
         <div class="form-group"><label>Date signature</label><input type="date" name="signature_date" value="{{ edit_contract.signature_date or '' }}"></div>
         <div class="form-group"><label>Statut</label><select name="status">{% for s in ['actif','expiré','résilié','terminé'] %}<option {% if edit_contract.status==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="g2">
         <div class="form-group"><label>Département</label><input type="text" name="department" value="{{ edit_contract.department or '' }}"></div>
         <div class="form-group"><label>Salaire (FCFA)</label><input type="number" name="salary" step="1" value="{{ edit_contract.salary or 0 }}"></div>
     </div>
@@ -56,16 +56,16 @@
 <!-- ADD MODAL -->
 <div class="modal-bg" id="addC"><div class="modal" style="max-width:650px"><h3>+ Nouveau contrat</h3>
 <form method="post" action="/rh/contrats-rh/add">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="g2">
         <div class="form-group"><label>Employé *</label><select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.first_name }} {{ e.last_name }}</option>{% endfor %}</select></div>
         <div class="form-group"><label>Code contrat</label><input type="text" name="code" placeholder="CDI-2026-001"></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div class="g3">
         <div class="form-group"><label>Type</label><select name="contract_type"><option>CDI</option><option>CDD</option><option>Stage</option><option>Freelance</option><option>Intérim</option></select></div>
         <div class="form-group"><label>Début validité</label><input type="date" name="start_date"></div>
         <div class="form-group"><label>Fin validité</label><input type="date" name="end_date"></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div class="g3">
         <div class="form-group"><label>Département</label><input type="text" name="department"></div>
         <div class="form-group"><label>Salaire (FCFA)</label><input type="number" name="salary" step="1" value="0"></div>
         <div class="form-group"><label>Date signature</label><input type="date" name="signature_date"></div>

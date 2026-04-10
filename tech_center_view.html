@@ -29,7 +29,7 @@
         <div id="tab-profil">
             <h3 style="font-size:14px;margin-bottom:12px">Informations Générales</h3>
             <form method="post" action="/centre-technique/edit/{{ system.id }}">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px">
+            <div class="g2" style="gap:0 20px">
                 <div class="info-field"><label>Nom de code</label><input type="text" name="client_name" value="{{ system.client_name }}" style="width:100%"></div>
                 <div class="info-field"><label>Code</label><input type="text" name="code" value="{{ system.code or '' }}" style="width:100%"></div>
                 <div class="info-field"><label>Téléphone</label><input type="text" name="tel" value="{{ system.tel or '' }}" style="width:100%"></div>
@@ -59,7 +59,7 @@
         <!-- MAINTENANCE TAB -->
         <div id="tab-maintenance" style="display:none">
             <h3 style="font-size:14px;margin-bottom:12px">🔧 Historique de maintenance</h3>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div class="g2" style="margin-bottom:16px">
                 <div style="padding:12px;background:#f8faf9;border-radius:8px"><div style="font-size:10px;color:#888">Dernière maintenance</div><div style="font-size:14px;font-weight:700;color:#1a7a6d">{{ system.last_maintenance or 'Aucune' }}</div></div>
                 <div style="padding:12px;background:#f8faf9;border-radius:8px"><div style="font-size:10px;color:#888">Prochaine</div><div style="font-size:14px;font-weight:700;color:#e8672a">{{ system.next_maintenance or 'Non planifiée' }}</div></div>
             </div>

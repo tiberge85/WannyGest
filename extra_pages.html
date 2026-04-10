@@ -154,7 +154,7 @@
 </div>
 
 <!-- Finance section -->
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+<div class="g3" style="margin-bottom:16px">
     <div style="background:linear-gradient(135deg,#1a3a5c,#2a5a8c);border-radius:12px;padding:18px;color:#fff">
         <div style="font-size:11px;opacity:0.7">CA facturé</div>
         <div style="font-size:26px;font-weight:800">{{ '{:,.0f}'.format(s.montant_facture) }}</div>
@@ -173,7 +173,7 @@
 </div>
 
 <!-- Charts row -->
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:16px">
+<div class="g21" style="margin-bottom:16px">
 <div class="card"><div class="card-header"><h3>💰 Vue financière</h3></div><div class="card-body">
 <div style="height:220px"><canvas id="cFin"></canvas></div>
 </div></div>
@@ -190,7 +190,7 @@
 </div>
 
 <!-- RH + Trésorerie -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+<div class="g2g" style="margin-bottom:16px">
 <div class="card"><div class="card-header"><h3>👥 Ressources humaines</h3></div><div class="card-body" style="font-size:13px">
     <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0"><span>Effectif total</span><strong>{{ s.employes }}</strong></div>
     <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0"><span>Masse salariale</span><strong>{{ '{:,.0f}'.format(s.masse_salariale) }} F</strong></div>
@@ -203,7 +203,7 @@
 </div>
 
 <div class="card" style="margin-bottom:16px"><div class="card-header"><h3>📊 Indicateurs de performance</h3></div><div class="card-body">
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
+<div class="rg" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
     <div style="padding:12px;background:#f8faf9;border-radius:8px">
         <div style="font-size:24px;font-weight:800;color:#1a3a5c">{{ (s.devis_acceptes*100//(s.devis_total or 1)) }}%</div>
         <div style="font-size:11px;color:#888">Taux conversion devis</div>

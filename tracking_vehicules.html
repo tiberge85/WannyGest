@@ -25,34 +25,34 @@
 <div class="modal-bg" id="addV"><div class="modal" style="max-width:700px"><h3>🚗 Ajouter un véhicule</h3>
 <form method="post" action="/tracking/vehicules/add">
     <h4 style="font-size:12px;color:#1a7a6d;margin:10px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">Véhicule</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+    <div class="rg" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
         <div class="form-group"><label>Immatriculation *</label><input type="text" name="immatriculation" required placeholder="1234 AB 01"></div>
         <div class="form-group"><label>Marque</label><input type="text" name="marque" placeholder="Toyota, Hyundai..."></div>
         <div class="form-group"><label>Modèle</label><input type="text" name="modele" placeholder="Hilux, Tucson..."></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+    <div class="rg" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
         <div class="form-group"><label>Type</label><select name="type"><option>voiture</option><option>camion</option><option>moto</option><option>engin</option><option>bus</option></select></div>
         <div class="form-group"><label>Couleur</label><input type="text" name="couleur"></div>
         <div class="form-group"><label>Année</label><input type="text" name="annee" placeholder="2024"></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div class="rg" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="form-group"><label>Propriétaire</label><input type="text" name="proprietaire"></div>
         <div class="form-group"><label>Tél propriétaire</label><input type="text" name="tel_proprietaire"></div>
     </div>
     
     <h4 style="font-size:12px;color:#1a7a6d;margin:14px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">📡 Balise GPS</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+    <div class="rg" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
         <div class="form-group"><label>Marque balise</label><select name="gps_brand"><option>Concox</option><option>Coban</option><option>Queclink</option><option>Teltonika</option><option>Autre</option></select></div>
         <div class="form-group"><label>Modèle</label><input type="text" name="gps_model" placeholder="GT06N, JM-VL01..."></div>
         <div class="form-group"><label>Device ID</label><input type="text" name="gps_device_id" placeholder="ID unique balise"></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div class="rg" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="form-group"><label>N° SIM</label><input type="text" name="gps_sim" placeholder="N° carte SIM"></div>
         <div class="form-group"><label>IMEI</label><input type="text" name="gps_imei" placeholder="IMEI de la balise"></div>
     </div>
     
     <h4 style="font-size:12px;color:#1a7a6d;margin:14px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">🔧 Installation</h4>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div class="rg" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="form-group"><label>Date d'installation</label><input type="date" name="installation_date"></div>
         <div class="form-group"><label>Technicien installateur</label><input type="text" name="installation_tech"></div>
     </div>

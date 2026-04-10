@@ -42,7 +42,7 @@
             <span class="badge-status {% if r.status=='valide' %}sent{% elif r.status=='refuse' %}{% else %}pending{% endif %}" style="font-size:10px">{{ r.status }}</span>
         </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
+    <div class="g2" style="font-size:12px">
         {% if r.tasks_done %}<div><strong style="color:#1a7a6d">✅ Réalisé :</strong><br>{{ r.tasks_done }}</div>{% endif %}
         {% if r.tasks_planned %}<div><strong style="color:#e8672a">📋 Prévu demain :</strong><br>{{ r.tasks_planned }}</div>{% endif %}
         {% if r.issues %}<div><strong style="color:#c53030">⚠️ Difficultés :</strong><br>{{ r.issues }}</div>{% endif %}

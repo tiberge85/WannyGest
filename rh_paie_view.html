@@ -1,115 +1,177 @@
 {% extends "base.html" %}{% block title %}WannyGest - Bulletin {{ p.period }}{% endblock %}{% block content %}
 <style>
-.slip{max-width:720px;margin:0 auto;background:#fff;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,0.1);overflow:hidden}
-.slip-head{background:#1a3a5c;color:#fff;padding:18px 20px;display:flex;justify-content:space-between;align-items:center}
-.slip-head h2{font-size:18px;margin:0}.slip-head .period{font-size:13px;opacity:0.8}
-.slip-body{padding:20px}
-.info-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px}
-.info-box{background:#f8faf9;border-radius:8px;padding:10px;font-size:12px}
-.info-box .label{font-size:10px;color:#888;text-transform:uppercase;margin-bottom:2px}.info-box .val{font-weight:600;color:#1a3a5c}
-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px}
-th{padding:7px 10px;text-align:left;font-weight:600}
-td{padding:6px 10px;border-bottom:1px solid #f0f0f0}
-.sec-gains th{background:#e8f5e9;color:#2e7d32}.sec-retenues th{background:#fde8e8;color:#c53030}
-.row-total{background:#f0f4f8;font-weight:700}
-.gain{color:#2e7d32}.retenue{color:#c53030}
-.net-box{background:linear-gradient(135deg,#1a3a5c,#2a5a8c);color:#fff;border-radius:10px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;margin:14px 0}
-.net-box .label{font-size:14px}.net-box .amount{font-size:30px;font-weight:800}
+.slip{max-width:750px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);overflow:hidden}
+.slip-hdr{background:#1A7A6D;color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center}
+.slip-hdr img{height:40px;margin-right:12px}
+.slip-body{padding:18px}
+.emp-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;border:1px solid #ddd;border-radius:8px;margin-bottom:14px;font-size:11px;overflow:hidden}
+.emp-cell{padding:6px 10px;border-bottom:1px solid #eee;border-right:1px solid #eee;background:#f8faf9}
+.emp-cell b{color:#1A7A6D}
+.sec-hdr{padding:6px 10px;font-size:11px;font-weight:700;color:#fff}
+.sec-vert{background:#1A7A6D}.sec-orange{background:#e8672a}
+table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:2px}
+td,th{padding:4px 8px;border-bottom:1px solid #f0f0f0}
+th{text-align:left;font-weight:600}
+.tr-total{background:#f0f4f8;font-weight:700}
+.brut-bar{background:#0D6B5E;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;font-weight:800;font-size:13px;border-radius:4px;margin:4px 0}
+.net-bar{background:#1A7A6D;color:#fff;padding:12px 18px;display:flex;justify-content:space-between;font-weight:800;font-size:16px;border-radius:8px;margin:10px 0}
 .actions-bar{display:flex;gap:8px;justify-content:center;margin-bottom:14px;flex-wrap:wrap}
-.btn{padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px;border:none;cursor:pointer}
-.btn-navy{background:#1a3a5c;color:#fff}.btn-orange{background:#e8672a;color:#fff}
-.btn-green{background:#2e7d32;color:#fff}.btn-outline{background:#fff;border:1.5px solid #ddd;color:#666}
 .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
 .badge.brouillon{background:#e3f2fd;color:#1565c0}.badge.valide{background:#e8f5e9;color:#2e7d32}.badge.envoye{background:#fff3e0;color:#e8672a}
-.compl{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;font-size:12px}
-.compl div{padding:6px 10px;background:#f8faf9;border-radius:6px}
-@media print{.actions-bar,.page-header{display:none}.slip{box-shadow:none;border-radius:0}}
+@media print{.actions-bar,.page-header{display:none!important}.main{padding:0!important;margin:0!important}.slip{box-shadow:none;border-radius:0;max-width:100%}}
 </style>
 {% set fmt = '{:,.0f}'.format %}
+{% set g = p.get %}
 <div class="page-header"><h1>🧾 Bulletin de paie</h1></div>
 <div class="actions-bar">
     <a href="/rh/paie/{{ p.id }}/edit" class="btn btn-orange">✏️ Modifier</a>
-    <button class="btn btn-navy" onclick="window.print()">🖨️ Imprimer</button>
-    <a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-green">📥 PDF</a>
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimer</button>
+    <a href="/rh/paie/{{ p.id }}/pdf" class="btn" style="background:#1A7A6D;color:#fff">📥 PDF</a>
+    <a href="/rh/paie/{{ p.id }}/email" class="btn btn-orange">📧 Email</a>
     {% if p.status == 'brouillon' %}<a href="/rh/paie/{{ p.id }}/status/valide" class="btn btn-outline">✅ Valider</a>{% endif %}
-    {% if p.status == 'valide' %}<a href="/rh/paie/{{ p.id }}/status/envoye" class="btn btn-outline">📧 Envoyé</a>{% endif %}
+    {% if p.status == 'valide' %}<a href="/rh/paie/{{ p.id }}/email" class="btn btn-orange">📧 Envoyer</a>{% endif %}
     <span class="badge {{ p.status }}">{{ p.status }}</span>
 </div>
 
+{% if edit_mode %}
+<!-- EDIT FORM -->
+<div class="card" style="max-width:750px;margin:0 auto 14px;border-left:4px solid #e8672a"><div class="card-header"><h3>✏️ Modifier le bulletin — {{ p.employee_name }} ({{ p.period }})</h3></div><div class="card-body">
+<form method="post" action="/rh/paie/{{ p.id }}/edit">
+    <div style="font-size:12px;font-weight:600;color:#1A7A6D;margin-bottom:6px;border-bottom:1px solid #eee;padding-bottom:4px">💰 Gains</div>
+    <div class="form-row"><div class="form-group"><label>Salaire de base</label><input type="number" name="base_salary" value="{{ p.base_salary or 0 }}" step="500"></div>
+    <div class="form-group"><label>H. supplémentaires</label><input type="number" name="overtime_amount" value="{{ p.overtime_amount or 0 }}" step="500"></div>
+    <div class="form-group"><label>Prime transport</label><input type="number" name="prime_transport" value="{{ p.prime_transport or 0 }}" step="500"></div></div>
+    <div class="form-row"><div class="form-group"><label>Prime ancienneté</label><input type="number" name="prime_anciennete" value="{{ p.prime_anciennete or 0 }}" step="500"></div>
+    <div class="form-group"><label>Prime logement</label><input type="number" name="prime_logement" value="{{ p.prime_logement or 0 }}" step="500"></div>
+    <div class="form-group"><label>Prime rendement</label><input type="number" name="prime_rendement" value="{{ p.prime_rendement or 0 }}" step="500"></div></div>
+    <div class="form-row"><div class="form-group"><label>Bonus / KPI</label><input type="number" name="bonus" value="{{ p.bonus or 0 }}" step="500"></div>
+    <div class="form-group"><label>Avantages nature</label><input type="number" name="avantages_nature" value="{{ p.avantages_nature or 0 }}" step="500"></div></div>
+    
+    <div style="font-size:12px;font-weight:600;color:#e8672a;margin:8px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">🏷️ Autres primes (hors brut)</div>
+    <div class="form-row"><div class="form-group"><label>Prime de mission</label><input type="number" name="prime_mission" value="{{ p.prime_mission or 0 }}" step="500"></div>
+    <div class="form-group"><label>Commissions</label><input type="number" name="commission" value="{{ p.commission or 0 }}" step="500"></div></div>
+    
+    <div style="font-size:12px;font-weight:600;color:#c53030;margin:8px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">📋 Retenues</div>
+    <div class="form-row"><div class="form-group"><label>CNPS salarié (6.3%)</label><input type="number" name="cnps_employee" value="{{ p.cnps_employee or 0 }}" step="100"></div>
+    <div class="form-group"><label>ITS</label><input type="number" name="its" value="{{ p.its or 0 }}" step="100"></div>
+    <div class="form-group"><label>Assurance</label><input type="number" name="insurance_amount" value="{{ p.insurance_amount or 0 }}" step="100"></div></div>
+    <div class="form-row"><div class="form-group"><label>Déductions</label><input type="number" name="deductions" value="{{ p.deductions or 0 }}" step="100"></div>
+    <div class="form-group"><label>Avances/Prêts</label><input type="number" name="avances" value="{{ p.avances or 0 }}" step="100"></div>
+    <div class="form-group"><label>Autres retenues</label><input type="number" name="autres_retenues" value="{{ p.autres_retenues or 0 }}" step="100"></div></div>
+    
+    <div style="font-size:12px;font-weight:600;color:#888;margin:8px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">📊 Infos</div>
+    <div class="form-row"><div class="form-group"><label>Jours travaillés</label><input type="number" name="jours_travailles" value="{{ p.jours_travailles or 26 }}"></div>
+    <div class="form-group"><label>Heures travaillées</label><input type="number" name="heures_travaillees" value="{{ p.heures_travaillees or 0 }}" step="0.5"></div>
+    <div class="form-group"><label>Jours absence</label><input type="number" name="jours_absence" value="{{ p.jours_absence or 0 }}"></div></div>
+    <div class="form-row"><div class="form-group"><label>Congés payés (j)</label><input type="number" name="conges_payes" value="{{ p.conges_payes or 0 }}"></div>
+    <div class="form-group"><label>Mode paiement</label><select name="mode_paiement">{% for m in ['virement','especes','cheque','mobile'] %}<option {% if p.mode_paiement==m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>
+    <div class="form-group"><label>CNPS patronal</label><input type="number" name="cnps_employer" value="{{ p.cnps_employer or 0 }}" step="100"></div></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-primary">💾 Sauvegarder</button></div>
+</form></div></div>
+{% endif %}
+
 <div class="slip">
-<div class="slip-head"><div><h2>BULLETIN DE PAIE</h2><div class="period">{{ p.period }}</div></div><div>WannyGest</div></div>
+<!-- Header RAMYA -->
+<div class="slip-hdr">
+    <div style="display:flex;align-items:center;gap:10px">
+        <img src="/static/logo_ramya.png" alt="RAMYA" onerror="this.style.display='none'">
+        <div><strong>RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;opacity:0.8">Sécurité électronique · Abidjan, CI</span></div>
+    </div>
+    <div style="text-align:right"><strong>BULLETIN DE PAIE</strong><br><span style="font-size:11px">{{ p.period }}</span></div>
+</div>
+
 <div class="slip-body">
-    <!-- Info header -->
-    <div class="info-grid">
-        <div class="info-box"><div class="label">Employé</div><div class="val">{{ p.employee_name }}</div><div style="font-size:10px;color:#888">Mat: {{ p.get('matricule','') or '-' }} · CNPS: {{ p.get('insurance_number','') or '-' }}</div></div>
-        <div class="info-box"><div class="label">Poste</div><div class="val">{{ p.get('position','') or '-' }}</div><div style="font-size:10px;color:#888">{{ p.get('department','') or '' }} · Embauche: {{ p.get('hire_date','') or '-' }}</div></div>
-        <div class="info-box"><div class="label">Période</div><div class="val">{{ p.period }}</div><div style="font-size:10px;color:#888">{{ p.get('jours_travailles',26) }}j · {{ fmt(p.get('heures_travaillees',0) or 0) }}h · Abs: {{ p.get('jours_absence',0) }}</div></div>
+<!-- Employee info -->
+<div class="emp-grid">
+    <div class="emp-cell"><b>Employé :</b> {{ p.employee_name }}</div>
+    <div class="emp-cell"><b>Matricule :</b> {{ g('matricule','') or '-' }}</div>
+    <div class="emp-cell"><b>N° CNPS :</b> {{ g('insurance_number','') or '-' }}</div>
+    <div class="emp-cell"><b>Poste :</b> {{ g('position','') or '-' }}</div>
+    <div class="emp-cell"><b>Département :</b> {{ g('department','') or '-' }}</div>
+    <div class="emp-cell"><b>Embauche :</b> {{ g('hire_date','') or '-' }}</div>
+    <div class="emp-cell"><b>Jours :</b> {{ g('jours_travailles',26) }}</div>
+    <div class="emp-cell"><b>Absences :</b> {{ g('jours_absence',0) }}j</div>
+    <div class="emp-cell"><b>Paiement :</b> {{ g('mode_paiement','virement') }}</div>
+</div>
+
+<!-- GAINS -->
+<div class="sec-hdr sec-vert">GAINS</div>
+<table>
+<tr><td>Salaire de base</td><td style="text-align:right"><strong>{{ fmt(g('base_salary',0) or 0) }}</strong></td></tr>
+<tr><td>Heures supplémentaires</td><td style="text-align:right">{{ fmt(g('overtime_amount',0) or 0) }}</td></tr>
+<tr><td>Prime de transport</td><td style="text-align:right">{{ fmt(g('prime_transport',0) or 0) }}</td></tr>
+<tr><td>Prime d'ancienneté</td><td style="text-align:right">{{ fmt(g('prime_anciennete',0) or 0) }}</td></tr>
+<tr><td>Prime de logement</td><td style="text-align:right">{{ fmt(g('prime_logement',0) or 0) }}</td></tr>
+<tr><td>Prime de rendement / KPI</td><td style="text-align:right">{{ fmt((g('prime_rendement',0) or 0) + (g('bonus',0) or 0)) }}</td></tr>
+<tr><td>Avantages en nature</td><td style="text-align:right">{{ fmt(g('avantages_nature',0) or 0) }}</td></tr>
+</table>
+
+{% set brut = (g('base_salary',0) or 0) + (g('overtime_amount',0) or 0) + (g('bonus',0) or 0) + (g('prime_transport',0) or 0) + (g('prime_anciennete',0) or 0) + (g('prime_logement',0) or 0) + (g('prime_rendement',0) or 0) + (g('avantages_nature',0) or 0) %}
+<div class="brut-bar"><span>SALAIRE BRUT</span><span>{{ fmt(brut) }} FCFA</span></div>
+
+<!-- AUTRES PRIMES hors brut -->
+<div class="sec-hdr sec-orange">AUTRES PRIMES (hors salaire brut)</div>
+<table>
+<tr><td>Prime de mission</td><td style="text-align:right">{{ fmt(g('prime_mission',0) or 0) }}</td></tr>
+<tr><td>Commissions</td><td style="text-align:right">{{ fmt(g('commission',0) or 0) }}</td></tr>
+<tr class="tr-total"><td>Total autres primes</td><td style="text-align:right">{{ fmt((g('prime_mission',0) or 0) + (g('commission',0) or 0)) }}</td></tr>
+</table>
+
+<!-- RETENUES -->
+<div class="sec-hdr sec-orange" style="margin-top:8px">RETENUES / COTISATIONS</div>
+<table>
+<tr style="background:#f0f4f0"><th>Libellé</th><th style="text-align:right">Part patron.</th><th style="text-align:right">Part salar.</th><th style="text-align:right">Base</th><th style="text-align:right">Montant sal.</th></tr>
+<tr><td>CNPS Retraite</td><td style="text-align:right;color:#888">7,7%</td><td style="text-align:right">6,3%</td><td style="text-align:right;font-size:10px;color:#888">Plaf. 2 700 000</td><td style="text-align:right"><strong>{{ fmt((g('cnps_retraite_sal',0) or 0) or (([brut, 2700000]|min) * 0.063)) }}</strong></td></tr>
+<tr><td>CNPS Prestations familiales</td><td style="text-align:right;color:#888">5,75%</td><td style="text-align:right">0%</td><td style="text-align:right;font-size:10px;color:#888">{{ fmt(brut) }}</td><td style="text-align:right">—</td></tr>
+<tr><td>CNPS Accidents du travail</td><td style="text-align:right;color:#888">3%</td><td style="text-align:right">0%</td><td style="text-align:right;font-size:10px;color:#888">{{ fmt(brut) }}</td><td style="text-align:right">—</td></tr>
+<tr><td>Taxe d'apprentissage</td><td style="text-align:right;color:#888">0,4%</td><td style="text-align:right">0%</td><td style="text-align:right;font-size:10px;color:#888">{{ fmt(brut) }}</td><td style="text-align:right">—</td></tr>
+<tr><td>Formation prof. (FDFP)</td><td style="text-align:right;color:#888">1,2%</td><td style="text-align:right">0%</td><td style="text-align:right;font-size:10px;color:#888">{{ fmt(brut) }}</td><td style="text-align:right">—</td></tr>
+<tr><td>ITS (Impôt sur salaire)</td><td></td><td></td><td></td><td style="text-align:right">{{ fmt(g('its',0) or 0) }}</td></tr>
+<tr><td>Assurance maladie</td><td></td><td></td><td></td><td style="text-align:right">{{ fmt(g('insurance_amount',0) or 0) }}</td></tr>
+<tr><td>Autres déductions</td><td></td><td></td><td></td><td style="text-align:right">{{ fmt(g('deductions',0) or 0) }}</td></tr>
+<tr><td>Avances / Prêts</td><td></td><td></td><td></td><td style="text-align:right">{{ fmt(g('avances',0) or 0) }}</td></tr>
+</table>
+
+<div style="display:flex;gap:4px;margin:6px 0">
+    <div style="flex:1;background:#0D6B5E;color:#fff;padding:6px 10px;border-radius:4px;font-size:11px;display:flex;justify-content:space-between">
+        <b>Total charges patronales</b><b>{{ fmt((([brut, 2700000]|min) * 0.077) + (brut * 0.0575) + (brut * 0.03) + (brut * 0.004) + (brut * 0.012)) }} F</b>
     </div>
-    
-    <!-- GAINS -->
-    <table class="sec-gains">
-        <thead><tr><th colspan="2">GAINS</th><th style="text-align:right">Montant (FCFA)</th></tr></thead>
-        <tbody>
-        <tr><td>Salaire de base</td><td></td><td class="gain" style="text-align:right">{{ fmt(p.base_salary) }}</td></tr>
-        {% if p.overtime_amount %}<tr><td>Heures supplémentaires</td><td></td><td class="gain" style="text-align:right">{{ fmt(p.overtime_amount) }}</td></tr>{% endif %}
-        {% if p.get('prime_transport',0) %}<tr><td>Prime de transport</td><td></td><td class="gain" style="text-align:right">{{ fmt(p.prime_transport) }}</td></tr>{% endif %}
-        {% if p.get('prime_anciennete',0) %}<tr><td>Prime d'ancienneté</td><td></td><td class="gain" style="text-align:right">{{ fmt(p.prime_anciennete) }}</td></tr>{% endif %}
-        {% if p.get('prime_logement',0) %}<tr><td>Prime de logement</td><td></td><td class="gain" style="text-align:right">{{ fmt(p.prime_logement) }}</td></tr>{% endif %}
-        {% if p.get('prime_rendement',0) or p.bonus %}<tr><td>Prime rendement / KPI / Bonus</td><td></td><td class="gain" style="text-align:right">{{ fmt((p.get('prime_rendement',0) or 0) + p.bonus) }}</td></tr>{% endif %}
-        {% if p.get('avantages_nature',0) %}<tr><td>Avantages en nature</td><td></td><td class="gain" style="text-align:right">{{ fmt(p.avantages_nature) }}</td></tr>{% endif %}
-        {% if p.commission %}<tr><td>Commissions</td><td></td><td class="gain" style="text-align:right">{{ fmt(p.commission) }}</td></tr>{% endif %}
-        <tr class="row-total"><td><strong>SALAIRE BRUT</strong></td><td></td><td class="gain" style="text-align:right"><strong>{{ fmt(p.salaire_brut) }}</strong></td></tr>
-        </tbody>
-    </table>
-    
-    <!-- RETENUES -->
-    <table class="sec-retenues">
-        <thead><tr><th colspan="2">RETENUES</th><th style="text-align:right">Montant (FCFA)</th></tr></thead>
-        <tbody>
-        {% if p.get('cnps_employee',0) %}<tr><td>Cotisation CNPS (salarié 6.3%)</td><td></td><td class="retenue" style="text-align:right">{{ fmt(p.cnps_employee) }}</td></tr>{% endif %}
-        {% if p.insurance_amount %}<tr><td>Assurance maladie</td><td></td><td class="retenue" style="text-align:right">{{ fmt(p.insurance_amount) }}</td></tr>{% endif %}
-        {% if p.get('its',0) %}<tr><td>Impôt sur salaire (ITS)</td><td></td><td class="retenue" style="text-align:right">{{ fmt(p.its) }}</td></tr>{% endif %}
-        {% if p.deductions %}<tr><td>Déductions</td><td></td><td class="retenue" style="text-align:right">{{ fmt(p.deductions) }}</td></tr>{% endif %}
-        {% if p.get('avances',0) %}<tr><td>Avances / prêts</td><td></td><td class="retenue" style="text-align:right">{{ fmt(p.avances) }}</td></tr>{% endif %}
-        {% if p.get('autres_retenues',0) %}<tr><td>Autres retenues</td><td></td><td class="retenue" style="text-align:right">{{ fmt(p.autres_retenues) }}</td></tr>{% endif %}
-        <tr class="row-total"><td><strong>TOTAL RETENUES</strong></td><td></td><td class="retenue" style="text-align:right"><strong>{{ fmt(p.total_retenues) }}</strong></td></tr>
-        </tbody>
-    </table>
-    
-    <!-- NET -->
-    <div class="net-box"><div class="label">NET À PAYER</div><div class="amount">{{ fmt(p.net_salary) }} F</div></div>
-    
-    <!-- Infos complémentaires -->
-    <div class="compl">
-        <div><strong>Mode :</strong> {{ p.get('mode_paiement','virement') }}</div>
-        <div><strong>Congés :</strong> {{ p.get('conges_payes',0) }} jour(s)</div>
-        {% if p.get('cnps_employer',0) %}<div><strong>CNPS patronale :</strong> {{ fmt(p.cnps_employer) }} F</div>{% endif %}
-        <div><strong>Absences :</strong> {{ p.get('jours_absence',0) }} jour(s)</div>
-    </div>
+</div>
+<div style="background:#e8672a;color:#fff;padding:6px 10px;border-radius:4px;font-size:11px;display:flex;justify-content:space-between;margin-bottom:8px">
+    {% set total_sal = ((g('cnps_retraite_sal',0) or 0) or (([brut, 2700000]|min) * 0.063)) + (g('its',0) or 0) + (g('insurance_amount',0) or 0) + (g('deductions',0) or 0) + (g('avances',0) or 0) + (g('autres_retenues',0) or 0) %}
+    <b>Total retenues salariales</b><b>{{ fmt(total_sal) }} F</b>
+</div>
+
+<!-- NET -->
+{% set net_calc = brut + (g('prime_mission',0) or 0) + (g('commission',0) or 0) - total_sal %}
+<div class="net-bar"><span>NET À PAYER</span><span>{{ fmt(p.net_salary or net_calc) }} FCFA</span></div>
+
+<!-- Signatures -->
+<div class="rg" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px;text-align:center;font-size:11px;color:#888">
+    <div style="border:1px solid #eee;padding:10px;border-radius:8px"><b>L'Employeur</b><br><br><br>Signature et cachet</div>
+    <div style="border:1px solid #eee;padding:10px;border-radius:8px"><b>L'Employé</b><br><br><br>Lu et approuvé<br>{{ p.employee_name }}</div>
+</div>
+
+<p style="text-align:center;font-size:9px;color:#aaa;margin-top:12px">Ce bulletin de paie doit être conservé sans limitation de durée (Art. 32.4 du Code du Travail de Côte d'Ivoire)</p>
 </div></div>
 
 {% if send_email %}
-<!-- EMAIL FORM -->
-<div class="card" style="border-left:4px solid #e8672a"><div class="card-header"><h3>📧 Envoyer le bulletin par email</h3></div><div class="card-body">
+<div class="card" style="max-width:750px;margin:14px auto;border-left:4px solid #e8672a"><div class="card-header"><h3>📧 Envoyer le bulletin par email</h3></div><div class="card-body">
 <form method="post" action="/rh/paie/{{ p.id }}/email">
     <div class="form-group"><label>Email du destinataire *</label><input type="email" name="to_email" required value="{{ p.email or '' }}" placeholder="employe@exemple.ci"></div>
     <div style="background:#f8faf9;padding:12px;border-radius:8px;margin-bottom:12px">
         <div style="font-size:11px;font-weight:600;color:#1a3a5c;margin-bottom:8px">⚙️ Paramètres SMTP</div>
         <div class="form-row">
-            <div class="form-group"><label>Serveur SMTP</label><input type="text" name="smtp_host" value="{{ smtp.smtp_host if smtp else 'smtp.gmail.com' }}" placeholder="smtp.gmail.com"></div>
+            <div class="form-group"><label>Serveur SMTP</label><input type="text" name="smtp_host" value="{{ smtp.smtp_host if smtp else 'smtp.gmail.com' }}"></div>
             <div class="form-group"><label>Port</label><input type="number" name="smtp_port" value="{{ smtp.smtp_port if smtp else '587' }}"></div>
         </div>
         <div class="form-row">
-            <div class="form-group"><label>Email expéditeur</label><input type="email" name="smtp_user" value="{{ smtp.smtp_user if smtp else '' }}" placeholder="votre@email.com"></div>
+            <div class="form-group"><label>Email expéditeur</label><input type="email" name="smtp_user" value="{{ smtp.smtp_user if smtp else '' }}"></div>
             <div class="form-group"><label>Mot de passe</label><input type="password" name="smtp_pass" value="{{ smtp.smtp_pass if smtp else '' }}"></div>
         </div>
-        <div class="hint">Pour Gmail : activez les "Mots de passe d'application" dans les paramètres de sécurité Google.</div>
+        <div class="hint">Gmail : activez les "Mots de passe d'application" dans Sécurité Google.</div>
     </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-        <a href="/rh/paie" class="btn btn-outline">Annuler</a>
-        <button type="submit" class="btn btn-orange">📧 Envoyer le bulletin</button>
-    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><a href="/rh/paie" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-orange">📧 Envoyer</button></div>
 </form></div></div>
 {% endif %}
-
 {% endblock %}

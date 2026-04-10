@@ -15,17 +15,17 @@
 </div>
 {% endif %}
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+<div class="g4" style="margin-bottom:16px">
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #1565c0"><div style="font-size:28px;font-weight:800;color:#1565c0">{{ total_p }}</div><div style="font-size:10px;color:#888">Projets</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #e8672a"><div style="font-size:28px;font-weight:800;color:#e8672a">{{ en_cours }}</div><div style="font-size:10px;color:#888">En cours</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #2e7d32"><div style="font-size:28px;font-weight:800;color:#2e7d32">{{ termines }}</div><div style="font-size:10px;color:#888">Terminés</div></div>
     <div class="card" style="text-align:center;padding:16px;border-left:4px solid #c53030"><div style="font-size:28px;font-weight:800;color:#c53030">{{ en_retard }}</div><div style="font-size:10px;color:#888">En retard</div></div>
 </div>
 
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px">
+<div class="g21" style="margin-bottom:14px">
     <!-- Tâches KPIs -->
     <div class="card"><div class="card-header"><h3>✅ Suivi des tâches</h3></div><div class="card-body">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
+        <div class="rg" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
             <div style="text-align:center;padding:10px;background:#f8faf9;border-radius:8px"><div style="font-size:22px;font-weight:800">{{ tasks_total }}</div><div style="font-size:10px;color:#888">Total</div></div>
             <div style="text-align:center;padding:10px;background:#fff3e0;border-radius:8px"><div style="font-size:22px;font-weight:800;color:#e8672a">{{ tasks_pending }}</div><div style="font-size:10px;color:#888">À faire</div></div>
             <div style="text-align:center;padding:10px;background:#e3f2fd;border-radius:8px"><div style="font-size:22px;font-weight:800;color:#1565c0">{{ tasks_progress }}</div><div style="font-size:10px;color:#888">En cours</div></div>
@@ -50,7 +50,7 @@
     </div></div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
+<div class="g2g">
     <!-- Deadlines -->
     <div class="card"><div class="card-header"><h3>🔔 Échéances proches</h3></div><div class="card-body" style="padding:0">
     {% if deadlines %}{% for t in deadlines %}

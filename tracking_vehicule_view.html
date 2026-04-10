@@ -5,9 +5,9 @@
 <a href="/tracking/vehicules" class="btn btn-outline btn-sm">← Retour</a>
 </div></div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+<div class="g2g" style="margin-bottom:14px">
 <div class="card"><div class="card-header"><h3>🚗 Informations véhicule</h3></div><div class="card-body">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">
+    <div class="g2" style="gap:6px;font-size:12px">
         <div><span style="color:#888">Immatriculation:</span> <strong>{{ vehicle.immatriculation }}</strong></div>
         <div><span style="color:#888">Type:</span> {{ vehicle.type }}</div>
         <div><span style="color:#888">Marque / Modèle:</span> {{ vehicle.marque }} {{ vehicle.modele }}</div>
@@ -18,7 +18,7 @@
     </div>
 </div></div>
 <div class="card"><div class="card-header"><h3>📡 Balise GPS</h3></div><div class="card-body">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">
+    <div class="g2" style="gap:6px;font-size:12px">
         <div><span style="color:#888">Marque:</span> {{ vehicle.gps_brand }}</div>
         <div><span style="color:#888">Modèle:</span> {{ vehicle.gps_model or '-' }}</div>
         <div><span style="color:#888">Device ID:</span> <strong>{{ vehicle.gps_device_id or '-' }}</strong></div>

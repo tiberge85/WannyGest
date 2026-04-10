@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block title %}WannyGest - Guide{% endblock %}{% block content %}
 <div class="page-header"><h1>📖 Guide WannyGest</h1></div>
 <p style="color:#888;font-size:13px;margin-bottom:16px">Bienvenue ! Voici les modules disponibles dans WannyGest.</p>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+<div class="rg" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
 
 {% for icon,title,desc,link in [
 ('📊','Dashboard Général','Vue globale : factures, devis, stock, RH, prospects. KPIs et graphiques.','/dashboard-general'),

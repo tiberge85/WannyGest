@@ -102,7 +102,7 @@
 
 {% elif tab == 'rapport' %}
 <div class="card"><div class="card-header"><h3>📊 Rapport de stock</h3></div><div class="card-body">
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+<div class="g2g" style="margin-bottom:16px">
     <div style="padding:16px;background:#e8f5e9;border-radius:10px;text-align:center"><div style="font-size:24px;font-weight:800;color:#2e7d32">{{ '{:,.0f}'.format(total_value) }} F</div><div style="font-size:11px;color:#555">Valeur totale du stock</div></div>
     <div style="padding:16px;background:#fff3e0;border-radius:10px;text-align:center"><div style="font-size:24px;font-weight:800;color:#e8672a">{{ low_stock|length }}</div><div style="font-size:11px;color:#555">Articles en rupture / stock bas</div></div>
 </div>
