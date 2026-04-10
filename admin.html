@@ -230,21 +230,4 @@
 <div style="margin-top:12px"><a href="/admin/appels-offres" class="btn btn-outline btn-sm">📡 Gérer les appels d'offres du ticker</a></div>
 {% endif %}
 
-<!-- SMTP SETTINGS -->
-<div class="card" style="margin-top:16px"><div class="card-header"><h3>📧 Paramètres SMTP (envoi emails)</h3></div>
-<div class="card-body">
-<form method="post" action="/admin/smtp">
-    <div class="form-row">
-        <div class="form-group"><label>Serveur SMTP</label><input type="text" name="smtp_host" value="{{ smtp.smtp_host if smtp else 'smtp.gmail.com' }}" placeholder="smtp.gmail.com"></div>
-        <div class="form-group"><label>Port</label><input type="number" name="smtp_port" value="{{ smtp.smtp_port if smtp else '587' }}"></div>
-    </div>
-    <div class="form-row">
-        <div class="form-group"><label>Email expéditeur</label><input type="email" name="smtp_user" value="{{ smtp.smtp_user if smtp else '' }}" placeholder="rh@ramyaci.tech"></div>
-        <div class="form-group"><label>Mot de passe d'application</label><input type="password" name="smtp_pass" value="{{ smtp.smtp_pass if smtp else '' }}"></div>
-    </div>
-    <div class="hint" style="margin-bottom:10px">Gmail : Compte Google → Sécurité → Mots de passe d'application → Générer pour "Mail"</div>
-    <button type="submit" class="btn btn-primary">💾 Sauvegarder les paramètres SMTP</button>
-</form>
-</div></div>
-
 {% endblock %}

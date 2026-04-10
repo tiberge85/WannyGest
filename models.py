@@ -2493,30 +2493,3 @@ def migrate_v27():
         try: conn.execute(f"ALTER TABLE absences ADD COLUMN {col} {typ}")
         except: pass
     conn.commit(); conn.close()
-
-def migrate_v28():
-    conn = get_db()
-    # Pre-populate tender links if empty
-    cnt = conn.execute("SELECT COUNT(*) FROM tender_links").fetchone()[0]
-    if cnt == 0:
-        tenders = [
-            ("SIGOMAP — Plateforme marchés publics CI", "https://sigomap.gouv.ci/", "SIGOMAP", "", "securite"),
-            ("DGMP — Appels d'offres publics", "https://www.marchespublics.ci/appel_offre", "DGMP", "", "securite"),
-            ("ARCOP — Régulateur marchés publics", "https://arcop.ci/", "ARCOP", "", "securite"),
-            ("BCEAO — Marchés et achats", "https://www.bceao.int/fr/appels-offres/appels-offres-marches-publics-achats", "BCEAO", "", "securite"),
-            ("J360 — Appels d'offres Côte d'Ivoire", "https://www.j360.info/appels-d-offres/afrique/cote-divoire/", "J360", "", "securite"),
-            ("AppelOffres.net — Sécurité électronique CI", "https://www.appeloffres.net/?ve=0&pays=45", "appeloffres.net", "", "securite"),
-        ]
-        for t in tenders:
-            conn.execute("INSERT INTO tender_links (title, url, source, deadline, category, active) VALUES (?,?,?,?,?,1)", t)
-        conn.commit()
-    conn.close()
-
-def get_admin_smtp():
-    conn = get_db()
-    # Try admin user first (id=1), then any available
-    s = conn.execute("SELECT * FROM smtp_settings WHERE user_id=1").fetchone()
-    if not s:
-        s = conn.execute("SELECT * FROM smtp_settings ORDER BY user_id LIMIT 1").fetchone()
-    conn.close()
-    return dict(s) if s else {'smtp_host': 'smtp.gmail.com', 'smtp_port': 587, 'smtp_user': '', 'smtp_pass': ''}

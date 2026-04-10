@@ -35,7 +35,7 @@ from models import (init_db, create_user, authenticate_user, get_user_by_id,
                     create_contract, get_client_contracts, get_all_contracts,
                     get_contract_by_id, update_contract, delete_contract,
                     get_client_monthly_stats,
-                    save_smtp_settings, get_smtp_settings, get_admin_smtp,
+                    save_smtp_settings, get_smtp_settings,
                     create_invoice, get_invoices_by_status, get_all_invoices,
                     update_invoice_status, get_invoice_stats,
                     create_visit_report, get_visit_reports, get_visit_by_id,
@@ -132,12 +132,8 @@ from models import migrate_v26
 migrate_v26()
 from models import migrate_v27
 migrate_v27()
-from models import migrate_v28
-migrate_v28()
 from models import migrate_v27
 migrate_v27()
-from models import migrate_v28
-migrate_v28()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -639,7 +635,7 @@ def traitement_generate():
                 logo_path = os.path.join(job_dir, 'custom_logo.png')
                 lf.save(logo_path)
         if not logo_path:
-            for n in ['logo_ramya.png', 'logo_wannygest.png']:
+            for n in ['logo_wannygest.png', 'logo.png']:
                 c = os.path.join(BASE_DIR, n)
                 if os.path.exists(c):
                     logo_path = os.path.join(job_dir, n)
@@ -858,12 +854,10 @@ def admin_page():
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
     except: tenders = []
-    # SMTP settings
-    smtp = get_smtp_settings(session['user_id'])
     conn.close()
     return render_template('admin.html', page='admin', users=users, stats=stats,
                           all_permissions=ALL_PERMISSIONS, role_perms=role_perms, perm_categories=PERM_CATEGORIES,
-                          tenders=tenders, tab='tenders', smtp=smtp)
+                          tenders=tenders, tab='tenders')
 
 @app.route('/admin/add', methods=['POST'])
 @permission_required('admin')
@@ -989,20 +983,6 @@ def admin_toggle_champion():
 @permission_required('admin')
 def admin_tenders():
     # Redirect to admin page which now always shows tenders section
-    return redirect(url_for('admin_page'))
-
-@app.route('/admin/smtp', methods=['POST'])
-@permission_required('admin')
-def admin_smtp_save():
-    smtp_host = request.form.get('smtp_host','').strip()
-    smtp_port = int(request.form.get('smtp_port', 587) or 587)
-    smtp_user = request.form.get('smtp_user','').strip()
-    smtp_pass = request.form.get('smtp_pass','').strip()
-    if smtp_host and smtp_user:
-        save_smtp_settings(session['user_id'], smtp_host, smtp_port, smtp_user, smtp_pass)
-        flash("Paramètres SMTP sauvegardés", "success")
-    else:
-        flash("Serveur et email requis", "error")
     return redirect(url_for('admin_page'))
 
 @app.route('/admin/appels-offres/add', methods=['POST'])
@@ -3117,7 +3097,7 @@ def rh_paie_edit(pid):
         flash(f"Bulletin modifié — Net: {net:,.0f} FCFA", "success")
         return redirect(url_for('rh_paie_view', pid=pid))
     employees = get_all_employees()
-    return render_template('rh_paie_view.html', page='paie', p=p, employees=employees, edit_mode=True)
+    return render_template('rh_paie_view.html', page='paie', p=p, employees=employees)
 
 @app.route('/rh/paie/<int:pid>/pdf')
 @permission_required('fichiers')
@@ -3157,7 +3137,7 @@ def rh_paie_pdf(pid):
     
     # === HEADER WITH LOGO ===
     logo_path = None
-    for n in ['logo_ramya.png', 'logo_wannygest.png']:
+    for n in ['logo_wannygest.png', 'logo.png']:
         lp = os.path.join(BASE_DIR, n)
         if os.path.exists(lp): logo_path = lp; break
     
@@ -3343,7 +3323,7 @@ def rh_paie_email(pid):
         
         if not all([to_email, smtp_host, smtp_user, smtp_pass]):
             flash("Paramètres SMTP requis","error")
-            smtp = get_admin_smtp()
+            smtp = get_smtp_settings(session['user_id'])
             return render_template('rh_paie_view.html', page='paie', p=p, send_email=True, smtp=smtp)
         
         # Generate PDF first
@@ -3410,7 +3390,7 @@ Service des Ressources Humaines"""
         except Exception as e:
             flash(f"Erreur d'envoi : {str(e)}", "error")
     
-    smtp = get_admin_smtp()
+    smtp = get_smtp_settings(session['user_id'])
     return render_template('rh_paie_view.html', page='paie', p=p, send_email=True, smtp=smtp)
 
 # ======================== EMPLOYEE PHOTO ========================
