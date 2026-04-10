@@ -2520,3 +2520,10 @@ def get_admin_smtp():
         s = conn.execute("SELECT * FROM smtp_settings ORDER BY user_id LIMIT 1").fetchone()
     conn.close()
     return dict(s) if s else {'smtp_host': 'smtp.gmail.com', 'smtp_port': 587, 'smtp_user': '', 'smtp_pass': ''}
+
+def migrate_v29():
+    conn = get_db()
+    for col, typ in [('prime_astreinte','REAL DEFAULT 0')]:
+        try: conn.execute(f"ALTER TABLE payslips ADD COLUMN {col} {typ}")
+        except: pass
+    conn.commit(); conn.close()

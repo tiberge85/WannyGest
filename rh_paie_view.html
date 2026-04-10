@@ -39,13 +39,13 @@ th{text-align:left;font-weight:600}
 <form method="post" action="/rh/paie/{{ p.id }}/edit">
     <div style="font-size:12px;font-weight:600;color:#1A7A6D;margin-bottom:6px;border-bottom:1px solid #eee;padding-bottom:4px">💰 Gains</div>
     <div class="form-row"><div class="form-group"><label>Salaire de base</label><input type="number" name="base_salary" value="{{ p.base_salary or 0 }}" step="500"></div>
-    <div class="form-group"><label>H. supplémentaires</label><input type="number" name="overtime_amount" value="{{ p.overtime_amount or 0 }}" step="500"></div>
+    <div class="form-group"><label>Prime d'astreinte</label><input type="number" name="prime_astreinte" value="{{ p.prime_astreinte or 0 }}" step="500"></div>
     <div class="form-group"><label>Prime transport</label><input type="number" name="prime_transport" value="{{ p.prime_transport or 0 }}" step="500"></div></div>
     <div class="form-row"><div class="form-group"><label>Prime ancienneté</label><input type="number" name="prime_anciennete" value="{{ p.prime_anciennete or 0 }}" step="500"></div>
-    <div class="form-group"><label>Prime logement</label><input type="number" name="prime_logement" value="{{ p.prime_logement or 0 }}" step="500"></div>
+    <div class="form-group"><label></div>
     <div class="form-group"><label>Prime rendement</label><input type="number" name="prime_rendement" value="{{ p.prime_rendement or 0 }}" step="500"></div></div>
     <div class="form-row"><div class="form-group"><label>Bonus / KPI</label><input type="number" name="bonus" value="{{ p.bonus or 0 }}" step="500"></div>
-    <div class="form-group"><label>Avantages nature</label><input type="number" name="avantages_nature" value="{{ p.avantages_nature or 0 }}" step="500"></div></div>
+    <div class="form-group"><label></div></div>
     
     <div style="font-size:12px;font-weight:600;color:#e8672a;margin:8px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">🏷️ Autres primes (hors brut)</div>
     <div class="form-row"><div class="form-group"><label>Prime de mission</label><input type="number" name="prime_mission" value="{{ p.prime_mission or 0 }}" step="500"></div>
@@ -75,9 +75,9 @@ th{text-align:left;font-weight:600}
 <div class="slip-hdr">
     <div style="display:flex;align-items:center;gap:10px">
         <img src="/static/logo_ramya.png" alt="RAMYA" onerror="this.style.display='none'">
-        <div><strong>RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;opacity:0.8">Sécurité électronique · Abidjan, CI</span></div>
+        <div><strong>RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;opacity:0.8">Abidjan, CI · RCCM: CI-AB5-03-2017_A10-25092</span></div>
     </div>
-    <div style="text-align:right"><strong>BULLETIN DE PAIE</strong><br><span style="font-size:11px">{{ p.period }}</span></div>
+    <div style="text-align:right"><strong>BULLETIN DE PAIE</strong><br><span style="font-size:11px">Période: 01 au 30 {{ p.period }}</span></div>
 </div>
 
 <div class="slip-body">
@@ -98,15 +98,15 @@ th{text-align:left;font-weight:600}
 <div class="sec-hdr sec-vert">GAINS</div>
 <table>
 <tr><td>Salaire de base</td><td style="text-align:right"><strong>{{ fmt(g('base_salary',0) or 0) }}</strong></td></tr>
-<tr><td>Heures supplémentaires</td><td style="text-align:right">{{ fmt(g('overtime_amount',0) or 0) }}</td></tr>
+<tr><td></tr>
 <tr><td>Prime de transport</td><td style="text-align:right">{{ fmt(g('prime_transport',0) or 0) }}</td></tr>
 <tr><td>Prime d'ancienneté</td><td style="text-align:right">{{ fmt(g('prime_anciennete',0) or 0) }}</td></tr>
-<tr><td>Prime de logement</td><td style="text-align:right">{{ fmt(g('prime_logement',0) or 0) }}</td></tr>
+<tr><td><td style="text-align:right">{{ fmt(g('prime_logement',0) or 0) }}</td></tr>
 <tr><td>Prime de rendement / KPI</td><td style="text-align:right">{{ fmt((g('prime_rendement',0) or 0) + (g('bonus',0) or 0)) }}</td></tr>
-<tr><td>Avantages en nature</td><td style="text-align:right">{{ fmt(g('avantages_nature',0) or 0) }}</td></tr>
+<tr><td>Prime d'astreinte</td><td style="text-align:right">{{ fmt(g('prime_astreinte',0) or 0) }}</td></tr>
 </table>
 
-{% set brut = (g('base_salary',0) or 0) + (g('overtime_amount',0) or 0) + (g('bonus',0) or 0) + (g('prime_transport',0) or 0) + (g('prime_anciennete',0) or 0) + (g('prime_logement',0) or 0) + (g('prime_rendement',0) or 0) + (g('avantages_nature',0) or 0) %}
+{% set brut = (g('base_salary',0) or 0) + (g('bonus',0) or 0) + (g('prime_transport',0) or 0) + (g('prime_anciennete',0) or 0) + (g('prime_astreinte',0) or 0) + (g('prime_rendement',0) or 0) %}
 <div class="brut-bar"><span>SALAIRE BRUT</span><span>{{ fmt(brut) }} FCFA</span></div>
 
 <!-- AUTRES PRIMES hors brut -->
