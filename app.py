@@ -884,10 +884,12 @@ def admin_page():
     except: tenders = []
     # SMTP settings
     smtp = get_smtp_settings(session['user_id'])
+    # Activity logs
+    admin_logs = get_activity_logs(limit=50)
     conn.close()
     return render_template('admin.html', page='admin', users=users, stats=stats,
                           all_permissions=ALL_PERMISSIONS, role_perms=role_perms, perm_categories=PERM_CATEGORIES,
-                          tenders=tenders, tab='tenders', smtp=smtp)
+                          tenders=tenders, tab='tenders', smtp=smtp, admin_logs=admin_logs)
 
 @app.route('/admin/add', methods=['POST'])
 @permission_required('admin')
@@ -2608,9 +2610,11 @@ def devis_new():
         return redirect(url_for('devis_page'))
     
     clients = get_all_clients()
-    from models import db_get_all
-    stock_items = db_get_all('stock_items', order='name ASC')
-    return render_template('devis_edit.html', page='devis', clients=clients, stock_items=stock_items)
+    try:
+        from models import db_get_all
+        stock_items = db_get_all('stock_items', order='name ASC')
+    except: stock_items = []
+    return render_template('devis_new.html', page='devis', clients=clients, stock_items=stock_items)
 
 @app.route('/devis/pdf/<int:did>')
 @permission_required('proforma')
@@ -5484,6 +5488,49 @@ def pieces_caisse_add():
         supplier=request.form.get('supplier', ''),
         file_path=file_path, created_by=session['user_id'])
     flash(f"Pièce {ref} — {amount:,.0f} F enregistrée", "success")
+    return redirect('/comptabilite/pieces')
+
+@app.route('/comptabilite/pieces/edit/<int:pid>', methods=['GET','POST'])
+@permission_required('comptabilite')
+def pieces_caisse_edit(pid):
+    conn = _gdb()
+    piece = conn.execute("SELECT * FROM pieces_caisse WHERE id=?", (pid,)).fetchone()
+    if not piece:
+        conn.close(); flash("Pièce non trouvée","error"); return redirect('/comptabilite/pieces')
+    if request.method == 'POST':
+        # Handle file upload
+        file_path = piece['file_path'] if piece.get('file_path') else ''
+        if 'file' in request.files and request.files['file'].filename:
+            f = request.files['file']
+            ext = os.path.splitext(f.filename)[1].lower()
+            if ext in ('.jpg', '.jpeg', '.png', '.pdf', '.webp'):
+                fname = f"piece_{piece['reference']}{ext}"
+                fdir = os.path.join(app.config['UPLOAD_FOLDER'], 'pieces')
+                os.makedirs(fdir, exist_ok=True)
+                f.save(os.path.join(fdir, fname))
+                file_path = fname
+        
+        conn.execute("""UPDATE pieces_caisse SET date=?, description=?, amount=?, category=?, supplier=?, file_path=?
+            WHERE id=?""", (
+            request.form.get('date', piece['date']),
+            request.form.get('description', piece['description']),
+            float(request.form.get('amount', piece['amount']) or 0),
+            request.form.get('category', piece['category']),
+            request.form.get('supplier', piece.get('supplier','')),
+            file_path, pid))
+        conn.commit(); conn.close()
+        flash("Pièce de caisse modifiée","success")
+        return redirect('/comptabilite/pieces')
+    conn.close()
+    return render_template('pieces_caisse.html', page='pieces', edit_piece=dict(piece), pieces=[], total=0, by_cat=[])
+
+@app.route('/comptabilite/pieces/delete/<int:pid>')
+@permission_required('comptabilite')
+def pieces_caisse_delete(pid):
+    conn = _gdb()
+    conn.execute("DELETE FROM pieces_caisse WHERE id=?", (pid,))
+    conn.commit(); conn.close()
+    flash("Pièce supprimée","success")
     return redirect('/comptabilite/pieces')
 
 @app.route('/uploads/pieces/<path:filename>')

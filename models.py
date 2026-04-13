@@ -975,7 +975,7 @@ def init_devis_tables():
     conn.commit()
     conn.close()
 
-def create_devis(**kwargs):
+def create_devis_simple(**kwargs):
     conn = get_db()
     cols = ', '.join(kwargs.keys())
     placeholders = ', '.join(['?' for _ in kwargs])

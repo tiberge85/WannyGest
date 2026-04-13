@@ -247,4 +247,28 @@
 </form>
 </div></div>
 
+<!-- HISTORIQUE / LOGS -->
+<div class="card" style="margin-top:16px"><div class="card-header"><h3>📋 Historique d'activité</h3></div>
+<div class="card-body" style="padding:0">
+{% if admin_logs %}
+<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchLogs" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchLogs','logsTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div>
+<div class="table-wrap"><table id="logsTable">
+<thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th><th>IP</th></tr></thead>
+<tbody>{% for l in admin_logs %}
+<tr>
+<td style="font-size:11px;white-space:nowrap">{{ l.created_at[:16] if l.created_at else '-' }}</td>
+<td><strong>{{ l.user_name or '-' }}</strong></td>
+<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;
+{% if 'Connexion' in (l.action or '') %}background:#e8f5e9;color:#2e7d32
+{% elif 'Supprim' in (l.action or '') %}background:#fde8e8;color:#c53030
+{% elif 'Email' in (l.action or '') %}background:#fff3e0;color:#e8672a
+{% else %}background:#e3f2fd;color:#1565c0{% endif %}">{{ l.action }}</span></td>
+<td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis">{{ l.detail or '-' }}</td>
+<td style="font-size:10px;color:#888">{{ l.ip_address or '-' }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}
+<p style="text-align:center;color:#999;padding:30px">Aucune activité enregistrée</p>
+{% endif %}
+</div></div>
+
 {% endblock %}

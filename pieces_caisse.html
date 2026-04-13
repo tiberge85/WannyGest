@@ -19,7 +19,7 @@
 
 <div class="card"><div class="card-header"><h3>📋 Toutes les pièces</h3></div><div class="card-body">
 {% if pieces %}<div class="table-wrap"><table>
-<thead><tr><th>Réf</th><th>Date</th><th>Description</th><th>Fournisseur</th><th>Catégorie</th><th style="text-align:right">Montant</th><th>Pièce</th></tr></thead>
+<thead><tr><th>Réf</th><th>Date</th><th>Description</th><th>Fournisseur</th><th>Catégorie</th><th style="text-align:right">Montant</th><th>Pièce</th><th>Actions</th></tr></thead>
 <tbody>{% for p in pieces %}<tr>
 <td style="font-size:11px;font-weight:600">{{ p.reference }}</td>
 <td>{{ p.date }}</td><td>{{ p.description or '-' }}</td>
@@ -27,6 +27,7 @@
 <td><span class="badge-s gold">{{ p.category }}</span></td>
 <td style="text-align:right;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(p.amount) }} F</td>
 <td>{% if p.file_path %}<a href="/uploads/pieces/{{ p.file_path }}" target="_blank" class="btn btn-outline btn-sm">👁️</a>{% else %}—{% endif %}</td>
+<td style="white-space:nowrap"><a href="/comptabilite/pieces/edit/{{ p.id }}" class="btn btn-outline btn-sm">✏️</a> <a href="/comptabilite/pieces/delete/{{ p.id }}" class="btn btn-sm" style="color:#c53030" onclick="return confirm('Supprimer ?')">🗑️</a></td>
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune pièce de caisse enregistrée</p>{% endif %}
 </div></div>
@@ -39,7 +40,22 @@
 <div class="form-group"><label>Description *</label><input type="text" name="description" required placeholder="Achat fournitures bureau"></div>
 <div class="form-row"><div class="form-group"><label>Fournisseur</label><input type="text" name="supplier" placeholder="Nom du fournisseur"></div>
 <div class="form-group"><label>Catégorie</label><select name="category"><option>fournitures</option><option>transport</option><option>restauration</option><option>loyer</option><option>electricite</option><option>eau</option><option>internet</option><option>telephone</option><option>maintenance</option><option>salaires</option><option>formation</option><option>marketing</option><option>divers</option></select></div></div>
-<div class="form-group"><label>📎 Photo / scan de la pièce (JPG, PNG, PDF)</label><input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf,.webp" style="padding:8px;border:1.5px dashed #ccc;border-radius:8px;width:100%"></div>
+<div class="form-group"><label>📎 Photo / scan de la pièce (JPG, PNG, PDF)</label><input type="file" name="file" accept="image/*,.pdf" capture="environment" accept=".jpg,.jpeg,.png,.pdf,.webp" style="padding:8px;border:1.5px dashed #ccc;border-radius:8px;width:100%"></div>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">💾 Enregistrer</button></div>
 </form></div></div>
+
+{% if edit_piece %}
+<div class="card" style="border-left:4px solid #e8672a;margin-top:14px"><div class="card-header"><h3>✏️ Modifier la pièce {{ edit_piece.reference }}</h3></div><div class="card-body">
+<form method="post" action="/comptabilite/pieces/edit/{{ edit_piece.id }}" enctype="multipart/form-data">
+<div class="form-row"><div class="form-group"><label>Date</label><input type="date" name="date" value="{{ edit_piece.date }}" required></div>
+<div class="form-group"><label>Montant (FCFA)</label><input type="number" name="amount" value="{{ edit_piece.amount }}" step="1" required></div></div>
+<div class="form-group"><label>Description</label><input type="text" name="description" value="{{ edit_piece.description }}" required></div>
+<div class="form-row"><div class="form-group"><label>Fournisseur</label><input type="text" name="supplier" value="{{ edit_piece.supplier or '' }}"></div>
+<div class="form-group"><label>Catégorie</label><select name="category">{% for cat in ['fournitures','transport','restauration','loyer','electricite','eau','internet','telephone','maintenance','salaires','formation','marketing','divers'] %}<option {% if edit_piece.category == cat %}selected{% endif %}>{{ cat }}</option>{% endfor %}</select></div></div>
+<div class="form-group"><label>📸 Photo / Scan (remplace le fichier actuel)</label><input type="file" name="file" accept="image/*,.pdf" capture="environment" style="padding:6px;border:1.5px solid #ddd;border-radius:7px;width:100%">{% if edit_piece.file_path %}<div style="margin-top:4px;font-size:11px;color:#888">Fichier actuel: <a href="/uploads/pieces/{{ edit_piece.file_path }}" target="_blank">📎 {{ edit_piece.file_path }}</a></div>{% endif %}</div>
+
+<div style="display:flex;gap:8px;justify-content:flex-end"><a href="/comptabilite/pieces" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-orange">💾 Sauvegarder</button></div>
+</form></div></div>
+{% endif %}
+
 {% endblock %}

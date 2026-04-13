@@ -43,10 +43,10 @@
         </div>
     </div>
     <div class="g2" style="font-size:12px">
-        {% if r.tasks_done %}<div><strong style="color:#1a7a6d">✅ Réalisé :</strong><br>{{ r.tasks_done }}</div>{% endif %}
-        {% if r.tasks_planned %}<div><strong style="color:#e8672a">📋 Prévu demain :</strong><br>{{ r.tasks_planned }}</div>{% endif %}
-        {% if r.issues %}<div><strong style="color:#c53030">⚠️ Difficultés :</strong><br>{{ r.issues }}</div>{% endif %}
-        {% if r.achievements %}<div><strong style="color:#B8860B">🏆 Réalisations :</strong><br>{{ r.achievements }}</div>{% endif %}
+        {% if r.tasks_done %}<div><strong style="color:#1a7a6d">✅ Réalisé :</strong><div style="white-space:pre-line">{{ r.tasks_done }}</div></div>{% endif %}
+        {% if r.tasks_planned %}<div><strong style="color:#e8672a">📋 Prévu demain :</strong><div style="white-space:pre-line">{{ r.tasks_planned }}</div></div>{% endif %}
+        {% if r.issues %}<div><strong style="color:#c53030">⚠️ Difficultés :</strong><div style="white-space:pre-line">{{ r.issues }}</div></div>{% endif %}
+        {% if r.achievements %}<div><strong style="color:#B8860B">🏆 Réalisations :</strong><div style="white-space:pre-line">{{ r.achievements }}</div></div>{% endif %}
     </div>
     {% if r.comments %}<div style="margin-top:6px;font-size:11px;color:#555;background:#f8faf9;padding:6px 10px;border-radius:6px">💬 {{ r.comments }}</div>{% endif %}
     

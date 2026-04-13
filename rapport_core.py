@@ -436,6 +436,13 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
               ('LEFTPADDING',(0,0),(-1,-1),1),('RIGHTPADDING',(0,0),(-1,-1),1)]
         for i in range(2, len(td), 2):
             sc.append(('BACKGROUND',(0,i),(-1,i),LGRAY))
+        # Separate days with thick border when date changes
+        prev_date = None
+        for i, rec in enumerate(enriched, 1):
+            cur_date = rec['date'][:10] if rec['date'] else ''
+            if prev_date and cur_date != prev_date:
+                sc.append(('LINEABOVE',(0,i),(-1,i),1.5,TEAL))
+            prev_date = cur_date
         dt.setStyle(TableStyle(sc))
         story.append(dt)
         
