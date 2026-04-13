@@ -4,18 +4,22 @@
     <div class="stat-card"><div class="stat-icon orange">📋</div><div class="stat-info"><div class="stat-num">{{ pending_demandes }}</div><div class="stat-label">Demandes en attente</div></div></div>
     <div class="stat-card"><div class="stat-icon blue">🏢</div><div class="stat-info"><div class="stat-num">{{ fournisseurs|length }}</div><div class="stat-label">Fournisseurs</div></div></div>
     <div class="stat-card"><div class="stat-icon green">📦</div><div class="stat-info"><div class="stat-num">{{ commandes|length }}</div><div class="stat-label">Commandes</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#f3e5f5;color:#7b1fa2">🗃️</div><div class="stat-info"><div class="stat-num">{{ stock_items|length }}</div><div class="stat-label">Articles en stock</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:#e3f2fd;color:#1565c0">💰</div><div class="stat-info"><div class="stat-num">{{ '{:,.0f}'.format(total_commandes) }}</div><div class="stat-label">Total achats (F)</div></div></div>
 </div>
 <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
-{% for t,icon,label in [('fournisseurs','🏢','Fournisseurs'),('demandes','📋','Demandes'),('devis','📄','Devis fournisseur'),('commandes','🚚','Bon de commande'),('contrats','📑','Contrats'),('rapports','📊','Rapports'),('parametres','⚙️','Paramètres')] %}
+{% for t,icon,label in [('fournisseurs','🏢','Fournisseurs'),('stock','📦','Stock'),('demandes','📋','Demandes'),('devis','📄','Devis fournisseur'),('commandes','🚚','Bon de commande'),('contrats','📑','Contrats'),('rapports','📊','Rapports'),('parametres','⚙️','Paramètres')] %}
     <a href="/achats?tab={{ t }}" class="btn {% if tab==t %}btn-primary{% else %}btn-outline{% endif %} btn-sm">{{ icon }} {{ label }}</a>
 {% endfor %}
-<a href="/stock" class="btn btn-outline btn-sm" style="margin-left:auto">📦 Voir le stock →</a>
 </div>
 
 {% if tab == 'fournisseurs' %}
 <div class="card"><div class="card-header"><h3>🏢 Fournisseurs</h3>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
     <button class="btn btn-orange btn-sm" onclick="document.getElementById('addFM').classList.add('active')">+ Fournisseur</button>
+    <button class="btn btn-sm btn-outline" onclick="document.getElementById('importFM').classList.add('active')">📥 Importer Excel</button>
+    <a href="/achats/fournisseurs/export" class="btn btn-sm" style="background:#1A7A6D;color:#fff">📤 Exporter</a>
+    </div>
 </div><div class="card-body">
 {% if fournisseurs %}<div class="table-wrap"><table>
 <thead><tr><th>Nom</th><th>Contact</th><th>Tél</th><th>Email</th><th>Ville</th><th>Secteur</th><th>Actions</th></tr></thead>
@@ -33,6 +37,48 @@
 <div class="form-row"><div class="form-group"><label>Secteur</label><input type="text" name="sector"></div><div class="form-group"><label>Conditions paiement</label><input type="text" name="payment_terms" placeholder="30 jours"></div></div>
 <div class="form-group"><label>Adresse</label><input type="text" name="address"></div>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Ajouter</button></div>
+</form></div></div>
+<!-- Import Fournisseurs Modal -->
+<div class="modal-bg" id="importFM"><div class="modal" style="max-width:480px"><h3>📥 Importer des fournisseurs (Excel)</h3>
+<form method="post" action="/achats/fournisseurs/import" enctype="multipart/form-data">
+<p style="font-size:12px;color:#666;margin-bottom:12px">Format attendu : colonnes <strong>#, Nom, Contact, Email, Téléphone, Actif, Date</strong></p>
+<div class="form-group"><label>Fichier Excel (.xlsx)</label><input type="file" name="file" accept=".xlsx,.xls" required style="padding:6px;border:1.5px solid #ddd;border-radius:7px;width:100%"></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">📥 Importer</button></div>
+</form></div></div>
+
+{% elif tab == 'stock' %}
+<div class="card"><div class="card-header"><h3>📦 Stock / Marchandises</h3>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="btn btn-sm btn-outline" onclick="document.getElementById('importSM').classList.add('active')">📥 Importer Excel</button>
+    <a href="/achats/stock/export" class="btn btn-sm" style="background:#1A7A6D;color:#fff">📤 Exporter</a>
+    </div>
+</div><div class="card-body" style="padding:0">
+{% if stock_items %}
+<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchStock" placeholder="🔍 Rechercher un article..." onkeyup="filterTable('searchStock','stockTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div>
+<div class="table-wrap"><table id="stockTable">
+<thead><tr><th>Code</th><th>Désignation</th><th>Catégorie</th><th>Qté</th><th>Unité</th><th>Prix achat</th><th>Valeur</th><th>Emplacement</th></tr></thead>
+<tbody>{% for s in stock_items %}<tr>
+<td style="font-size:10px;font-weight:600">{{ s.reference or '-' }}</td>
+<td><strong>{{ s.name }}</strong></td>
+<td>{{ s.category or '-' }}</td>
+<td style="text-align:center;font-weight:700;{% if (s.quantity or 0) <= 0 %}color:#c53030{% elif (s.quantity or 0) <= 5 %}color:#e8672a{% else %}color:#2e7d32{% endif %}">{{ s.quantity or 0 }}</td>
+<td style="font-size:11px">{{ s.notes or 'pcs' }}</td>
+<td style="text-align:right">{{ '{:,.0f}'.format(s.unit_price or 0) }}</td>
+<td style="text-align:right;font-weight:600">{{ '{:,.0f}'.format((s.quantity or 0) * (s.unit_price or 0)) }}</td>
+<td style="font-size:11px">{{ s.location or '-' }}</td>
+</tr>{% endfor %}</tbody></table></div>
+<div style="padding:10px;background:#f8faf9;font-size:12px;display:flex;justify-content:space-between">
+    <span><strong>{{ stock_items|length }}</strong> articles</span>
+    <span>Valeur totale : <strong>{{ '{:,.0f}'.format(stock_total or 0) }} F</strong></span>
+</div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun article en stock — Importez votre base Excel</p>{% endif %}
+</div></div>
+<!-- Import Stock Modal -->
+<div class="modal-bg" id="importSM"><div class="modal" style="max-width:480px"><h3>📥 Importer le stock (Excel)</h3>
+<form method="post" action="/achats/stock/import" enctype="multipart/form-data">
+<p style="font-size:12px;color:#666;margin-bottom:12px">Format attendu : colonnes <strong>Image, Code, Nom, Catégorie, Emplacement, Quantité, Unité, Taux, Prix achat, Impôt, Statut</strong></p>
+<div class="form-group"><label>Fichier Excel (.xlsx)</label><input type="file" name="file" accept=".xlsx,.xls" required style="padding:6px;border:1.5px solid #ddd;border-radius:7px;width:100%"></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">📥 Importer</button></div>
 </form></div></div>
 
 {% elif tab == 'demandes' %}

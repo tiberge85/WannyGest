@@ -899,6 +899,8 @@ def admin_add_user():
         request.form['password'], request.form['full_name'],
         request.form.get('role', 'technicien')
     )
+    if ok:
+        log_activity(session['user_id'], 'Admin', 'Utilisateur', f"Compte créé: {request.form['full_name']}", request.remote_addr)
     flash(msg, "success" if ok else "error")
     return redirect(url_for('admin_page'))
 
@@ -3055,6 +3057,8 @@ def rh_absences_add():
          1 if request.form.get('justificatif') else 0,
          request.form.get('notes',''), session['user_id'], status))
     conn.commit(); conn.close()
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Absence', f"Absence déclarée le {request.form['date']}", request.remote_addr)
     flash("Demande d'absence enregistrée" if status == 'en_attente' else "Absence enregistrée", "success")
     return redirect(url_for('rh_absences'))
 
@@ -3112,6 +3116,8 @@ def rh_paie_add():
         mode_paiement=request.form.get('mode_paiement', 'virement'),
         cnps_employer=f('cnps_employer'), prime_mission=f('prime_mission'),
     )
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie', f"Bulletin créé — Net: {net:,.0f} FCFA", request.remote_addr)
     flash(f"Bulletin créé — Net: {net:,.0f} FCFA", "success")
     return redirect(url_for('rh_paie'))
 
@@ -3141,6 +3147,8 @@ def rh_paie_edit(pid):
             jours_absence=int(request.form.get('jours_absence', 0) or 0),
             mode_paiement=request.form.get('mode_paiement', 'virement'),
             cnps_employer=f('cnps_employer'), prime_mission=f('prime_mission'))
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie', f"Bulletin modifié — Net: {net:,.0f} FCFA", request.remote_addr)
         flash(f"Bulletin modifié — Net: {net:,.0f} FCFA", "success")
         return redirect(url_for('rh_paie_view', pid=pid))
     employees = get_all_employees()
@@ -5487,6 +5495,8 @@ def pieces_caisse_add():
         amount=amount, category=request.form.get('category', 'divers'),
         supplier=request.form.get('supplier', ''),
         file_path=file_path, created_by=session['user_id'])
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Caisse', f"Pièce {ref} — {amount:,.0f} F", request.remote_addr)
     flash(f"Pièce {ref} — {amount:,.0f} F enregistrée", "success")
     return redirect('/comptabilite/pieces')
 
@@ -5541,6 +5551,11 @@ def piece_file(filename):
 def stock_image(filename):
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'stock'), filename)
 
+@app.route('/stock')
+@login_required
+def stock_redirect():
+    return redirect('/achats?tab=stock')
+
 
 # ======================== MODULE ACHATS ========================
 
@@ -5553,6 +5568,7 @@ def achats_page():
     
     data = {'tab': tab}
     data['stock_items'] = db_get_all('stock_items', order='name ASC')
+    data['stock_total'] = sum((s.get('quantity',0) or 0) * (s.get('unit_price',0) or 0) for s in data['stock_items'])
     data['fournisseurs'] = [dict(r) for r in conn.execute("SELECT * FROM achats_fournisseurs ORDER BY name").fetchall()]
     data['demandes'] = [dict(r) for r in conn.execute("""SELECT ad.*, u.full_name as requester FROM achats_demandes ad 
         LEFT JOIN users u ON ad.requested_by=u.id ORDER BY ad.created_at DESC LIMIT 50""").fetchall()]
@@ -5674,3 +5690,150 @@ def achats_contrat_add():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+
+# ======================== IMPORT/EXPORT STOCK & FOURNISSEURS ========================
+
+@app.route('/achats/fournisseurs/import', methods=['POST'])
+@permission_required('comptabilite_edit')
+def import_fournisseurs():
+    if 'file' not in request.files or not request.files['file'].filename:
+        flash("Aucun fichier sélectionné", "error"); return redirect('/achats?tab=fournisseurs')
+    f = request.files['file']
+    try:
+        import openpyxl
+        fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'import_fournisseurs.xlsx')
+        os.makedirs(os.path.dirname(fpath), exist_ok=True)
+        f.save(fpath)
+        wb = openpyxl.load_workbook(fpath)
+        ws = wb.active
+        conn = _gdb()
+        count = 0
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            # Skip header rows
+            if not row or not row[1] or str(row[1]).startswith('#') or str(row[1]).startswith('nom'):
+                continue
+            name = str(row[1] or '').strip()
+            if not name: continue
+            contact = str(row[2] or '').strip() if len(row) > 2 else ''
+            email = str(row[3] or '').strip() if len(row) > 3 else ''
+            tel = str(row[4] or '').strip() if len(row) > 4 else ''
+            active = str(row[5] or '').strip().lower() if len(row) > 5 else 'oui'
+            status = 'actif' if active in ('oui', 'yes', '1', 'actif', '') else 'inactif'
+            # Check if exists
+            existing = conn.execute("SELECT id FROM achats_fournisseurs WHERE name=?", (name,)).fetchone()
+            if existing:
+                conn.execute("UPDATE achats_fournisseurs SET contact_name=?, email=?, tel=?, status=? WHERE id=?",
+                    (contact, email, tel, status, existing['id']))
+            else:
+                conn.execute("INSERT INTO achats_fournisseurs (name, contact_name, email, tel, status) VALUES (?,?,?,?,?)",
+                    (name, contact, email, tel, status))
+            count += 1
+        conn.commit(); conn.close()
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Import', f"{count} fournisseurs importés", request.remote_addr)
+        flash(f"{count} fournisseurs importés avec succès", "success")
+    except Exception as e:
+        flash(f"Erreur import : {str(e)}", "error")
+    return redirect('/achats?tab=fournisseurs')
+
+@app.route('/achats/fournisseurs/export')
+@permission_required('comptabilite')
+def export_fournisseurs():
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Fournisseurs"
+    ws.append(['#', 'Nom', 'Contact principal', 'Email', 'Téléphone', 'Statut', 'Date création'])
+    conn = _gdb()
+    fournisseurs = conn.execute("SELECT * FROM achats_fournisseurs ORDER BY name").fetchall()
+    conn.close()
+    for i, f in enumerate(fournisseurs, 1):
+        ws.append([i, f['name'], f['contact_name'] or '', f['email'] or '', f['tel'] or '',
+                   f['status'] or 'actif', f['created_at'][:10] if f['created_at'] else ''])
+    # Style header
+    from openpyxl.styles import Font, PatternFill
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="1A7A6D", end_color="1A7A6D", fill_type="solid")
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 20
+    
+    output = os.path.join(app.config['UPLOAD_FOLDER'], 'export_fournisseurs.xlsx')
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    wb.save(output)
+    return send_file(output, as_attachment=True, download_name='Fournisseurs_RAMYA.xlsx')
+
+@app.route('/achats/stock/import', methods=['POST'])
+@permission_required('comptabilite_edit')
+def import_stock():
+    if 'file' not in request.files or not request.files['file'].filename:
+        flash("Aucun fichier sélectionné", "error"); return redirect('/achats?tab=stock')
+    f = request.files['file']
+    try:
+        import openpyxl
+        fpath = os.path.join(app.config['UPLOAD_FOLDER'], 'import_stock.xlsx')
+        os.makedirs(os.path.dirname(fpath), exist_ok=True)
+        f.save(fpath)
+        wb = openpyxl.load_workbook(fpath)
+        ws = wb.active
+        conn = _gdb()
+        count = 0
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or not row[1] and not row[2]:
+                continue
+            # Skip header rows
+            ref_val = str(row[1] or '').strip() if len(row) > 1 else ''
+            name_val = str(row[2] or '').strip() if len(row) > 2 else ''
+            if not name_val or name_val.startswith('Nom') or ref_val.startswith('Code'):
+                continue
+            category = str(row[3] or '').strip() if len(row) > 3 else ''
+            location = str(row[4] or '').strip() if len(row) > 4 else ''
+            qty = int(row[5] or 0) if len(row) > 5 and row[5] else 0
+            unit = str(row[6] or '').strip() if len(row) > 6 else ''
+            price = float(row[8] or 0) if len(row) > 8 and row[8] else 0
+            # Check if exists by reference
+            existing = conn.execute("SELECT id FROM stock_items WHERE reference=? OR name=?", (ref_val, name_val)).fetchone()
+            if existing:
+                conn.execute("UPDATE stock_items SET name=?, category=?, quantity=?, unit_price=?, location=? WHERE id=?",
+                    (name_val, category, qty, price, location, existing['id']))
+            else:
+                conn.execute("INSERT INTO stock_items (name, reference, category, quantity, unit_price, location, notes) VALUES (?,?,?,?,?,?,?)",
+                    (name_val, ref_val, category, qty, price, location, unit))
+            count += 1
+        conn.commit(); conn.close()
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                    'Import', f"{count} articles de stock importés", request.remote_addr)
+        flash(f"{count} articles importés avec succès", "success")
+    except Exception as e:
+        flash(f"Erreur import : {str(e)}", "error")
+    return redirect('/achats?tab=stock')
+
+@app.route('/achats/stock/export')
+@permission_required('comptabilite')
+def export_stock():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Stock"
+    ws.append(['#', 'Code', 'Nom article', 'Catégorie', 'Emplacement', 'Quantité', 'Unité', 'Prix achat', 'Valeur stock'])
+    conn = _gdb()
+    items = [dict(r) for r in conn.execute("SELECT * FROM stock_items ORDER BY name").fetchall()]
+    conn.close()
+    for i, it in enumerate(items, 1):
+        qty = it.get('quantity', 0) or 0
+        price = it.get('unit_price', 0) or 0
+        ws.append([i, it.get('reference','') or '', it.get('name',''), it.get('category','') or '', it.get('location','') or '',
+                   qty, it.get('notes','') or '', price, qty * price])
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="E8672A", end_color="E8672A", fill_type="solid")
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 22
+    
+    output = os.path.join(app.config['UPLOAD_FOLDER'], 'export_stock.xlsx')
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    wb.save(output)
+    return send_file(output, as_attachment=True, download_name='Stock_RAMYA.xlsx')

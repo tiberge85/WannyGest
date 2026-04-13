@@ -133,7 +133,11 @@
             .mobile-toggle{display:block!important}
             .sidebar{transform:translateX(-100%)!important;transition:transform 0.3s ease!important}
             .sidebar.open{transform:translateX(0)!important}
+            .sidebar,.sidebar.open{overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;padding-bottom:60px!important}
+            .nav-section-title{padding:12px 18px!important;min-height:44px!important}
             .main{margin-left:0!important;padding:12px 8px!important;width:100%!important;max-width:100vw!important;overflow-x:hidden!important}
+            .sidebar-nav a{padding:12px 18px!important;font-size:13px!important;min-height:44px!important;display:flex!important;align-items:center!important}
+            .nav-section-items a{padding-left:32px!important;min-height:40px!important}
             .stats-grid{grid-template-columns:1fr 1fr!important}
             .g3,.g4,.g5,.g21,.rg{grid-template-columns:1fr 1fr!important}
             .form-row{flex-direction:column!important;gap:0!important}
@@ -158,7 +162,6 @@
             .btn-sm{padding:3px 6px!important;font-size:10px!important}
             .upload-zone{padding:10px!important}
             .step{margin-bottom:10px!important;padding-bottom:10px!important}
-            .sidebar-nav a{padding:8px 14px!important;font-size:12px!important}
             .slip{max-width:100%!important}
             .emp-grid,.info-grid{grid-template-columns:1fr!important}
         }
@@ -454,6 +457,26 @@
     }
     applyMobile();
     window.addEventListener('resize', applyMobile);
+    
+    // Auto-close sidebar on mobile when clicking a link
+    document.querySelectorAll('.sidebar-nav a:not(.nav-section-title)').forEach(function(link) {
+        link.addEventListener('click', function() {
+            if (window.innerWidth <= 768) {
+                document.querySelector('.sidebar').classList.remove('open');
+                var ov = document.querySelector('.mobile-overlay');
+                if (ov) ov.classList.remove('open');
+            }
+        });
+    });
+    
+    // Make nav-section-title touch-friendly
+    document.querySelectorAll('.nav-section-title').forEach(function(title) {
+        title.addEventListener('touchend', function(e) {
+            e.preventDefault();
+            var sec = this.closest('.nav-section');
+            if (sec) sec.classList.toggle('collapsed');
+        });
+    });
     </script>
     
     {% if current_user %}
