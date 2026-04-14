@@ -229,4 +229,67 @@ new Chart(document.getElementById('cCom'),{type:'doughnut',data:{labels:['Accept
 new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes','Dépenses'],datasets:[{data:[{{s.recettes}},{{s.depenses}}],borderColor:'#1a3a5c',backgroundColor:'rgba(26,58,92,0.1)',fill:true,tension:0.4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});
 </script>
 {% endif %}
+
+{% if page == 'concierge' %}
+<div class="page-header"><h1>🔑 Conciergerie</h1></div>
+<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+{% for t,icon,label in [('accueil','📊','Accueil'),('visiteurs','👥','Visiteurs'),('courrier','📬','Courrier'),('cles','🔑','Clés')] %}
+<a href="/concierge?tab={{ t }}" class="btn {% if tab==t %}btn-primary{% else %}btn-outline{% endif %} btn-sm">{{ icon }} {{ label }}</a>
+{% endfor %}</div>
+
+{% if tab == 'accueil' %}
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon teal">👥</div><div class="stat-info"><div class="stat-num">{{ visiteurs|length }}</div><div class="stat-label">Visiteurs</div></div></div>
+    <div class="stat-card"><div class="stat-icon orange">📬</div><div class="stat-info"><div class="stat-num">{{ (courrier_in|length) + (courrier_out|length) }}</div><div class="stat-label">Courriers</div></div></div>
+    <div class="stat-card"><div class="stat-icon blue">🔑</div><div class="stat-info"><div class="stat-num">{{ cles|length }}</div><div class="stat-label">Clés gérées</div></div></div>
+</div>
+
+{% elif tab == 'visiteurs' %}
+<div class="card"><div class="card-header"><h3>👥 Registre des visiteurs</h3>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addVisM').classList.add('active')">+ Visiteur</button></div>
+<div class="card-body" style="padding:0">
+{% if visiteurs %}<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="sV" placeholder="🔍 Rechercher..." onkeyup="filterTable('sV','vT')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div>
+<div class="table-wrap"><table id="vT"><thead><tr><th>Date</th><th>Nom</th><th>Entreprise</th><th>Motif</th><th>Personne visitée</th><th>Arrivée</th><th>Badge</th></tr></thead>
+<tbody>{% for v in visiteurs %}<tr><td>{{ v.date_visite[:10] }}</td><td><strong>{{ v.nom }}</strong></td><td>{{ v.entreprise or '-' }}</td><td>{{ v.motif or '-' }}</td><td>{{ v.personne_visitee or '-' }}</td><td>{{ v.heure_arrivee or '-' }}</td><td>{{ v.badge or '-' }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun visiteur enregistré</p>{% endif %}
+</div></div>
+<div class="modal-bg" id="addVisM"><div class="modal"><h3>👥 Nouveau visiteur</h3><form method="post" action="/concierge/visiteur/add">
+<div class="form-row"><div class="form-group"><label>Nom complet *</label><input type="text" name="nom" required></div><div class="form-group"><label>Entreprise</label><input type="text" name="entreprise"></div></div>
+<div class="form-row"><div class="form-group"><label>Motif de visite *</label><input type="text" name="motif" required></div><div class="form-group"><label>Personne visitée</label><input type="text" name="personne_visitee"></div></div>
+<div class="form-row"><div class="form-group"><label>Date</label><input type="date" name="date_visite" value="{{ now }}"></div><div class="form-group"><label>Heure arrivée</label><input type="time" name="heure_arrivee"></div><div class="form-group"><label>Badge N°</label><input type="text" name="badge"></div></div>
+<div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
+</form></div></div>
+
+{% elif tab == 'courrier' %}
+<div class="card"><div class="card-header"><h3>📬 Courrier entrant / sortant</h3>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addCourM').classList.add('active')">+ Courrier</button></div>
+<div class="card-body" style="padding:0">
+{% if courrier_in or courrier_out %}
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Expéditeur</th><th>Destinataire</th><th>Objet</th><th>Réf</th></tr></thead>
+<tbody>{% for co in courrier_in + courrier_out %}<tr><td>{{ co.date }}</td><td><span style="padding:2px 6px;border-radius:8px;font-size:10px;{% if co.type=='entrant' %}background:#e8f5e9;color:#2e7d32{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ co.type }}</span></td><td>{{ co.expediteur or '-' }}</td><td>{{ co.destinataire or '-' }}</td><td>{{ co.objet or '-' }}</td><td style="font-size:10px">{{ co.reference or '-' }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun courrier</p>{% endif %}
+</div></div>
+<div class="modal-bg" id="addCourM"><div class="modal"><h3>📬 Nouveau courrier</h3><form method="post" action="/concierge/courrier/add">
+<div class="form-row"><div class="form-group"><label>Type</label><select name="type"><option value="entrant">📥 Entrant</option><option value="sortant">📤 Sortant</option></select></div><div class="form-group"><label>Date</label><input type="date" name="date" value="{{ now }}"></div></div>
+<div class="form-row"><div class="form-group"><label>Expéditeur</label><input type="text" name="expediteur"></div><div class="form-group"><label>Destinataire</label><input type="text" name="destinataire"></div></div>
+<div class="form-row"><div class="form-group"><label>Objet *</label><input type="text" name="objet" required></div><div class="form-group"><label>Référence</label><input type="text" name="reference"></div></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
+</form></div></div>
+
+{% elif tab == 'cles' %}
+<div class="card"><div class="card-header"><h3>🔑 Gestion des clés</h3>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addCleM').classList.add('active')">+ Clé</button></div>
+<div class="card-body" style="padding:0">
+{% if cles %}<div class="table-wrap"><table><thead><tr><th>Clé</th><th>Emplacement</th><th>Détenteur</th><th>Statut</th></tr></thead>
+<tbody>{% for k in cles %}<tr><td><strong>{{ k.nom_cle }}</strong></td><td>{{ k.emplacement or '-' }}</td><td>{{ k.detenteur or '-' }}</td><td><span style="padding:2px 6px;border-radius:8px;font-size:10px;{% if k.statut=='disponible' %}background:#e8f5e9;color:#2e7d32{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ k.statut }}</span></td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune clé enregistrée</p>{% endif %}
+</div></div>
+<div class="modal-bg" id="addCleM"><div class="modal"><h3>🔑 Nouvelle clé</h3><form method="post" action="/concierge/cle/add">
+<div class="form-row"><div class="form-group"><label>Nom de la clé *</label><input type="text" name="nom_cle" required placeholder="Bureau DG, Salle serveur..."></div><div class="form-group"><label>Emplacement</label><input type="text" name="emplacement"></div></div>
+<div class="form-row"><div class="form-group"><label>Détenteur actuel</label><input type="text" name="detenteur"></div><div class="form-group"><label>Statut</label><select name="statut"><option value="disponible">Disponible</option><option value="attribuee">Attribuée</option><option value="perdue">Perdue</option></select></div></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
+</form></div></div>
+{% endif %}
+{% endif %}
 {% endblock %}

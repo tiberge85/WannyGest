@@ -33,16 +33,30 @@
 <!-- Expired contracts table -->
 {% if expired_contracts %}
 <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>📋 Contrats expirés à prolonger</h3><a href="/rh/contrats-rh" class="btn btn-outline btn-sm" style="font-size:10px">Voir tout →</a></div><div class="card-body" style="padding:0"><div class="table-wrap"><table>
-<thead><tr><th>Code du contrat</th><th>ID</th><th>Personnel</th><th>Département</th><th>Début validité</th><th>Fin validité</th><th>Actions</th></tr></thead>
+<thead><tr><th>Personnel</th><th>Département</th><th>Type</th><th>Fin validité</th><th>Expiré depuis</th><th>Actions</th></tr></thead>
 <tbody>{% for c in expired_contracts %}
 <tr style="background:#fef9e7">
-<td>{{ c.code or c.contract_type+'-'+c.start_date[:7] }}</td>
-<td><a href="/rh/contrats-rh/edit/{{ c.id }}" style="color:#1565c0">{{ c.id }}</a></td>
 <td><strong>{{ c.employee_name }}</strong></td>
 <td>{{ c.department or '-' }}</td>
-<td>{{ c.start_date or '-' }}</td>
+<td>{{ c.contract_type or c.code or '-' }}</td>
 <td style="color:#c53030;font-weight:600">{{ c.end_date }}</td>
+<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:#fde8e8;color:#c53030">{{ c.days_remaining }} j</span></td>
 <td><a href="/rh/contrats-rh/edit/{{ c.id }}" class="btn btn-outline btn-sm" style="font-size:10px">✏️ Prolonger</a></td>
+</tr>{% endfor %}</tbody></table></div></div></div>
+{% endif %}
+
+{% if expiring_soon %}
+<div class="card" style="margin-bottom:14px"><div class="card-header"><h3>⚠️ Contrats sur le point d'expirer</h3><a href="/rh/contrats-rh" class="btn btn-outline btn-sm" style="font-size:10px">Voir tout →</a></div><div class="card-body" style="padding:0"><div class="table-wrap"><table>
+<thead><tr><th>Personnel</th><th>Département</th><th>Type</th><th>Fin contrat</th><th>Jours restants</th><th>Actions</th></tr></thead>
+<tbody>{% for c in expiring_soon %}
+{% set days_left = ((c.end_date|string)[:10]) %}
+<tr>
+<td><strong>{{ c.employee_name }}</strong></td>
+<td>{{ c.department or '-' }}</td>
+<td>{{ c.contract_type or '-' }}</td>
+<td style="font-weight:600;color:#e8672a">{{ c.end_date }}</td>
+<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:#fff3e0;color:#e8672a">{{ c.days_remaining }} j</span></td>
+<td><a href="/rh/contrats-rh/edit/{{ c.id }}" class="btn btn-outline btn-sm" style="font-size:10px">✏️ Renouveler</a></td>
 </tr>{% endfor %}</tbody></table></div></div></div>
 {% endif %}
 

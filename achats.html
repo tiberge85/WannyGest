@@ -93,6 +93,7 @@ function editFour(id,name,contact,tel,email,city,sector){
     <div style="display:flex;gap:6px;flex-wrap:wrap">
     <button class="btn btn-sm btn-outline" onclick="document.getElementById('importSM').classList.add('active')">📥 Importer Excel</button>
     <a href="/achats/stock/export" class="btn btn-sm" style="background:#1A7A6D;color:#fff">📤 Exporter</a>
+    <button class="btn btn-sm btn-orange" onclick="document.getElementById('addCatM').classList.add('active')">+ Catégorie</button>
     <button class="btn btn-sm btn-outline" onclick="document.getElementById('catModal').classList.add('active')">🏷️ Catégories</button>
     </div>
 </div><div class="card-body" style="padding:0">
@@ -104,6 +105,10 @@ function editFour(id,name,contact,tel,email,city,sector){
 </div>
 {% endif %}
 {% if stock_items %}
+{% if stock_categories %}<div style="margin:10px;display:flex;gap:4px;flex-wrap:wrap">
+<button class="btn btn-sm btn-outline" onclick="filterStockCat('')" style="font-size:10px">Tous</button>
+{% for cat in stock_categories %}<button class="btn btn-sm btn-outline" onclick="filterStockCat('{{ cat.name }}')" style="font-size:10px">{{ cat.name }} <a href="/achats/stock/category/delete/{{ cat.id }}" onclick="event.stopPropagation();return confirm('Supprimer?')" style="color:#c53030;font-size:9px;margin-left:4px">✕</a></button>{% endfor %}
+</div>{% endif %}
 <div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchStock" placeholder="🔍 Rechercher un article..." onkeyup="filterTable('searchStock','stockTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div>
 <div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
 <div style="font-size:12px;color:#888">Page <span id="stockPage">1</span> / <span id="stockPages">1</span> (<span id="stockCount">0</span> articles)</div>

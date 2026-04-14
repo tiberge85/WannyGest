@@ -140,6 +140,12 @@ from models import migrate_v30
 migrate_v30()
 from models import migrate_v31
 migrate_v31()
+from models import migrate_v32
+migrate_v32()
+from models import migrate_v31
+migrate_v31()
+from models import migrate_v32
+migrate_v32()
 from models import migrate_v27
 migrate_v27()
 from models import migrate_v28
@@ -150,6 +156,12 @@ from models import migrate_v30
 migrate_v30()
 from models import migrate_v31
 migrate_v31()
+from models import migrate_v32
+migrate_v32()
+from models import migrate_v31
+migrate_v31()
+from models import migrate_v32
+migrate_v32()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -171,7 +183,7 @@ init_devis_tables()
 
 ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
 ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general',
-                   'envoyer', 'logs', 
+                   'envoyer', 'logs', 'concierge',
                    'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit',
                    'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis',
                    'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking']
@@ -180,6 +192,7 @@ ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin',
 PERM_CATEGORIES = {
     'Comptabilité': [('comptabilite', 'Lecture'), ('comptabilite_edit', 'Modification'), ('convertir_devis', 'Convertir devis'), ('caisse_sortie', 'Caisse')],
     'Commercial / CRM': [('clients', 'Clients lecture'), ('clients_edit', 'Clients modification'), ('proforma', 'Devis lecture'), ('proforma_edit', 'Devis modification'), ('visites', 'Visites lecture'), ('visites_edit', 'Visites modification')],
+    'Concierge': [('concierge', 'Accès conciergerie')],
     'Technique': [('centre_technique', 'Centre technique'), ('centre_technique_edit', 'Centre tech. modif'), ('traitement', 'Traitement/DPCI')],
     'Projets': [('resp_projet', 'Resp. projet lecture'), ('resp_projet_edit', 'Resp. projet modif'), ('projets', 'Projets info')],
     'RH & Admin': [('fichiers', 'Employés/RH'), ('contrats', 'Contrats'), ('envoyer', 'Envoi paie'), ('logs', 'Logs')],
@@ -881,7 +894,7 @@ def clients_delete(cid):
 def admin_page():
     users = get_all_users()
     stats = get_dashboard_stats()
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'gestionnaire_projet']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'gestionnaire_projet', 'concierge']}
     conn = _gdb()
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
@@ -995,7 +1008,7 @@ def admin_delete_user(uid):
 @app.route('/admin/permissions', methods=['POST'])
 @permission_required('admin')
 def admin_permissions():
-    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'gestionnaire_projet']:
+    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'gestionnaire_projet', 'concierge']:
         perms = [p for p in ALL_PERMISSIONS if request.form.get(f'{role}_{p}')]
         update_role_permissions(role, perms)
     # Admin always has all
@@ -2776,6 +2789,17 @@ def rh_dashboard():
         FROM rh_contracts c LEFT JOIN employees e ON c.employee_id=e.id
         WHERE c.end_date >= ? AND c.end_date <= date(?, '+30 days') AND c.status='actif'
         ORDER BY c.end_date""", (today, today)).fetchall()]
+    for ec in expiring_soon:
+        try:
+            from datetime import timedelta
+            end = datetime.strptime(ec['end_date'][:10], '%Y-%m-%d')
+            ec['days_remaining'] = (end - datetime.now()).days + 1
+        except: ec['days_remaining'] = '?'
+    for ec in expired_contracts:
+        try:
+            end = datetime.strptime(ec['end_date'][:10], '%Y-%m-%d')
+            ec['days_remaining'] = (datetime.now() - end).days
+        except: ec['days_remaining'] = '?'
     # Upcoming birthdays (next 30 days)
     birthdays = []
     all_emps = [dict(r) for r in conn.execute("SELECT * FROM employees WHERE status='actif' AND birth_date IS NOT NULL AND birth_date != ''").fetchall()]
@@ -2876,9 +2900,10 @@ def rh_personnel_edit(eid):
                          'id_type','id_expiry','id_place','resident','address','education_level',
                          'work_location','bank_account','bank_name_emp','bank_holder',
                          'fiscal_code','hourly_rate','facebook','linkedin','skype',
-                         'direction','email_signature','other_info','status']:
+                         'direction','email_signature','other_info','status','cnps_number']:
                 fields[key] = request.form.get(key, '')
             fields['salary'] = float(request.form.get('salary', 0) or 0)
+            fields['cnps_declared'] = 1 if request.form.get('cnps_declared') else 0
             # Convert empty unique fields to None
             for uf in ['matricule', 'email']:
                 if not fields.get(uf): fields[uf] = None
@@ -3222,7 +3247,7 @@ def rh_paie_pdf(pid):
     
     hdr = [[
         logo_el,
-        Paragraph(f"<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/>Abidjan, Côte d'Ivoire<br/>RCCM: CI-AB5-03-2017_A10-25092", ParagraphStyle('hi',fontSize=7,textColor=white,leading=10)),
+        Paragraph(f"<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/>Abidjan, Côte d'Ivoire<br/>RCCM: CI-ABJ-03-2017_A10-25092", ParagraphStyle('hi',fontSize=7,textColor=white,leading=10)),
         Paragraph(f"<b>BULLETIN DE PAIE</b><br/>{period_display}<br/>{datetime.now().strftime('%d/%m/%Y')}", ParagraphStyle('hp',fontSize=9,fontName='Helvetica-Bold',textColor=white,alignment=TA_RIGHT,leading=13))
     ]]
     ht = Table(hdr, colWidths=[35*mm, pw*0.42, pw-35*mm-pw*0.42])
@@ -3234,7 +3259,7 @@ def rh_paie_pdf(pid):
     ei = [[
         Paragraph(f"<b>Employé :</b> {p['employee_name']}", scb),
         Paragraph(f"<b>Matricule :</b> {p.get('matricule','') or '-'}", sc),
-        Paragraph(f"<b>N° CNPS :</b> {p.get('insurance_number','') or '-'}", sc),
+        Paragraph(f"<b>N° CNPS :</b> {p.get('cnps_number','') or p.get('insurance_number','') or '-'}", sc),
     ],[
         Paragraph(f"<b>Poste :</b> {p.get('position','') or '-'}", sc),
         Paragraph(f"<b>Département :</b> {(p.get('department','') or '-').upper()}", sc),
@@ -3288,11 +3313,15 @@ def rh_paie_pdf(pid):
     story.extend([apt, Spacer(1,3*mm)])
     
     # === RETENUES ===
+    has_cnps = bool(p.get('cnps_declared')) or bool((p.get('cnps_number') or '').strip()) or bool((p.get('insurance_number') or '').strip())
     plafond = min(brut, 2700000)
-    cnps_sal = g('cnps_retraite_sal') or round(plafond * 0.063)
-    cnps_ret_pat = round(plafond * 0.077)
-    cnps_pf = round(brut * 0.0575)
-    cnps_acc = round(brut * 0.03)
+    if has_cnps:
+        cnps_sal = g('cnps_retraite_sal') or round(plafond * 0.063)
+        cnps_ret_pat = round(plafond * 0.077)
+        cnps_pf = round(brut * 0.0575)
+        cnps_acc = round(brut * 0.03)
+    else:
+        cnps_sal = 0; cnps_ret_pat = 0; cnps_pf = 0; cnps_acc = 0
     tx_app = round(brut * 0.004)
     fdfp_v = round(brut * 0.012)
     total_pat = cnps_ret_pat + cnps_pf + cnps_acc + tx_app + fdfp_v
@@ -3300,11 +3329,12 @@ def rh_paie_pdf(pid):
     total_sal = cnps_sal + its + assur + ded + av + ar
     
     cw5 = [pw*0.32, pw*0.14, pw*0.14, pw*0.18, pw*0.22]
+    cnps_label = 'CNPS Retraite' if has_cnps else 'CNPS Retraite (non déclaré)'
     ret = [
         [Paragraph('<b>RETENUES / COTISATIONS</b>', swb), Paragraph('<b>Part patron.</b>', swb), Paragraph('<b>Part salar.</b>', swb), Paragraph('<b>Base</b>', swb), Paragraph('<b>Montant sal.</b>', swb)],
-        [Paragraph('CNPS Retraite', sc), Paragraph('7,7%', sr), Paragraph('6,3%', sr), Paragraph(f'Plaf. {fmt(plafond)}', ParagraphStyle('sm',fontSize=7,alignment=TA_RIGHT,textColor=GREY)), Paragraph(fmt(cnps_sal), srb)],
-        [Paragraph('CNPS Prestations familiales', sc), Paragraph('5,75%', sr), Paragraph('0%', sr), Paragraph(fmt(brut), sr), Paragraph('—', sr)],
-        [Paragraph('CNPS Accidents du travail', sc), Paragraph('3%', sr), Paragraph('0%', sr), Paragraph(fmt(brut), sr), Paragraph('—', sr)],
+        [Paragraph(cnps_label, sc), Paragraph('7,7%' if has_cnps else '—', sr), Paragraph('6,3%' if has_cnps else '—', sr), Paragraph(f'Plaf. {fmt(plafond)}' if has_cnps else '—', ParagraphStyle('sm',fontSize=7,alignment=TA_RIGHT,textColor=GREY)), Paragraph(fmt(cnps_sal) if has_cnps else '—', srb)],
+        [Paragraph('CNPS Prestations familiales', sc), Paragraph('5,75%' if has_cnps else '—', sr), Paragraph('0%' if has_cnps else '—', sr), Paragraph(fmt(brut) if has_cnps else '—', sr), Paragraph('—', sr)],
+        [Paragraph('CNPS Accidents du travail', sc), Paragraph('3%' if has_cnps else '—', sr), Paragraph('0%' if has_cnps else '—', sr), Paragraph(fmt(brut) if has_cnps else '—', sr), Paragraph('—', sr)],
         [Paragraph("Taxe d'apprentissage", sc), Paragraph('0,4%', sr), Paragraph('0%', sr), Paragraph(fmt(brut), sr), Paragraph('—', sr)],
         [Paragraph('Formation prof. (FDFP)', sc), Paragraph('1,2%', sr), Paragraph('0%', sr), Paragraph(fmt(brut), sr), Paragraph('—', sr)],
         [Paragraph('ITS (Impôt sur salaire)', sc), Paragraph('', sr), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(its), sr)],
@@ -3493,6 +3523,71 @@ Service des Ressources Humaines"""
     
     smtp = get_admin_smtp()
     return render_template('rh_paie_view.html', page='paie', p=p, send_email=True, smtp=smtp)
+
+# ======================== CONCIERGE ========================
+
+@app.route('/concierge')
+@permission_required('concierge')
+def concierge_page():
+    conn = _gdb()
+    tab = request.args.get('tab', 'accueil')
+    data = {'tab': tab}
+    try:
+        data['visiteurs'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_visiteurs ORDER BY date_visite DESC LIMIT 50").fetchall()]
+    except: data['visiteurs'] = []
+    try:
+        data['courrier_in'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_courrier WHERE type='entrant' ORDER BY date DESC LIMIT 50").fetchall()]
+        data['courrier_out'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_courrier WHERE type='sortant' ORDER BY date DESC LIMIT 50").fetchall()]
+    except: data['courrier_in'] = []; data['courrier_out'] = []
+    try:
+        data['cles'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_cles ORDER BY nom_cle").fetchall()]
+    except: data['cles'] = []
+    conn.close()
+    return render_template('extra_pages.html', page='concierge', **data)
+
+@app.route('/concierge/visiteur/add', methods=['POST'])
+@permission_required('concierge')
+def concierge_visiteur_add():
+    conn = _gdb()
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS concierge_visiteurs (id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT, entreprise TEXT, motif TEXT, personne_visitee TEXT, date_visite TEXT DEFAULT CURRENT_TIMESTAMP, heure_arrivee TEXT, heure_depart TEXT, badge TEXT, notes TEXT, created_by INTEGER)")
+    except: pass
+    conn.execute("INSERT INTO concierge_visiteurs (nom, entreprise, motif, personne_visitee, date_visite, heure_arrivee, badge, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?)",
+        (request.form.get('nom',''), request.form.get('entreprise',''), request.form.get('motif',''),
+         request.form.get('personne_visitee',''), request.form.get('date_visite', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('heure_arrivee',''), request.form.get('badge',''), request.form.get('notes',''), session['user_id']))
+    conn.commit(); conn.close()
+    flash("Visiteur enregistré", "success")
+    return redirect('/concierge?tab=visiteurs')
+
+@app.route('/concierge/courrier/add', methods=['POST'])
+@permission_required('concierge')
+def concierge_courrier_add():
+    conn = _gdb()
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS concierge_courrier (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, expediteur TEXT, destinataire TEXT, objet TEXT, date TEXT, reference TEXT, statut TEXT DEFAULT 'recu', notes TEXT, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+    except: pass
+    conn.execute("INSERT INTO concierge_courrier (type, expediteur, destinataire, objet, date, reference, notes, created_by) VALUES (?,?,?,?,?,?,?,?)",
+        (request.form.get('type','entrant'), request.form.get('expediteur',''), request.form.get('destinataire',''),
+         request.form.get('objet',''), request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('reference',''), request.form.get('notes',''), session['user_id']))
+    conn.commit(); conn.close()
+    flash("Courrier enregistré", "success")
+    return redirect('/concierge?tab=courrier')
+
+@app.route('/concierge/cle/add', methods=['POST'])
+@permission_required('concierge')
+def concierge_cle_add():
+    conn = _gdb()
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS concierge_cles (id INTEGER PRIMARY KEY AUTOINCREMENT, nom_cle TEXT, emplacement TEXT, detenteur TEXT, statut TEXT DEFAULT 'disponible', date_remise TEXT, notes TEXT, created_by INTEGER)")
+    except: pass
+    conn.execute("INSERT INTO concierge_cles (nom_cle, emplacement, detenteur, statut, notes, created_by) VALUES (?,?,?,?,?,?)",
+        (request.form.get('nom_cle',''), request.form.get('emplacement',''), request.form.get('detenteur',''),
+         request.form.get('statut','disponible'), request.form.get('notes',''), session['user_id']))
+    conn.commit(); conn.close()
+    flash("Clé enregistrée", "success")
+    return redirect('/concierge?tab=cles')
 
 # ======================== NOTIFICATIONS ========================
 

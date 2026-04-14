@@ -2108,7 +2108,7 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     
     header_data = [
         [logo_el,
-         Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/><font size='7' color='#888'>Abidjan, Côte d'Ivoire · RCCM: CI-AB5-03-2017_A10-25092</font>", 
+         Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/><font size='7' color='#888'>Abidjan, Côte d'Ivoire · RCCM: CI-ABJ-03-2017_A10-25092</font>", 
                     ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold', textColor=TEAL, leading=14)),
          Paragraph("""<font color='#1a7a6d'>■</font> <i>Caméras de surveillance,</i><br/>
 <font color='#1a7a6d'>■</font> <i>Clôture électrique,</i><br/>
@@ -2257,7 +2257,7 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     
     # === FOOTER ===
     story.append(Paragraph(
-        "<b>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B</b><br/>"
+        "<b>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY / N°RCCM : CI-ABJ-03-2017_A10-25092 / NCC : 1746141.B</b><br/>"
         "<b>Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 / Cel : + 225 2722204498 / 07 09 50 02 43 / 07 47 68 20 27</b><br/>"
         "<b>Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com</b>",
         ParagraphStyle('ft', fontSize=7, alignment=TA_CENTER, textColor=TEAL, leading=10)

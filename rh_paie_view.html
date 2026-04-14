@@ -22,6 +22,7 @@ th{text-align:left;font-weight:600}
 </style>
 {% set fmt = '{:,.0f}'.format %}
 {% set g = p.get %}
+{% set has_cnps = g('insurance_number','') and g('insurance_number','').strip() %}
 <div class="page-header"><h1>🧾 Bulletin de paie</h1></div>
 <div class="actions-bar">
     <a href="/rh/paie/{{ p.id }}/edit" class="btn btn-orange">✏️ Modifier</a>
@@ -75,7 +76,7 @@ th{text-align:left;font-weight:600}
 <div class="slip-hdr">
     <div style="display:flex;align-items:center;gap:10px">
         <img src="/static/logo_ramya.png" alt="RAMYA" onerror="this.style.display='none'">
-        <div><strong>RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;opacity:0.8">Abidjan, CI · RCCM: CI-AB5-03-2017_A10-25092</span></div>
+        <div><strong>RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;opacity:0.8">Abidjan, CI · RCCM: CI-ABJ-03-2017_A10-25092</span></div>
     </div>
     <div style="text-align:right"><strong>BULLETIN DE PAIE</strong><br><span style="font-size:11px">Période: 01 au 30 {{ p.period }}</span></div>
 </div>
@@ -85,7 +86,7 @@ th{text-align:left;font-weight:600}
 <div class="emp-grid">
     <div class="emp-cell"><b>Employé :</b> {{ p.employee_name }}</div>
     <div class="emp-cell"><b>Matricule :</b> {{ g('matricule','') or '-' }}</div>
-    <div class="emp-cell"><b>N° CNPS :</b> {{ g('insurance_number','') or '-' }}</div>
+    <div class="emp-cell"><b>N° CNPS :</b> {{ g('cnps_number','') or g('insurance_number','') or '-' }}</div>
     <div class="emp-cell"><b>Poste :</b> {{ g('position','') or '-' }}</div>
     <div class="emp-cell"><b>Département :</b> {{ g('department','') or '-' }}</div>
     <div class="emp-cell"><b>Embauche :</b> {{ g('hire_date','') or '-' }}</div>
@@ -120,7 +121,7 @@ th{text-align:left;font-weight:600}
 <div class="sec-hdr sec-orange" style="margin-top:8px">RETENUES / COTISATIONS</div>
 <table>
 <tr style="background:#f0f4f0"><th>Libellé</th><th style="text-align:right">Part patron.</th><th style="text-align:right">Part salar.</th><th style="text-align:right">Base</th><th style="text-align:right">Montant sal.</th></tr>
-<tr><td>CNPS Retraite</td><td style="text-align:right;color:#888">7,7%</td><td style="text-align:right">6,3%</td><td style="text-align:right;font-size:10px;color:#888">Plaf. 2 700 000</td><td style="text-align:right"><strong>{{ fmt((g('cnps_retraite_sal',0) or 0) or (([brut, 2700000]|min) * 0.063)) }}</strong></td></tr>
+<tr><td>CNPS Retraite{% if not has_cnps %} <span style='font-size:9px;color:#c53030'>(non déclaré)</span>{% endif %}</td><td style="text-align:right;color:#888">7,7%</td><td style="text-align:right">6,3%</td><td style="text-align:right;font-size:10px;color:#888">Plaf. 2 700 000</td><td style="text-align:right"><strong>{% if has_cnps %}{{ fmt((g('cnps_retraite_sal',0) or 0) or (([brut, 2700000]|min) * 0.063)) }}{% else %}—{% endif %}</strong></td></tr>
 <tr><td>CNPS Prestations familiales</td><td style="text-align:right;color:#888">5,75%</td><td style="text-align:right">0%</td><td style="text-align:right;font-size:10px;color:#888">{{ fmt(brut) }}</td><td style="text-align:right">—</td></tr>
 <tr><td>CNPS Accidents du travail</td><td style="text-align:right;color:#888">3%</td><td style="text-align:right">0%</td><td style="text-align:right;font-size:10px;color:#888">{{ fmt(brut) }}</td><td style="text-align:right">—</td></tr>
 <tr><td>Taxe d'apprentissage</td><td style="text-align:right;color:#888">0,4%</td><td style="text-align:right">0%</td><td style="text-align:right;font-size:10px;color:#888">{{ fmt(brut) }}</td><td style="text-align:right">—</td></tr>
@@ -137,7 +138,7 @@ th{text-align:left;font-weight:600}
     </div>
 </div>
 <div style="background:#e8672a;color:#fff;padding:6px 10px;border-radius:4px;font-size:11px;display:flex;justify-content:space-between;margin-bottom:8px">
-    {% set total_sal = ((g('cnps_retraite_sal',0) or 0) or (([brut, 2700000]|min) * 0.063)) + (g('its',0) or 0) + (g('insurance_amount',0) or 0) + (g('deductions',0) or 0) + (g('avances',0) or 0) + (g('autres_retenues',0) or 0) %}
+    {% set cnps_amount = ((g('cnps_retraite_sal',0) or 0) or (([brut, 2700000]|min) * 0.063)) if has_cnps else 0 %}{% set total_sal = cnps_amount + (g('its',0) or 0) + (g('insurance_amount',0) or 0) + (g('deductions',0) or 0) + (g('avances',0) or 0) + (g('autres_retenues',0) or 0) %}
     <b>Total retenues salariales</b><b>{{ fmt(total_sal) }} F</b>
 </div>
 

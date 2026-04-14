@@ -323,14 +323,13 @@
             <div class="nav-section" id="sec-moyens">
                 <div class="nav-section-title" onclick="toggleSection('sec-moyens')">🏠 MOYENS GÉNÉRAUX <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/moyens-generaux" class="{% if page == 'moyens' %}active{% endif %}">Tableau de bord</a>
-                    <a href="/stock" class="{% if page == 'stock' %}active{% endif %}">📦 Stock</a>
-                    <a href="/moyens-generaux/vehicules" class="{% if page == 'vehicules' %}active{% endif %}">Parc véhicules</a>
-                    <a href="/moyens-generaux/fournitures" class="{% if page == 'fournitures' %}active{% endif %}">Fournitures bureau</a>
-                    <a href="/moyens-generaux/maintenance" class="{% if page == 'maintenance' %}active{% endif %}">Maintenance</a>
-                    <div style="height:1px;background:rgba(255,255,255,0.06);margin:4px 16px"></div>
-                    <a href="/achats" class="{% if page == 'achats' %}active{% endif %}">🛒 Module Achat</a>
-                    <a href="/achats?tab=contrats" class="{% if page == 'achats' and tab == 'contrats' %}active{% endif %}">📑 Contrats</a>
+                    <a href="/achats" class="{% if page == 'achats' %}active{% endif %}">🛒 Achats</a>
+                    <a href="/concierge" class="{% if page == 'concierge' %}active{% endif %}">🔑 Conciergerie</a>
+                    <a href="/moyens-generaux/fournitures" class="{% if page == 'fournitures' %}active{% endif %}">📦 Fournitures bureau</a>
+                    <a href="/moyens-generaux/maintenance" class="{% if page == 'maintenance' %}active{% endif %}">🔧 Maintenance</a>
+                    <a href="/moyens-generaux/vehicules" class="{% if page == 'vehicules' %}active{% endif %}">🚗 Parc véhicules</a>
+                    <a href="/achats?tab=stock" class="{% if page == 'stock' %}active{% endif %}">📦 Stock</a>
+                    <a href="/moyens-generaux" class="{% if page == 'moyens' %}active{% endif %}">📊 Tableau de bord</a>
                 </div>
             </div>
             {% endif %}

@@ -82,6 +82,8 @@
 <div class="f3">
     <div class="form-group"><label>Assurance</label><input type="text" name="insurance" value="{{ emp.insurance or '' }}"></div>
     <div class="form-group"><label>N° Assurance</label><input type="text" name="insurance_number" value="{{ emp.insurance_number or '' }}"></div>
+    <div class="form-group"><label>N° CNPS</label><input type="text" name="cnps_number" value="{{ emp.cnps_number or '' }}" placeholder="Ex: 376215"></div>
+    <div class="form-group"><label><input type="checkbox" name="cnps_declared" value="1" {% if emp.cnps_declared %}checked{% endif %}> Déclaré à la CNPS</label></div>
     <div class="form-group"><label>Groupe sanguin</label><select name="blood_type">{% for b in ['','A+','A-','B+','B-','AB+','AB-','O+','O-'] %}<option {% if emp.blood_type==b %}selected{% endif %}>{{ b or '—' }}</option>{% endfor %}</select></div>
 </div>
 <div class="f2">

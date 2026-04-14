@@ -1633,7 +1633,7 @@ def get_payslip_detail_v2(pid):
     conn = get_db()
     p = conn.execute("""SELECT p.*, e.first_name, e.last_name, e.matricule, e.position, 
         e.department, e.insurance, e.insurance_number, e.hire_date, e.email, e.tel,
-        e.code_rh, e.gender
+        e.code_rh, e.gender, e.cnps_number, e.cnps_declared
         FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id WHERE p.id=?""", (pid,)).fetchone()
     conn.close()
     if not p: return None
@@ -2564,3 +2564,25 @@ def migrate_v31():
         conn.commit()
     except: pass
     conn.close()
+
+def migrate_v31():
+    conn = get_db()
+    for col, typ in [('cnps_number','TEXT DEFAULT ""'),('cnps_declared','INTEGER DEFAULT 0')]:
+        try: conn.execute(f"ALTER TABLE employees ADD COLUMN {col} {typ}")
+        except: pass
+    conn.commit(); conn.close()
+
+def migrate_v32():
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS stock_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+    # Add category_id to stock_items if not exists
+    try: conn.execute("ALTER TABLE stock_items ADD COLUMN category_id INTEGER DEFAULT 0")
+    except: pass
+    conn.commit(); conn.close()
