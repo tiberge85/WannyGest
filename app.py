@@ -142,10 +142,18 @@ from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
 migrate_v32()
+from models import migrate_v33
+migrate_v33()
+from models import migrate_v34
+migrate_v34()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
 migrate_v32()
+from models import migrate_v33
+migrate_v33()
+from models import migrate_v34
+migrate_v34()
 from models import migrate_v27
 migrate_v27()
 from models import migrate_v28
@@ -158,10 +166,18 @@ from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
 migrate_v32()
+from models import migrate_v33
+migrate_v33()
+from models import migrate_v34
+migrate_v34()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
 migrate_v32()
+from models import migrate_v33
+migrate_v33()
+from models import migrate_v34
+migrate_v34()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -176,6 +192,18 @@ migrate_v19()
 # Register module routes
 from modules_routes import modules_bp
 app.register_blueprint(modules_bp)
+
+# Ensure admin and concierge roles have default permissions
+try:
+    update_role_permissions('admin', ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general',
+                   'envoyer', 'logs', 'concierge',
+                   'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit',
+                   'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis',
+                   'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking'])
+    from models import get_role_permissions as _grp
+    if not _grp('concierge'):
+        update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
+except: pass
 
 from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
                     update_devis_status, get_devis_stats, get_next_devis_ref)
@@ -3532,16 +3560,24 @@ def concierge_page():
     conn = _gdb()
     tab = request.args.get('tab', 'accueil')
     data = {'tab': tab}
-    try:
-        data['visiteurs'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_visiteurs ORDER BY date_visite DESC LIMIT 50").fetchall()]
+    try: data['visiteurs'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_visiteurs ORDER BY date_visite DESC LIMIT 50").fetchall()]
     except: data['visiteurs'] = []
     try:
         data['courrier_in'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_courrier WHERE type='entrant' ORDER BY date DESC LIMIT 50").fetchall()]
         data['courrier_out'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_courrier WHERE type='sortant' ORDER BY date DESC LIMIT 50").fetchall()]
     except: data['courrier_in'] = []; data['courrier_out'] = []
-    try:
-        data['cles'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_cles ORDER BY nom_cle").fetchall()]
+    try: data['cles'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_cles ORDER BY nom_cle").fetchall()]
     except: data['cles'] = []
+    try: data['colis'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_colis ORDER BY date_reception DESC LIMIT 50").fetchall()]
+    except: data['colis'] = []
+    try: data['salles'] = [dict(r) for r in conn.execute("SELECT * FROM concierge_salles ORDER BY nom").fetchall()]
+    except: data['salles'] = []
+    try: data['reservations'] = [dict(r) for r in conn.execute("SELECT r.*, s.nom as salle_nom FROM concierge_reservations r LEFT JOIN concierge_salles s ON r.salle_id=s.id ORDER BY r.date DESC LIMIT 30").fetchall()]
+    except: data['reservations'] = []
+    # Stats
+    data['nb_visiteurs_jour'] = len([v for v in data['visiteurs'] if v.get('date_visite','')[:10] == datetime.now().strftime('%Y-%m-%d')])
+    data['nb_courrier'] = len(data.get('courrier_in',[])) + len(data.get('courrier_out',[]))
+    data['nb_colis_attente'] = len([c for c in data.get('colis',[]) if c.get('statut') == 'en_attente'])
     conn.close()
     return render_template('extra_pages.html', page='concierge', **data)
 
@@ -3588,6 +3624,47 @@ def concierge_cle_add():
     conn.commit(); conn.close()
     flash("Clé enregistrée", "success")
     return redirect('/concierge?tab=cles')
+
+@app.route('/concierge/colis/add', methods=['POST'])
+@permission_required('concierge')
+def concierge_colis_add():
+    conn = _gdb()
+    conn.execute("INSERT INTO concierge_colis (expediteur, destinataire, description, date_reception, notes, created_by) VALUES (?,?,?,?,?,?)",
+        (request.form.get('expediteur',''), request.form.get('destinataire',''), request.form.get('description',''),
+         request.form.get('date_reception', datetime.now().strftime('%Y-%m-%d')), request.form.get('notes',''), session['user_id']))
+    conn.commit(); conn.close()
+    flash("Colis enregistré", "success")
+    return redirect('/concierge?tab=colis')
+
+@app.route('/concierge/colis/retrait/<int:cid>')
+@permission_required('concierge')
+def concierge_colis_retrait(cid):
+    conn = _gdb()
+    conn.execute("UPDATE concierge_colis SET statut='retire', date_retrait=? WHERE id=?", (datetime.now().strftime('%Y-%m-%d %H:%M'), cid))
+    conn.commit(); conn.close()
+    flash("Colis retiré", "success")
+    return redirect('/concierge?tab=colis')
+
+@app.route('/concierge/salle/add', methods=['POST'])
+@permission_required('concierge')
+def concierge_salle_add():
+    conn = _gdb()
+    conn.execute("INSERT INTO concierge_salles (nom, capacite, equipements) VALUES (?,?,?)",
+        (request.form.get('nom',''), int(request.form.get('capacite', 10) or 10), request.form.get('equipements','')))
+    conn.commit(); conn.close()
+    flash("Salle ajoutée", "success")
+    return redirect('/concierge?tab=salles')
+
+@app.route('/concierge/reservation/add', methods=['POST'])
+@permission_required('concierge')
+def concierge_reservation_add():
+    conn = _gdb()
+    conn.execute("INSERT INTO concierge_reservations (salle_id, date, heure_debut, heure_fin, objet, reserve_par, created_by) VALUES (?,?,?,?,?,?,?)",
+        (int(request.form.get('salle_id',0)), request.form.get('date',''), request.form.get('heure_debut',''),
+         request.form.get('heure_fin',''), request.form.get('objet',''), request.form.get('reserve_par',''), session['user_id']))
+    conn.commit(); conn.close()
+    flash("Réservation enregistrée", "success")
+    return redirect('/concierge?tab=salles')
 
 # ======================== NOTIFICATIONS ========================
 

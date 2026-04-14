@@ -233,7 +233,7 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 {% if page == 'concierge' %}
 <div class="page-header"><h1>🔑 Conciergerie</h1></div>
 <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
-{% for t,icon,label in [('accueil','📊','Accueil'),('visiteurs','👥','Visiteurs'),('courrier','📬','Courrier'),('cles','🔑','Clés')] %}
+{% for t,icon,label in [('accueil','📊','Accueil'),('visiteurs','👥','Visiteurs'),('courrier','📬','Courrier'),('colis','📦','Colis'),('cles','🔑','Clés'),('salles','🏢','Salles')] %}
 <a href="/concierge?tab={{ t }}" class="btn {% if tab==t %}btn-primary{% else %}btn-outline{% endif %} btn-sm">{{ icon }} {{ label }}</a>
 {% endfor %}</div>
 
@@ -242,6 +242,8 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
     <div class="stat-card"><div class="stat-icon teal">👥</div><div class="stat-info"><div class="stat-num">{{ visiteurs|length }}</div><div class="stat-label">Visiteurs</div></div></div>
     <div class="stat-card"><div class="stat-icon orange">📬</div><div class="stat-info"><div class="stat-num">{{ (courrier_in|length) + (courrier_out|length) }}</div><div class="stat-label">Courriers</div></div></div>
     <div class="stat-card"><div class="stat-icon blue">🔑</div><div class="stat-info"><div class="stat-num">{{ cles|length }}</div><div class="stat-label">Clés gérées</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#f3e5f5">📦</div><div class="stat-info"><div class="stat-num">{{ nb_colis_attente }}</div><div class="stat-label">Colis en attente</div></div></div>
+    <div class="stat-card"><div class="stat-icon green">🏢</div><div class="stat-info"><div class="stat-num">{{ salles|length }}</div><div class="stat-label">Salles</div></div></div>
 </div>
 
 {% elif tab == 'visiteurs' %}
@@ -290,6 +292,74 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 <div class="form-row"><div class="form-group"><label>Détenteur actuel</label><input type="text" name="detenteur"></div><div class="form-group"><label>Statut</label><select name="statut"><option value="disponible">Disponible</option><option value="attribuee">Attribuée</option><option value="perdue">Perdue</option></select></div></div>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
 </form></div></div>
+
+{% elif tab == 'colis' %}
+<div class="card"><div class="card-header"><h3>📦 Gestion des colis</h3>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addColM').classList.add('active')">+ Colis</button></div>
+<div class="card-body" style="padding:0">
+{% if colis %}<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="sCol" placeholder="🔍 Rechercher..." onkeyup="filterTable('sCol','colT')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div>
+<div class="table-wrap"><table id="colT"><thead><tr><th>Date réception</th><th>Expéditeur</th><th>Destinataire</th><th>Description</th><th>Statut</th><th>Retrait</th><th>Actions</th></tr></thead>
+<tbody>{% for co in colis %}<tr>
+<td>{{ co.date_reception or '-' }}</td>
+<td><strong>{{ co.expediteur or '-' }}</strong></td>
+<td>{{ co.destinataire or '-' }}</td>
+<td style="font-size:11px">{{ co.description or '-' }}</td>
+<td>{% if co.statut == 'retire' %}<span class="badge-status sent">✅ Retiré</span>{% else %}<span class="badge-status pending">⏳ En attente</span>{% endif %}</td>
+<td style="font-size:10px">{{ co.date_retrait or '-' }}</td>
+<td>{% if co.statut != 'retire' %}<a href="/concierge/colis/retrait/{{ co.id }}" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px">📤 Marquer retiré</a>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun colis enregistré</p>{% endif %}
+</div></div>
+<div class="modal-bg" id="addColM"><div class="modal"><h3>📦 Nouveau colis</h3><form method="post" action="/concierge/colis/add">
+<div class="form-row"><div class="form-group"><label>Expéditeur *</label><input type="text" name="expediteur" required></div><div class="form-group"><label>Destinataire *</label><input type="text" name="destinataire" required></div></div>
+<div class="form-row"><div class="form-group"><label>Description</label><input type="text" name="description" placeholder="Nature du colis..."></div><div class="form-group"><label>Date réception</label><input type="date" name="date_reception" value="{{ now }}"></div></div>
+<div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
+</form></div></div>
+
+{% elif tab == 'salles' %}
+<div class="card"><div class="card-header"><h3>🏢 Salles de réunion</h3>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addSalM').classList.add('active')">+ Salle</button>
+<button class="btn btn-sm btn-outline" onclick="document.getElementById('addResM').classList.add('active')">📅 Réserver</button></div>
+<div class="card-body">
+{% if salles %}
+<div class="g3" style="margin-bottom:16px">
+{% for s in salles %}
+<div style="border:1.5px solid #eee;border-radius:10px;padding:14px;text-align:center">
+    <div style="font-size:24px;margin-bottom:6px">🏢</div>
+    <div style="font-weight:700;font-size:14px">{{ s.nom }}</div>
+    <div style="font-size:11px;color:#888">Capacité: {{ s.capacite }} pers.</div>
+    {% if s.equipements %}<div style="font-size:10px;color:#1A7A6D;margin-top:4px">{{ s.equipements }}</div>{% endif %}
+    <span class="badge-status {% if s.statut == 'disponible' %}sent{% else %}pending{% endif %}" style="margin-top:6px;font-size:10px">{{ s.statut }}</span>
+</div>
+{% endfor %}
+</div>
+{% else %}<p style="text-align:center;color:#999;padding:20px">Aucune salle configurée</p>{% endif %}
+
+{% if reservations %}
+<h4 style="font-size:13px;margin-bottom:8px">📅 Réservations récentes</h4>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Salle</th><th>Horaire</th><th>Objet</th><th>Réservé par</th></tr></thead>
+<tbody>{% for r in reservations %}<tr>
+<td>{{ r.date }}</td><td><strong>{{ r.salle_nom or '-' }}</strong></td>
+<td>{{ r.heure_debut }} → {{ r.heure_fin }}</td>
+<td>{{ r.objet or '-' }}</td><td>{{ r.reserve_par or '-' }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% endif %}
+</div></div>
+<div class="modal-bg" id="addSalM"><div class="modal" style="max-width:400px"><h3>🏢 Nouvelle salle</h3><form method="post" action="/concierge/salle/add">
+<div class="form-group"><label>Nom *</label><input type="text" name="nom" required placeholder="Salle de réunion A"></div>
+<div class="form-row"><div class="form-group"><label>Capacité</label><input type="number" name="capacite" value="10"></div></div>
+<div class="form-group"><label>Équipements</label><input type="text" name="equipements" placeholder="Projecteur, WiFi, Tableau..."></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Ajouter</button></div>
+</form></div></div>
+<div class="modal-bg" id="addResM"><div class="modal"><h3>📅 Réserver une salle</h3><form method="post" action="/concierge/reservation/add">
+<div class="form-group"><label>Salle *</label><select name="salle_id" required>{% for s in salles %}<option value="{{ s.id }}">{{ s.nom }} ({{ s.capacite }} pers.)</option>{% endfor %}</select></div>
+<div class="form-row"><div class="form-group"><label>Date *</label><input type="date" name="date" required></div><div class="form-group"><label>Réservé par</label><input type="text" name="reserve_par"></div></div>
+<div class="form-row"><div class="form-group"><label>Début *</label><input type="time" name="heure_debut" required></div><div class="form-group"><label>Fin *</label><input type="time" name="heure_fin" required></div></div>
+<div class="form-group"><label>Objet</label><input type="text" name="objet" placeholder="Réunion client, formation..."></div>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Réserver</button></div>
+</form></div></div>
+
 {% endif %}
 {% endif %}
 {% endblock %}

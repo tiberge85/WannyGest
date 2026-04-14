@@ -2586,3 +2586,54 @@ def migrate_v32():
     try: conn.execute("ALTER TABLE stock_items ADD COLUMN category_id INTEGER DEFAULT 0")
     except: pass
     conn.commit(); conn.close()
+
+def migrate_v33():
+    """Set default permissions for concierge role."""
+    conn = get_db()
+    try:
+        existing = conn.execute("SELECT COUNT(*) FROM role_permissions WHERE role='concierge'").fetchone()[0]
+        if existing == 0:
+            for perm in ['dashboard', 'concierge', 'rapports_j']:
+                conn.execute("INSERT OR IGNORE INTO role_permissions (role, permission) VALUES (?,?)", ('concierge', perm))
+            conn.commit()
+    except: pass
+    conn.close()
+
+def migrate_v34():
+    """Concierge tables."""
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS concierge_visiteurs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT, entreprise TEXT, motif TEXT,
+            personne_visitee TEXT, date_visite TEXT DEFAULT CURRENT_TIMESTAMP,
+            heure_arrivee TEXT, heure_depart TEXT, badge TEXT, notes TEXT,
+            created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS concierge_courrier (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT, expediteur TEXT, destinataire TEXT,
+            objet TEXT, date TEXT, reference TEXT, statut TEXT DEFAULT 'recu',
+            notes TEXT, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS concierge_cles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, nom_cle TEXT, emplacement TEXT,
+            attribue_a TEXT, statut TEXT DEFAULT 'disponible', date_attribution TEXT,
+            notes TEXT, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS concierge_colis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, expediteur TEXT, destinataire TEXT,
+            description TEXT, date_reception TEXT, date_retrait TEXT, statut TEXT DEFAULT 'en_attente',
+            notes TEXT, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS concierge_salles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT, capacite INTEGER DEFAULT 10,
+            equipements TEXT, statut TEXT DEFAULT 'disponible',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS concierge_reservations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, salle_id INTEGER, date TEXT,
+            heure_debut TEXT, heure_fin TEXT, objet TEXT, reserve_par TEXT,
+            statut TEXT DEFAULT 'confirmee', created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+    conn.commit(); conn.close()

@@ -324,12 +324,26 @@
                 <div class="nav-section-title" onclick="toggleSection('sec-moyens')">🏠 MOYENS GÉNÉRAUX <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/achats" class="{% if page == 'achats' %}active{% endif %}">🛒 Achats</a>
-                    <a href="/concierge" class="{% if page == 'concierge' %}active{% endif %}">🔑 Conciergerie</a>
                     <a href="/moyens-generaux/fournitures" class="{% if page == 'fournitures' %}active{% endif %}">📦 Fournitures bureau</a>
                     <a href="/moyens-generaux/maintenance" class="{% if page == 'maintenance' %}active{% endif %}">🔧 Maintenance</a>
                     <a href="/moyens-generaux/vehicules" class="{% if page == 'vehicules' %}active{% endif %}">🚗 Parc véhicules</a>
                     <a href="/achats?tab=stock" class="{% if page == 'stock' %}active{% endif %}">📦 Stock</a>
                     <a href="/moyens-generaux" class="{% if page == 'moyens' %}active{% endif %}">📊 Tableau de bord</a>
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if 'concierge' in permissions or 'admin' in permissions %}
+            <!-- Conciergerie -->
+            <div class="nav-section" id="sec-concierge">
+                <div class="nav-section-title" onclick="toggleSection('sec-concierge')">🔑 CONCIERGERIE <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    <a href="/concierge" class="{% if page == 'concierge' %}active{% endif %}">📊 Tableau de bord</a>
+                    <a href="/concierge?tab=visiteurs" class="{% if page == 'concierge' and tab == 'visiteurs' %}active{% endif %}">👥 Visiteurs</a>
+                    <a href="/concierge?tab=courrier" class="{% if page == 'concierge' and tab == 'courrier' %}active{% endif %}">📬 Courrier</a>
+                    <a href="/concierge?tab=colis" class="{% if page == 'concierge' and tab == 'colis' %}active{% endif %}">📦 Colis</a>
+                    <a href="/concierge?tab=cles" class="{% if page == 'concierge' and tab == 'cles' %}active{% endif %}">🔑 Clés & badges</a>
+                    <a href="/concierge?tab=salles" class="{% if page == 'concierge' and tab == 'salles' %}active{% endif %}">🏢 Salles</a>
                 </div>
             </div>
             {% endif %}
