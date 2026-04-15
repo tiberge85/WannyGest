@@ -199,7 +199,9 @@
             <div class="role">{{ current_user.role }}</div>
         </div>
         <div class="sidebar-nav">
+            {% if user_role != 'concierge' %}
             <a href="/dashboard" class="{% if page == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
+            {% endif %}
             <a href="/notifications" class="{% if page == 'notifications' %}active{% endif %}" style="position:relative">🔔 Notifications{% if notif_count %} <span class="badge">{{ notif_count }}</span>{% endif %}</a>
             {% if 'dashboard_general' in permissions %}
             <a href="/dashboard-general" class="{% if page == 'dashboard_general' %}active{% endif %}">🌐 Tableau de bord général</a>
@@ -338,12 +340,12 @@
             <div class="nav-section" id="sec-concierge">
                 <div class="nav-section-title" onclick="toggleSection('sec-concierge')">🔑 CONCIERGERIE <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/concierge" class="{% if page == 'concierge' %}active{% endif %}">📊 Tableau de bord</a>
-                    <a href="/concierge?tab=visiteurs" class="{% if page == 'concierge' and tab == 'visiteurs' %}active{% endif %}">👥 Visiteurs</a>
-                    <a href="/concierge?tab=courrier" class="{% if page == 'concierge' and tab == 'courrier' %}active{% endif %}">📬 Courrier</a>
-                    <a href="/concierge?tab=colis" class="{% if page == 'concierge' and tab == 'colis' %}active{% endif %}">📦 Colis</a>
-                    <a href="/concierge?tab=cles" class="{% if page == 'concierge' and tab == 'cles' %}active{% endif %}">🔑 Clés & badges</a>
-                    <a href="/concierge?tab=salles" class="{% if page == 'concierge' and tab == 'salles' %}active{% endif %}">🏢 Salles</a>
+                    <a href="/concierge" class="{% if page == 'concierge' and tab == 'accueil' %}active{% endif %}">📊 Accueil</a>
+                    <a href="/concierge?tab=visiteurs" class="{% if tab == 'visiteurs' %}active{% endif %}">👥 Visiteurs</a>
+                    <a href="/concierge?tab=courrier" class="{% if tab == 'courrier' %}active{% endif %}">📬 Courrier</a>
+                    <a href="/concierge?tab=colis" class="{% if tab == 'colis' %}active{% endif %}">📦 Colis</a>
+                    <a href="/concierge?tab=cles" class="{% if tab == 'cles' %}active{% endif %}">🔑 Clés & badges</a>
+                    <a href="/concierge?tab=salles" class="{% if tab == 'salles' %}active{% endif %}">🏢 Salles</a>
                 </div>
             </div>
             {% endif %}

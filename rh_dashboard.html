@@ -116,6 +116,18 @@
 </div></div>
 {% endif %}
 
+<!-- Résumé Conciergerie -->
+{% if concierge_stats %}
+<div class="card" style="margin-bottom:14px"><div class="card-header"><h3>🔑 Conciergerie — Aujourd'hui</h3><a href="/concierge" class="btn btn-outline btn-sm" style="font-size:10px">Voir tout →</a></div>
+<div class="card-body">
+<div class="g3" style="text-align:center">
+    <div style="padding:10px;background:#e3f2fd;border-radius:8px"><div style="font-size:22px;font-weight:800;color:#1565c0">{{ concierge_stats.visiteurs_jour }}</div><div style="font-size:10px;color:#888">Visiteurs aujourd'hui</div></div>
+    <div style="padding:10px;background:#fff3e0;border-radius:8px"><div style="font-size:22px;font-weight:800;color:#e8672a">{{ concierge_stats.colis_attente }}</div><div style="font-size:10px;color:#888">Colis en attente</div></div>
+    <div style="padding:10px;background:#e8f5e9;border-radius:8px"><div style="font-size:22px;font-weight:800;color:#2e7d32">{{ concierge_stats.courrier_jour }}</div><div style="font-size:10px;color:#888">Courriers aujourd'hui</div></div>
+</div>
+</div></div>
+{% endif %}
+
 <!-- Quick links -->
 <div class="stats-grid">
     <a href="/rh/personnel" class="card" style="text-decoration:none;padding:14px;text-align:center;border-left:4px solid #1565c0">

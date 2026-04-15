@@ -268,6 +268,7 @@ def inject_globals():
             perms = get_role_permissions(user['role'])
             ctx['current_user'] = user
             ctx['permissions'] = perms
+            ctx['user_role'] = user['role']
             ctx['can_edit'] = lambda module: (module + '_edit') in perms or 'admin' in perms
             ctx['pending_count'] = len(get_jobs_by_status('traite'))
             try: ctx['unread_messages'] = get_unread_count(user['id'])
@@ -453,6 +454,9 @@ def dashboard():
         return redirect(url_for('guide'))
     user = get_user_by_id(session['user_id'])
     role = user['role'] if user else 'technicien'
+    # Concierge users go to their dedicated dashboard
+    if role == 'concierge':
+        return redirect('/concierge')
     stats = get_dashboard_stats()
     inv_stats = get_invoice_stats()
     v_stats = get_visit_stats()
@@ -2864,6 +2868,14 @@ def rh_dashboard():
             WHERE action IN ('Personnel','Paie','Absence','Email Paie','Import','Connexion','Utilisateur')
             ORDER BY created_at DESC LIMIT 10""").fetchall()]
     except: rh_activities = []
+    # Concierge summary for RH
+    concierge_stats = {}
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        concierge_stats['visiteurs_jour'] = conn.execute("SELECT COUNT(*) FROM concierge_visiteurs WHERE date_visite LIKE ?", (today+'%',)).fetchone()[0]
+        concierge_stats['colis_attente'] = conn.execute("SELECT COUNT(*) FROM concierge_colis WHERE statut='en_attente'").fetchone()[0]
+        concierge_stats['courrier_jour'] = conn.execute("SELECT COUNT(*) FROM concierge_courrier WHERE date=?", (today,)).fetchone()[0]
+    except: concierge_stats = {'visiteurs_jour':0, 'colis_attente':0, 'courrier_jour':0}
     conn.close()
     return render_template('rh_dashboard.html', page='rh', emp_stats=emp_stats,
         leaves_pending=leaves_pending, leaves_approved=leaves_approved,
@@ -2871,7 +2883,8 @@ def rh_dashboard():
         emp_total_all=emp_total_all, emp_actif=emp_actif,
         emp_demission=emp_demission, emp_renvoye=emp_renvoye, emp_inactif=emp_inactif,
         new_hires=new_hires, expired_contracts=expired_contracts, expiring_soon=expiring_soon,
-        birthdays=birthdays, recent_paie=recent_paie, rh_activities=rh_activities)
+        birthdays=birthdays, recent_paie=recent_paie, rh_activities=rh_activities,
+        concierge_stats=concierge_stats)
 
 @app.route('/rh/personnel')
 @permission_required('fichiers')
@@ -3643,10 +3656,10 @@ def concierge_courrier_add():
 def concierge_cle_add():
     conn = _gdb()
     try:
-        conn.execute("CREATE TABLE IF NOT EXISTS concierge_cles (id INTEGER PRIMARY KEY AUTOINCREMENT, nom_cle TEXT, emplacement TEXT, detenteur TEXT, statut TEXT DEFAULT 'disponible', date_remise TEXT, notes TEXT, created_by INTEGER)")
+        conn.execute("CREATE TABLE IF NOT EXISTS concierge_cles (id INTEGER PRIMARY KEY AUTOINCREMENT, nom_cle TEXT, emplacement TEXT, attribue_a TEXT, statut TEXT DEFAULT 'disponible', date_remise TEXT, notes TEXT, created_by INTEGER)")
     except: pass
-    conn.execute("INSERT INTO concierge_cles (nom_cle, emplacement, detenteur, statut, notes, created_by) VALUES (?,?,?,?,?,?)",
-        (request.form.get('nom_cle',''), request.form.get('emplacement',''), request.form.get('detenteur',''),
+    conn.execute("INSERT INTO concierge_cles (nom_cle, emplacement, attribue_a, statut, notes, created_by) VALUES (?,?,?,?,?,?)",
+        (request.form.get('nom_cle',''), request.form.get('emplacement',''), request.form.get('attribue_a',''),
          request.form.get('statut','disponible'), request.form.get('notes',''), session['user_id']))
     conn.commit(); conn.close()
     flash("Clé enregistrée", "success")
@@ -3692,6 +3705,48 @@ def concierge_reservation_add():
     conn.commit(); conn.close()
     flash("Réservation enregistrée", "success")
     return redirect('/concierge?tab=salles')
+
+@app.route('/concierge/visiteur/delete/<int:vid>')
+@permission_required('concierge')
+def concierge_visiteur_delete(vid):
+    conn = _gdb(); conn.execute("DELETE FROM concierge_visiteurs WHERE id=?", (vid,)); conn.commit(); conn.close()
+    flash("Visiteur supprimé", "success"); return redirect('/concierge?tab=visiteurs')
+
+@app.route('/concierge/visiteur/depart/<int:vid>')
+@permission_required('concierge')
+def concierge_visiteur_depart(vid):
+    conn = _gdb(); conn.execute("UPDATE concierge_visiteurs SET heure_depart=? WHERE id=?", (datetime.now().strftime('%H:%M'), vid)); conn.commit(); conn.close()
+    flash("Départ enregistré", "success"); return redirect('/concierge?tab=visiteurs')
+
+@app.route('/concierge/courrier/delete/<int:cid>')
+@permission_required('concierge')
+def concierge_courrier_delete(cid):
+    conn = _gdb(); conn.execute("DELETE FROM concierge_courrier WHERE id=?", (cid,)); conn.commit(); conn.close()
+    flash("Courrier supprimé", "success"); return redirect('/concierge?tab=courrier')
+
+@app.route('/concierge/colis/delete/<int:cid>')
+@permission_required('concierge')
+def concierge_colis_delete(cid):
+    conn = _gdb(); conn.execute("DELETE FROM concierge_colis WHERE id=?", (cid,)); conn.commit(); conn.close()
+    flash("Colis supprimé", "success"); return redirect('/concierge?tab=colis')
+
+@app.route('/concierge/cle/delete/<int:cid>')
+@permission_required('concierge')
+def concierge_cle_delete(cid):
+    conn = _gdb(); conn.execute("DELETE FROM concierge_cles WHERE id=?", (cid,)); conn.commit(); conn.close()
+    flash("Clé supprimée", "success"); return redirect('/concierge?tab=cles')
+
+@app.route('/concierge/salle/delete/<int:sid>')
+@permission_required('concierge')
+def concierge_salle_delete(sid):
+    conn = _gdb(); conn.execute("DELETE FROM concierge_salles WHERE id=?", (sid,)); conn.commit(); conn.close()
+    flash("Salle supprimée", "success"); return redirect('/concierge?tab=salles')
+
+@app.route('/concierge/reservation/delete/<int:rid>')
+@permission_required('concierge')
+def concierge_reservation_delete(rid):
+    conn = _gdb(); conn.execute("DELETE FROM concierge_reservations WHERE id=?", (rid,)); conn.commit(); conn.close()
+    flash("Réservation supprimée", "success"); return redirect('/concierge?tab=salles')
 
 # ======================== NOTIFICATIONS ========================
 

@@ -244,6 +244,7 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
     <div class="stat-card"><div class="stat-icon blue">🔑</div><div class="stat-info"><div class="stat-num">{{ cles|length }}</div><div class="stat-label">Clés gérées</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:#f3e5f5">📦</div><div class="stat-info"><div class="stat-num">{{ nb_colis_attente }}</div><div class="stat-label">Colis en attente</div></div></div>
     <div class="stat-card"><div class="stat-icon green">🏢</div><div class="stat-info"><div class="stat-num">{{ salles|length }}</div><div class="stat-label">Salles</div></div></div>
+    <div class="stat-card"><div class="stat-icon orange">📬</div><div class="stat-info"><div class="stat-num">{{ nb_courrier }}</div><div class="stat-label">Courriers total</div></div></div>
 </div>
 
 {% elif tab == 'visiteurs' %}
@@ -251,8 +252,8 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 <button class="btn btn-orange btn-sm" onclick="document.getElementById('addVisM').classList.add('active')">+ Visiteur</button></div>
 <div class="card-body" style="padding:0">
 {% if visiteurs %}<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="sV" placeholder="🔍 Rechercher..." onkeyup="filterTable('sV','vT')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div>
-<div class="table-wrap"><table id="vT"><thead><tr><th>Date</th><th>Nom</th><th>Entreprise</th><th>Motif</th><th>Personne visitée</th><th>Arrivée</th><th>Badge</th></tr></thead>
-<tbody>{% for v in visiteurs %}<tr><td>{{ v.date_visite[:10] }}</td><td><strong>{{ v.nom }}</strong></td><td>{{ v.entreprise or '-' }}</td><td>{{ v.motif or '-' }}</td><td>{{ v.personne_visitee or '-' }}</td><td>{{ v.heure_arrivee or '-' }}</td><td>{{ v.badge or '-' }}</td></tr>{% endfor %}</tbody></table></div>
+<div class="table-wrap"><table id="vT"><thead><tr><th>Date</th><th>Nom</th><th>Entreprise</th><th>Motif</th><th>Personne visitée</th><th>Arrivée</th><th>Départ</th><th>Actions</th></tr></thead>
+<tbody>{% for v in visiteurs %}<tr><td>{{ v.date_visite[:10] }}</td><td><strong>{{ v.nom }}</strong></td><td>{{ v.entreprise or '-' }}</td><td>{{ v.motif or '-' }}</td><td>{{ v.personne_visitee or '-' }}</td><td>{{ v.heure_arrivee or '-' }}</td><td>{{ v.heure_depart or '-' }}</td><td style="white-space:nowrap">{% if not v.heure_depart %}<a href="/concierge/visiteur/depart/{{ v.id }}" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:9px">🚪 Départ</a>{% endif %} <a href="/concierge/visiteur/delete/{{ v.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a></td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun visiteur enregistré</p>{% endif %}
 </div></div>
 <div class="modal-bg" id="addVisM"><div class="modal"><h3>👥 Nouveau visiteur</h3><form method="post" action="/concierge/visiteur/add">
@@ -268,8 +269,8 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 <button class="btn btn-orange btn-sm" onclick="document.getElementById('addCourM').classList.add('active')">+ Courrier</button></div>
 <div class="card-body" style="padding:0">
 {% if courrier_in or courrier_out %}
-<div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Expéditeur</th><th>Destinataire</th><th>Objet</th><th>Réf</th></tr></thead>
-<tbody>{% for co in courrier_in + courrier_out %}<tr><td>{{ co.date }}</td><td><span style="padding:2px 6px;border-radius:8px;font-size:10px;{% if co.type=='entrant' %}background:#e8f5e9;color:#2e7d32{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ co.type }}</span></td><td>{{ co.expediteur or '-' }}</td><td>{{ co.destinataire or '-' }}</td><td>{{ co.objet or '-' }}</td><td style="font-size:10px">{{ co.reference or '-' }}</td></tr>{% endfor %}</tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>Expéditeur</th><th>Destinataire</th><th>Objet</th><th>Réf</th><th>Actions</th></tr></thead>
+<tbody>{% for co in courrier_in + courrier_out %}<tr><td>{{ co.date }}</td><td><span style="padding:2px 6px;border-radius:8px;font-size:10px;{% if co.type=='entrant' %}background:#e8f5e9;color:#2e7d32{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ co.type }}</span></td><td>{{ co.expediteur or '-' }}</td><td>{{ co.destinataire or '-' }}</td><td>{{ co.objet or '-' }}</td><td style="font-size:10px">{{ co.reference or '-' }}</td><td><a href="/concierge/courrier/delete/{{ co.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a></td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun courrier</p>{% endif %}
 </div></div>
 <div class="modal-bg" id="addCourM"><div class="modal"><h3>📬 Nouveau courrier</h3><form method="post" action="/concierge/courrier/add">
@@ -283,13 +284,13 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 <div class="card"><div class="card-header"><h3>🔑 Gestion des clés</h3>
 <button class="btn btn-orange btn-sm" onclick="document.getElementById('addCleM').classList.add('active')">+ Clé</button></div>
 <div class="card-body" style="padding:0">
-{% if cles %}<div class="table-wrap"><table><thead><tr><th>Clé</th><th>Emplacement</th><th>Détenteur</th><th>Statut</th></tr></thead>
-<tbody>{% for k in cles %}<tr><td><strong>{{ k.nom_cle }}</strong></td><td>{{ k.emplacement or '-' }}</td><td>{{ k.detenteur or '-' }}</td><td><span style="padding:2px 6px;border-radius:8px;font-size:10px;{% if k.statut=='disponible' %}background:#e8f5e9;color:#2e7d32{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ k.statut }}</span></td></tr>{% endfor %}</tbody></table></div>
+{% if cles %}<div class="table-wrap"><table><thead><tr><th>Clé</th><th>Emplacement</th><th>Attribué à</th><th>Statut</th><th>Actions</th></tr></thead>
+<tbody>{% for k in cles %}<tr><td><strong>{{ k.nom_cle }}</strong></td><td>{{ k.emplacement or '-' }}</td><td>{{ k.attribue_a or '-' }}</td><td><span style="padding:2px 6px;border-radius:8px;font-size:10px;{% if k.statut=='disponible' %}background:#e8f5e9;color:#2e7d32{% elif k.statut=='perdue' %}background:#fde8e8;color:#c53030{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ k.statut }}</span></td><td><a href="/concierge/cle/delete/{{ k.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a></td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune clé enregistrée</p>{% endif %}
 </div></div>
 <div class="modal-bg" id="addCleM"><div class="modal"><h3>🔑 Nouvelle clé</h3><form method="post" action="/concierge/cle/add">
 <div class="form-row"><div class="form-group"><label>Nom de la clé *</label><input type="text" name="nom_cle" required placeholder="Bureau DG, Salle serveur..."></div><div class="form-group"><label>Emplacement</label><input type="text" name="emplacement"></div></div>
-<div class="form-row"><div class="form-group"><label>Détenteur actuel</label><input type="text" name="detenteur"></div><div class="form-group"><label>Statut</label><select name="statut"><option value="disponible">Disponible</option><option value="attribuee">Attribuée</option><option value="perdue">Perdue</option></select></div></div>
+<div class="form-row"><div class="form-group"><label>Attribué à</label><input type="text" name="attribue_a"></div><div class="form-group"><label>Statut</label><select name="statut"><option value="disponible">Disponible</option><option value="attribuee">Attribuée</option><option value="perdue">Perdue</option></select></div></div>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">Enregistrer</button></div>
 </form></div></div>
 
@@ -306,7 +307,7 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 <td style="font-size:11px">{{ co.description or '-' }}</td>
 <td>{% if co.statut == 'retire' %}<span class="badge-status sent">✅ Retiré</span>{% else %}<span class="badge-status pending">⏳ En attente</span>{% endif %}</td>
 <td style="font-size:10px">{{ co.date_retrait or '-' }}</td>
-<td>{% if co.statut != 'retire' %}<a href="/concierge/colis/retrait/{{ co.id }}" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px">📤 Marquer retiré</a>{% endif %}</td>
+<td>{% if co.statut != 'retire' %}<a href="/concierge/colis/retrait/{{ co.id }}" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:9px">📤 Retiré</a>{% endif %} <a href="/concierge/colis/delete/{{ co.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a></td>
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun colis enregistré</p>{% endif %}
 </div></div>
@@ -331,6 +332,7 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
     <div style="font-size:11px;color:#888">Capacité: {{ s.capacite }} pers.</div>
     {% if s.equipements %}<div style="font-size:10px;color:#1A7A6D;margin-top:4px">{{ s.equipements }}</div>{% endif %}
     <span class="badge-status {% if s.statut == 'disponible' %}sent{% else %}pending{% endif %}" style="margin-top:6px;font-size:10px">{{ s.statut }}</span>
+    <div style="margin-top:6px"><a href="/concierge/salle/delete/{{ s.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a></div>
 </div>
 {% endfor %}
 </div>
@@ -338,11 +340,11 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 
 {% if reservations %}
 <h4 style="font-size:13px;margin-bottom:8px">📅 Réservations récentes</h4>
-<div class="table-wrap"><table><thead><tr><th>Date</th><th>Salle</th><th>Horaire</th><th>Objet</th><th>Réservé par</th></tr></thead>
+<div class="table-wrap"><table><thead><tr><th>Date</th><th>Salle</th><th>Horaire</th><th>Objet</th><th>Réservé par</th><th>Actions</th></tr></thead>
 <tbody>{% for r in reservations %}<tr>
 <td>{{ r.date }}</td><td><strong>{{ r.salle_nom or '-' }}</strong></td>
 <td>{{ r.heure_debut }} → {{ r.heure_fin }}</td>
-<td>{{ r.objet or '-' }}</td><td>{{ r.reserve_par or '-' }}</td>
+<td>{{ r.objet or '-' }}</td><td>{{ r.reserve_par or '-' }}</td><td><a href="/concierge/reservation/delete/{{ r.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a></td>
 </tr>{% endfor %}</tbody></table></div>
 {% endif %}
 </div></div>
