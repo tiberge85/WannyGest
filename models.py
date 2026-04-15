@@ -2637,3 +2637,15 @@ def migrate_v34():
         );
     ''')
     conn.commit(); conn.close()
+
+def migrate_v35():
+    """Add signature fields to payslips."""
+    conn = get_db()
+    for col, typ in [
+        ('signed_at', 'TEXT DEFAULT ""'),
+        ('signed_by', 'TEXT DEFAULT ""'),
+        ('signature_data', 'TEXT DEFAULT ""'),
+    ]:
+        try: conn.execute(f"ALTER TABLE payslips ADD COLUMN {col} {typ}")
+        except: pass
+    conn.commit(); conn.close()

@@ -175,4 +175,13 @@ th{text-align:left;font-weight:600}
     <div style="display:flex;gap:8px;justify-content:flex-end"><a href="/rh/paie" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-orange">📧 Envoyer</button></div>
 </form></div></div>
 {% endif %}
+
+{% if p.signed_at %}
+<div style="margin-top:12px;padding:12px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2e7d32;display:flex;align-items:center;gap:12px">
+    <div style="font-size:24px">✅</div>
+    <div><div style="font-weight:700;color:#2e7d32">Bulletin signé (déchargé)</div>
+    <div style="font-size:11px;color:#555">Signé par <b>{{ p.signed_by }}</b> le {{ p.signed_at }}</div></div>
+    {% if p.signature_data %}<img src="{{ p.signature_data }}" style="height:40px;border:1px solid #ddd;border-radius:4px;margin-left:auto">{% endif %}
+</div>
+{% endif %}
 {% endblock %}

@@ -147,6 +147,8 @@ from models import migrate_v33
 migrate_v33()
 from models import migrate_v34
 migrate_v34()
+from models import migrate_v35
+migrate_v35()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -155,6 +157,8 @@ from models import migrate_v33
 migrate_v33()
 from models import migrate_v34
 migrate_v34()
+from models import migrate_v35
+migrate_v35()
 from models import migrate_v27
 migrate_v27()
 from models import migrate_v28
@@ -171,6 +175,8 @@ from models import migrate_v33
 migrate_v33()
 from models import migrate_v34
 migrate_v34()
+from models import migrate_v35
+migrate_v35()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -179,6 +185,8 @@ from models import migrate_v33
 migrate_v33()
 from models import migrate_v34
 migrate_v34()
+from models import migrate_v35
+migrate_v35()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -2886,6 +2894,63 @@ def rh_dashboard():
         birthdays=birthdays, recent_paie=recent_paie, rh_activities=rh_activities,
         concierge_stats=concierge_stats)
 
+
+@app.route('/rh/calendrier')
+@permission_required('fichiers')
+def rh_calendrier():
+    conn = _gdb()
+    events = []
+    today = datetime.now()
+    year = int(request.args.get('year', today.year))
+    month = int(request.args.get('month', today.month))
+    
+    # Congés approuvés
+    try:
+        conges = [dict(r) for r in conn.execute(
+            "SELECT c.*, e.first_name||' '||e.last_name as name FROM leaves c LEFT JOIN employees e ON c.employee_id=e.id WHERE c.status='approuve'").fetchall()]
+        for c_ in conges:
+            events.append({'title': f"🏖️ {c_['name']}", 'start': c_['start_date'], 'end': c_['end_date'], 'color': '#e8672a', 'type': 'conge'})
+    except: pass
+    
+    # Absences
+    try:
+        abs_ = [dict(r) for r in conn.execute(
+            "SELECT a.*, e.first_name||' '||e.last_name as name FROM absences a LEFT JOIN employees e ON a.employee_id=e.id WHERE a.date LIKE ?",
+            (f"{year}-{month:02d}%",)).fetchall()]
+        for a in abs_:
+            events.append({'title': f"❌ {a['name']}", 'start': a['date'], 'end': a['date'], 'color': '#c53030', 'type': 'absence'})
+    except: pass
+    
+    # Anniversaires
+    try:
+        emps = [dict(r) for r in conn.execute("SELECT * FROM employees WHERE status='actif' AND birth_date IS NOT NULL AND birth_date != ''").fetchall()]
+        for e in emps:
+            bd = e.get('birth_date','')
+            if bd and len(bd) >= 10:
+                bd_month = f"{year}-{bd[5:7]}-{bd[8:10]}"
+                events.append({'title': f"🎂 {e['first_name']} {e['last_name']}", 'start': bd_month, 'end': bd_month, 'color': '#7b1fa2', 'type': 'anniversaire'})
+    except: pass
+    
+    # Contrats expirant
+    try:
+        contracts = [dict(r) for r in conn.execute(
+            "SELECT c.*, e.first_name||' '||e.last_name as name FROM rh_contracts c LEFT JOIN employees e ON c.employee_id=e.id WHERE c.end_date LIKE ? AND c.status='actif'",
+            (f"{year}-{month:02d}%",)).fetchall()]
+        for ct in contracts:
+            events.append({'title': f"📄 Contrat {ct['name']}", 'start': ct['end_date'], 'end': ct['end_date'], 'color': '#ff9800', 'type': 'contrat'})
+    except: pass
+    
+    # Formations
+    try:
+        trains = [dict(r) for r in conn.execute("SELECT * FROM rh_trainings WHERE date LIKE ?", (f"{year}-{month:02d}%",)).fetchall()]
+        for t in trains:
+            events.append({'title': f"📚 {t.get('title','Formation')}", 'start': t['date'], 'end': t['date'], 'color': '#1565c0', 'type': 'formation'})
+    except: pass
+    
+    conn.close()
+    import json
+    return render_template('extra_pages.html', page='rh_calendrier', events=json.dumps(events), year=year, month=month)
+
 @app.route('/rh/personnel')
 @permission_required('fichiers')
 def rh_personnel():
@@ -3509,23 +3574,67 @@ def rh_paie_email(pid):
             smtp = get_admin_smtp()
             return render_template('rh_paie_view.html', page='paie', p=p, send_email=True, smtp=smtp)
         
-        # Generate PDF first
-        import io
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import mm
+        # Generate PDF directly
         pdf_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'paie_email')
         os.makedirs(pdf_dir, exist_ok=True)
         pdf_path = os.path.join(pdf_dir, f"bulletin_{p['period']}_{p['employee_name'].replace(' ','_')}.pdf")
         
-        # Use the existing PDF generation via internal request
-        with app.test_client() as tc:
-            # Copy session
-            with tc.session_transaction() as sess:
-                sess['user_id'] = session['user_id']
-            resp = tc.get(f'/rh/paie/{pid}/pdf')
-            if resp.status_code == 200:
-                with open(pdf_path, 'wb') as f:
-                    f.write(resp.data)
+        try:
+            # Generate PDF using the same logic as rh_paie_pdf
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.units import mm
+            from reportlab.lib.colors import HexColor, white
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+            
+            doc = SimpleDocTemplate(pdf_path, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm, topMargin=10*mm, bottomMargin=10*mm)
+            VERT = HexColor('#1A7A6D'); VERT_F = HexColor('#0D6B5E')
+            ORANGE = HexColor('#e8672a'); ORANGE_L = HexColor('#fff3e0')
+            DARK = HexColor('#333'); GREY = HexColor('#888'); LIGHT = HexColor('#f8faf9'); VERT_L = HexColor('#e0f0ee')
+            
+            sw = ParagraphStyle('sw', fontSize=8, textColor=white)
+            swb = ParagraphStyle('swb', fontSize=8, fontName='Helvetica-Bold', textColor=white)
+            sc = ParagraphStyle('sc', fontSize=8, leading=10, textColor=DARK)
+            scb = ParagraphStyle('scb', fontSize=8, fontName='Helvetica-Bold', textColor=DARK)
+            sr = ParagraphStyle('sr', fontSize=8, alignment=TA_RIGHT, textColor=DARK)
+            srb = ParagraphStyle('srb', fontSize=8, fontName='Helvetica-Bold', alignment=TA_RIGHT, textColor=DARK)
+            
+            story = []
+            pw = doc.width
+            def g(k, d=0): return p.get(k, d) or d
+            def f(k): return g(k, 0)
+            def fmt(v): return f"{v:,.0f}" if isinstance(v, (int, float)) else str(v)
+            
+            # Simple header
+            story.append(Paragraph(f"<b>RAMYA TECHNOLOGIE & INNOVATION</b> — Bulletin de paie {p['period']}", 
+                ParagraphStyle('h', fontSize=12, fontName='Helvetica-Bold', textColor=VERT)))
+            story.append(Spacer(1, 4*mm))
+            story.append(Paragraph(f"<b>{p['employee_name']}</b> — {g('position','-')} — Matricule: {g('matricule','-')}", sc))
+            story.append(Paragraph(f"Net à payer: <b>{fmt(g('net_salary'))}</b> FCFA", 
+                ParagraphStyle('net', fontSize=14, fontName='Helvetica-Bold', textColor=VERT)))
+            story.append(Spacer(1, 4*mm))
+            
+            # Simple table with key info
+            data = [
+                ['Salaire de base', fmt(f('base_salary')), 'CNPS salarié', fmt(f('cnps_employee'))],
+                ['Prime transport', fmt(f('prime_transport')), 'ITS', fmt(f('its'))],
+                ['Prime ancienneté', fmt(f('prime_anciennete')), 'Assurance', fmt(f('insurance_amount'))],
+                ['Prime rendement', fmt(f('prime_rendement')), 'Déductions', fmt(f('deductions'))],
+                ['Brut', fmt(g('net_salary',0) + f('cnps_employee') + f('its') + f('insurance_amount') + f('deductions')), 'Total retenues', fmt(f('cnps_employee') + f('its') + f('insurance_amount') + f('deductions'))],
+            ]
+            t = Table(data, colWidths=[pw*0.3, pw*0.2, pw*0.3, pw*0.2])
+            t.setStyle(TableStyle([
+                ('GRID', (0,0), (-1,-1), 0.5, GREY),
+                ('BACKGROUND', (0,-1), (-1,-1), VERT_L),
+                ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+            ]))
+            story.append(t)
+            
+            doc.build(story)
+        except Exception as pdf_err:
+            flash(f"Erreur génération PDF: {str(pdf_err)}", "error")
+            return redirect(url_for('rh_paie'))
         
         if not os.path.exists(pdf_path):
             flash("Erreur génération PDF","error")
@@ -3747,6 +3856,54 @@ def concierge_salle_delete(sid):
 def concierge_reservation_delete(rid):
     conn = _gdb(); conn.execute("DELETE FROM concierge_reservations WHERE id=?", (rid,)); conn.commit(); conn.close()
     flash("Réservation supprimée", "success"); return redirect('/concierge?tab=salles')
+
+
+@app.route('/rh/paie/<int:pid>/sign', methods=['GET','POST'])
+@login_required
+def rh_paie_sign(pid):
+    p = get_payslip_detail_v2(pid)
+    if not p: flash("Non trouvé","error"); return redirect('/notifications')
+    
+    if request.method == 'POST':
+        sig_data = request.form.get('signature','')
+        if sig_data and len(sig_data) > 50:
+            user = get_user_by_id(session['user_id'])
+            conn = _gdb()
+            conn.execute("UPDATE payslips SET signed_at=?, signed_by=?, signature_data=? WHERE id=?",
+                (datetime.now().strftime('%Y-%m-%d %H:%M'), user['full_name'] if user else '?', sig_data, pid))
+            conn.commit()
+            # Notify RH
+            rh_users = [dict(r) for r in conn.execute("SELECT id FROM users WHERE role IN ('rh','admin','dg')").fetchall()]
+            for ru in rh_users:
+                conn.execute("""INSERT INTO notifications (user_id, employee_id, type, title, message, link)
+                    VALUES (?,?,?,?,?,?)""",
+                    (ru['id'], p.get('employee_id'), 'signature',
+                     f"Bulletin signé — {p['employee_name']}",
+                     f"Le bulletin {p['period']} de {p['employee_name']} a été signé numériquement.",
+                     f"/rh/paie/{pid}/view"))
+            conn.commit(); conn.close()
+            log_activity(session['user_id'], user['full_name'] if user else '?', 'Signature', 
+                        f"Bulletin {p['period']} signé par {p['employee_name']}", request.remote_addr)
+            flash("Bulletin signé avec succès ! La RH a été notifiée.", "success")
+            return redirect('/notifications')
+        else:
+            flash("Veuillez dessiner votre signature", "error")
+    
+    return render_template('extra_pages.html', page='paie_sign', p=p)
+
+
+@app.route('/api/notif-count')
+@login_required
+def api_notif_count():
+    user = get_user_by_id(session['user_id'])
+    try:
+        conn = _gdb()
+        cnt = conn.execute("SELECT COUNT(*) FROM notifications WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)) AND read=0",
+            (user['id'], user.get('email',''))).fetchone()[0]
+        conn.close()
+        return jsonify({'count': cnt})
+    except:
+        return jsonify({'count': 0})
 
 # ======================== NOTIFICATIONS ========================
 

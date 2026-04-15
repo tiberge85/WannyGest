@@ -274,6 +274,7 @@
                     <a href="/rh/postes" class="{% if page == 'postes' %}active{% endif %}">Descriptions d'emploi</a>
                     <a href="/rh/conges" class="{% if page == 'conges' %}active{% endif %}">Congés</a>
                     <a href="/rh/absences" class="{% if page == 'absences' %}active{% endif %}">Absences{% if pending_absences %} <span class="badge">{{ pending_absences }}</span>{% endif %}</a>
+                    <a href="/rh/calendrier" class="{% if page == 'rh_calendrier' %}active{% endif %}">📅 Calendrier</a>
                     <a href="/rh/paie" class="{% if page == 'paie' %}active{% endif %}">Paie</a>
                     <a href="/rh/formations" class="{% if page == 'formations' %}active{% endif %}">Formations</a>
                     <a href="/rh/contrats-rh" class="{% if page == 'contrats_rh' %}active{% endif %}">Contrats personnel</a>
@@ -642,6 +643,36 @@ function fixMobileGrids(){
 }
 fixMobileGrids();
 window.addEventListener('resize',fixMobileGrids);
+</script>
+
+<!-- Notification alert -->
+<script>
+var lastNotifCount = {{ notif_count|default(0) }};
+setInterval(function(){
+    fetch('/api/notif-count').then(r=>r.json()).then(d=>{
+        var badge = document.querySelector('.badge');
+        if(d.count > lastNotifCount){
+            // New notification!
+            if(badge) badge.textContent = d.count;
+            else {
+                var notifLink = document.querySelector('a[href="/notifications"]');
+                if(notifLink){
+                    var b = document.createElement('span');
+                    b.className = 'badge';
+                    b.textContent = d.count;
+                    notifLink.appendChild(b);
+                }
+            }
+            // Flash effect
+            var notifLink = document.querySelector('a[href="/notifications"]');
+            if(notifLink){
+                notifLink.style.background = '#fff3e0';
+                setTimeout(function(){ notifLink.style.background = ''; }, 2000);
+            }
+        }
+        lastNotifCount = d.count;
+    }).catch(function(){});
+}, 15000);
 </script>
 </body>
 </html>

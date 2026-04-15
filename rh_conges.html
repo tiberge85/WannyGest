@@ -1,48 +1,24 @@
 {% extends "base.html" %}
-{% block title %}WannyGest - {% if page == 'notifications' %}
-<div class="page-header"><h1>🔔 Notifications</h1></div>
-{% if notifs %}
-{% for n in notifs %}
-<div class="card" style="border-left:4px solid {% if n.type == 'bulletin' %}#1A7A6D{% else %}#e8672a{% endif %};margin-bottom:8px">
-    <div class="card-body" style="padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div style="font-size:24px">{% if n.type == 'bulletin' %}💵{% else %}🔔{% endif %}</div>
-        <div style="flex:1;min-width:200px">
-            <div style="font-size:13px;font-weight:700;color:#1a3a5c">{{ n.title }}</div>
-            <div style="font-size:12px;color:#666;margin-top:2px">{{ n.message }}</div>
-            <div style="font-size:10px;color:#aaa;margin-top:4px">{{ n.created_at[:16] }}</div>
-        </div>
-        {% if n.link %}
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <a href="{{ n.link }}" class="btn btn-sm" style="background:#1A7A6D;color:#fff">👁️ Voir</a>
-            <a href="{{ n.link }}" class="btn btn-sm btn-outline" onclick="window.open(this.href);return false">🖨️ Imprimer</a>
-        </div>
-        {% endif %}
-        {% if not n.read %}<span style="width:8px;height:8px;border-radius:50%;background:#e8672a;flex-shrink:0"></span>{% endif %}
-    </div>
-</div>
-{% endfor %}
-{% else %}
-<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">Aucune notification</div></div>
-{% endif %}
-
-{% elif page == 'absences' %}Absences{% else %}Congés{% endif %}{% endblock %}
+{% block title %}WannyGest - {% if page == 'notifications' %}Notifications{% elif page == 'absences' %}Absences{% else %}Congés{% endif %}{% endblock %}
 {% block content %}
 {% if page == 'notifications' %}
 <div class="page-header"><h1>🔔 Notifications</h1></div>
 {% if notifs %}
 {% for n in notifs %}
-<div class="card" style="border-left:4px solid {% if n.type == 'bulletin' %}#1A7A6D{% else %}#e8672a{% endif %};margin-bottom:8px">
+<div class="card" style="border-left:4px solid {% if n.type == 'bulletin' %}#1A7A6D{% elif n.type == 'signature' %}#7b1fa2{% else %}#e8672a{% endif %};margin-bottom:8px">
     <div class="card-body" style="padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div style="font-size:24px">{% if n.type == 'bulletin' %}💵{% else %}🔔{% endif %}</div>
+        <div style="font-size:24px">{% if n.type == 'bulletin' %}💵{% elif n.type == 'signature' %}✍️{% else %}🔔{% endif %}</div>
         <div style="flex:1;min-width:200px">
             <div style="font-size:13px;font-weight:700;color:#1a3a5c">{{ n.title }}</div>
             <div style="font-size:12px;color:#666;margin-top:2px">{{ n.message }}</div>
-            <div style="font-size:10px;color:#aaa;margin-top:4px">{{ n.created_at[:16] }}</div>
+            <div style="font-size:10px;color:#aaa;margin-top:4px">{{ n.created_at[:16] if n.created_at else '' }}</div>
         </div>
         {% if n.link %}
         <div style="display:flex;gap:6px;flex-wrap:wrap">
             <a href="{{ n.link }}" class="btn btn-sm" style="background:#1A7A6D;color:#fff">👁️ Voir</a>
-            <a href="{{ n.link }}" class="btn btn-sm btn-outline" onclick="window.open(this.href);return false">🖨️ Imprimer</a>
+            {% if n.type == 'bulletin' %}
+            <a href="{{ n.link|replace('/view','/sign') }}" class="btn btn-sm" style="background:#7b1fa2;color:#fff">✍️ Signer</a>
+            {% endif %}
         </div>
         {% endif %}
         {% if not n.read %}<span style="width:8px;height:8px;border-radius:50%;background:#e8672a;flex-shrink:0"></span>{% endif %}
