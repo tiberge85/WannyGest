@@ -15,8 +15,14 @@
     <a href="/devis/new" class="btn btn-orange" style="margin-left:auto">+ Nouveau devis</a>
 </div>
 <div class="card"><div class="card-body">
-{% if devis_list %}<div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un devis..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
-<thead><tr><th>Réf</th><th>Type</th><th>Client</th><th>Objet</th><th>Total TTC</th><th>Statut</th><th>Actions</th></tr></thead>
+{% if devis_list %}<div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un devis..." onkeyup="filterTable('searchInput','devisTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="devisTable">
+<thead><tr>
+<th style="cursor:pointer" onclick="sortTable('devisTable',0,'text')">Réf <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Type</th>
+<th style="cursor:pointer" onclick="sortTable('devisTable',2,'text')">Client <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Objet</th>
+<th style="cursor:pointer" onclick="sortTable('devisTable',4,'num')">Total TTC <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Statut</th><th>Actions</th></tr></thead>
 <tbody>{% for d in devis_list %}<tr>
 <td><strong>{{ d.reference }}</strong></td>
 <td><span class="badge-status {% if d.doc_type=='devis' %}sent{% else %}pending{% endif %}">{{ d.doc_type }}</span></td>
@@ -27,21 +33,21 @@
     {% elif d.status=='envoye' %}<span class="badge-status pending">📤 Envoyé</span>
     {% elif d.status=='accepte' %}<span class="badge-status sent">✅ Accepté</span>
     {% elif d.status=='refuse' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">❌ Refusé</span>{% endif %}</td>
-<td style="display:flex;gap:4px;flex-wrap:wrap">
-    <a href="/devis/pdf/{{ d.id }}" class="btn btn-primary btn-sm" title="Télécharger PDF">📥</a>
+<td style="white-space:nowrap">
     <a href="/devis/preview/{{ d.id }}" class="btn btn-outline btn-sm" title="Prévisualiser" target="_blank">👁️</a>
-    {% if d.status=='brouillon' %}
     <a href="/devis/edit/{{ d.id }}" class="btn btn-outline btn-sm" title="Modifier">✏️</a>
-    <a href="/devis/status/{{ d.id }}/envoye" class="btn btn-sm" style="background:#ff9800;color:#fff" title="Marquer envoyé">📤</a>
+    <a href="/devis/pdf/{{ d.id }}" class="btn btn-primary btn-sm" title="PDF">📥</a>
+    {% if d.status=='brouillon' %}
+    <a href="/devis/status/{{ d.id }}/envoye" class="btn btn-sm" style="background:#ff9800;color:#fff" title="Envoyé">📤</a>
     <a href="/devis/duplicate/{{ d.id }}" class="btn btn-outline btn-sm" title="Dupliquer">📋</a>
     {% endif %}
     {% if d.status=='envoye' %}
     <a href="/devis/status/{{ d.id }}/accepte" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Accepter">✅</a>
     <a href="/devis/status/{{ d.id }}/refuse" class="btn btn-danger btn-sm" title="Refuser">❌</a>
     {% endif %}
-    {% if 'convertir_devis' in permissions or 'admin' in permissions %}<a href="/devis/convert/{{ d.id }}" class="btn btn-sm" style="background:#1565c0;color:#fff" title="Convertir en facture" onclick="return confirm('Convertir ce devis en facture ?')">💰 Facture</a>{% endif %}
+    {% if 'convertir_devis' in permissions or 'admin' in permissions %}<a href="/devis/convert/{{ d.id }}" class="btn btn-sm" style="background:#1565c0;color:#fff" title="Facture" onclick="return confirm('Convertir ?')">💰</a>{% endif %}
     {% if d.status in ('brouillon','refuse') %}
-    <a href="/devis/delete/{{ d.id }}" class="btn btn-sm" style="color:#c53030" title="Supprimer" onclick="return confirm('Supprimer ce devis ?')">🗑️</a>
+    <a href="/devis/delete/{{ d.id }}" class="btn btn-sm" style="color:#c53030" title="Supprimer" onclick="return confirm('Supprimer ?')">🗑️</a>
     {% endif %}
 </td>
 </tr>{% endfor %}</tbody></table></div>

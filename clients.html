@@ -14,7 +14,13 @@
         {% if clients %}
         <div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchCli" placeholder="🔍 Rechercher..." onkeyup="searchClients()" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div>
         <div class="table-wrap"><table id="cliTable">
-            <thead><tr><th style="width:40px">N°</th><th>Client / Entreprise</th><th>Point focal</th><th>Téléphone</th><th>Email</th><th>Statut</th><th>Actions</th></tr></thead>
+            <thead><tr>
+<th style="width:40px">N°</th>
+<th style="cursor:pointer" onclick="sortTable('cliTable',1,'text')">Client / Entreprise <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th style="cursor:pointer" onclick="sortTable('cliTable',2,'text')">Point focal <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Téléphone</th><th>Email</th>
+<th style="cursor:pointer" onclick="sortTable('cliTable',5,'text')">Statut <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Actions</th></tr></thead>
             <tbody>
             {% for c in clients|sort(attribute='name') %}
             <tr class="cli-row">

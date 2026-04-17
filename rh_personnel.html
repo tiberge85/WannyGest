@@ -4,7 +4,15 @@
 <div class="page-header"><h1>👤 Gestion du personnel</h1></div>
 <div class="card"><div class="card-header"><h3>Employés ({{ employees|length }})</h3><a href="/rh/personnel/add" class="btn btn-primary btn-sm">+ Ajouter</a></div><div class="card-body">
 {% if employees %}<div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un employé..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div><div class="table-wrap"><table id="dataTable">
-<thead><tr><th>Matricule</th><th>Nom</th><th>Poste</th><th>Département</th><th>Contrat</th><th>Statut</th><th>Salaire</th><th>Actions</th></tr></thead>
+<thead><tr>
+<th style="cursor:pointer" onclick="sortTable('dataTable',0,'text')">Matricule <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th style="cursor:pointer" onclick="sortTable('dataTable',1,'text')">Nom <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th style="cursor:pointer" onclick="sortTable('dataTable',2,'text')">Poste <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th style="cursor:pointer" onclick="sortTable('dataTable',3,'text')">Département <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Contrat</th>
+<th style="cursor:pointer" onclick="sortTable('dataTable',5,'text')">Statut <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th style="cursor:pointer" onclick="sortTable('dataTable',6,'num')">Salaire <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Actions</th></tr></thead>
 <tbody>{% for e in employees %}<tr>
 <td>{{ e.matricule or '-' }}</td>
 <td><strong>{{ e.first_name }} {{ e.last_name }}</strong><br><span style="font-size:11px;color:#888">{{ e.email or '' }}</span></td>
