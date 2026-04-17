@@ -3756,14 +3756,120 @@ def rh_paie_view(pid):
     return render_template('rh_paie_view.html', page='paie', p=p)
 
 @app.route('/rh/paie/<int:pid>/status/<status>')
-@permission_required('fichiers')
+@login_required
 def rh_paie_status(pid, status):
-    if status in ('brouillon','valide','envoye'):
-        update_payslip(pid, status=status)
-        if status == 'envoye':
-            update_payslip(pid, sent_at=datetime.now().isoformat())
-        flash(f"Statut → {status}", "success")
+    valid_statuses = ('brouillon','en_attente_compta','valide_compta','envoye')
+    if status not in valid_statuses:
+        flash("Statut invalide","error"); return redirect(url_for('rh_paie'))
+    
+    p = get_payslip_detail_v2(pid)
+    if not p: flash("Bulletin non trouvé","error"); return redirect(url_for('rh_paie'))
+    
+    user = get_user_by_id(session['user_id'])
+    uname = user['full_name'] if user else '?'
+    
+    update_payslip(pid, status=status)
+    if status == 'envoye':
+        update_payslip(pid, sent_at=datetime.now().isoformat())
+    
+    conn = _gdb()
+    
+    # Notifications based on workflow
+    if status == 'en_attente_compta':
+        compta_users = [dict(r) for r in conn.execute("SELECT id FROM users WHERE role IN ('comptable','admin','dg')").fetchall()]
+        for cu in compta_users:
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)""",
+                (cu['id'], 'bulletin', f"📋 Bulletin à valider — {p['employee_name']}",
+                 f"Le bulletin de paie {p['period']} de {p['employee_name']} (Net: {p.get('net_salary',0):,.0f} F) est en attente de validation comptable.",
+                 f"/rh/paie/{pid}/view"))
+        conn.commit(); conn.close()
+        log_activity(session['user_id'], uname, 'Paie', f"Bulletin {p['period']} {p['employee_name']} → Compta", request.remote_addr)
+    
+    elif status == 'valide_compta':
+        rh_users = [dict(r) for r in conn.execute("SELECT id FROM users WHERE role IN ('rh','admin','dg')").fetchall()]
+        for ru in rh_users:
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)""",
+                (ru['id'], 'bulletin', f"✅ Bulletin validé — {p['employee_name']}",
+                 f"Le bulletin {p['period']} de {p['employee_name']} a été validé par la comptabilité. Prêt à envoyer.",
+                 f"/rh/paie/{pid}/view"))
+        conn.commit(); conn.close()
+        log_activity(session['user_id'], uname, 'Paie', f"Bulletin {p['period']} {p['employee_name']} validé compta", request.remote_addr)
+    else:
+        conn.close()
+    
+    labels = {'brouillon':'Brouillon','en_attente_compta':'En attente comptabilité','valide_compta':'Validé comptabilité','envoye':'Envoyé'}
+    flash(f"Statut → {labels.get(status, status)}", "success")
     return redirect(url_for('rh_paie'))
+
+
+@app.route('/rh/paie/bulk-compta', methods=['POST'])
+@permission_required('fichiers')
+def rh_paie_bulk_compta():
+    """Send all brouillon payslips to comptabilité for validation."""
+    conn = _gdb()
+    brouillons = conn.execute("SELECT id FROM payslips WHERE status='brouillon'").fetchall()
+    count = 0
+    for b in brouillons:
+        conn.execute("UPDATE payslips SET status='en_attente_compta' WHERE id=?", (b['id'],))
+        count += 1
+    if count:
+        # Notify comptables
+        compta_users = [dict(r) for r in conn.execute("SELECT id FROM users WHERE role IN ('comptable','admin','dg')").fetchall()]
+        for cu in compta_users:
+            conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+                (cu['id'], 'bulletin', f"📋 {count} bulletin(s) à valider", 
+                 f"{count} bulletin(s) de paie en attente de validation comptable.",
+                 '/comptabilite/validation-paie'))
+        conn.commit(); conn.close()
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie', 
+                    f"{count} bulletins envoyés à la comptabilité", request.remote_addr)
+    else:
+        conn.close()
+    flash(f"{count} bulletin(s) envoyé(s) à la comptabilité pour validation", "success")
+    return redirect(url_for('rh_paie'))
+
+@app.route('/comptabilite/validation-paie')
+@permission_required('comptabilite')
+def compta_validation_paie():
+    """Comptabilité: view and validate pending payslips."""
+    conn = _gdb()
+    pending = [dict(r) for r in conn.execute(
+        """SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.department, e.position
+        FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id 
+        WHERE p.status='en_attente_compta' ORDER BY p.period DESC, e.last_name""").fetchall()]
+    validated = [dict(r) for r in conn.execute(
+        """SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.department
+        FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id 
+        WHERE p.status='valide_compta' ORDER BY p.period DESC, e.last_name LIMIT 20""").fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='compta_paie', pending=pending, validated=validated)
+
+@app.route('/comptabilite/validation-paie/bulk-validate', methods=['POST'])
+@permission_required('comptabilite')
+def compta_bulk_validate():
+    """Validate all pending payslips at once."""
+    conn = _gdb()
+    pending = conn.execute("SELECT id FROM payslips WHERE status='en_attente_compta'").fetchall()
+    count = 0
+    for p in pending:
+        conn.execute("UPDATE payslips SET status='valide_compta' WHERE id=?", (p['id'],))
+        count += 1
+    if count:
+        rh_users = [dict(r) for r in conn.execute("SELECT id FROM users WHERE role IN ('rh','admin','dg')").fetchall()]
+        for ru in rh_users:
+            conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+                (ru['id'], 'bulletin', f"✅ {count} bulletin(s) validé(s)",
+                 f"La comptabilité a validé {count} bulletin(s). Prêts à envoyer aux employés.",
+                 '/rh/paie'))
+        conn.commit(); conn.close()
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie',
+                    f"{count} bulletins validés par comptabilité", request.remote_addr)
+    else:
+        conn.close()
+    flash(f"{count} bulletin(s) validé(s) — retournés à la RH pour envoi", "success")
+    return redirect('/comptabilite/validation-paie')
 
 @app.route('/rh/paie/<int:pid>/delete')
 @permission_required('fichiers')

@@ -29,8 +29,8 @@ th{text-align:left;font-weight:600}
     <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimer</button>
     <a href="/rh/paie/{{ p.id }}/pdf" class="btn" style="background:#1A7A6D;color:#fff">📥 PDF</a>
     <a href="/rh/paie/{{ p.id }}/email" class="btn btn-orange">📧 Email</a>
-    {% if p.status == 'brouillon' %}<a href="/rh/paie/{{ p.id }}/status/valide" class="btn btn-outline">✅ Valider</a>{% endif %}
-    {% if p.status == 'valide' %}<a href="/rh/paie/{{ p.id }}/email" class="btn btn-orange">📧 Envoyer</a>{% endif %}
+    {% if p.status == 'brouillon' %}<a href="/rh/paie/{{ p.id }}/status/en_attente_compta" class="btn" style="background:#1565c0;color:#fff">📋 Envoyer à la comptabilité</a>{% endif %}
+    {% if p.status == 'valide_compta' %}<a href="/rh/paie/{{ p.id }}/email" class="btn btn-orange">📧 Envoyer à l'employé</a>{% endif %}
     <span class="badge {{ p.status }}">{{ p.status }}</span>
 </div>
 

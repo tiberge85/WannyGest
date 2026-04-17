@@ -558,6 +558,59 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 </div></div>
 {% endif %}
 
+
+{% elif page == 'compta_paie' %}
+<div class="page-header"><h1>💵 Validation des bulletins de paie</h1>
+<div style="display:flex;gap:6px">
+{% if pending %}
+<form method="post" action="/comptabilite/validation-paie/bulk-validate" style="display:inline">
+<button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="return confirm('Valider tous les bulletins en attente ?')">✅ Tout valider ({{ pending|length }})</button>
+</form>
+{% endif %}
+<a href="/comptabilite" class="btn btn-outline btn-sm">← Retour</a>
+</div></div>
+
+{% if pending %}
+<div class="card" style="margin-bottom:14px"><div class="card-header"><h3>📋 En attente de validation ({{ pending|length }})</h3></div>
+<div class="card-body" style="padding:0">
+<div class="table-wrap"><table>
+<thead><tr><th>Période</th><th>Employé</th><th>Département</th><th style="text-align:right">Net à payer</th><th>Actions</th></tr></thead>
+<tbody>{% for p in pending %}<tr>
+<td>{{ p.period }}</td>
+<td><strong>{{ p.employee_name }}</strong></td>
+<td>{{ p.department or '-' }}</td>
+<td style="text-align:right;font-weight:700;color:#1A7A6D">{{ '{:,.0f}'.format(p.net_salary or 0) }} F</td>
+<td style="white-space:nowrap">
+    <a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm" style="font-size:9px">👁️ Voir</a>
+    <a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm" style="font-size:9px">📥 PDF</a>
+    <a href="/rh/paie/{{ p.id }}/status/valide_compta" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅ Valider</a>
+    <a href="/rh/paie/{{ p.id }}/status/brouillon" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:9px" onclick="return confirm('Rejeter ce bulletin ?')">❌ Rejeter</a>
+</td>
+</tr>{% endfor %}</tbody></table></div>
+<div style="padding:10px;background:#f0f4f8;text-align:right;font-size:13px;font-weight:700">
+    Total net : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(pending|sum(attribute='net_salary')) }} FCFA</span>
+</div>
+</div></div>
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
+    <div style="font-size:40px;margin-bottom:8px">✅</div>
+    Aucun bulletin en attente de validation
+</div></div>
+{% endif %}
+
+{% if validated %}
+<div class="card"><div class="card-header"><h3>✅ Récemment validés</h3></div>
+<div class="card-body" style="padding:0">
+<div class="table-wrap"><table>
+<thead><tr><th>Période</th><th>Employé</th><th>Net</th><th>Statut</th></tr></thead>
+<tbody>{% for p in validated %}<tr>
+<td>{{ p.period }}</td><td>{{ p.employee_name }}</td>
+<td style="text-align:right;font-weight:600">{{ '{:,.0f}'.format(p.net_salary or 0) }} F</td>
+<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;background:#e8f5e9;color:#2e7d32">✅ Validé</span></td>
+</tr>{% endfor %}</tbody></table></div>
+</div></div>
+{% endif %}
+
 {% elif page == 'rh_calendrier' %}
 <div class="page-header"><h1>📅 Calendrier</h1>
 <div style="display:flex;gap:6px;align-items:center">

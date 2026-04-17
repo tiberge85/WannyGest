@@ -1,12 +1,22 @@
 {% extends "base.html" %}{% block title %}WannyGest - Paie{% endblock %}{% block content %}
 <div class="page-header"><h1>💵 Gestion de la paie</h1>
-<div style="display:flex;gap:6px"><button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Bulletin</button></div></div>
+<div style="display:flex;gap:6px">
+<form method="post" action="/rh/paie/bulk-compta" style="display:inline"><button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff" onclick="return confirm('Envoyer tous les bulletins brouillon à la comptabilité ?')">📋 Envoyer à la comptabilité</button></form>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Bulletin</button>
+</div></div>
 
 <div style="margin-bottom:14px"><form method="get" style="display:flex;gap:8px;align-items:center">
 <input type="month" name="period" value="{{ period }}" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:13px">
 <button type="submit" class="btn btn-outline btn-sm">Filtrer</button>
 <a href="/rh/paie" class="btn btn-outline btn-sm">Tout</a>
 </form></div>
+
+<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;font-size:11px">
+    <span style="padding:2px 8px;border-radius:10px;background:#f0f4f8;color:#555">📝 Brouillon</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#e3f2fd;color:#1565c0">📋 En attente compta</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#e8f5e9;color:#2e7d32">✅ Validé compta</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#fff3e0;color:#e8672a">📧 Envoyé</span>
+</div>
 
 <div class="card"><div class="card-body">
 {% if payslips %}<div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><div class="table-wrap"><table id="dataTable">
@@ -16,15 +26,21 @@
 <td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(p.base_salary + p.bonus + p.overtime_amount) }}</td>
 <td style="text-align:right;color:#c53030">{{ '{:,.0f}'.format(p.deductions + p.insurance_amount + p.tax_amount) }}</td>
 <td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(p.net_salary) }}</td>
-<td><span class="badge-status {% if p.status=='valide' %}sent{% elif p.status=='envoye' %}{% else %}pending{% endif %}">{{ p.status }}</span></td>
-<td style="display:flex;gap:3px;flex-wrap:wrap">
-<a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm">👁️</a>
-<a href="/rh/paie/{{ p.id }}/edit" class="btn btn-outline btn-sm">✏️</a>
-<a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm">📥</a>
-<a href="/rh/paie/{{ p.id }}/email" class="btn btn-sm" style="background:#e8672a;color:#fff" title="Envoyer par email">📧</a>
-{% if p.status=='brouillon' %}<a href="/rh/paie/{{ p.id }}/status/valide" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅</a>{% endif %}
-{% if p.status=='valide' %}<a href="/rh/paie/{{ p.id }}/status/envoye" class="btn btn-sm" style="background:#e8672a;color:#fff">📧</a>{% endif %}
-<a href="/rh/paie/{{ p.id }}/delete" class="btn btn-sm" style="color:#c53030" onclick="return confirm('Supprimer ce bulletin de paie ?')">🗑️</a>
+<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;
+{% if p.status=='brouillon' %}background:#f0f4f8;color:#555
+{% elif p.status=='en_attente_compta' %}background:#e3f2fd;color:#1565c0
+{% elif p.status=='valide_compta' %}background:#e8f5e9;color:#2e7d32
+{% elif p.status=='envoye' %}background:#fff3e0;color:#e8672a
+{% else %}background:#f0f0f0;color:#888{% endif %}">
+{% if p.status=='brouillon' %}📝 Brouillon{% elif p.status=='en_attente_compta' %}📋 Compta{% elif p.status=='valide_compta' %}✅ Validé{% elif p.status=='envoye' %}📧 Envoyé{% else %}{{ p.status }}{% endif %}</span>
+{% if p.signed_at %}<span style="margin-left:4px;font-size:9px;color:#2e7d32">✍️</span>{% endif %}</td>
+<td style="white-space:nowrap">
+<a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm" style="font-size:9px">👁️</a>
+<a href="/rh/paie/{{ p.id }}/edit" class="btn btn-outline btn-sm" style="font-size:9px">✏️</a>
+<a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm" style="font-size:9px">📥</a>
+{% if p.status=='brouillon' %}<a href="/rh/paie/{{ p.id }}/status/en_attente_compta" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:9px" title="Envoyer à la comptabilité">📋</a>{% endif %}
+{% if p.status=='valide_compta' %}<a href="/rh/paie/{{ p.id }}/email" class="btn btn-sm" style="background:#e8672a;color:#fff;font-size:9px" title="Envoyer par email">📧</a>{% endif %}
+<a href="/rh/paie/{{ p.id }}/delete" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>
 </td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun bulletin de paie</p>{% endif %}
 </div></div>
