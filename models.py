@@ -2693,3 +2693,10 @@ def migrate_v39():
     try: conn.execute("ALTER TABLE clients ADD COLUMN client_status TEXT DEFAULT 'entreprise_sans_contrat'")
     except: pass
     conn.commit(); conn.close()
+
+def migrate_v40():
+    """Calendar events - add is_public for private/shared events."""
+    conn = get_db()
+    try: conn.execute("ALTER TABLE calendar_events ADD COLUMN is_public INTEGER DEFAULT 0")
+    except: pass
+    conn.commit(); conn.close()

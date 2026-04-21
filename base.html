@@ -353,12 +353,9 @@
             {% endif %}
             
             <!-- Outils communs -->
-            {% if 'chat' in permissions or 'admin' in permissions %}
             <div style="padding:4px 0">
                 <a href="/rh/calendrier" class="{% if page == 'rh_calendrier' %}active{% endif %}" style="display:block;padding:8px 18px;color:rgba(255,255,255,0.85);text-decoration:none;font-size:13px">📅 Calendrier</a>
-                <a href="/chat" class="{% if page == 'chat' %}active{% endif %}" style="display:block;padding:8px 18px;color:rgba(255,255,255,0.85);text-decoration:none;font-size:13px">💬 Chat</a>
             </div>
-            {% endif %}
             
             {% if 'admin' in permissions %}
             <!-- Administration -->

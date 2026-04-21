@@ -157,6 +157,8 @@ from models import migrate_v38
 migrate_v38()
 from models import migrate_v39
 migrate_v39()
+from models import migrate_v40
+migrate_v40()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -175,6 +177,8 @@ from models import migrate_v38
 migrate_v38()
 from models import migrate_v39
 migrate_v39()
+from models import migrate_v40
+migrate_v40()
 from models import migrate_v27
 migrate_v27()
 from models import migrate_v28
@@ -201,6 +205,8 @@ from models import migrate_v38
 migrate_v38()
 from models import migrate_v39
 migrate_v39()
+from models import migrate_v40
+migrate_v40()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -219,6 +225,8 @@ from models import migrate_v38
 migrate_v38()
 from models import migrate_v39
 migrate_v39()
+from models import migrate_v40
+migrate_v40()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -3116,43 +3124,53 @@ def rh_calendrier():
     today = datetime.now()
     year = int(request.args.get('year', today.year))
     month = int(request.args.get('month', today.month))
-    # Handle month overflow
     if month > 12: month = 1; year += 1
     if month < 1: month = 12; year -= 1
     
-    # Load calendar events
+    uid = session['user_id']
+    user = get_user_by_id(uid)
+    is_admin = user and user['role'] in ('admin','dg','rh')
+    
+    # Load events: own events + public events (admin sees all)
     try:
-        all_events = [dict(r) for r in conn.execute(
-            "SELECT * FROM calendar_events ORDER BY start_date ASC").fetchall()]
+        if is_admin:
+            all_events = [dict(r) for r in conn.execute(
+                "SELECT e.*, u.full_name as author FROM calendar_events e LEFT JOIN users u ON e.created_by=u.id ORDER BY e.start_date ASC").fetchall()]
+        else:
+            all_events = [dict(r) for r in conn.execute(
+                "SELECT e.*, u.full_name as author FROM calendar_events e LEFT JOIN users u ON e.created_by=u.id WHERE e.created_by=? OR e.is_public=1 ORDER BY e.start_date ASC",
+                (uid,)).fetchall()]
     except: all_events = []
     
-    # Filter for display
     events_json = []
     for ev in all_events:
         events_json.append({
             'id': ev['id'], 'title': ev.get('title',''),
-            'start': ev.get('start_date','') or ev.get('event_date',''), 'end': ev.get('end_date','') or ev.get('start_date','') or ev.get('event_date',''),
+            'start': ev.get('start_date',''), 'end': ev.get('end_date','') or ev.get('start_date',''),
             'color': ev.get('color','#1A7A6D'), 'type': ev.get('category','general'),
-            'time': ev.get('event_time',''), 'description': ev.get('description','')
+            'time': ev.get('event_time',''), 'description': ev.get('description',''),
+            'public': ev.get('is_public',0), 'mine': ev.get('created_by') == uid
         })
     
     conn.close()
     import json
     return render_template('extra_pages.html', page='rh_calendrier', 
-        events=json.dumps(events_json), all_events=all_events, year=year, month=month)
+        events=json.dumps(events_json), all_events=all_events, year=year, month=month,
+        is_admin=is_admin, current_uid=uid)
 
 @app.route('/rh/calendrier/add', methods=['POST'])
 @login_required
 def rh_calendrier_add():
     conn = _gdb()
-    colors = {'reunion':'#1565c0','rappel':'#e8672a','deadline':'#c53030','visite':'#2e7d32','formation':'#7b1fa2','personnel':'#ff9800','autre':'#1A7A6D'}
+    colors = {'reunion':'#1A7A6D','rappel':'#e8672a','deadline':'#c53030','visite':'#2e7d32','formation':'#7b1fa2','personnel':'#ff9800','autre':'#0D6B5E'}
     cat = request.form.get('category','autre')
-    conn.execute("""INSERT INTO calendar_events (title, start_date, end_date, event_time, description, category, color, created_by) 
-        VALUES (?,?,?,?,?,?,?,?)""",
+    is_public = 1 if request.form.get('is_public') else 0
+    conn.execute("""INSERT INTO calendar_events (title, start_date, end_date, event_time, description, category, color, created_by, is_public) 
+        VALUES (?,?,?,?,?,?,?,?,?)""",
         (request.form.get('title',''), request.form.get('event_date',''), 
          request.form.get('end_date','') or request.form.get('event_date',''),
          request.form.get('event_time',''), request.form.get('description',''),
-         cat, colors.get(cat,'#1A7A6D'), session['user_id']))
+         cat, colors.get(cat,'#1A7A6D'), session['user_id'], is_public))
     conn.commit(); conn.close()
     flash("Événement ajouté", "success")
     return redirect(f"/rh/calendrier?year={request.form.get('year','')}&month={request.form.get('month','')}")
@@ -3160,8 +3178,18 @@ def rh_calendrier_add():
 @app.route('/rh/calendrier/delete/<int:eid>')
 @login_required
 def rh_calendrier_delete(eid):
-    conn = _gdb(); conn.execute("DELETE FROM calendar_events WHERE id=?", (eid,)); conn.commit(); conn.close()
-    flash("Événement supprimé", "success"); return redirect('/rh/calendrier')
+    conn = _gdb()
+    user = get_user_by_id(session['user_id'])
+    is_admin = user and user['role'] in ('admin','dg','rh')
+    ev = conn.execute("SELECT * FROM calendar_events WHERE id=?", (eid,)).fetchone()
+    if ev and (is_admin or ev['created_by'] == session['user_id']):
+        conn.execute("DELETE FROM calendar_events WHERE id=?", (eid,))
+        conn.commit()
+        flash("Événement supprimé", "success")
+    else:
+        flash("Vous ne pouvez supprimer que vos propres événements", "error")
+    conn.close()
+    return redirect('/rh/calendrier')
 
 @app.route('/rh/personnel')
 @permission_required('fichiers')
@@ -4284,15 +4312,20 @@ def api_notif_count():
                          f"Rappel client {rem.get('client_name','?')} : {rem['title']} ({rem['date']})",
                          f"/clients/{rem['client_id']}?tab=reminders"))
         
-        # Calendar events due today/tomorrow
+        # Calendar events due today/tomorrow (private = only creator, public = all users)
         for ev in [dict(r) for r in conn.execute("SELECT * FROM calendar_events WHERE start_date IN (?,?)", (today, tomorrow)).fetchall()]:
-            if not conn.execute("SELECT id FROM notifications WHERE type='rappel' AND title LIKE ? AND created_at > datetime('now','-1 day')",
-                (f"%{ev['title']}%",)).fetchone():
+            if not conn.execute("SELECT id FROM notifications WHERE type='rappel' AND title LIKE ? AND user_id=? AND created_at > datetime('now','-1 day')",
+                (f"%{ev['title']}%", ev.get('created_by', 0))).fetchone():
                 prefix = "📅 Aujourd'hui" if ev.get('start_date','') == today else "⏰ Demain"
                 time_str = f" à {ev['event_time']}" if ev.get('event_time') else ''
-                for u in conn.execute("SELECT id FROM users WHERE is_active=1").fetchall():
+                if ev.get('is_public'):
+                    targets = conn.execute("SELECT id FROM users WHERE is_active=1").fetchall()
+                else:
+                    targets = [{'id': ev.get('created_by', 0)}] if ev.get('created_by') else []
+                for u in targets:
+                    uid = u['id'] if hasattr(u, '__getitem__') else u
                     conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
-                        (u['id'], 'rappel', f"{prefix}{time_str} — {ev['title']}",
+                        (uid, 'rappel', f"{prefix}{time_str} — {ev['title']}",
                          f"{ev.get('description','') or ev['title']}", "/rh/calendrier"))
         
         conn.commit()

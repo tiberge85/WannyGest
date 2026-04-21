@@ -639,9 +639,8 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 </div></div>
 
 <!-- Upcoming events sidebar -->
-<div class="card"><div class="card-header"><h3>📋 Événements à venir</h3></div>
+<div class="card"><div class="card-header"><h3>📋 Mes événements</h3></div>
 <div class="card-body" style="padding:0;max-height:500px;overflow-y:auto">
-{% set today_str = [] %}
 {% for ev in all_events %}
 {% set evdate = ev.start_date or ev.event_date or '' %}{% if evdate %}
 <div style="padding:8px 12px;border-bottom:1px solid #f0f0f0;display:flex;gap:8px;align-items:flex-start">
@@ -649,11 +648,12 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
         {{ evdate[8:10] }}<br>{{ months[evdate[5:7]|int][:3] }}
     </div>
     <div style="flex:1">
-        <div style="font-size:12px;font-weight:700">{{ ev.title }}</div>
+        <div style="font-size:12px;font-weight:700">{% if ev.is_public %}🌐{% else %}🔒{% endif %} {{ ev.title }}</div>
         {% if ev.event_time %}<div style="font-size:10px;color:#1A7A6D">🕐 {{ ev.event_time }}</div>{% endif %}
         {% if ev.description %}<div style="font-size:10px;color:#888">{{ ev.description[:60] }}</div>{% endif %}
+        {% if ev.author and ev.created_by != current_uid %}<div style="font-size:9px;color:#aaa">Par {{ ev.author }}</div>{% endif %}
     </div>
-    <a href="/rh/calendrier/delete/{{ ev.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>
+    {% if ev.created_by == current_uid or is_admin %}<a href="/rh/calendrier/delete/{{ ev.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>{% endif %}
 </div>
 {% endif %}
 {% endfor %}
@@ -680,6 +680,7 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
     </select></div>
 </div>
 <div class="form-group"><label>Description</label><textarea name="description" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Détails..."></textarea></div>
+<div class="form-group"><label><input type="checkbox" name="is_public" value="1"> 🌐 Visible par tous les utilisateurs</label><div style="font-size:10px;color:#888">Si décoché, l'événement reste privé (visible uniquement par vous)</div></div>
 <div style="display:flex;gap:8px;justify-content:flex-end">
     <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
     <button type="submit" class="btn btn-primary">📅 Créer</button>
