@@ -241,12 +241,13 @@
             
             {% if 'resp_projet' in permissions or 'admin' in permissions %}
             <div class="nav-section" id="sec-resp-proj">
-                <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 RESPONSABLE PROJET <span class="arrow">▼</span></div>
+                <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 GESTION DE PROJETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/resp-projet" class="{% if page == 'resp_projet' %}active{% endif %}">📊 Tableau de bord</a>
                     <a href="/resp-projet/projets" class="{% if page == 'resp_projets' %}active{% endif %}">📁 Projets</a>
-                    <a href="/kanban" class="{% if page == 'kanban' %}active{% endif %}">📋 Kanban</a>
+                    <a href="/kanban" class="{% if page == 'kanban' %}active{% endif %}">📋 Tâches (Kanban)</a>
                     <a href="/resp-projet/planning" class="{% if page == 'resp_planning' %}active{% endif %}">📅 Planning</a>
+                    <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}">🔧 Interventions</a>
                 </div>
             </div>
             {% endif %}
@@ -293,31 +294,36 @@
             <div class="nav-section" id="sec-compta">
                 <div class="nav-section-title" onclick="toggleSection('sec-compta')">💰 COMPTABILITÉ <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/comptabilite" class="{% if page == 'comptabilite' %}active{% endif %}">Factures</a>
-                    <a href="/tresorerie" class="{% if page == 'tresorerie' %}active{% endif %}">🏦 Banque</a>
+                    <a href="/comptabilite" class="{% if page == 'comptabilite' %}active{% endif %}">📊 Tableau de bord</a>
+                    <a href="/comptabilite/factures" class="{% if page == 'factures' %}active{% endif %}">🧾 Factures</a>
+                    <a href="/depenses" class="{% if page == 'depenses' %}active{% endif %}">📉 Dépenses</a>
+                    <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
                     <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">
-                        💵 Caisse
+                        💵 Caisse sortie
                         {% if caisse_pending %}<span class="badge">{{ caisse_pending }}</span>{% endif %}
                     </a>
-                    <a href="/depenses" class="{% if page == 'depenses' %}active{% endif %}">Dépenses</a>
-                    <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
+                    <a href="/tresorerie" class="{% if page == 'tresorerie' %}active{% endif %}">🏦 Trésorerie & Banque</a>
+                    <a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📥 Créances clients</a>
+                    <a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>
                     <a href="/comptabilite/validation-paie" class="{% if page == 'compta_paie' %}active{% endif %}">💵 Validation paie</a>
+                    <a href="/comptabilite/ecritures" class="{% if page == 'ecritures' %}active{% endif %}">📝 Journal comptable</a>
                     <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
-                    <a href="/comptabilite/bilan" class="{% if page == 'bilan' %}active{% endif %}">📊 Bilan comptable</a>
+                    <a href="/comptabilite/bilan" class="{% if page == 'bilan' %}active{% endif %}">📊 Bilan SYSCOHADA</a>
                 </div>
             </div>
             {% endif %}
             
-            {% if 'informatique' in permissions or 'projets' in permissions %}
-            <!-- IT & Projets -->
+            {% if 'informatique' in permissions or 'centre_technique' in permissions or 'admin' in permissions %}
+            <!-- Centre Technique -->
             <div class="nav-section" id="sec-info">
-                <div class="nav-section-title" onclick="toggleSection('sec-info')">🖥️ IT <span class="arrow">▼</span></div>
+                <div class="nav-section-title" onclick="toggleSection('sec-info')">🔧 CENTRE TECHNIQUE <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/it" class="{% if page == 'it' %}active{% endif %}">📊 Dashboard IT</a>
+                    <a href="/it" class="{% if page == 'it' %}active{% endif %}">📊 Dashboard</a>
+                    <a href="/interventions/tech" class="{% if page == 'interventions_tech' %}active{% endif %}">🔧 Mes interventions</a>
+                    <a href="/visites" class="{% if page == 'visites' %}active{% endif %}">📋 Rapports de visite</a>
+                    <a href="/centre-technique" class="{% if page == 'tech_center' %}active{% endif %}">🏗️ Équipements clients</a>
                     <a href="/it/parc" class="{% if page == 'it_parc' %}active{% endif %}">🖥️ Parc informatique</a>
                     <a href="/it/tickets" class="{% if page == 'it_tickets' %}active{% endif %}">🛠️ Helpdesk</a>
-                    <a href="/it/securite" class="{% if page == 'it_securite' %}active{% endif %}">🔐 Sécurité</a>
-                    <a href="/centre-technique" class="{% if page == 'tech_center' %}active{% endif %}">🏗️ Centre technique</a>
                 </div>
             </div>
             {% endif %}

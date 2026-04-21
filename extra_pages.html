@@ -612,6 +612,247 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 </div></div>
 {% endif %}
 
+
+
+{% elif page == 'interventions' %}
+<div class="page-header"><h1>🔧 Interventions</h1>
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('addIntM').classList.add('active')">+ Intervention</button></div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if interventions %}
+<div class="table-wrap"><table id="intTable">
+<thead><tr>
+<th>Réf</th><th>Type</th><th>Client</th><th>Technicien</th><th>Date</th><th>Priorité</th><th>Statut</th><th>Actions</th>
+</tr></thead>
+<tbody>{% for i in interventions %}<tr>
+<td><strong>{{ i.reference }}</strong></td>
+<td>{% if i.type=='maintenance' %}🔧{% elif i.type=='installation' %}📦{% elif i.type=='depannage' %}🚨{% else %}📋{% endif %} {{ i.type }}</td>
+<td>{{ i.client_name or '-' }}</td>
+<td>{{ i.technician_name or '-' }}</td>
+<td>{{ i.scheduled_date or '-' }} {% if i.scheduled_time %}<span style="color:#1A7A6D;font-size:10px">{{ i.scheduled_time }}</span>{% endif %}</td>
+<td><span style="padding:2px 6px;border-radius:8px;font-size:9px;{% if i.priority=='urgente' %}background:#fde8e8;color:#c53030{% elif i.priority=='haute' %}background:#fff3e0;color:#e8672a{% else %}background:#f0f4f8;color:#555{% endif %}">{{ i.priority }}</span></td>
+<td><span style="padding:2px 6px;border-radius:8px;font-size:9px;{% if i.status=='terminee' %}background:#e8f5e9;color:#2e7d32{% elif i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% elif i.status=='annulee' %}background:#fde8e8;color:#c53030{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ i.status }}</span></td>
+<td style="white-space:nowrap">
+{% if i.status=='planifiee' %}<a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px">▶ Démarrer</a>{% endif %}
+{% if i.status=='en_cours' %}<a href="/interventions/{{ i.id }}/status/terminee" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅ Terminer</a>{% endif %}
+{% if i.status!='terminee' and i.status!='annulee' %}<a href="/interventions/{{ i.id }}/status/annulee" class="btn btn-sm" style="color:#c53030;font-size:9px">❌</a>{% endif %}
+</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune intervention</p>{% endif %}
+</div></div>
+
+<div class="modal-bg" id="addIntM"><div class="modal" style="max-width:550px"><h3>🔧 Nouvelle intervention</h3>
+<form method="post" action="/interventions/add"><input type="hidden" name="redirect" value="/interventions">
+<div class="form-group"><label>Titre *</label><input type="text" name="title" required placeholder="Installation caméras, Maintenance préventive..."></div>
+<div class="form-row">
+    <div class="form-group"><label>Type</label><select name="type"><option value="maintenance">🔧 Maintenance</option><option value="depannage">🚨 Dépannage</option><option value="installation">📦 Installation</option><option value="audit">📋 Audit</option></select></div>
+    <div class="form-group"><label>Priorité</label><select name="priority"><option value="normale">Normale</option><option value="haute">Haute</option><option value="urgente">Urgente</option></select></div>
+</div>
+<div class="form-row">
+    <div class="form-group"><label>Client</label><select name="client_id"><option value="">—</option>{% for cl in clients %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}</select></div>
+    <div class="form-group"><label>Technicien</label><select name="technician_id"><option value="">—</option>{% for t in technicians %}<option value="{{ t.id }}">{{ t.full_name }}</option>{% endfor %}</select></div>
+</div>
+<div class="form-row">
+    <div class="form-group"><label>Date *</label><input type="date" name="scheduled_date" required></div>
+    <div class="form-group"><label>Heure</label><input type="time" name="scheduled_time"></div>
+</div>
+<div class="form-group"><label>Projet lié</label><select name="project_id"><option value="">— Aucun —</option>{% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div>
+<div class="form-group"><label>Adresse du site</label><input type="text" name="site_address" placeholder="Adresse d'intervention"></div>
+<div class="form-group"><label>Description</label><textarea name="description" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+<div class="form-group"><label><input type="checkbox" name="is_billable" value="1" checked> 💰 Facturable</label></div>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+    <button type="submit" class="btn btn-primary">🔧 Planifier</button>
+</div></form></div></div>
+
+{% elif page == 'interventions_tech' %}
+<div class="page-header"><h1>🔧 Mes interventions</h1></div>
+
+{% set planifiees = interventions|selectattr('status','equalto','planifiee')|list %}
+{% set en_cours = interventions|selectattr('status','equalto','en_cours')|list %}
+{% set terminees = interventions|selectattr('status','equalto','terminee')|list %}
+
+{% if planifiees %}
+<div class="card" style="margin-bottom:14px"><div class="card-header"><h3>📅 Planifiées ({{ planifiees|length }})</h3></div>
+<div class="card-body" style="padding:0">
+{% for i in planifiees %}
+<div style="padding:12px;border-bottom:1px solid #f0f0f0;display:flex;gap:12px;align-items:flex-start">
+    <div style="min-width:55px;text-align:center;padding:6px;background:#fff3e0;border-radius:8px">
+        <div style="font-size:16px;font-weight:800;color:#e8672a">{{ i.scheduled_date[8:10] if i.scheduled_date else '?' }}</div>
+        <div style="font-size:9px;color:#888">{{ i.scheduled_time or '' }}</div>
+    </div>
+    <div style="flex:1">
+        <div style="font-size:13px;font-weight:700">{% if i.type=='depannage' %}🚨{% elif i.type=='installation' %}📦{% else %}🔧{% endif %} {{ i.title }}</div>
+        <div style="font-size:11px;color:#888">🏢 {{ i.client_name or '-' }} {% if i.site_address %}· 📍 {{ i.site_address }}{% endif %}</div>
+        {% if i.description %}<div style="font-size:11px;color:#666;margin-top:2px">{{ i.description[:80] }}</div>{% endif %}
+    </div>
+    <a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:10px">▶ Démarrer</a>
+</div>
+{% endfor %}
+</div></div>
+{% endif %}
+
+{% if en_cours %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid #1A7A6D"><div class="card-header"><h3>⚡ En cours ({{ en_cours|length }})</h3></div>
+<div class="card-body" style="padding:0">
+{% for i in en_cours %}
+<div style="padding:12px;border-bottom:1px solid #f0f0f0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div><strong>{{ i.title }}</strong> · {{ i.client_name or '-' }}</div>
+        <span style="padding:2px 8px;border-radius:8px;font-size:10px;background:#e3f2fd;color:#1A7A6D">En cours</span>
+    </div>
+    <details style="margin-top:6px"><summary style="font-size:11px;color:#1A7A6D;cursor:pointer">📝 Rédiger le rapport</summary>
+    <form method="post" action="/interventions/{{ i.id }}/rapport" style="margin-top:8px;padding:10px;background:#f8faf9;border-radius:8px">
+        <div class="form-group"><label>Rapport d'intervention</label><textarea name="rapport" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Description des travaux effectués..."></textarea></div>
+        <div class="form-row">
+            <div class="form-group"><label>Matériel utilisé</label><input type="text" name="material_used" placeholder="Câbles, caméras..."></div>
+            <div class="form-group"><label>Durée (h)</label><input type="number" name="duration_hours" step="0.5" min="0" value="1"></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Coût matériel (F)</label><input type="number" name="material_cost" step="1" min="0" value="0"></div>
+            <div class="form-group"><label>Coût main d'œuvre (F)</label><input type="number" name="labor_cost" step="1" min="0" value="0"></div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">✅ Terminer et enregistrer</button>
+    </form></details>
+</div>
+{% endfor %}
+</div></div>
+{% endif %}
+
+{% if terminees %}
+<div class="card"><div class="card-header"><h3>✅ Terminées ({{ terminees|length }})</h3></div>
+<div class="card-body" style="padding:0">
+<div class="table-wrap"><table>
+<thead><tr><th>Réf</th><th>Client</th><th>Type</th><th>Date</th><th>Durée</th><th>Coût</th></tr></thead>
+<tbody>{% for i in terminees %}<tr>
+<td><strong>{{ i.reference }}</strong></td><td>{{ i.client_name or '-' }}</td>
+<td>{{ i.type }}</td><td>{{ i.end_date or i.scheduled_date or '-' }}</td>
+<td>{{ i.duration_hours or 0 }}h</td>
+<td style="text-align:right;font-weight:600">{{ '{:,.0f}'.format(i.total_cost or 0) }} F</td>
+</tr>{% endfor %}</tbody></table></div>
+</div></div>
+{% endif %}
+
+{% if not interventions %}<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">Aucune intervention assignée</div></div>{% endif %}
+
+
+{% elif page == 'creances' %}
+<div class="page-header"><h1>📥 Créances clients</h1>
+<p>Factures non payées — Total : <strong style="color:#e8672a">{{ '{:,.0f}'.format(total) }} FCFA</strong></p></div>
+<div class="card"><div class="card-body" style="padding:0">
+{% if creances %}
+<div class="table-wrap"><table id="creancesTable">
+<thead><tr>
+<th style="cursor:pointer" onclick="sortTable('creancesTable',0,'text')">Réf <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th style="cursor:pointer" onclick="sortTable('creancesTable',1,'text')">Client <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Contact</th>
+<th style="cursor:pointer;text-align:right" onclick="sortTable('creancesTable',3,'num')">Montant <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th>Statut</th><th>Date</th><th>Actions</th>
+</tr></thead>
+<tbody>{% for cr in creances %}<tr>
+<td><strong>{{ cr.reference }}</strong></td>
+<td>{{ cr.client_name or '-' }}</td>
+<td style="font-size:11px">{{ cr.contact_name or '-' }}</td>
+<td style="text-align:right;font-weight:700;color:#e8672a">{{ '{:,.0f}'.format(cr.amount or 0) }} F</td>
+<td><span style="padding:2px 6px;border-radius:8px;font-size:9px;background:#fff3e0;color:#e8672a">{{ cr.status }}</span></td>
+<td style="font-size:11px">{{ cr.created_at[:10] if cr.created_at else '-' }}</td>
+<td>
+    <a href="/comptabilite/facture/view/{{ cr.id }}" class="btn btn-outline btn-sm" style="font-size:9px">👁️</a>
+    <a href="/comptabilite/status/{{ cr.id }}/payee" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px" onclick="return confirm('Marquer comme payée ?')">✅ Payée</a>
+</td>
+</tr>{% endfor %}</tbody></table></div>
+<div style="padding:10px;background:#fff3e0;text-align:right;font-size:14px;font-weight:700">
+Total créances : <span style="color:#e8672a">{{ '{:,.0f}'.format(total) }} FCFA</span>
+</div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune créance en cours</p>{% endif %}
+</div></div>
+
+{% elif page == 'dettes' %}
+<div class="page-header"><h1>📤 Dettes fournisseurs</h1>
+<p>Engagements non réglés — Total : <strong style="color:#c53030">{{ '{:,.0f}'.format(total_dettes) }} FCFA</strong></p></div>
+
+{% if commandes %}
+<div class="card" style="margin-bottom:14px"><div class="card-header"><h3>📦 Bons de commande en cours</h3></div>
+<div class="card-body" style="padding:0">
+<div class="table-wrap"><table>
+<thead><tr><th>Réf</th><th>Fournisseur</th><th style="text-align:right">Montant</th><th>Statut</th><th>Date</th></tr></thead>
+<tbody>{% for cm in commandes %}<tr>
+<td><strong>{{ cm.reference or '-' }}</strong></td>
+<td>{{ cm.supplier_name or cm.fournisseur or '-' }}</td>
+<td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(cm.total or cm.amount or 0) }} F</td>
+<td><span style="padding:2px 6px;border-radius:8px;font-size:9px;background:#e3f2fd;color:#1A7A6D">{{ cm.status or '-' }}</span></td>
+<td style="font-size:11px">{{ cm.created_at[:10] if cm.created_at else '-' }}</td>
+</tr>{% endfor %}</tbody></table></div>
+</div></div>
+{% endif %}
+
+<div class="card"><div class="card-header"><h3>🧾 Pièces fournisseurs</h3></div>
+<div class="card-body" style="padding:0">
+{% if dettes %}
+<div class="table-wrap"><table>
+<thead><tr><th>Réf</th><th>Fournisseur</th><th>Description</th><th style="text-align:right">Montant</th><th>Date</th></tr></thead>
+<tbody>{% for d in dettes %}<tr>
+<td>{{ d.reference or '-' }}</td>
+<td>{{ d.supplier or '-' }}</td>
+<td style="font-size:11px">{{ (d.description or '-')[:40] }}</td>
+<td style="text-align:right;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(d.amount or 0) }} F</td>
+<td style="font-size:11px">{{ d.date or '-' }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:20px">Aucune dette fournisseur</p>{% endif %}
+</div></div>
+
+{% elif page == 'ecritures' %}
+<div class="page-header"><h1>📝 Journal comptable</h1>
+<div style="display:flex;gap:6px;align-items:center">
+<form method="get" style="display:flex;gap:6px"><input type="month" name="period" value="{{ period }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+<button type="submit" class="btn btn-outline btn-sm">Filtrer</button></form>
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('addEcrM').classList.add('active')">+ Écriture</button>
+</div></div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if ecritures %}
+<div class="table-wrap"><table id="ecrituresTable">
+<thead><tr>
+<th>Date</th><th>Compte</th><th>Libellé</th><th>Réf</th>
+<th>Journal</th><th style="text-align:right">Montant</th>
+</tr></thead>
+<tbody>{% for e in ecritures %}<tr>
+<td style="font-size:11px">{{ e.date }}</td>
+<td><strong>{{ e.compte_debit }} → {{ e.compte_credit }}</strong></td>
+<td>{{ e.libelle }}</td>
+<td style="font-size:11px;color:#888">{{ e.piece or e.reference or '-' }}</td>
+<td style="text-align:right;font-weight:700;color:#1a3a5c">{{ '{:,.0f}'.format(e.montant) if e.montant else '' }}</td>
+<td style="text-align:right;"></td>
+</tr>{% endfor %}</tbody></table></div>
+<div style="padding:10px;background:#f0f4f8;display:flex;justify-content:space-between;font-size:13px;font-weight:700">
+<span>Total : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total_debit) }} F</span></span>
+<span>{{ ecritures|length }} écriture(s)</span>
+</div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune écriture pour {{ period }}</p>{% endif %}
+</div></div>
+
+<!-- Add écriture modal -->
+<div class="modal-bg" id="addEcrM"><div class="modal" style="max-width:500px"><h3>📝 Nouvelle écriture comptable</h3>
+<form method="post" action="/comptabilite/ecritures/add">
+<div class="form-row">
+    <div class="form-group"><label>Date</label><input type="date" name="date" required value="{{ period }}-01"></div>
+    <div class="form-group"><label>Référence</label><input type="text" name="reference" placeholder="FAC-001..."></div>
+</div>
+<div class="form-group"><label>Libellé</label><input type="text" name="libelle" required placeholder="Paiement facture..."></div>
+<div class="form-row">
+    <div class="form-group"><label>Compte débit</label><select name="compte_debit">
+        {% for p in plan %}<option value="{{ p.numero }}">{{ p.numero }} — {{ p.libelle }}</option>{% endfor %}
+    </select></div>
+    <div class="form-group"><label>Compte crédit</label><select name="compte_credit">
+        {% for p in plan %}<option value="{{ p.numero }}">{{ p.numero }} — {{ p.libelle }}</option>{% endfor %}
+    </select></div>
+</div>
+<div class="form-group"><label>Montant (F)</label><input type="number" name="montant" required step="1" min="0"></div>
+<div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+    <button type="submit" class="btn btn-primary">📝 Enregistrer</button>
+</div>
+</form></div></div>
+
 {% elif page == 'rh_calendrier' %}
 <div class="page-header"><h1>📅 Calendrier</h1>
 <div style="display:flex;gap:6px;align-items:center">

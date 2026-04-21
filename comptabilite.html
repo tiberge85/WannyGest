@@ -1,14 +1,23 @@
 {% extends "base.html" %}
 {% block title %}WannyGest - Comptabilité{% endblock %}
 {% block content %}
-<div class="page-header"><h1>💰 Comptabilité</h1><p>Suivi financier</p></div>
+<div class="page-header"><h1>💰 Comptabilité — Tableau de bord</h1><p>Vue d'ensemble financière SYSCOHADA</p></div>
 
 <!-- Dashboard financier -->
-<div class="g4" style="margin-bottom:16px">
+<div class="g4" style="margin-bottom:10px">
     <div class="stat-card"><div class="stat-icon green">💵</div><div class="stat-info"><div class="stat-num" style="color:#2e7d32">{{ '{:,.0f}'.format(chart.total_revenue) }}</div><div class="stat-label">Revenus encaissés (F)</div></div></div>
     <div class="stat-card"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-num" style="color:#e8672a">{{ '{:,.0f}'.format(chart.total_pending) }}</div><div class="stat-label">En attente (F)</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:#fde8e8;color:#c53030">📉</div><div class="stat-info"><div class="stat-num" style="color:#c53030">{{ '{:,.0f}'.format(chart.total_expenses) }}</div><div class="stat-label">Dépenses (F)</div></div></div>
     <div class="stat-card"><div class="stat-icon {% if chart.profit >= 0 %}green{% else %}orange{% endif %}">{% if chart.profit >= 0 %}📈{% else %}📉{% endif %}</div><div class="stat-info"><div class="stat-num" style="color:{% if chart.profit >= 0 %}#2e7d32{% else %}#c53030{% endif %}">{{ '{:,.0f}'.format(chart.profit) }}</div><div class="stat-label">Bénéfice net (F)</div></div></div>
+</div>
+
+<!-- Ligne SYSCOHADA -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+    <a href="/comptabilite/creances" class="stat-card" style="text-decoration:none;border-left:3px solid #e8672a"><div class="stat-info" style="padding:8px"><div class="stat-num" style="color:#e8672a;font-size:16px">{{ '{:,.0f}'.format(chart.creances_total) }}</div><div class="stat-label">📥 Créances ({{ chart.creances_count }})</div></div></a>
+    <a href="/comptabilite/dettes" class="stat-card" style="text-decoration:none;border-left:3px solid #c53030"><div class="stat-info" style="padding:8px"><div class="stat-num" style="color:#c53030;font-size:16px">{{ '{:,.0f}'.format(chart.dettes_total) }}</div><div class="stat-label">📤 Dettes fournisseurs</div></div></a>
+    <a href="/tresorerie" class="stat-card" style="text-decoration:none;border-left:3px solid #1A7A6D"><div class="stat-info" style="padding:8px"><div class="stat-num" style="color:#1A7A6D;font-size:16px">{{ '{:,.0f}'.format(chart.tresorerie) }}</div><div class="stat-label">🏦 Trésorerie</div></div></a>
+    <a href="/comptabilite/ecritures" class="stat-card" style="text-decoration:none;border-left:3px solid #7b1fa2"><div class="stat-info" style="padding:8px"><div class="stat-num" style="color:#7b1fa2;font-size:16px">{{ chart.ecritures_count }}</div><div class="stat-label">📝 Écritures du mois</div></div></a>
+    {% if chart.paie_pending %}<a href="/comptabilite/validation-paie" class="stat-card" style="text-decoration:none;border-left:3px solid #ff9800"><div class="stat-info" style="padding:8px"><div class="stat-num" style="color:#ff9800;font-size:16px">{{ chart.paie_pending }}</div><div class="stat-label">💵 Paie à valider</div></div></a>{% endif %}
 </div>
 
 <div class="g21" style="margin-bottom:16px">

@@ -2700,3 +2700,37 @@ def migrate_v40():
     try: conn.execute("ALTER TABLE calendar_events ADD COLUMN is_public INTEGER DEFAULT 0")
     except: pass
     conn.commit(); conn.close()
+
+def migrate_v41():
+    """Interventions table - links projects/tasks to tech center and billing."""
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS interventions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT, title TEXT NOT NULL,
+            type TEXT DEFAULT 'maintenance',
+            project_id INTEGER, task_id INTEGER, client_id INTEGER,
+            client_name TEXT, site_address TEXT,
+            technician_id INTEGER, technician_name TEXT,
+            scheduled_date TEXT, scheduled_time TEXT,
+            start_date TEXT, end_date TEXT,
+            duration_hours REAL DEFAULT 0,
+            status TEXT DEFAULT 'planifiee',
+            priority TEXT DEFAULT 'normale',
+            description TEXT, rapport TEXT,
+            material_used TEXT, material_cost REAL DEFAULT 0,
+            labor_cost REAL DEFAULT 0, total_cost REAL DEFAULT 0,
+            invoice_id INTEGER, is_billable INTEGER DEFAULT 1,
+            photos TEXT, signature_client TEXT,
+            created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id),
+            FOREIGN KEY (task_id) REFERENCES tasks(id),
+            FOREIGN KEY (client_id) REFERENCES clients(id)
+        );
+    ''')
+    # Add intervention_id to tasks
+    try: conn.execute("ALTER TABLE tasks ADD COLUMN intervention_id INTEGER DEFAULT 0")
+    except: pass
+    try: conn.execute("ALTER TABLE tasks ADD COLUMN client_id INTEGER DEFAULT 0")
+    except: pass
+    conn.commit(); conn.close()

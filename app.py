@@ -159,6 +159,8 @@ from models import migrate_v39
 migrate_v39()
 from models import migrate_v40
 migrate_v40()
+from models import migrate_v41
+migrate_v41()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -179,6 +181,8 @@ from models import migrate_v39
 migrate_v39()
 from models import migrate_v40
 migrate_v40()
+from models import migrate_v41
+migrate_v41()
 from models import migrate_v27
 migrate_v27()
 from models import migrate_v28
@@ -207,6 +211,8 @@ from models import migrate_v39
 migrate_v39()
 from models import migrate_v40
 migrate_v40()
+from models import migrate_v41
+migrate_v41()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -227,6 +233,8 @@ from models import migrate_v39
 migrate_v39()
 from models import migrate_v40
 migrate_v40()
+from models import migrate_v41
+migrate_v41()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -256,6 +264,10 @@ try:
         update_role_permissions('proprietaire', ['dashboard', 'dashboard_general', 'concierge', 'fichiers', 'clients', 'comptabilite', 'proforma', 'moyens_generaux', 'rapports_j', 'chat', 'tracking', 'logs'])
     if not _grp('secretaire'):
         update_role_permissions('secretaire', ['dashboard', 'clients', 'clients_edit', 'proforma', 'rapports_j', 'chat', 'concierge', 'concierge_edit', 'visites', 'contrats'])
+    if 'informatique' not in _grp('technicien'):
+        update_role_permissions('technicien', ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat'])
+    if 'centre_technique' not in _grp('resp_projet'):
+        update_role_permissions('resp_projet', ['dashboard', 'resp_projet', 'resp_projet_edit', 'projets', 'informatique', 'centre_technique', 'clients', 'visites', 'rapports_j', 'chat'])
 except: pass
 
 from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
@@ -377,6 +389,13 @@ def inject_globals():
 
 
 # ======================== AUTH ROUTES ========================
+
+
+def auto_ecriture(conn, date, libelle, debit_account, credit_account, amount, reference=''):
+    """Génère automatiquement une écriture comptable double (débit/crédit) SYSCOHADA."""
+    if amount <= 0: return
+    conn.execute("INSERT INTO ecritures_comptables (date, journal, piece, compte_debit, compte_credit, libelle, montant, created_by) VALUES (?,?,?,?,?,?,?,0)",
+        (date, 'VE', reference, debit_account, credit_account, libelle, amount))
 
 @app.route('/robots.txt')
 def robots_txt():
@@ -2059,6 +2078,27 @@ def comptabilite_page():
     recent_devis = [dict(r) for r in conn.execute("""
         SELECT * FROM devis ORDER BY created_at DESC LIMIT 5
     """).fetchall()]
+    
+    # Créances (unpaid invoices)
+    creances_total = conn.execute("SELECT COALESCE(SUM(amount),0) FROM invoices WHERE status IN ('envoyee','en_attente_paiement')").fetchone()[0]
+    creances_count = conn.execute("SELECT COUNT(*) FROM invoices WHERE status IN ('envoyee','en_attente_paiement')").fetchone()[0]
+    
+    # Dettes fournisseurs
+    try: dettes_total = conn.execute("SELECT COALESCE(SUM(amount),0) FROM pieces_caisse WHERE supplier != ''").fetchone()[0]
+    except: dettes_total = 0
+    
+    # Trésorerie
+    try: tresorerie = conn.execute("SELECT COALESCE(SUM(solde),0) FROM bank_accounts").fetchone()[0]
+    except: tresorerie = 0
+    
+    # Ecritures count
+    try: ecritures_count = conn.execute("SELECT COUNT(*) FROM ecritures_comptables WHERE strftime('%Y-%m',date)=?", (datetime.now().strftime('%Y-%m'),)).fetchone()[0]
+    except: ecritures_count = 0
+    
+    # Paie pending
+    try: paie_pending = conn.execute("SELECT COUNT(*) FROM payslips WHERE status='en_attente_compta'").fetchone()[0]
+    except: paie_pending = 0
+    
     conn.close()
     
     chart_data = {
@@ -2072,15 +2112,74 @@ def comptabilite_page():
         'total_pending': total_pending,
         'total_expenses': total_expenses,
         'profit': total_revenue - total_expenses,
+        'creances_total': creances_total, 'creances_count': creances_count,
+        'dettes_total': dettes_total, 'tresorerie': tresorerie,
+        'ecritures_count': ecritures_count, 'paie_pending': paie_pending,
     }
     
     return render_template('comptabilite.html', page='comptabilite', tab=tab,
                           invoices=invoices, inv_stats=inv_stats, chart=chart_data, recent_devis=recent_devis)
 
+
+@app.route('/comptabilite/factures')
+@permission_required('comptabilite')
+def compta_factures():
+    return redirect('/comptabilite?tab=factures')
+
+@app.route('/comptabilite/creances')
+@permission_required('comptabilite')
+def compta_creances():
+    conn = _gdb()
+    creances = [dict(r) for r in conn.execute(
+        "SELECT i.*, c.name as client_name, c.contact_name FROM invoices i LEFT JOIN clients c ON i.client_id=c.id WHERE i.status IN ('envoyee','en_attente_paiement') ORDER BY i.created_at DESC").fetchall()]
+    total = sum(c.get('amount',0) or 0 for c in creances)
+    conn.close()
+    return render_template('extra_pages.html', page='creances', creances=creances, total=total)
+
+@app.route('/comptabilite/dettes')
+@permission_required('comptabilite')
+def compta_dettes():
+    conn = _gdb()
+    dettes = []
+    try:
+        dettes = [dict(r) for r in conn.execute(
+            "SELECT * FROM pieces_caisse WHERE category='fournisseur' OR supplier != '' ORDER BY date DESC").fetchall()]
+    except: pass
+    # Also get unpaid purchase orders
+    commandes = []
+    try:
+        commandes = [dict(r) for r in conn.execute(
+            "SELECT * FROM achats_commandes WHERE status NOT IN ('payee','annulee') ORDER BY created_at DESC").fetchall()]
+    except: pass
+    total_dettes = sum(d.get('amount',0) or 0 for d in dettes)
+    conn.close()
+    return render_template('extra_pages.html', page='dettes', dettes=dettes, commandes=commandes, total_dettes=total_dettes)
+
+@app.route('/comptabilite/ecritures')
+@permission_required('comptabilite')
+def compta_ecritures():
+    conn = _gdb()
+    period = request.args.get('period', datetime.now().strftime('%Y-%m'))
+    ecritures = [dict(r) for r in conn.execute(
+        "SELECT * FROM ecritures_comptables WHERE strftime('%Y-%m',date)=? ORDER BY date DESC, id DESC", (period,)).fetchall()]
+    plan = [dict(r) for r in conn.execute("SELECT * FROM plan_comptable ORDER BY numero").fetchall()]
+    total_debit = sum(e.get('montant',0) or 0 for e in ecritures)
+    conn.close()
+    return render_template('extra_pages.html', page='ecritures', ecritures=ecritures, plan=plan, period=period,
+                          total_debit=total_debit, total_credit=0)
+
 @app.route('/comptabilite/status/<int:inv_id>/<status>')
 @permission_required('comptabilite')
 def comptabilite_status(inv_id, status):
     if status in ('envoyee', 'en_attente_paiement', 'payee', 'a_envoyer'):
+        # Auto-generate écriture comptable
+        if status == 'payee':
+            try:
+                inv2 = conn.execute("SELECT * FROM invoices WHERE id=?", (inv_id,)).fetchone()
+                if inv2:
+                    auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
+                        f"Paiement facture {inv2['reference']}", '521', '411', inv2['amount'] or 0, inv2['reference'])
+            except: pass
         update_invoice_status(inv_id, status, session.get('user_id'))
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?',
@@ -2280,13 +2379,13 @@ def ecriture_add():
     conn = _gdb()
     conn.execute("""INSERT INTO ecritures_comptables (date, journal, piece, compte_debit, compte_credit, libelle, montant, created_by)
         VALUES (?,?,?,?,?,?,?,?)""",
-        (request.form.get('date',''), request.form.get('journal','OD'), request.form.get('piece',''),
+        (request.form.get('date',''), request.form.get('journal','OD'), request.form.get('reference',''),
          request.form.get('compte_debit',''), request.form.get('compte_credit',''),
          request.form.get('libelle',''), float(request.form.get('montant',0) or 0), session['user_id']))
     conn.commit(); conn.close()
     flash("Écriture enregistrée","success")
-    year = request.form.get('date','')[:4] or datetime.now().strftime('%Y')
-    return redirect(f'/comptabilite/bilan?tab=ecritures&exercice={year}')
+    period = request.form.get('date','')[:7] or datetime.now().strftime('%Y-%m')
+    return redirect(f'/comptabilite/ecritures?period={period}')
 
 @app.route('/comptabilite/plan-comptable/add', methods=['POST'])
 @permission_required('comptabilite_edit')
@@ -4337,6 +4436,152 @@ def api_notif_count():
     except Exception as e:
         import sys; print(f"NOTIF_API_ERR: {e}", file=sys.stderr)
         return jsonify({'count': 0})
+
+
+# ======================== INTERVENTIONS ========================
+
+@app.route('/interventions')
+@login_required
+def interventions_list():
+    conn = _gdb()
+    interventions = [dict(r) for r in conn.execute(
+        "SELECT * FROM interventions ORDER BY scheduled_date DESC, id DESC").fetchall()]
+    projects = [dict(r) for r in conn.execute("SELECT id, name FROM projects ORDER BY name").fetchall()]
+    clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+    technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin') ORDER BY full_name").fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='interventions', interventions=interventions,
+                          projects=projects, clients=clients, technicians=technicians)
+
+@app.route('/interventions/tech')
+@login_required
+def interventions_tech():
+    conn = _gdb()
+    user = get_user_by_id(session['user_id'])
+    is_admin = user and user['role'] in ('admin','dg','resp_projet')
+    if is_admin:
+        interventions = [dict(r) for r in conn.execute("SELECT * FROM interventions ORDER BY scheduled_date DESC").fetchall()]
+    else:
+        interventions = [dict(r) for r in conn.execute(
+            "SELECT * FROM interventions WHERE technician_id=? OR created_by=? ORDER BY scheduled_date DESC",
+            (session['user_id'], session['user_id'])).fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='interventions_tech', interventions=interventions, is_admin=is_admin)
+
+@app.route('/interventions/add', methods=['POST'])
+@login_required
+def intervention_add():
+    conn = _gdb()
+    ref = f"INT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    tech_id = int(request.form.get('technician_id',0) or 0)
+    tech_name = ''
+    if tech_id:
+        tu = conn.execute("SELECT full_name FROM users WHERE id=?", (tech_id,)).fetchone()
+        tech_name = tu['full_name'] if tu else ''
+    
+    client_id = int(request.form.get('client_id',0) or 0)
+    client_name = ''
+    if client_id:
+        cl = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        client_name = cl['name'] if cl else ''
+    
+    project_id = int(request.form.get('project_id',0) or 0) or None
+    task_id = int(request.form.get('task_id',0) or 0) or None
+    
+    conn.execute("""INSERT INTO interventions (reference, title, type, project_id, task_id, client_id, client_name,
+        site_address, technician_id, technician_name, scheduled_date, scheduled_time, priority, description, 
+        is_billable, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (ref, request.form.get('title',''), request.form.get('type','maintenance'),
+         project_id, task_id, client_id, client_name,
+         request.form.get('site_address',''), tech_id, tech_name,
+         request.form.get('scheduled_date',''), request.form.get('scheduled_time',''),
+         request.form.get('priority','normale'), request.form.get('description',''),
+         1 if request.form.get('is_billable') else 0, session['user_id']))
+    conn.commit()
+    
+    # Notify technician
+    if tech_id and tech_id != session['user_id']:
+        conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+            (tech_id, 'intervention', f"🔧 Nouvelle intervention — {client_name}",
+             f"Intervention planifiée le {request.form.get('scheduled_date','')}: {request.form.get('title','')}",
+             '/interventions/tech'))
+        conn.commit()
+    conn.close()
+    
+    # Link to task if specified
+    if task_id:
+        try:
+            conn2 = _gdb()
+            int_id = conn2.execute("SELECT id FROM interventions WHERE reference=?", (ref,)).fetchone()
+            if int_id:
+                conn2.execute("UPDATE tasks SET intervention_id=?, status='en_cours' WHERE id=?", (int_id['id'], task_id))
+                conn2.commit()
+            conn2.close()
+        except: pass
+    
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Intervention', f"Intervention {ref} planifiée — {client_name}", request.remote_addr)
+    flash(f"Intervention {ref} créée", "success")
+    return redirect(request.form.get('redirect', '/interventions'))
+
+@app.route('/interventions/<int:iid>/status/<status>')
+@login_required
+def intervention_status(iid, status):
+    valid = ('planifiee','en_cours','terminee','annulee')
+    if status not in valid: flash("Statut invalide","error"); return redirect('/interventions')
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if inter:
+        updates = {'status': status}
+        if status == 'en_cours': updates['start_date'] = datetime.now().strftime('%Y-%m-%d')
+        if status == 'terminee': updates['end_date'] = datetime.now().strftime('%Y-%m-%d')
+        set_clause = ', '.join(f"{k}=?" for k in updates)
+        conn.execute(f"UPDATE interventions SET {set_clause} WHERE id=?", (*updates.values(), iid))
+        
+        # Update linked task
+        if inter['task_id']:
+            task_status = 'terminee' if status == 'terminee' else 'en_cours'
+            conn.execute("UPDATE tasks SET status=? WHERE id=?", (task_status, inter['task_id']))
+        
+        # Auto-generate billing if terminee and billable
+        if status == 'terminee' and inter['is_billable'] and inter['total_cost']:
+            auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
+                f"Intervention {inter['reference']} — {inter['client_name']}",
+                '411', '706', inter['total_cost'] or 0, inter['reference'])
+        
+        conn.commit()
+        flash(f"Statut → {status}", "success")
+    conn.close()
+    return redirect(request.referrer or '/interventions')
+
+@app.route('/interventions/<int:iid>/rapport', methods=['POST'])
+@login_required
+def intervention_rapport(iid):
+    conn = _gdb()
+    material_cost = float(request.form.get('material_cost',0) or 0)
+    labor_cost = float(request.form.get('labor_cost',0) or 0)
+    conn.execute("""UPDATE interventions SET rapport=?, material_used=?, material_cost=?, 
+        labor_cost=?, total_cost=?, duration_hours=?, status='terminee', end_date=? WHERE id=?""",
+        (request.form.get('rapport',''), request.form.get('material_used',''),
+         material_cost, labor_cost, material_cost + labor_cost,
+         float(request.form.get('duration_hours',0) or 0),
+         datetime.now().strftime('%Y-%m-%d'), iid))
+    
+    # Auto-billing
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if inter and inter['is_billable'] and (material_cost + labor_cost) > 0:
+        auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
+            f"Intervention {inter['reference']} — {inter['client_name']}",
+            '411', '706', material_cost + labor_cost, inter['reference'])
+    
+    # Update linked task
+    if inter and inter['task_id']:
+        conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
+    
+    conn.commit(); conn.close()
+    flash("Rapport d'intervention enregistré", "success")
+    return redirect('/interventions/tech')
+
 
 # ======================== NOTIFICATIONS ========================
 
