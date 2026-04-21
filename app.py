@@ -163,6 +163,8 @@ from models import migrate_v41
 migrate_v41()
 from models import migrate_v42
 migrate_v42()
+from models import migrate_v43
+migrate_v43()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -187,6 +189,8 @@ from models import migrate_v41
 migrate_v41()
 from models import migrate_v42
 migrate_v42()
+from models import migrate_v43
+migrate_v43()
 from models import migrate_v27
 migrate_v27()
 from models import migrate_v28
@@ -219,6 +223,8 @@ from models import migrate_v41
 migrate_v41()
 from models import migrate_v42
 migrate_v42()
+from models import migrate_v43
+migrate_v43()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -243,6 +249,8 @@ from models import migrate_v41
 migrate_v41()
 from models import migrate_v42
 migrate_v42()
+from models import migrate_v43
+migrate_v43()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -4658,6 +4666,115 @@ def admin_client_user_add():
     except: flash("Ce nom d'utilisateur existe déjà","error")
     conn.close()
     return redirect('/admin/client-users')
+
+
+
+# ======================== MODULE INITIALIZATION ========================
+
+@app.route('/admin/modules')
+@permission_required('admin')
+def admin_modules():
+    conn = _gdb()
+    modules = [dict(r) for r in conn.execute("SELECT * FROM module_settings ORDER BY id").fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='admin_modules', modules=modules)
+
+@app.route('/admin/modules/toggle/<module>')
+@permission_required('admin')
+def admin_module_toggle(module):
+    conn = _gdb()
+    m = conn.execute("SELECT is_active FROM module_settings WHERE module=?", (module,)).fetchone()
+    if m:
+        new_val = 0 if m['is_active'] else 1
+        conn.execute("UPDATE module_settings SET is_active=? WHERE module=?", (new_val, module))
+        conn.commit()
+        flash(f"Module {'activé' if new_val else 'désactivé'}", "success")
+    conn.close()
+    return redirect('/admin/modules')
+
+# ======================== CLIENT SELF-REGISTRATION ========================
+
+@app.route('/portail/register', methods=['GET','POST'])
+def portail_register():
+    if request.method == 'POST':
+        import hashlib, secrets
+        username = request.form.get('username','').strip()
+        password = request.form.get('password','')
+        email = request.form.get('email','').strip()
+        full_name = request.form.get('full_name','').strip()
+        company = request.form.get('company','').strip()
+        tel = request.form.get('tel','').strip()
+        
+        if not username or not password or not company:
+            flash("Tous les champs obligatoires doivent être remplis", "error")
+            return redirect('/portail/register')
+        
+        conn = _gdb()
+        # Check username not taken
+        existing = conn.execute("SELECT id FROM client_users WHERE username=?", (username,)).fetchone()
+        if existing:
+            flash("Ce nom d'utilisateur est déjà pris", "error")
+            conn.close(); return redirect('/portail/register')
+        
+        # Create or find client
+        client = conn.execute("SELECT id FROM clients WHERE name=? OR email=?", (company, email)).fetchone()
+        if client:
+            client_id = client['id']
+        else:
+            conn.execute("INSERT INTO clients (name, tel, email, contact_name, address, notes, created_by) VALUES (?,?,?,?,?,?,0)",
+                (company, tel, email, full_name, '', 'Inscription portail'))
+            client_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        
+        # Create client_user
+        salt = secrets.token_hex(16)
+        ph = hashlib.sha256((password + salt).encode()).hexdigest()
+        try:
+            conn.execute("INSERT INTO client_users (client_id, username, password_hash, salt, full_name, email, tel) VALUES (?,?,?,?,?,?,?)",
+                (client_id, username, ph, salt, full_name, email, tel))
+            conn.commit()
+            # Auto-login
+            cu = conn.execute("SELECT * FROM client_users WHERE username=?", (username,)).fetchone()
+            session['client_user_id'] = cu['id']
+            session['client_id'] = client_id
+            session['client_name'] = full_name
+            session['client_new'] = True  # Flag for welcome guide
+            conn.close()
+            flash("Compte créé avec succès !", "success")
+            return redirect('/portail/dashboard')
+        except:
+            flash("Erreur lors de la création du compte", "error")
+            conn.close()
+            return redirect('/portail/register')
+    
+    return render_template('extra_pages.html', page='portail_register')
+
+# ======================== FICHE D'INTERVENTION ========================
+
+@app.route('/interventions/<int:iid>/fiche')
+@login_required
+def intervention_fiche(iid):
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter: flash("Intervention non trouvée","error"); conn.close(); return redirect('/interventions')
+    inter = dict(inter)
+    # Client info
+    if inter.get('client_id'):
+        client = conn.execute("SELECT * FROM clients WHERE id=?", (inter['client_id'],)).fetchone()
+        inter['client_info'] = dict(client) if client else {}
+    # Technician info
+    if inter.get('technician_id'):
+        tech = conn.execute("SELECT * FROM users WHERE id=?", (inter['technician_id'],)).fetchone()
+        inter['tech_info'] = dict(tech) if tech else {}
+    # Project info
+    if inter.get('project_id'):
+        proj = conn.execute("SELECT name FROM projects WHERE id=?", (inter['project_id'],)).fetchone()
+        inter['project_name'] = proj['name'] if proj else ''
+    # Equipment
+    equips = []
+    if inter.get('client_id'):
+        equips = [dict(r) for r in conn.execute("SELECT * FROM tech_center WHERE client_id=?", (inter['client_id'],)).fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='fiche_intervention', inter=inter, equips=equips, now_str=datetime.now().strftime('%d/%m/%Y %H:%M'))
 
 
 # ======================== MULTI-CAISSES ========================

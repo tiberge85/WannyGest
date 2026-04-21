@@ -2792,3 +2792,32 @@ def migrate_v42():
         try: conn.execute(f"ALTER TABLE {tbl} ADD COLUMN caisse_id INTEGER DEFAULT 0")
         except: pass
     conn.commit(); conn.close()
+
+def migrate_v43():
+    """Module settings + intervention fiches."""
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS module_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module TEXT UNIQUE NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            label TEXT, icon TEXT, description TEXT
+        );
+    ''')
+    # Default modules
+    modules = [
+        ('comptabilite','Comptabilité','💰','Gestion financière, factures, écritures SYSCOHADA'),
+        ('rh','Ressources Humaines','👥','Personnel, paie, congés, contrats'),
+        ('projets','Gestion de Projets','📁','Projets, tâches, planning, interventions'),
+        ('centre_technique','Centre Technique','🔧','Interventions, visites, équipements'),
+        ('crm','CRM / Commercial','🎯','Clients, prospects, devis, visites'),
+        ('concierge','Conciergerie','🔑','Visiteurs, courrier, colis, clés'),
+        ('tracking','Tracking GPS','📡','Véhicules, géolocalisation, alertes'),
+        ('stock','Stock & Achats','🛒','Inventaire, fournisseurs, commandes'),
+        ('it','Informatique','🖥️','Parc info, helpdesk, sécurité'),
+        ('portail_client','Portail Client','👤','Accès client, demandes, suivi'),
+    ]
+    for mod, label, icon, desc in modules:
+        try: conn.execute("INSERT INTO module_settings (module, label, icon, description) VALUES (?,?,?,?)", (mod, label, icon, desc))
+        except: pass
+    conn.commit(); conn.close()
