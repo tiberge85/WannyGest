@@ -616,9 +616,94 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 
 
 
+
+{% elif page == 'programme_jour' %}
+<div class="page-header"><h1>📋 Programme du {{ date }}</h1>
+<div style="display:flex;gap:6px;align-items:center">
+<form method="get" style="display:flex;gap:6px"><input type="date" name="date" value="{{ date }}" style="padding:5px;border:1px solid #ddd;border-radius:6px">
+<button type="submit" class="btn btn-outline btn-sm">Voir</button></form>
+<button class="btn btn-sm" style="background:#1a3a5c;color:#fff" onclick="window.print()">🖨️ Imprimer</button>
+</div></div>
+
+{% if interventions %}
+<div style="margin-bottom:10px;font-size:13px;color:#1A7A6D;font-weight:700">{{ interventions|length }} intervention(s) programmée(s)</div>
+
+{% for i in interventions %}
+<div class="card" style="margin-bottom:12px;border-left:4px solid {% if i.status=='terminee' %}#2e7d32{% elif i.status=='en_cours' %}#1A7A6D{% else %}#e8672a{% endif %}">
+<div class="card-body" style="padding:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+            <div style="font-size:15px;font-weight:700;color:#1a3a5c">{{ i.title }}</div>
+            <div style="font-size:12px;color:#888">{{ i.reference }} · {% if i.type=='depannage' %}🚨{% elif i.type=='installation' %}📦{% else %}🔧{% endif %} {{ i.type }} · {{ i.scheduled_time or '' }}</div>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap" class="no-print">
+            <a href="/interventions/{{ i.id }}/fiche" class="btn btn-outline btn-sm" style="font-size:9px" target="_blank">📄 Fiche</a>
+            {% if i.status=='planifiee' %}<a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px">▶ Démarrer</a>{% endif %}
+            {% if i.status=='en_cours' %}<a href="/interventions/{{ i.id }}/status/terminee" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px" onclick="return confirm('Terminer définitivement ?')">✅ Terminer</a>{% endif %}
+        </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:8px">
+        <div>🏢 <strong>{{ i.client_name or '-' }}</strong></div>
+        <div>🔧 <strong>{{ i.technician_name or '-' }}</strong></div>
+        {% if i.site_address %}<div style="grid-column:span 2">📍 {{ i.site_address }}</div>{% endif %}
+    </div>
+    <div style="padding:2px 8px;border-radius:8px;font-size:10px;display:inline-block;{% if i.status=='terminee' %}background:#e8f5e9;color:#2e7d32{% elif i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ i.status }}</div>
+    
+    {% if i.status == 'en_cours' %}
+    <!-- Rapport journalier -->
+    <div class="no-print" style="margin-top:10px;padding:10px;background:#f8faf9;border-radius:8px">
+        <div style="font-size:11px;font-weight:700;color:#1A7A6D;margin-bottom:6px">📝 Rapport du jour</div>
+        <form method="post" action="/interventions/{{ i.id }}/daily-report" style="display:flex;gap:6px;flex-wrap:wrap">
+            <input type="text" name="report" required placeholder="Avancement du jour..." style="flex:1;min-width:200px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:12px">
+            <select name="progress" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:11px">
+                <option value="10">10%</option><option value="25">25%</option><option value="50" selected>50%</option>
+                <option value="75">75%</option><option value="90">90%</option><option value="100">100%</option>
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm" style="font-size:10px">📝 Enregistrer</button>
+        </form>
+    </div>
+    {% endif %}
+    
+    <!-- Rapports journaliers précédents -->
+    {% if i.daily_reports %}
+    <div style="margin-top:8px">
+        <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:4px">Historique des rapports :</div>
+        {% for dr in i.daily_reports %}
+        <div style="padding:4px 8px;margin-bottom:2px;background:#f0f4f8;border-radius:4px;font-size:11px;display:flex;gap:8px">
+            <span style="color:#888;min-width:70px">{{ dr.date }}</span>
+            <span style="flex:1">{{ dr.report }}</span>
+            <span style="color:#1A7A6D;font-weight:600">{{ dr.progress }}%</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div></div>
+{% endfor %}
+
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
+    <div style="font-size:40px;margin-bottom:8px">📋</div>
+    Aucune intervention programmée pour le {{ date }}
+</div></div>
+{% endif %}
+
+
 {% elif page == 'admin_modules' %}
 <div class="page-header"><h1>⚙️ Modules actifs</h1>
 <p>Activez ou désactivez les modules de l'application</p></div>
+<div class="card" style="margin-bottom:14px;border-left:4px solid #c53030"><div class="card-header"><h3>🔄 Réinitialiser des modules</h3></div>
+<div class="card-body">
+<form method="post" action="/admin/modules/reset" onsubmit="return confirm('⚠️ ATTENTION : Toutes les données des modules sélectionnés seront SUPPRIMÉES définitivement. Continuer ?')">
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+{% for m in modules %}
+<label style="font-size:12px;display:flex;gap:4px;align-items:center;padding:4px 8px;background:#f8f8f8;border-radius:6px;cursor:pointer">
+<input type="checkbox" name="modules" value="{{ m.module }}"> {{ m.icon }} {{ m.label }}</label>
+{% endfor %}
+</div>
+<button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff">🔄 Réinitialiser les modules sélectionnés</button>
+<div style="font-size:10px;color:#c53030;margin-top:4px">⚠️ Cette action supprime toutes les données des modules cochés</div>
+</form></div></div>
+
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">
 {% for m in modules %}
 <div class="card" style="border-left:4px solid {% if m.is_active %}#1A7A6D{% else %}#ccc{% endif %}">
@@ -835,8 +920,8 @@ Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }}
 {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune opération pour {{ period }}</p>{% endif %}
 </div></div>
 
-{% for op_type, op_label, op_color in [('entree','Entrée','#2e7d32'),('sortie','Sortie','#c53030')] %}
-<div class="modal-bg" id="op{{ op_label }}"><div class="modal" style="max-width:420px"><h3>{{ '+' if op_type=='entree' else '-' }} {{ op_label }}</h3>
+{% for op_type, op_id, op_label, op_color in [('entree','Entree','Entrée','#2e7d32'),('sortie','Sortie','Sortie','#c53030')] %}
+<div class="modal-bg" id="op{{ op_id }}"><div class="modal" style="max-width:420px"><h3>{{ '+' if op_type=='entree' else '-' }} {{ op_label }}</h3>
 <form method="post" action="/comptabilite/caisses/{{ caisse.id }}/operation">
 <input type="hidden" name="type" value="{{ op_type }}">
 <div class="form-group"><label>Montant (F) *</label><input type="number" name="amount" required min="1" step="1"></div>

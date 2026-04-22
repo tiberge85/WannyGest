@@ -2821,3 +2821,19 @@ def migrate_v43():
         try: conn.execute("INSERT INTO module_settings (module, label, icon, description) VALUES (?,?,?,?)", (mod, label, icon, desc))
         except: pass
     conn.commit(); conn.close()
+
+def migrate_v44():
+    """Intervention daily reports."""
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS intervention_daily_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            intervention_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            report TEXT, progress INTEGER DEFAULT 0,
+            technician_id INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (intervention_id) REFERENCES interventions(id)
+        );
+    ''')
+    conn.commit(); conn.close()

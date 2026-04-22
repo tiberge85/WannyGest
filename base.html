@@ -314,15 +314,25 @@
             </div>
             {% endif %}
             
-            {% if 'informatique' in permissions or 'centre_technique' in permissions or 'admin' in permissions %}
+            {% if 'centre_technique' in permissions or 'admin' in permissions %}
             <!-- Centre Technique -->
-            <div class="nav-section" id="sec-info">
-                <div class="nav-section-title" onclick="toggleSection('sec-info')">🔧 CENTRE TECHNIQUE <span class="arrow">▼</span></div>
+            <div class="nav-section" id="sec-tech">
+                <div class="nav-section-title" onclick="toggleSection('sec-tech')">🔧 CENTRE TECHNIQUE <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/it" class="{% if page == 'it' %}active{% endif %}">📊 Dashboard</a>
                     <a href="/interventions/tech" class="{% if page == 'interventions_tech' %}active{% endif %}">🔧 Mes interventions</a>
+                    <a href="/interventions/programme" class="{% if page == 'programme_jour' %}active{% endif %}">📋 Programme du jour</a>
                     <a href="/visites" class="{% if page == 'visites' %}active{% endif %}">📋 Rapports de visite</a>
                     <a href="/centre-technique" class="{% if page == 'tech_center' %}active{% endif %}">🏗️ Équipements clients</a>
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if 'informatique' in permissions or 'admin' in permissions %}
+            <!-- IT -->
+            <div class="nav-section" id="sec-info">
+                <div class="nav-section-title" onclick="toggleSection('sec-info')">🖥️ IT <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    <a href="/it" class="{% if page == 'it' %}active{% endif %}">📊 Dashboard IT</a>
                     <a href="/it/parc" class="{% if page == 'it_parc' %}active{% endif %}">🖥️ Parc informatique</a>
                     <a href="/it/tickets" class="{% if page == 'it_tickets' %}active{% endif %}">🛠️ Helpdesk</a>
                 </div>

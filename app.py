@@ -165,6 +165,8 @@ from models import migrate_v42
 migrate_v42()
 from models import migrate_v43
 migrate_v43()
+from models import migrate_v44
+migrate_v44()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -191,6 +193,8 @@ from models import migrate_v42
 migrate_v42()
 from models import migrate_v43
 migrate_v43()
+from models import migrate_v44
+migrate_v44()
 from models import migrate_v27
 migrate_v27()
 from models import migrate_v28
@@ -225,6 +229,8 @@ from models import migrate_v42
 migrate_v42()
 from models import migrate_v43
 migrate_v43()
+from models import migrate_v44
+migrate_v44()
 from models import migrate_v31
 migrate_v31()
 from models import migrate_v32
@@ -251,6 +257,8 @@ from models import migrate_v42
 migrate_v42()
 from models import migrate_v43
 migrate_v43()
+from models import migrate_v44
+migrate_v44()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -4775,6 +4783,90 @@ def intervention_fiche(iid):
         equips = [dict(r) for r in conn.execute("SELECT * FROM tech_center WHERE client_id=?", (inter['client_id'],)).fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='fiche_intervention', inter=inter, equips=equips, now_str=datetime.now().strftime('%d/%m/%Y %H:%M'))
+
+
+
+# ======================== PROGRAMME DU JOUR ========================
+
+@app.route('/interventions/programme')
+@login_required
+def interventions_programme():
+    conn = _gdb()
+    today = datetime.now().strftime('%Y-%m-%d')
+    date = request.args.get('date', today)
+    user = get_user_by_id(session['user_id'])
+    is_admin = user and user['role'] in ('admin','dg','resp_projet')
+    
+    if is_admin:
+        interventions = [dict(r) for r in conn.execute(
+            "SELECT * FROM interventions WHERE scheduled_date=? ORDER BY scheduled_time, id", (date,)).fetchall()]
+    else:
+        interventions = [dict(r) for r in conn.execute(
+            "SELECT * FROM interventions WHERE scheduled_date=? AND (technician_id=? OR created_by=?) ORDER BY scheduled_time",
+            (date, session['user_id'], session['user_id'])).fetchall()]
+    
+    # Get daily reports for each intervention
+    for inter in interventions:
+        try:
+            inter['daily_reports'] = [dict(r) for r in conn.execute(
+                "SELECT * FROM intervention_daily_reports WHERE intervention_id=? ORDER BY date DESC", (inter['id'],)).fetchall()]
+        except: inter['daily_reports'] = []
+    
+    conn.close()
+    return render_template('extra_pages.html', page='programme_jour', interventions=interventions, 
+                          date=date, today=today, is_admin=is_admin)
+
+@app.route('/interventions/<int:iid>/daily-report', methods=['POST'])
+@login_required
+def intervention_daily_report(iid):
+    conn = _gdb()
+    conn.execute("INSERT INTO intervention_daily_reports (intervention_id, date, report, progress, technician_id) VALUES (?,?,?,?,?)",
+        (iid, datetime.now().strftime('%Y-%m-%d'), request.form.get('report',''),
+         int(request.form.get('progress',0) or 0), session['user_id']))
+    conn.commit(); conn.close()
+    flash("Rapport journalier enregistré", "success")
+    return redirect(request.referrer or '/interventions/tech')
+
+# ======================== MODULE RESET ========================
+
+@app.route('/admin/modules/reset', methods=['POST'])
+@permission_required('admin')
+def admin_modules_reset():
+    conn = _gdb()
+    modules_to_reset = request.form.getlist('modules')
+    
+    table_map = {
+        'comptabilite': ['invoices','pieces_caisse','caisse_entrees','caisse_sorties','ecritures_comptables',
+                         'bilans','bank_accounts','bank_transfers','caisses','caisse_operations','weekly_cash_reports'],
+        'rh': ['employees','payslips','leaves','absences','rh_contracts','rh_trainings','rh_announcements'],
+        'projets': ['projects','tasks','task_comments'],
+        'centre_technique': ['interventions','intervention_daily_reports','tech_center','visit_reports'],
+        'crm': ['clients','prospects','prospect_notes','prospect_tasks','prospect_offers','prospect_reminders',
+                'client_notes','client_attachments','client_reminders','devis','devis_templates'],
+        'concierge': ['concierge_visiteurs','concierge_courrier','concierge_colis','concierge_cles',
+                      'concierge_salles','concierge_reservations'],
+        'tracking': ['tracking_vehicles','tracking_history','tracking_alerts','tracking_geofences'],
+        'stock': ['stock_items','stock_categories','stock_movements','achats_fournisseurs',
+                  'achats_commandes','achats_demandes','achats_devis','achats_contrats'],
+        'it': ['it_equipment','it_tickets','it_logs'],
+        'portail_client': ['client_users','client_requests','client_messages'],
+    }
+    
+    count = 0
+    for mod in modules_to_reset:
+        tables = table_map.get(mod, [])
+        for tbl in tables:
+            try:
+                conn.execute(f"DELETE FROM {tbl}")
+                count += 1
+            except: pass
+    
+    conn.commit(); conn.close()
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Admin', 
+                f"Reset modules: {', '.join(modules_to_reset)} ({count} tables vidées)", request.remote_addr)
+    flash(f"Modules réinitialisés : {', '.join(modules_to_reset)} ({count} tables vidées)", "success")
+    return redirect('/admin/modules')
 
 
 # ======================== MULTI-CAISSES ========================
