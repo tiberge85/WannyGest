@@ -8,3 +8,4 @@ data/
 _chart_donut.png
 .env
 venv/
+.DS_Store
