@@ -618,85 +618,177 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 
 
 {% elif page == 'programme_jour' %}
-<div class="page-header"><h1>📋 Programme du {{ date }}</h1>
-<div style="display:flex;gap:6px;align-items:center">
-<form method="get" style="display:flex;gap:6px"><input type="date" name="date" value="{{ date }}" style="padding:5px;border:1px solid #ddd;border-radius:6px">
-<button type="submit" class="btn btn-outline btn-sm">Voir</button></form>
+<style>
+.fiche-wrapper { background:#fff; }
+.fiche-title { text-align:center; font-weight:700; font-size:14px; margin:18px 0 4px; color:#000 }
+.fiche-title .dot { color:#1A7A6D; }
+.fiche-table { width:100%; border-collapse:collapse; margin-bottom:10px; font-size:11px; }
+.fiche-table th { background:#e0e0e0; border:1px solid #666; padding:5px 6px; font-weight:700; font-size:10.5px; text-transform:uppercase; color:#222; text-align:center; }
+.fiche-table td { border:1px solid #666; padding:5px 6px; vertical-align:middle; }
+.fiche-table tr.row-entretien td { background:#c8e6c9; }
+.fiche-table tr.row-depan td { background:#ffffff; }
+.fiche-table tr.row-depan.highlight td { background:#c8e6c9; }
+.fiche-table tr.row-projet td { background:#e8f5e9; }
+.fiche-table td.checkbox-cell { text-align:center; }
+.fiche-table td.checkbox-cell input[type=checkbox] { transform:scale(1.2); }
+.fiche-empty td { color:#bbb; height:22px; }
+.code-cell { font-family:monospace; font-weight:700; color:#1a7a6d; text-align:center; white-space:nowrap }
+.zone-cell { font-weight:600; text-align:center; white-space:nowrap }
+.horaire-cell { white-space:nowrap; text-align:center; font-size:10.5px }
+@media print {
+    .no-print, .page-header, .sidebar, nav, header.topbar, .topbar, footer { display:none !important; }
+    .fiche-wrapper { margin:0; padding:5mm; }
+    body { background:#fff !important; }
+    /* Make sure green backgrounds print */
+    .fiche-table tr.row-entretien td { background:#c8e6c9 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .fiche-table tr.row-projet td { background:#e8f5e9 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .fiche-table tr.row-depan.highlight td { background:#c8e6c9 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .fiche-table th { background:#e0e0e0 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+}
+</style>
+
+<div class="page-header no-print"><h1>📋 Fiche journalière de planification — {{ date_display }}</h1>
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+<form method="get" style="display:flex;gap:6px">
+    <input type="date" name="date" value="{{ date }}" style="padding:5px;border:1px solid #ddd;border-radius:6px">
+    <button type="submit" class="btn btn-outline btn-sm">Voir</button>
+</form>
 <button class="btn btn-sm" style="background:#1a3a5c;color:#fff" onclick="window.print()">🖨️ Imprimer</button>
+<button class="btn btn-outline btn-sm" onclick="toggleDetail()">🔽 Afficher détails &amp; rapports</button>
 </div></div>
 
-{% if interventions %}
-<div style="margin-bottom:10px;font-size:13px;color:#1A7A6D;font-weight:700">{{ interventions|length }} intervention(s) programmée(s)</div>
+{% set tab_configs = [
+    ('entretien', 'FICHE DU JOUR ENTRETIEN', by_type.entretien, 'row-entretien', 5),
+    ('depannage', 'FICHE DU JOUR DEPANAGE', by_type.depannage, 'row-depan', 7),
+    ('projet_neuf', 'FICHE DE PROJET NEUF', by_type.projet_neuf, 'row-projet', 6)
+] %}
 
-{% for i in interventions %}
-<div class="card" style="margin-bottom:12px;border-left:4px solid {% if i.status=='terminee' %}#2e7d32{% elif i.status=='en_cours' %}#1A7A6D{% else %}#e8672a{% endif %}">
-<div class="card-body" style="padding:14px">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div>
-            <div style="font-size:15px;font-weight:700;color:#1a3a5c">{{ i.title }}</div>
-            <div style="font-size:12px;color:#888">{{ i.reference }} · {% if i.type=='depannage' %}🚨{% elif i.type=='installation' %}📦{% else %}🔧{% endif %} {{ i.type }} · {{ i.scheduled_time or '' }}</div>
-        </div>
-        <div style="display:flex;gap:4px;flex-wrap:wrap" class="no-print">
-            <a href="/interventions/{{ i.id }}/fiche" class="btn btn-outline btn-sm" style="font-size:9px" target="_blank">📄 Fiche</a>
-            {% if i.status=='planifiee' %}<a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px">▶ Démarrer</a>{% endif %}
-            {% if i.status=='travaux_termines' %}<a href="/interventions/{{ i.id }}/status/controle_qualite" class="btn btn-sm" style="background:#7b1fa2;color:#fff;font-size:9px">🔍 CQ</a>{% endif %}
-            {% if i.status=='controle_qualite' %}<a href="/interventions/{{ i.id }}/status/livre" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">📦 Livrer</a>{% endif %}
-        </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:8px">
-        <div>🏢 <strong>{{ i.client_name or '-' }}</strong></div>
-        <div>🔧 <strong>{{ i.technician_name or '-' }}</strong></div>
-        {% if i.site_address %}<div style="grid-column:span 2">📍 {{ i.site_address }}</div>{% endif %}
-    </div>
-    <div style="padding:2px 8px;border-radius:8px;font-size:10px;display:inline-block;{% if i.status=='terminee' %}background:#e8f5e9;color:#2e7d32{% elif i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ i.status }}</div>
-    
-    {% if i.status == 'en_cours' %}
-    <!-- Rapport journalier -->
-    <div class="no-print" style="margin-top:10px;padding:10px;background:#f8faf9;border-radius:8px">
-        <div style="font-size:11px;font-weight:700;color:#1A7A6D;margin-bottom:6px">📝 Rapport du jour</div>
-        <form method="post" action="/interventions/{{ i.id }}/daily-report" enctype="multipart/form-data">
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-                <input type="text" name="report" required placeholder="Avancement du jour..." style="flex:1;min-width:200px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:12px">
-                <select name="progress" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:11px">
-                    <option value="10">10%</option><option value="25">25%</option><option value="50" selected>50%</option>
-                    <option value="75">75%</option><option value="90">90%</option><option value="100">100%</option>
-                </select>
-            </div>
-            <div style="display:flex;gap:6px;align-items:center">
-                <label style="font-size:10px;color:#888;cursor:pointer;padding:4px 8px;border:1px dashed #ccc;border-radius:6px">📷 Ajouter photos <input type="file" name="photos" multiple accept="image/*" style="display:none" onchange="this.parentElement.textContent='📷 '+this.files.length+' photo(s)'"></label>
-                <button type="submit" class="btn btn-primary btn-sm" style="font-size:10px">📝 Enregistrer le rapport</button>
-            </div>
-        </form>
-    </div>
-    {% endif %}
-    
-    <!-- Rapports journaliers précédents -->
-    {% if i.daily_reports %}
-    <div style="margin-top:8px">
-        <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:4px">Historique des rapports :</div>
-        {% for dr in i.daily_reports %}
-        <div style="padding:6px 8px;margin-bottom:4px;background:#f0f4f8;border-radius:6px;font-size:11px">
-            <div style="display:flex;gap:8px;align-items:center">
-                <span style="color:#888;min-width:70px;font-weight:600">{{ dr.date }}</span>
-                <span style="flex:1">{{ dr.report }}</span>
-                <span style="padding:2px 6px;background:#e3f2fd;border-radius:8px;color:#1A7A6D;font-weight:700;font-size:10px">{{ dr.progress }}%</span>
-            </div>
-            {% if dr.images %}<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
-                {% for img in dr.images.split(',') %}{% if img %}<a href="/uploads/interventions/{{ img }}" target="_blank"><img src="/uploads/interventions/{{ img }}" style="width:60px;height:45px;object-fit:cover;border-radius:4px;border:1px solid #ddd"></a>{% endif %}{% endfor %}
-            </div>{% endif %}
-        </div>
+<div class="fiche-wrapper">
+{% for key, title, rows, rowclass, empty_count in tab_configs %}
+    <div class="fiche-title">{{ title }} : ({{ date_display }})</div>
+    <table class="fiche-table">
+        <thead>
+            <tr>
+                <th style="width:11%">ZONE</th>
+                <th style="width:11%">CODE CLIENT</th>
+                <th style="width:18%">CLIENTS</th>
+                <th>OBJETS</th>
+                <th style="width:13%">TENGO</th>
+                <th style="width:12%">HORAIRE &amp; DATE</th>
+                <th style="width:8%">RESULTAT</th>
+                <th style="width:13%">OBSERVATION</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for i in rows %}
+            <tr class="{{ rowclass }}{% if key == 'depannage' and loop.last %} highlight{% endif %}">
+                <td class="zone-cell">{{ i.zone or '-' }}</td>
+                <td class="code-cell">{{ i.client_code or '-' }}</td>
+                <td><strong>{{ i.client_name or '-' }}</strong></td>
+                <td>{{ i.title or i.objet or '-' }}{% if i.site_address and i.site_address != i.zone %}<br><span style="font-size:9.5px;color:#666">📍 {{ i.site_address }}</span>{% endif %}</td>
+                <td class="zone-cell">{{ i.technician_name or '-' }}</td>
+                <td class="horaire-cell">{{ i.scheduled_time or '—' }}<br><span style="font-size:9.5px;color:#666">{{ date_display }}</span></td>
+                <td class="checkbox-cell">
+                    {% if i.status in ('livre','termine','terminee') %}☑{% else %}☐{% endif %}
+                </td>
+                <td style="font-size:10px">{{ i.status or '' }}{% if i.daily_reports %}<br><span style="color:#1a7a6d;font-weight:700">{{ i.daily_reports[0].progress }}%</span>{% endif %}</td>
+            </tr>
         {% endfor %}
-    </div>
-    {% endif %}
-</div></div>
+        {# Empty rows for manual planning entries #}
+        {% for _ in range(empty_count) %}
+            <tr class="{{ rowclass }} fiche-empty">
+                <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+                <td>&nbsp;</td><td>&nbsp;</td><td class="checkbox-cell">☐</td><td>&nbsp;</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
 {% endfor %}
+</div>
 
-{% else %}
-<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
-    <div style="font-size:40px;margin-bottom:8px">📋</div>
-    Aucune intervention programmée pour le {{ date }}
-</div></div>
-{% endif %}
+<!-- Vue détaillée cachée par défaut -->
+<div id="detailView" class="no-print" style="display:none;margin-top:20px">
+    <h2 style="font-size:15px;color:#1a3a5c;margin:14px 0 10px">📝 Détails &amp; actions par intervention</h2>
+    
+    {% if interventions %}
+    {% for i in interventions %}
+    <div class="card" style="margin-bottom:12px;border-left:4px solid {% if i.status in ('livre','terminee','termine') %}#2e7d32{% elif i.status=='en_cours' %}#1A7A6D{% else %}#e8672a{% endif %}">
+    <div class="card-body" style="padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+                <div style="font-size:15px;font-weight:700;color:#1a3a5c">{{ i.title }}</div>
+                <div style="font-size:12px;color:#888">{{ i.reference or '' }} · {% if i.type=='depannage' %}🚨{% elif i.type=='installation' %}📦{% else %}🔧{% endif %} {{ i.type }} · {{ i.scheduled_time or '' }}</div>
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <a href="/interventions/{{ i.id }}/fiche" class="btn btn-outline btn-sm" style="font-size:9px" target="_blank">📄 Fiche</a>
+                {% if i.status=='planifiee' %}<a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px">▶ Démarrer</a>{% endif %}
+                {% if i.status=='travaux_termines' %}<a href="/interventions/{{ i.id }}/status/controle_qualite" class="btn btn-sm" style="background:#7b1fa2;color:#fff;font-size:9px">🔍 CQ</a>{% endif %}
+                {% if i.status=='controle_qualite' %}<a href="/interventions/{{ i.id }}/status/livre" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">📦 Livrer</a>{% endif %}
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:8px">
+            <div>🏢 <strong>{{ i.client_name or '-' }}</strong>{% if i.client_code %} <span style="font-family:monospace;color:#1a7a6d">[{{ i.client_code }}]</span>{% endif %}</div>
+            <div>🔧 <strong>{{ i.technician_name or '-' }}</strong></div>
+            {% if i.zone %}<div>📍 Zone : <strong>{{ i.zone }}</strong></div>{% endif %}
+            {% if i.site_address %}<div>🏠 {{ i.site_address }}</div>{% endif %}
+        </div>
+        <div style="padding:2px 8px;border-radius:8px;font-size:10px;display:inline-block;{% if i.status in ('livre','terminee') %}background:#e8f5e9;color:#2e7d32{% elif i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ i.status }}</div>
+        
+        {% if i.status == 'en_cours' %}
+        <div style="margin-top:10px;padding:10px;background:#f8faf9;border-radius:8px">
+            <div style="font-size:11px;font-weight:700;color:#1A7A6D;margin-bottom:6px">📝 Rapport du jour</div>
+            <form method="post" action="/interventions/{{ i.id }}/daily-report" enctype="multipart/form-data">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+                    <input type="text" name="report" required placeholder="Avancement du jour..." style="flex:1;min-width:200px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:12px">
+                    <select name="progress" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:11px">
+                        <option value="10">10%</option><option value="25">25%</option><option value="50" selected>50%</option>
+                        <option value="75">75%</option><option value="90">90%</option><option value="100">100%</option>
+                    </select>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <label style="font-size:10px;color:#888;cursor:pointer;padding:4px 8px;border:1px dashed #ccc;border-radius:6px">📷 Ajouter photos <input type="file" name="photos" multiple accept="image/*" style="display:none" onchange="this.parentElement.textContent='📷 '+this.files.length+' photo(s)'"></label>
+                    <button type="submit" class="btn btn-primary btn-sm" style="font-size:10px">📝 Enregistrer le rapport</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+        
+        {% if i.daily_reports %}
+        <div style="margin-top:8px">
+            <div style="font-size:10px;font-weight:700;color:#888;margin-bottom:4px">Historique des rapports :</div>
+            {% for dr in i.daily_reports %}
+            <div style="padding:6px 8px;margin-bottom:4px;background:#f0f4f8;border-radius:6px;font-size:11px">
+                <div style="display:flex;gap:8px;align-items:center">
+                    <span style="color:#888;min-width:70px;font-weight:600">{{ dr.date }}</span>
+                    <span style="flex:1">{{ dr.report }}</span>
+                    <span style="padding:2px 6px;background:#e3f2fd;border-radius:8px;color:#1A7A6D;font-weight:700;font-size:10px">{{ dr.progress }}%</span>
+                </div>
+                {% if dr.images %}<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+                    {% for img in dr.images.split(',') %}{% if img %}<a href="/uploads/interventions/{{ img }}" target="_blank"><img src="/uploads/interventions/{{ img }}" style="width:60px;height:45px;object-fit:cover;border-radius:4px;border:1px solid #ddd"></a>{% endif %}{% endfor %}
+                </div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div></div>
+    {% endfor %}
+    {% else %}
+    <div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
+        <div style="font-size:40px;margin-bottom:8px">📋</div>
+        Aucune intervention programmée pour le {{ date_display }}
+    </div></div>
+    {% endif %}
+</div>
+
+<script>
+function toggleDetail() {
+    var d = document.getElementById('detailView');
+    var btn = event.target;
+    if (d.style.display === 'none') { d.style.display = ''; btn.textContent = '🔼 Masquer détails'; }
+    else { d.style.display = 'none'; btn.textContent = '🔽 Afficher détails & rapports'; }
+}
+</script>
+
 
 
 {% elif page == 'admin_modules' %}
@@ -1000,9 +1092,39 @@ Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }}
 </div>
 <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
     <a href="/portail/demande" class="btn btn-primary">📩 Nouvelle demande</a>
+    <a href="/portail/planning" class="btn" style="background:#1A7A6D;color:#fff">📅 Mon planning {% if data.planning_count %}<span style="background:#fff;color:#1A7A6D;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px">{{ data.planning_count }}</span>{% endif %}</a>
     <a href="/portail/interventions" class="btn btn-outline">🔧 Interventions</a>
     <a href="/portail/factures" class="btn btn-outline">🧾 Factures</a>
 </div>
+
+<!-- Planning : prochaines interventions planifiées -->
+{% if data.planning %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid #e8672a">
+<div class="card-header"><h3>📅 Vos prochains rendez-vous</h3>
+    <a href="/portail/planning" style="font-size:11px;color:#1A7A6D;text-decoration:none">Voir tout →</a>
+</div>
+<div class="card-body" style="padding:0">
+{% for i in data.planning %}
+<div style="padding:10px 14px;border-bottom:1px solid #f0f0f0;display:flex;gap:10px;align-items:center">
+    <div style="min-width:60px;text-align:center;padding:6px;background:{% if i.status=='en_cours' %}#1A7A6D{% elif i.status=='travaux_termines' %}#1565c0{% elif i.status=='controle_qualite' %}#7b1fa2{% else %}#e8672a{% endif %};color:#fff;border-radius:8px;font-size:10px;font-weight:700;line-height:1.2">
+        {% if i.scheduled_date %}{{ i.scheduled_date[8:10] }}<br>{% set months = ['','JAN','FEV','MAR','AVR','MAI','JUN','JUL','AOU','SEP','OCT','NOV','DEC'] %}{{ months[i.scheduled_date[5:7]|int] }}{% else %}—{% endif %}
+    </div>
+    <div style="flex:1">
+        <div style="font-size:13px;font-weight:700">{{ i.title }}</div>
+        <div style="font-size:11px;color:#888">
+            {% if i.scheduled_time %}🕐 {{ i.scheduled_time }} · {% endif %}
+            {% if i.type=='depannage' %}🚨{% elif i.type=='installation' %}📦{% else %}🔧{% endif %} {{ i.type }}
+            {% if i.technician_name %} · 👨‍🔧 {{ i.technician_name }}{% endif %}
+        </div>
+        {% if i.site_address %}<div style="font-size:10px;color:#aaa">📍 {{ i.site_address }}</div>{% endif %}
+    </div>
+    <span style="padding:3px 8px;border-radius:8px;font-size:10px;font-weight:700;white-space:nowrap;{% if i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% elif i.status=='travaux_termines' %}background:#e3f2fd;color:#1565c0{% elif i.status=='controle_qualite' %}background:#f3e5f5;color:#7b1fa2{% else %}background:#fff3e0;color:#e8672a{% endif %}">
+        {% if i.status=='en_cours' %}⚡ En cours{% elif i.status=='travaux_termines' %}🏗️ Terminé{% elif i.status=='controle_qualite' %}🔍 CQ{% else %}📅 Planifié{% endif %}
+    </span>
+</div>
+{% endfor %}
+</div></div>
+{% endif %}
 <!-- Systèmes installés -->
 {% if data.equipments %}
 <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>🏗️ Mes systèmes installés</h3></div>
@@ -1092,6 +1214,84 @@ Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }}
 </div></div>
 {% endfor %}
 {% if not interventions %}<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">Aucune intervention</div></div>{% endif %}
+
+{% elif page == 'portail_planning' %}
+<div style="background:#1A7A6D;color:#fff;padding:12px 20px;margin:-20px -20px 20px;border-radius:0 0 12px 12px">
+    <a href="/portail/dashboard" style="color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px">← Retour</a>
+    <h2 style="margin:4px 0 0;font-size:16px">📅 Mon planning</h2>
+</div>
+
+<!-- Résumé -->
+<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="card" style="flex:1;min-width:150px;text-align:center;padding:14px;border-left:4px solid #e8672a">
+        <div style="font-size:24px;font-weight:800;color:#e8672a">{{ upcoming|length }}</div>
+        <div style="font-size:11px;color:#888">À venir</div>
+    </div>
+    <div class="card" style="flex:1;min-width:150px;text-align:center;padding:14px;border-left:4px solid #1A7A6D">
+        <div style="font-size:24px;font-weight:800;color:#1A7A6D">{{ past|length }}</div>
+        <div style="font-size:11px;color:#888">Récentes</div>
+    </div>
+</div>
+
+<!-- Timeline À venir -->
+<h3 style="color:#1a3a5c;margin:14px 0 10px;font-size:15px">📆 À venir</h3>
+{% if upcoming %}
+{% for date, items in by_date.items() %}
+<div class="card" style="margin-bottom:12px">
+    <div class="card-header" style="background:#f0f4f8;padding:8px 14px">
+        <h3 style="margin:0;font-size:13px;color:#1A7A6D">
+            📅 {{ date }}{% if date == today %} <span style="background:#e8672a;color:#fff;padding:1px 8px;border-radius:10px;font-size:10px;margin-left:6px">AUJOURD'HUI</span>{% endif %}
+        </h3>
+    </div>
+    <div class="card-body" style="padding:0">
+    {% for i in items %}
+    <div style="padding:12px 14px;border-bottom:1px solid #f0f0f0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+            <div style="flex:1">
+                <div style="font-size:14px;font-weight:700;color:#1a3a5c">{{ i.title }}</div>
+                <div style="font-size:11px;color:#888;margin-top:2px">
+                    {% if i.scheduled_time %}🕐 <strong>{{ i.scheduled_time }}</strong> · {% endif %}
+                    {% if i.type=='depannage' %}🚨 Dépannage{% elif i.type=='installation' %}📦 Installation{% elif i.type=='entretien' %}🔧 Entretien{% else %}{{ i.type }}{% endif %}
+                </div>
+                {% if i.technician_name %}<div style="font-size:11px;color:#555;margin-top:4px">👨‍🔧 Technicien : <strong>{{ i.technician_name }}</strong></div>{% endif %}
+                {% if i.site_address %}<div style="font-size:11px;color:#555">📍 {{ i.site_address }}</div>{% endif %}
+                {% if i.description %}<div style="font-size:11px;color:#666;margin-top:4px;padding:6px 8px;background:#f8faf9;border-radius:6px">{{ i.description[:140] }}</div>{% endif %}
+            </div>
+            <span style="padding:3px 10px;border-radius:8px;font-size:10px;font-weight:700;white-space:nowrap;{% if i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% elif i.status=='travaux_termines' %}background:#e3f2fd;color:#1565c0{% elif i.status=='controle_qualite' %}background:#f3e5f5;color:#7b1fa2{% elif i.status=='livre' %}background:#e8f5e9;color:#2e7d32{% else %}background:#fff3e0;color:#e8672a{% endif %}">
+                {% if i.status=='en_cours' %}⚡ En cours{% elif i.status=='travaux_termines' %}🏗️ Travaux terminés{% elif i.status=='controle_qualite' %}🔍 Contrôle qualité{% elif i.status=='livre' %}✅ Livré{% else %}📅 Planifié{% endif %}
+            </span>
+        </div>
+    </div>
+    {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
+    <div style="font-size:40px;margin-bottom:8px">📅</div>
+    Aucun rendez-vous planifié à venir
+    <div style="margin-top:10px"><a href="/portail/demande" class="btn btn-primary btn-sm">📩 Faire une nouvelle demande</a></div>
+</div></div>
+{% endif %}
+
+<!-- Passé récent -->
+{% if past %}
+<h3 style="color:#1a3a5c;margin:18px 0 10px;font-size:15px">📜 Historique récent</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% for i in past %}
+<div style="padding:10px 14px;border-bottom:1px solid #f0f0f0;display:flex;gap:10px;align-items:center;opacity:0.75">
+    <div style="min-width:70px;font-size:11px;color:#888">{{ i.scheduled_date or '—' }}</div>
+    <div style="flex:1">
+        <div style="font-size:12px;font-weight:700">{{ i.title }}</div>
+        <div style="font-size:10px;color:#888">{{ i.type }}{% if i.technician_name %} · {{ i.technician_name }}{% endif %}</div>
+    </div>
+    <span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;{% if i.status=='livre' %}background:#e8f5e9;color:#2e7d32{% else %}background:#f0f0f0;color:#555{% endif %}">
+        {% if i.status=='livre' %}✅ Livré{% else %}{{ i.status }}{% endif %}
+    </span>
+</div>
+{% endfor %}
+</div></div>
+{% endif %}
 
 {% elif page == 'portail_factures' %}
 <div style="background:#1A7A6D;color:#fff;padding:12px 20px;margin:-20px -20px 20px;border-radius:0 0 12px 12px">
@@ -1404,43 +1604,75 @@ Total créances : <span style="color:#e8672a">{{ '{:,.0f}'.format(total) }} FCFA
 </div></div>
 
 {% elif page == 'ecritures' %}
-<div class="page-header"><h1>📝 Journal comptable</h1>
-<div style="display:flex;gap:6px;align-items:center">
+<div class="page-header"><h1>📝 Journal comptable <span style="font-size:11px;color:#888;font-weight:400;margin-left:8px">partie double SYSCOHADA</span></h1>
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
 <form method="get" style="display:flex;gap:6px"><input type="month" name="period" value="{{ period }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
 <button type="submit" class="btn btn-outline btn-sm">Filtrer</button></form>
-<button class="btn btn-primary btn-sm" onclick="document.getElementById('addEcrM').classList.add('active')">+ Écriture</button>
+<a href="/comptabilite/grand-livre" class="btn btn-outline btn-sm">📒 Grand Livre</a>
+<a href="/comptabilite/balance" class="btn btn-outline btn-sm">⚖️ Balance</a>
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('addEcrM').classList.add('active')">+ Écriture manuelle</button>
 </div></div>
+
+<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="card" style="flex:1;min-width:200px;text-align:center;padding:14px;border-left:4px solid #c53030">
+        <div style="font-size:11px;color:#888">Total Débit</div>
+        <div style="font-size:22px;font-weight:800;color:#c53030">{{ '{:,.0f}'.format(total_debit) }} F</div>
+    </div>
+    <div class="card" style="flex:1;min-width:200px;text-align:center;padding:14px;border-left:4px solid #2e7d32">
+        <div style="font-size:11px;color:#888">Total Crédit</div>
+        <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ '{:,.0f}'.format(total_credit) }} F</div>
+    </div>
+    <div class="card" style="flex:1;min-width:200px;text-align:center;padding:14px;border-left:4px solid {% if total_debit == total_credit %}#1A7A6D{% else %}#e8672a{% endif %}">
+        <div style="font-size:11px;color:#888">Équilibre</div>
+        <div style="font-size:18px;font-weight:800;color:{% if total_debit == total_credit %}#1A7A6D{% else %}#e8672a{% endif %}">
+            {% if total_debit == total_credit %}✅ ÉQUILIBRÉ{% else %}⚠️ {{ '{:,.0f}'.format((total_debit - total_credit)|abs) }} F d'écart{% endif %}
+        </div>
+    </div>
+    <div class="card" style="flex:1;min-width:150px;text-align:center;padding:14px">
+        <div style="font-size:11px;color:#888">Écritures</div>
+        <div style="font-size:22px;font-weight:800;color:#1a3a5c">{{ ecritures|length }}</div>
+    </div>
+</div>
 
 <div class="card"><div class="card-body" style="padding:0">
 {% if ecritures %}
-<div class="table-wrap"><table id="ecrituresTable">
-<thead><tr>
-<th>Date</th><th>Compte</th><th>Libellé</th><th>Réf</th>
-<th>Journal</th><th style="text-align:right">Montant</th>
+<div class="table-wrap"><table>
+<thead><tr style="background:#1a3a5c;color:#fff">
+<th>Date</th>
+<th>N° Pièce</th>
+<th>Libellé</th>
+<th>Compte débit</th>
+<th style="text-align:right;background:#8b1a1a">DÉBIT</th>
+<th>Compte crédit</th>
+<th style="text-align:right;background:#1b5e20">CRÉDIT</th>
 </tr></thead>
 <tbody>{% for e in ecritures %}<tr>
-<td style="font-size:11px">{{ e.date }}</td>
-<td><strong>{{ e.compte_debit }} → {{ e.compte_credit }}</strong></td>
-<td>{{ e.libelle }}</td>
-<td style="font-size:11px;color:#888">{{ e.piece or e.reference or '-' }}</td>
-<td style="text-align:right;font-weight:700;color:#1a3a5c">{{ '{:,.0f}'.format(e.montant) if e.montant else '' }}</td>
-<td style="text-align:right;"></td>
-</tr>{% endfor %}</tbody></table></div>
-<div style="padding:10px;background:#f0f4f8;display:flex;justify-content:space-between;font-size:13px;font-weight:700">
-<span>Total : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total_debit) }} F</span></span>
-<span>{{ ecritures|length }} écriture(s)</span>
-</div>
+<td style="font-size:11px;white-space:nowrap">{{ e.date }}</td>
+<td style="font-size:10px;color:#888;white-space:nowrap"><strong>{{ e.journal or 'OD' }}</strong> · {{ e.piece or '-' }}</td>
+<td style="font-size:12px">{{ e.libelle }}</td>
+<td style="font-size:11px;white-space:nowrap"><strong style="color:#c53030">{{ e.compte_debit or '-' }}</strong>{% if e.debit_label %}<br><span style="font-size:9.5px;color:#888">{{ e.debit_label }}</span>{% endif %}</td>
+<td style="text-align:right;font-weight:700;color:#c53030;white-space:nowrap">{{ '{:,.0f}'.format(e.montant or 0) }}</td>
+<td style="font-size:11px;white-space:nowrap"><strong style="color:#2e7d32">{{ e.compte_credit or '-' }}</strong>{% if e.credit_label %}<br><span style="font-size:9.5px;color:#888">{{ e.credit_label }}</span>{% endif %}</td>
+<td style="text-align:right;font-weight:700;color:#2e7d32;white-space:nowrap">{{ '{:,.0f}'.format(e.montant or 0) }}</td>
+</tr>{% endfor %}</tbody>
+<tfoot><tr style="background:#f0f4f8;font-weight:700">
+<td colspan="4" style="text-align:right">TOTAL</td>
+<td style="text-align:right;color:#c53030">{{ '{:,.0f}'.format(total_debit) }} F</td>
+<td></td>
+<td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(total_credit) }} F</td>
+</tr></tfoot>
+</table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune écriture pour {{ period }}</p>{% endif %}
 </div></div>
 
 <!-- Add écriture modal -->
-<div class="modal-bg" id="addEcrM"><div class="modal" style="max-width:500px"><h3>📝 Nouvelle écriture comptable</h3>
+<div class="modal-bg" id="addEcrM"><div class="modal" style="max-width:550px"><h3>📝 Nouvelle écriture manuelle</h3>
 <form method="post" action="/comptabilite/ecritures/add">
 <div class="form-row">
     <div class="form-group"><label>Date</label><input type="date" name="date" required value="{{ period }}-01"></div>
-    <div class="form-group"><label>Référence</label><input type="text" name="reference" placeholder="FAC-001..."></div>
+    <div class="form-group"><label>N° Pièce</label><input type="text" name="reference" placeholder="FAC-001, DEP-002..."></div>
 </div>
-<div class="form-group"><label>Libellé</label><input type="text" name="libelle" required placeholder="Paiement facture..."></div>
+<div class="form-group"><label>Libellé</label><input type="text" name="libelle" required placeholder="Paiement facture, achat fournitures..."></div>
 <div class="form-row">
     <div class="form-group"><label>Compte débit</label><select name="compte_debit">
         {% for p in plan %}<option value="{{ p.numero }}">{{ p.numero }} — {{ p.libelle }}</option>{% endfor %}
@@ -1450,11 +1682,144 @@ Total créances : <span style="color:#e8672a">{{ '{:,.0f}'.format(total) }} FCFA
     </select></div>
 </div>
 <div class="form-group"><label>Montant (F)</label><input type="number" name="montant" required step="1" min="0"></div>
+<div style="font-size:11px;color:#888;margin-bottom:10px;padding:8px;background:#f8faf9;border-radius:6px">
+    💡 <strong>Partie double :</strong> le même montant sera inscrit au débit du compte choisi et au crédit de l'autre, respectant l'équilibre comptable SYSCOHADA.
+</div>
 <div style="display:flex;gap:8px;justify-content:flex-end">
     <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
     <button type="submit" class="btn btn-primary">📝 Enregistrer</button>
 </div>
 </form></div></div>
+
+
+{% elif page == 'grand_livre' %}
+<div class="page-header"><h1>📒 Grand Livre {{ year }}</h1>
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+<form method="get" style="display:flex;gap:6px">
+    <select name="year" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        {% for y in [year, year|int - 1, year|int - 2] %}<option value="{{ y }}" {% if y|string == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+    <input type="text" name="account" value="{{ account_filter or '' }}" placeholder="Filtrer compte (ex: 411)" style="padding:6px;border:1.5px solid #ddd;border-radius:6px;width:160px">
+    <button type="submit" class="btn btn-outline btn-sm">Appliquer</button>
+</form>
+<a href="/comptabilite/ecritures" class="btn btn-outline btn-sm">📝 Journal</a>
+<a href="/comptabilite/balance" class="btn btn-outline btn-sm">⚖️ Balance</a>
+<button class="btn btn-sm" style="background:#1a3a5c;color:#fff" onclick="window.print()">🖨️ Imprimer</button>
+</div></div>
+
+{% if grand_livre %}
+{% for gl in grand_livre %}
+<div class="card" style="margin-bottom:16px">
+    <div class="card-header" style="background:#f0f4f8;padding:10px 14px;border-bottom:2px solid #1A7A6D">
+        <h3 style="margin:0;font-size:14px">
+            <span style="font-family:monospace;background:#1A7A6D;color:#fff;padding:3px 8px;border-radius:6px">{{ gl.compte }}</span>
+            <span style="margin-left:8px">{{ gl.libelle }}</span>
+            <span style="float:right;font-size:12px;font-weight:700;color:{% if gl.solde_final > 0 %}#c53030{% elif gl.solde_final < 0 %}#2e7d32{% else %}#888{% endif %}">
+                Solde : {{ '{:,.0f}'.format(gl.solde_final|abs) }} F {% if gl.solde_final > 0 %}DÉBITEUR{% elif gl.solde_final < 0 %}CRÉDITEUR{% else %}NUL{% endif %}
+            </span>
+        </h3>
+    </div>
+    <div class="card-body" style="padding:0">
+        <table style="width:100%;font-size:11px">
+            <thead><tr style="background:#fafafa">
+                <th style="padding:6px;text-align:left">Date</th>
+                <th style="padding:6px;text-align:left">N° Pièce</th>
+                <th style="padding:6px;text-align:left">Libellé</th>
+                <th style="padding:6px;text-align:left">Contrepartie</th>
+                <th style="padding:6px;text-align:right;background:#ffebee;color:#c53030">Débit</th>
+                <th style="padding:6px;text-align:right;background:#e8f5e9;color:#2e7d32">Crédit</th>
+                <th style="padding:6px;text-align:right">Solde</th>
+            </tr></thead>
+            <tbody>
+            {% for m in gl.mouvements %}
+            <tr style="border-top:1px solid #eee">
+                <td style="padding:5px 6px;white-space:nowrap">{{ m.date }}</td>
+                <td style="padding:5px 6px;white-space:nowrap;color:#888">{{ m.piece or '-' }}</td>
+                <td style="padding:5px 6px">{{ m.libelle }}</td>
+                <td style="padding:5px 6px;font-family:monospace;font-size:10px">{% if m.sens == 'debit' %}↔ {{ m.compte_credit }}{% else %}↔ {{ m.compte_debit }}{% endif %}</td>
+                <td style="padding:5px 6px;text-align:right;color:#c53030;font-weight:600">{% if m.debit_m %}{{ '{:,.0f}'.format(m.debit_m) }}{% endif %}</td>
+                <td style="padding:5px 6px;text-align:right;color:#2e7d32;font-weight:600">{% if m.credit_m %}{{ '{:,.0f}'.format(m.credit_m) }}{% endif %}</td>
+                <td style="padding:5px 6px;text-align:right;font-weight:700;color:{% if m.solde_progressif > 0 %}#c53030{% elif m.solde_progressif < 0 %}#2e7d32{% else %}#888{% endif %}">{{ '{:,.0f}'.format(m.solde_progressif) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+            <tfoot><tr style="background:#f0f4f8;font-weight:700;border-top:2px solid #1A7A6D">
+                <td colspan="4" style="padding:6px;text-align:right">Totaux</td>
+                <td style="padding:6px;text-align:right;color:#c53030">{{ '{:,.0f}'.format(gl.total_debit) }}</td>
+                <td style="padding:6px;text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(gl.total_credit) }}</td>
+                <td style="padding:6px;text-align:right">{{ '{:,.0f}'.format(gl.solde_final) }}</td>
+            </tr></tfoot>
+        </table>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
+    <div style="font-size:40px;margin-bottom:8px">📒</div>
+    Aucune écriture pour {{ year }}{% if account_filter %} sur le compte {{ account_filter }}{% endif %}
+</div></div>
+{% endif %}
+
+
+{% elif page == 'balance' %}
+<div class="page-header"><h1>⚖️ Balance comptable {{ year }}</h1>
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+<form method="get" style="display:flex;gap:6px">
+    <select name="year" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        {% for y in [year, year|int - 1, year|int - 2] %}<option value="{{ y }}" {% if y|string == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn btn-outline btn-sm">Appliquer</button>
+</form>
+<a href="/comptabilite/ecritures" class="btn btn-outline btn-sm">📝 Journal</a>
+<a href="/comptabilite/grand-livre" class="btn btn-outline btn-sm">📒 Grand Livre</a>
+<button class="btn btn-sm" style="background:#1a3a5c;color:#fff" onclick="window.print()">🖨️ Imprimer</button>
+</div></div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if balance %}
+<div class="table-wrap"><table>
+<thead><tr style="background:#1a3a5c;color:#fff">
+    <th>Compte</th>
+    <th>Libellé</th>
+    <th>Classe</th>
+    <th style="text-align:right;background:#8b1a1a">Mouvements Débit</th>
+    <th style="text-align:right;background:#1b5e20">Mouvements Crédit</th>
+    <th style="text-align:right">Solde débiteur</th>
+    <th style="text-align:right">Solde créditeur</th>
+</tr></thead>
+<tbody>
+{% for b in balance %}
+<tr>
+    <td style="font-family:monospace;font-weight:700;color:#1a7a6d">{{ b.compte }}</td>
+    <td>{{ b.libelle }}</td>
+    <td style="font-size:10px;color:#888">{{ b.classe or b.categorie }}</td>
+    <td style="text-align:right;color:#c53030;font-weight:600">{{ '{:,.0f}'.format(b.debit) }}</td>
+    <td style="text-align:right;color:#2e7d32;font-weight:600">{{ '{:,.0f}'.format(b.credit) }}</td>
+    <td style="text-align:right;color:#c53030;font-weight:700">{% if b.solde_debit %}{{ '{:,.0f}'.format(b.solde_debit) }}{% endif %}</td>
+    <td style="text-align:right;color:#2e7d32;font-weight:700">{% if b.solde_credit %}{{ '{:,.0f}'.format(b.solde_credit) }}{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+<tfoot><tr style="background:#f0f4f8;font-weight:700;font-size:13px;border-top:3px solid #1A7A6D">
+    <td colspan="3" style="text-align:right">TOTAUX</td>
+    <td style="text-align:right;color:#c53030">{{ '{:,.0f}'.format(total_debit) }} F</td>
+    <td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(total_credit) }} F</td>
+    <td style="text-align:right;color:#c53030">{{ '{:,.0f}'.format(total_sd) }} F</td>
+    <td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(total_sc) }} F</td>
+</tr>
+<tr style="background:#fff3e0">
+    <td colspan="7" style="text-align:center;padding:10px;font-weight:700;color:{% if total_debit == total_credit and total_sd == total_sc %}#2e7d32{% else %}#c53030{% endif %}">
+        {% if total_debit == total_credit and total_sd == total_sc %}
+        ✅ Balance équilibrée — comptabilité conforme SYSCOHADA
+        {% else %}
+        ⚠️ Balance non équilibrée : écart mouvements = {{ '{:,.0f}'.format((total_debit - total_credit)|abs) }} F / écart soldes = {{ '{:,.0f}'.format((total_sd - total_sc)|abs) }} F
+        {% endif %}
+    </td>
+</tr>
+</tfoot>
+</table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune écriture pour {{ year }}</p>{% endif %}
+</div></div>
 
 {% elif page == 'rh_calendrier' %}
 <div class="page-header"><h1>📅 Calendrier</h1>

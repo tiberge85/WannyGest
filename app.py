@@ -2260,23 +2260,143 @@ def compta_ecritures():
     ecritures = [dict(r) for r in conn.execute(
         "SELECT * FROM ecritures_comptables WHERE strftime('%Y-%m',date)=? ORDER BY date DESC, id DESC", (period,)).fetchall()]
     plan = [dict(r) for r in conn.execute("SELECT * FROM plan_comptable ORDER BY numero").fetchall()]
+    # Build a quick lookup: numero -> libellé
+    plan_map = {p['numero']: p['libelle'] for p in plan}
+    for e in ecritures:
+        e['debit_label'] = plan_map.get(e.get('compte_debit',''), '')
+        e['credit_label'] = plan_map.get(e.get('compte_credit',''), '')
     total_debit = sum(e.get('montant',0) or 0 for e in ecritures)
+    # Même montant en débit et crédit (partie double)
+    total_credit = total_debit
     conn.close()
     return render_template('extra_pages.html', page='ecritures', ecritures=ecritures, plan=plan, period=period,
-                          total_debit=total_debit, total_credit=0)
+                          total_debit=total_debit, total_credit=total_credit)
+
+
+@app.route('/comptabilite/grand-livre')
+@permission_required('comptabilite')
+def compta_grand_livre():
+    """Grand Livre : écritures groupées par compte avec solde progressif."""
+    conn = _gdb()
+    year = request.args.get('year', datetime.now().strftime('%Y'))
+    account_filter = request.args.get('account', '').strip()
+    plan = [dict(r) for r in conn.execute("SELECT * FROM plan_comptable ORDER BY numero").fetchall()]
+    plan_map = {p['numero']: p['libelle'] for p in plan}
+    
+    # Récupère tous les comptes utilisés dans les écritures de l'année
+    used_accounts = set()
+    rows = conn.execute("""SELECT DISTINCT compte_debit, compte_credit FROM ecritures_comptables
+        WHERE strftime('%Y',date)=?""", (year,)).fetchall()
+    for r in rows:
+        if r['compte_debit']: used_accounts.add(r['compte_debit'])
+        if r['compte_credit']: used_accounts.add(r['compte_credit'])
+    
+    # Filter if requested
+    if account_filter:
+        accounts = [a for a in used_accounts if a == account_filter or a.startswith(account_filter)]
+    else:
+        accounts = sorted(used_accounts)
+    
+    grand_livre = []
+    for acc in accounts:
+        # Tous les mouvements débit sur ce compte
+        movs_debit = [dict(r) for r in conn.execute(
+            "SELECT *, 'debit' as sens FROM ecritures_comptables WHERE compte_debit=? AND strftime('%Y',date)=? ORDER BY date, id",
+            (acc, year)).fetchall()]
+        movs_credit = [dict(r) for r in conn.execute(
+            "SELECT *, 'credit' as sens FROM ecritures_comptables WHERE compte_credit=? AND strftime('%Y',date)=? ORDER BY date, id",
+            (acc, year)).fetchall()]
+        all_movs = sorted(movs_debit + movs_credit, key=lambda m: (m['date'], m['id']))
+        
+        # Calcul du solde progressif
+        solde = 0.0
+        for m in all_movs:
+            montant = m.get('montant', 0) or 0
+            if m['sens'] == 'debit':
+                solde += montant
+                m['debit_m'] = montant; m['credit_m'] = 0
+            else:
+                solde -= montant
+                m['debit_m'] = 0; m['credit_m'] = montant
+            m['solde_progressif'] = solde
+        
+        total_d = sum(m['debit_m'] for m in all_movs)
+        total_c = sum(m['credit_m'] for m in all_movs)
+        grand_livre.append({
+            'compte': acc, 'libelle': plan_map.get(acc, '(non défini)'),
+            'mouvements': all_movs,
+            'total_debit': total_d, 'total_credit': total_c,
+            'solde_final': total_d - total_c,
+        })
+    
+    conn.close()
+    return render_template('extra_pages.html', page='grand_livre', grand_livre=grand_livre,
+                           plan=plan, year=year, account_filter=account_filter)
+
+
+@app.route('/comptabilite/balance')
+@permission_required('comptabilite')
+def compta_balance():
+    """Balance comptable : synthèse de tous les comptes avec totaux débit/crédit et solde."""
+    conn = _gdb()
+    year = request.args.get('year', datetime.now().strftime('%Y'))
+    plan = [dict(r) for r in conn.execute("SELECT * FROM plan_comptable ORDER BY numero").fetchall()]
+    plan_map = {p['numero']: p for p in plan}
+    
+    # Accumuler débit et crédit par compte
+    balance_map = {}  # compte -> {debit, credit, libelle, classe}
+    rows = conn.execute("""SELECT compte_debit, compte_credit, montant FROM ecritures_comptables
+        WHERE strftime('%Y',date)=?""", (year,)).fetchall()
+    for r in rows:
+        amt = r['montant'] or 0
+        if r['compte_debit']:
+            balance_map.setdefault(r['compte_debit'], {'debit':0,'credit':0})
+            balance_map[r['compte_debit']]['debit'] += amt
+        if r['compte_credit']:
+            balance_map.setdefault(r['compte_credit'], {'debit':0,'credit':0})
+            balance_map[r['compte_credit']]['credit'] += amt
+    
+    balance_list = []
+    for compte, totals in sorted(balance_map.items()):
+        p = plan_map.get(compte, {})
+        solde = totals['debit'] - totals['credit']
+        balance_list.append({
+            'compte': compte,
+            'libelle': p.get('libelle', '(non défini)') if p else '(non défini)',
+            'classe': p.get('classe', '') if p else '',
+            'categorie': p.get('categorie', '') if p else '',
+            'debit': totals['debit'],
+            'credit': totals['credit'],
+            'solde_debit': solde if solde > 0 else 0,
+            'solde_credit': -solde if solde < 0 else 0,
+        })
+    
+    total_debit = sum(b['debit'] for b in balance_list)
+    total_credit = sum(b['credit'] for b in balance_list)
+    total_sd = sum(b['solde_debit'] for b in balance_list)
+    total_sc = sum(b['solde_credit'] for b in balance_list)
+    
+    conn.close()
+    return render_template('extra_pages.html', page='balance', balance=balance_list,
+                           year=year,
+                           total_debit=total_debit, total_credit=total_credit,
+                           total_sd=total_sd, total_sc=total_sc)
 
 @app.route('/comptabilite/status/<int:inv_id>/<status>')
 @permission_required('comptabilite')
 def comptabilite_status(inv_id, status):
     if status in ('envoyee', 'en_attente_paiement', 'payee', 'a_envoyer'):
-        # Auto-generate écriture comptable
+        # Auto-generate écriture comptable on payment
         if status == 'payee':
             try:
+                conn = _gdb()
                 inv2 = conn.execute("SELECT * FROM invoices WHERE id=?", (inv_id,)).fetchone()
                 if inv2:
                     auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
-                        f"Paiement facture {inv2['reference']}", '521', '411', inv2['amount'] or 0, inv2['reference'])
-            except: pass
+                        f"Paiement facture {inv2['reference']}", '521', '411',
+                        inv2['amount'] or inv2['total_ttc'] or 0, inv2['reference'])
+                conn.commit(); conn.close()
+            except Exception: pass
         update_invoice_status(inv_id, status, session.get('user_id'))
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?',
@@ -2289,18 +2409,33 @@ def comptabilite_status(inv_id, status):
 def invoice_new():
     if request.method == 'POST':
         ref = f"FAC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        amount = float(request.form.get('amount',0) or 0)
+        total_ht = float(request.form.get('total_ht',0) or 0)
+        tva = float(request.form.get('tva',0) or 0)
+        total_ttc = float(request.form.get('total_ttc',0) or 0)
+        # Fallback: if totals are empty, use amount as the TTC
+        if not total_ttc and amount: total_ttc = amount
+        if not total_ht and total_ttc: total_ht = total_ttc - tva
         conn = _gdb()
         conn.execute("""INSERT INTO invoices (reference, client_name, client_id, amount, objet, 
             description, due_date, payment_method, status, total_ht, tva, total_ttc, notes)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ref, request.form.get('client_name',''), int(request.form.get('client_id',0) or 0) or None,
-             float(request.form.get('amount',0) or 0), request.form.get('objet',''),
+             amount or total_ttc, request.form.get('objet',''),
              request.form.get('description',''), request.form.get('due_date',''),
              request.form.get('payment_method',''), 'a_envoyer',
-             float(request.form.get('total_ht',0) or 0), float(request.form.get('tva',0) or 0),
-             float(request.form.get('total_ttc',0) or 0), request.form.get('notes','')))
+             total_ht, tva, total_ttc, request.form.get('notes','')))
+        # Écriture auto : 411 (clients) DÉBIT / 701 (ventes) CRÉDIT HT — 443 (TVA) CRÉDIT si TVA
+        today = datetime.now().strftime('%Y-%m-%d')
+        try:
+            if total_ht > 0:
+                auto_ecriture(conn, today, f"Facture {ref} — {request.form.get('client_name','')[:30]}",
+                              '411', '701', total_ht, ref)
+            if tva > 0:
+                auto_ecriture(conn, today, f"TVA collectée sur {ref}", '411', '443', tva, ref)
+        except: pass
         conn.commit(); conn.close()
-        flash(f"Facture {ref} créée", "success")
+        flash(f"Facture {ref} créée — écriture auto : 411 → 701 ({total_ht:,.0f} F HT)", "success")
         return redirect(url_for('comptabilite_page'))
     clients = get_all_clients()
     return render_template('invoice_new.html', page='comptabilite', clients=clients)
@@ -4595,12 +4730,20 @@ def portail_required(f):
 def portail_dashboard():
     conn = _gdb()
     cid = session['client_id']
+    today = datetime.now().strftime('%Y-%m-%d')
     data = {}
     data['requests'] = [dict(r) for r in conn.execute("SELECT * FROM client_requests WHERE client_id=? ORDER BY created_at DESC LIMIT 10", (cid,)).fetchall()]
     data['interventions'] = [dict(r) for r in conn.execute("SELECT * FROM interventions WHERE client_id=? ORDER BY scheduled_date DESC LIMIT 10", (cid,)).fetchall()]
     data['invoices'] = [dict(r) for r in conn.execute("SELECT * FROM invoices WHERE client_id=? ORDER BY created_at DESC LIMIT 10", (cid,)).fetchall()]
     data['pending'] = len([r for r in data['requests'] if r['status'] in ('soumise','en_cours')])
     data['total_interventions'] = len(data['interventions'])
+    # === Planning : interventions à venir (planifiées, en cours) ===
+    try:
+        data['planning'] = [dict(r) for r in conn.execute(
+            "SELECT * FROM interventions WHERE client_id=? AND scheduled_date >= ? AND status IN ('planifiee','en_cours','travaux_termines','controle_qualite') ORDER BY scheduled_date, scheduled_time LIMIT 10",
+            (cid, today)).fetchall()]
+    except: data['planning'] = []
+    data['planning_count'] = len(data['planning'])
     # Equipment / systems installed
     try:
         data['equipments'] = [dict(r) for r in conn.execute(
@@ -4611,9 +4754,34 @@ def portail_dashboard():
         data['client'] = dict(conn.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone())
     except: data['client'] = {}
     conn.close()
-    today_s = datetime.now().strftime('%Y-%m-%d')
     tmrw_s = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-    return render_template('extra_pages.html', page='portail_dashboard', data=data, today_str=today_s, tomorrow_str=tmrw_s)
+    return render_template('extra_pages.html', page='portail_dashboard', data=data, today_str=today, tomorrow_str=tmrw_s)
+
+
+@app.route('/portail/planning')
+@portail_required
+def portail_planning():
+    """Page dédiée à la planification côté client : calendrier et liste des RDV à venir."""
+    conn = _gdb()
+    cid = session['client_id']
+    today = datetime.now().strftime('%Y-%m-%d')
+    # Interventions à venir (non terminées/livrées)
+    upcoming = [dict(r) for r in conn.execute(
+        "SELECT * FROM interventions WHERE client_id=? AND scheduled_date >= ? ORDER BY scheduled_date, scheduled_time",
+        (cid, today)).fetchall()]
+    # Interventions passées (10 dernières)
+    past = [dict(r) for r in conn.execute(
+        "SELECT * FROM interventions WHERE client_id=? AND scheduled_date < ? ORDER BY scheduled_date DESC LIMIT 10",
+        (cid, today)).fetchall()]
+    # Regrouper par date pour affichage chronologique
+    from collections import OrderedDict
+    by_date = OrderedDict()
+    for i in upcoming:
+        d = i.get('scheduled_date') or 'Non planifié'
+        by_date.setdefault(d, []).append(i)
+    conn.close()
+    return render_template('extra_pages.html', page='portail_planning',
+                           upcoming=upcoming, past=past, by_date=by_date, today=today)
 
 @app.route('/portail/demande', methods=['GET','POST'])
 @portail_required
@@ -4873,16 +5041,47 @@ def interventions_programme():
             "SELECT * FROM interventions WHERE scheduled_date=? AND (technician_id=? OR created_by=?) ORDER BY scheduled_time",
             (date, session['user_id'], session['user_id'])).fetchall()]
     
-    # Get daily reports for each intervention
+    # Enrich each intervention with client info (zone = city or site_address, code = client_code)
     for inter in interventions:
         try:
             inter['daily_reports'] = [dict(r) for r in conn.execute(
                 "SELECT * FROM intervention_daily_reports WHERE intervention_id=? ORDER BY date DESC", (inter['id'],)).fetchall()]
         except: inter['daily_reports'] = []
+        # Pull client code + zone from clients table
+        inter['client_code'] = ''
+        inter['zone'] = ''
+        if inter.get('client_id'):
+            try:
+                c = conn.execute("SELECT client_code, city, address FROM clients WHERE id=?", (inter['client_id'],)).fetchone()
+                if c:
+                    inter['client_code'] = c['client_code'] or ''
+                    inter['zone'] = c['city'] or c['address'] or ''
+            except: pass
+        # Fallback: use site_address as zone if no client city
+        if not inter.get('zone') and inter.get('site_address'):
+            inter['zone'] = inter['site_address']
+    
+    # Group by type for the 3 tables (entretien / depannage / installation = projet neuf)
+    by_type = {'entretien': [], 'depannage': [], 'projet_neuf': []}
+    for inter in interventions:
+        t = (inter.get('type') or '').lower().strip()
+        if t in ('entretien','maintenance'):
+            by_type['entretien'].append(inter)
+        elif t in ('depannage','depanage','panne','dépannage'):
+            by_type['depannage'].append(inter)
+        else:
+            # installation, projet, autre => projet neuf
+            by_type['projet_neuf'].append(inter)
+    
+    # Format date for display (DD/MM/YYYY)
+    try:
+        y,m,d = date.split('-')
+        date_display = f"{d}/{m}/{y}"
+    except: date_display = date
     
     conn.close()
-    return render_template('extra_pages.html', page='programme_jour', interventions=interventions, 
-                          date=date, today=today, is_admin=is_admin)
+    return render_template('extra_pages.html', page='programme_jour', interventions=interventions,
+                          by_type=by_type, date=date, date_display=date_display, today=today, is_admin=is_admin)
 
 @app.route('/interventions/<int:iid>/daily-report', methods=['POST'])
 @login_required
@@ -7300,15 +7499,49 @@ def pieces_caisse_add():
             file_path = fname
     
     amount = float(request.form.get('amount', 0) or 0)
+    category = request.form.get('category', 'divers')
+    supplier = request.form.get('supplier', '')
+    description = request.form.get('description', '')
+    date_op = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
     _dbi('pieces_caisse', reference=ref,
-        date=request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
-        description=request.form.get('description', ''),
-        amount=amount, category=request.form.get('category', 'divers'),
-        supplier=request.form.get('supplier', ''),
+        date=date_op,
+        description=description,
+        amount=amount, category=category,
+        supplier=supplier,
         file_path=file_path, created_by=session['user_id'])
+    
+    # ==== AUTO-ÉCRITURE COMPTABLE (SYSCOHADA partie double) ====
+    # Mapping catégorie → compte de charge SYSCOHADA
+    cat_to_account = {
+        'achat':'601', 'achats':'601',
+        'fournisseur':'401', 'fournisseurs':'401',
+        'transport':'611', 'carburant':'611',
+        'services':'624', 'entretien':'624', 'maintenance':'624',
+        'loyer':'622',
+        'fourniture':'605', 'fournitures':'605',
+        'electricite':'606', 'eau':'606', 'telephone':'626', 'internet':'626',
+        'publicite':'627', 'marketing':'627',
+        'impots':'641', 'taxes':'641',
+        'personnel':'661', 'salaire':'661', 'salaires':'661',
+        'banque':'627', 'frais_bancaire':'627',
+        'divers':'658', 'autre':'658', 'autres':'658',
+    }
+    debit_account = cat_to_account.get(category.lower().replace(' ','_'), '658')
+    # Si un fournisseur est renseigné, on crédite 401 (dette fournisseur) sinon 571 (caisse directe)
+    credit_account = '401' if supplier else '571'
+    try:
+        conn2 = _gdb()
+        auto_ecriture(conn2, date_op,
+            f"Dépense {ref} — {description[:40]}" + (f" ({supplier})" if supplier else ""),
+            debit_account, credit_account, amount, ref)
+        conn2.commit(); conn2.close()
+    except Exception as e:
+        pass
+    
     user = get_user_by_id(session['user_id'])
-    log_activity(session['user_id'], user['full_name'] if user else '?', 'Caisse', f"Pièce {ref} — {amount:,.0f} F", request.remote_addr)
-    flash(f"Pièce {ref} — {amount:,.0f} F enregistrée", "success")
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Caisse',
+                 f"Pièce {ref} — {amount:,.0f} F (compte {debit_account})", request.remote_addr)
+    flash(f"Pièce {ref} — {amount:,.0f} F enregistrée (écriture auto : {debit_account} → {credit_account})", "success")
     return redirect('/comptabilite/pieces')
 
 @app.route('/comptabilite/pieces/edit/<int:pid>', methods=['GET','POST'])
