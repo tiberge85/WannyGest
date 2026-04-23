@@ -16,7 +16,7 @@
 =============================================================================
 """
 
-import sys, os, re, math
+import sys, os, re, math, json
 import openpyxl
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -2068,106 +2068,197 @@ def fmt(amount):
 
 
 def generate_devis_pdf(devis_data, output_path, logo_path=None):
-    """Génère un PDF de devis/proforma au format RAMYA."""
+    """Génère un PDF de devis/proforma/facture au format RAMYA exact (cf. modèle)."""
+    
+    # ==== COULEURS exactes du modèle ====
+    RAMYA_ORANGE = HexColor('#F29F2F')    # Header table + barre résumé
+    RAMYA_GREEN = HexColor('#2FA85B')     # Barre Total TTC
+    RAMYA_TEAL = HexColor('#1a7a6d')      # Texte RAMYA titre + footer
+    ROW_BG = HexColor('#f8f8f8')          # fond alterné de ligne
+    HEADER_GRAY = HexColor('#4B4B4B')     # texte DEVIS/PROFORMA/FACTURE
+    
+    def _draw_corners(canv, doc_):
+        """Dessine les motifs triangulaires décoratifs aux coins — exact modèle."""
+        w, h = A4
+        canv.saveState()
+        # Motifs triangulaires en haut (gris translucide, coins hauts gauche + droit)
+        canv.setFillColor(HexColor('#e0e0e0'))
+        canv.setStrokeColor(HexColor('#cccccc'))
+        # haut gauche — 3 petits triangles
+        for i, (x, y, sz) in enumerate([(8*mm, h-12*mm, 4*mm), (16*mm, h-15*mm, 3*mm), (25*mm, h-10*mm, 3.5*mm)]):
+            p = canv.beginPath(); p.moveTo(x,y); p.lineTo(x+sz,y); p.lineTo(x+sz/2, y-sz); p.close()
+            canv.drawPath(p, fill=1, stroke=0)
+        # haut droit — 3 triangles
+        for i, (x, y, sz) in enumerate([(w-12*mm, h-10*mm, 4*mm), (w-24*mm, h-15*mm, 3.5*mm), (w-35*mm, h-11*mm, 3*mm)]):
+            p = canv.beginPath(); p.moveTo(x,y); p.lineTo(x-sz,y); p.lineTo(x-sz/2, y-sz); p.close()
+            canv.drawPath(p, fill=1, stroke=0)
+        # Motif triangulaire orange en bas à droite (signature visuelle)
+        canv.setFillColor(RAMYA_ORANGE)
+        # 3 triangles orange décroissants bas-droit
+        bx, by = w-8*mm, 8*mm
+        for k in range(3):
+            sz = 8*mm - k*2*mm
+            p = canv.beginPath()
+            p.moveTo(bx-k*6*mm, by)
+            p.lineTo(bx-k*6*mm - sz, by)
+            p.lineTo(bx-k*6*mm - sz/2, by + sz)
+            p.close()
+            canv.drawPath(p, fill=1, stroke=0)
+        # Ligne pointillée séparatrice au-dessus du footer
+        canv.setStrokeColor(HexColor('#bbbbbb'))
+        canv.setDash(2, 2)
+        canv.line(15*mm, 22*mm, w-15*mm, 22*mm)
+        canv.setDash()
+        canv.restoreState()
     
     doc = SimpleDocTemplate(output_path, pagesize=A4,
-        leftMargin=15*mm, rightMargin=15*mm, topMargin=10*mm, bottomMargin=12*mm)
+        leftMargin=15*mm, rightMargin=15*mm, topMargin=8*mm, bottomMargin=28*mm)
     
     story = []
     
     # Styles
-    s_title = ParagraphStyle('title', fontSize=20, fontName='Helvetica-Bold', 
-                              alignment=TA_RIGHT, textColor=TEAL)
-    s_ref = ParagraphStyle('ref', fontSize=10, alignment=TA_RIGHT, textColor=HexColor('#555'))
+    s_title = ParagraphStyle('title', fontSize=26, fontName='Helvetica-Bold',
+                              alignment=TA_RIGHT, textColor=HEADER_GRAY, leading=28)
+    s_ref_small = ParagraphStyle('ref_small', fontSize=9, alignment=TA_RIGHT,
+                                  textColor=HexColor('#333'), leading=12)
     s_normal = ParagraphStyle('normal', fontSize=10, leading=13)
     s_bold = ParagraphStyle('bold', fontSize=10, fontName='Helvetica-Bold')
     s_small = ParagraphStyle('small', fontSize=8, textColor=HexColor('#888'))
     s_center = ParagraphStyle('center', fontSize=9, alignment=TA_CENTER)
     s_right = ParagraphStyle('right', fontSize=10, alignment=TA_RIGHT)
-    s_footer = ParagraphStyle('footer', fontSize=6, alignment=TA_CENTER, textColor=TEAL)
     
-    doc_type = devis_data.get('doc_type', 'devis').upper()
+    # Document type
+    raw_type = (devis_data.get('doc_type') or 'devis').lower()
+    if raw_type in ('facture','invoice'):
+        doc_type = 'FACTURE'; prefix = 'FAC'
+    elif raw_type == 'proforma':
+        doc_type = 'PROFORMA'; prefix = 'PRO'
+    else:
+        doc_type = 'DEVIS'; prefix = 'DEV'
+    
     ref = devis_data.get('reference', '')
-    date_str = devis_data.get('date', datetime.now().strftime('%d-%m-%Y'))
-    contact = devis_data.get('contact_commercial', '')
+    # Date: preserve format if given else format from created_at
+    date_str = devis_data.get('date') or devis_data.get('created_at','')[:10]
+    if date_str and '-' in date_str and len(date_str) >= 10:
+        # Convert YYYY-MM-DD to DD-MM-YYYY
+        try:
+            y,m,d = date_str[:10].split('-'); date_str = f"{d}-{m}-{y}"
+        except: pass
+    
+    contact = devis_data.get('contact_commercial', '') or devis_data.get('commercial','')
     client_name = devis_data.get('client_name', '')
     client_code = devis_data.get('client_code', '')
     objet = devis_data.get('objet', '')
-    items = json.loads(devis_data.get('items_json', '[]')) if isinstance(devis_data.get('items_json'), str) else devis_data.get('items_json', [])
+    items = devis_data.get('items_json') or devis_data.get('items') or '[]'
+    if isinstance(items, str):
+        try: items = json.loads(items)
+        except: items = []
     
-    total_ht = devis_data.get('total_ht', 0)
-    petites_fourn = devis_data.get('petites_fournitures', 0)
-    total_ttc = devis_data.get('total_ttc', 0)
-    main_oeuvre = devis_data.get('main_oeuvre', 0)
-    remise = devis_data.get('remise', 0)
+    total_ht = float(devis_data.get('total_ht', 0) or 0)
+    petites_fourn = float(devis_data.get('petites_fournitures', 0) or 0)
+    total_ttc = float(devis_data.get('total_ttc', 0) or 0)
+    main_oeuvre = float(devis_data.get('main_oeuvre', 0) or 0)
+    remise = float(devis_data.get('remise', 0) or 0)
     
-    # === HEADER ===
-    s_svc = ParagraphStyle('services', fontSize=7, textColor=ORANGE, leading=13, alignment=TA_RIGHT)
-    
-    logo_el = Paragraph("<b>RAMYA<br/>TECHNOLOGIE &amp; INNOVATION</b>", 
-                ParagraphStyle('co', fontSize=12, fontName='Helvetica-Bold', textColor=TEAL))
+    # =========================================================
+    # HEADER : Logo + nom société + liste services (comme modèle)
+    # =========================================================
+    logo_el = Paragraph("", ParagraphStyle('empty', fontSize=1))
     if logo_path and os.path.exists(logo_path):
         try:
-            logo_el = RLImage(logo_path, width=25*mm, height=25*mm)
+            logo_el = RLImage(logo_path, width=22*mm, height=22*mm)
         except: pass
     
-    header_data = [
-        [logo_el,
-         Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/><font size='7' color='#888'>Abidjan, Côte d'Ivoire · RCCM: CI-ABJ-03-2017_A10-25092</font>", 
-                    ParagraphStyle('co', fontSize=9, fontName='Helvetica-Bold', textColor=TEAL, leading=14)),
-         Paragraph("""<font color='#1a7a6d'>■</font> <i>Caméras de surveillance,</i><br/>
-<font color='#1a7a6d'>■</font> <i>Clôture électrique,</i><br/>
-<font color='#1a7a6d'>■</font> <i>Kit visiophone alarme anti-intrusion,</i><br/>
-<font color='#1a7a6d'>■</font> <i>Domotique, Poignées intelligentes</i>""", s_svc)]
-    ]
-    ht = Table(header_data, colWidths=[30*mm, 75*mm, 75*mm])
-    ht.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
+    company_name = Paragraph(
+        "<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+        ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold',
+                       textColor=RAMYA_TEAL, leading=14, alignment=TA_CENTER)
+    )
+    
+    services_html = (
+        '<font color="#F29F2F"><b>■</b></font> <b>Caméras de surveillance,</b><br/>'
+        '<font color="#F29F2F"><b>■</b></font> <b>Clôture électrique,</b><br/>'
+        '<font color="#F29F2F"><b>■</b></font> <b>Kit visiophone alarme anti-intrusion,</b><br/>'
+        '<font color="#F29F2F"><b>■</b></font> <b>Domotique, Poignées intelligentes</b>'
+    )
+    services = Paragraph(services_html, ParagraphStyle('svc', fontSize=9, leading=13,
+                          textColor=HexColor('#333'), alignment=TA_LEFT))
+    
+    header_data = [[logo_el, company_name, services]]
+    ht = Table(header_data, colWidths=[28*mm, 60*mm, 92*mm])
+    ht.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+    ]))
     story.append(ht)
-    story.append(Spacer(1, 8*mm))
-    
-    # === DEVIS / PROFORMA title + info right-aligned ===
-    devis_info = [
-        [Paragraph(f"<b>{doc_type}</b>", s_title),
-         Paragraph(f"<b>{doc_type}#</b> {ref}<br/>Date: {date_str}" + 
-                   (f"<br/>Contact commercial: {contact}" if contact else ""),
-                   ParagraphStyle('dinfo', fontSize=10, alignment=TA_RIGHT, leading=14))]
-    ]
-    dt = Table(devis_info, colWidths=[90*mm, 90*mm])
-    dt.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'MIDDLE')]))
-    story.append(dt)
-    story.append(Spacer(1, 8*mm))
-    
-    # === CLIENT ===
-    story.append(Paragraph("<b>À</b>", s_normal))
-    story.append(Paragraph(f"<b>{client_name}</b>", ParagraphStyle('cl', fontSize=12, fontName='Helvetica-Bold')))
-    if client_code:
-        story.append(Spacer(1, 3*mm))
-        story.append(Paragraph(f"Code client: {client_code}", s_normal))
-    story.append(Spacer(1, 4*mm))
-    
-    # === OBJET ===
-    if objet:
-        story.append(Paragraph(f"<b>Objet : {objet}</b>", s_bold))
     story.append(Spacer(1, 6*mm))
     
-    # === TABLE DES ARTICLES ===
-    hdrs = ['#', 'Désignation', 'Qté.', 'Prix unitaire', 'Remise', 'Montant HT']
-    table_data = [[Paragraph(h, ParagraphStyle('th', fontSize=9, fontName='Helvetica-Bold', textColor=white)) for h in hdrs]]
+    # =========================================================
+    # TITRE DEVIS + référence à droite
+    # =========================================================
+    right_info = Paragraph(
+        f"<font size='26' color='#4B4B4B'><b>{doc_type}</b></font><br/>"
+        f"<font size='9'># {ref}</font><br/>"
+        f"<font size='9'>Date: {date_str}</font>"
+        + (f"<br/><font size='9'>Contact commercial: {contact}</font>" if contact else ""),
+        ParagraphStyle('right_info', alignment=TA_RIGHT, leading=16)
+    )
+    title_data = [['', right_info]]
+    tt = Table(title_data, colWidths=[90*mm, 90*mm])
+    tt.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),
+                             ('LEFTPADDING',(0,0),(-1,-1),0),
+                             ('RIGHTPADDING',(0,0),(-1,-1),0)]))
+    story.append(tt)
+    story.append(Spacer(1, 4*mm))
     
-    for item in items:
+    # =========================================================
+    # CLIENT (À gauche)
+    # =========================================================
+    story.append(Paragraph("<b>À</b>", ParagraphStyle('a', fontSize=10, fontName='Helvetica-Bold')))
+    story.append(Paragraph(f"<b>{client_name}</b>",
+        ParagraphStyle('cl', fontSize=11, fontName='Helvetica-Bold')))
+    story.append(Spacer(1, 3*mm))
+    if client_code:
+        story.append(Paragraph(f"Code client: {client_code}",
+            ParagraphStyle('cc', fontSize=10, textColor=HexColor('#333'))))
+    story.append(Spacer(1, 3*mm))
+    
+    if objet:
+        story.append(Paragraph(f"<b>Objet :</b> {objet}",
+            ParagraphStyle('obj', fontSize=10, fontName='Helvetica-Bold')))
+    story.append(Spacer(1, 4*mm))
+    
+    # =========================================================
+    # TABLEAU DES ARTICLES — header ORANGE
+    # =========================================================
+    hdrs = ['#', 'Désignation', 'Qté.', 'Prix unitaire', 'Remise', 'Montant HT']
+    th_style = ParagraphStyle('th', fontSize=9, fontName='Helvetica-Bold', textColor=white, alignment=TA_LEFT)
+    th_style_c = ParagraphStyle('thc', fontSize=9, fontName='Helvetica-Bold', textColor=white, alignment=TA_CENTER)
+    th_style_r = ParagraphStyle('thr', fontSize=9, fontName='Helvetica-Bold', textColor=white, alignment=TA_RIGHT)
+    
+    table_data = [[
+        Paragraph('#', th_style_c),
+        Paragraph('Désignation', th_style),
+        Paragraph('Qté.', th_style_c),
+        Paragraph('Prix unitaire', th_style_r),
+        Paragraph('Remise', th_style_r),
+        Paragraph('Montant HT', th_style_r),
+    ]]
+    
+    for idx, item in enumerate(items, 1):
         desc = str(item.get('designation', ''))
         detail = str(item.get('detail', ''))
         full_desc = f"<b>{desc}</b>"
-        if detail:
-            full_desc += f"<br/>{detail}"
+        if detail: full_desc += f"<br/>{detail}"
         
-        qty = item.get('qty', 1)
-        prix = item.get('prix', 0)
-        rem = item.get('remise', 0)
+        qty = int(item.get('qty', 1) or 1)
+        prix = float(item.get('prix', 0) or 0)
+        rem = float(item.get('remise', 0) or 0)
         montant = qty * prix - rem
         
         table_data.append([
-            Paragraph(str(item.get('num', '')), s_center),
+            Paragraph(str(item.get('num', idx)), s_center),
             Paragraph(full_desc, ParagraphStyle('desc', fontSize=9, leading=12)),
             Paragraph(str(qty), s_center),
             Paragraph(fmt(prix), s_right),
@@ -2175,98 +2266,157 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
             Paragraph(fmt(montant), s_right),
         ])
     
-    col_widths = [12*mm, 68*mm, 14*mm, 28*mm, 20*mm, 28*mm]
-    t = Table(table_data, colWidths=col_widths)
+    col_widths = [10*mm, 82*mm, 14*mm, 26*mm, 20*mm, 28*mm]
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), TEAL),
+        ('BACKGROUND', (0, 0), (-1, 0), RAMYA_ORANGE),
         ('TEXTCOLOR', (0, 0), (-1, 0), white),
         ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#cccccc')),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, HexColor('#f8f8f8')]),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, RAMYA_ORANGE),
+        ('LINEABOVE', (0, 1), (-1, -1), 0.25, HexColor('#eeeeee')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, 0), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+        ('TOPPADDING', (0, 1), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, ROW_BG]),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
     ]))
     story.append(t)
-    story.append(Spacer(1, 6*mm))
+    story.append(Spacer(1, 3*mm))
     
-    # === TOTAUX ===
-    total_pieces = total_ht - main_oeuvre
-    total_brut = total_ht
-    total_net = total_brut - remise
-    
-    totals = [
-        ['', '', '', '', Paragraph("<b>Total HT</b>", s_right), Paragraph(f"<b>{fmt(total_ht)}XOF</b>", s_right)],
-        ['', '', '', '', Paragraph("petites fournitures", s_right), Paragraph(f"{fmt(petites_fourn)}XOF", s_right)],
+    # =========================================================
+    # TOTAUX : Total HT, petites fournitures, puis Total TTC en VERT
+    # =========================================================
+    totaux_data = [
+        ['', Paragraph("<b>Total HT</b>", s_right),
+         Paragraph(f"<b>{fmt(total_ht)}XOF</b>", s_right)],
+        ['', Paragraph("petites fournitures", s_right),
+         Paragraph(f"{fmt(petites_fourn)}XOF", s_right)],
     ]
-    tt = Table(totals, colWidths=col_widths)
-    tt.setStyle(TableStyle([('LINEABOVE', (4, 0), (5, 0), 1, HexColor('#cccccc'))]))
-    story.append(tt)
+    tot_t = Table(totaux_data, colWidths=[110*mm, 32*mm, 38*mm])
+    tot_t.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 2),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+    ]))
+    story.append(tot_t)
     
-    # Total TTC bar
-    ttc_data = [
-        [Paragraph("<b>Total TTC</b>", ParagraphStyle('ttc', fontSize=12, fontName='Helvetica-Bold', textColor=white, alignment=TA_RIGHT)),
-         Paragraph(f"<b>{fmt(total_ttc)}XOF</b>", ParagraphStyle('ttcv', fontSize=12, fontName='Helvetica-Bold', textColor=white, alignment=TA_RIGHT))]
-    ]
-    ttc_t = Table(ttc_data, colWidths=[140*mm, 30*mm])
+    # Barre Total TTC VERTE
+    ttc_row = [[
+        '',
+        Paragraph("<b>Total TTC</b>",
+            ParagraphStyle('ttc_l', fontSize=12, fontName='Helvetica-Bold', textColor=white, alignment=TA_RIGHT)),
+        Paragraph(f"<b>{fmt(total_ttc)}XOF</b>",
+            ParagraphStyle('ttc_r', fontSize=12, fontName='Helvetica-Bold', textColor=white, alignment=TA_RIGHT))
+    ]]
+    ttc_t = Table(ttc_row, colWidths=[110*mm, 32*mm, 38*mm])
     ttc_t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), ORANGE),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('LEFTPADDING', (0, 0), (-1, -1), 10),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('BACKGROUND', (1, 0), (-1, 0), RAMYA_GREEN),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (1, 0), (-1, 0), 6),
+        ('BOTTOMPADDING', (1, 0), (-1, 0), 6),
+        ('LEFTPADDING', (1, 0), (-1, 0), 10),
+        ('RIGHTPADDING', (1, 0), (-1, 0), 10),
     ]))
     story.append(ttc_t)
     story.append(Spacer(1, 4*mm))
     
-    # === BARRE RÉSUMÉ ===
-    summary_hdrs = ['TOTAL PIÈCES', "MAIN D'ŒUVRE", 'TOTAL BRUT', 'REMISE', 'TOTAL NET', 'PETITES FOURN.', 'TOTAL TTC']
-    summary_vals = [fmt(total_pieces), fmt(main_oeuvre), fmt(total_brut), fmt(remise), fmt(total_net), fmt(petites_fourn), fmt(total_ttc)]
+    # =========================================================
+    # BARRE RÉCAPITULATIVE ORANGE
+    # =========================================================
+    total_pieces = total_ht - main_oeuvre
+    total_brut = total_ht
+    total_net = total_brut - remise
     
-    s_hdr = ParagraphStyle('sh', fontSize=5, fontName='Helvetica-Bold', textColor=white, alignment=TA_CENTER)
-    s_val = ParagraphStyle('sv', fontSize=7, fontName='Helvetica-Bold', textColor=white, alignment=TA_CENTER)
+    summary_hdrs = ['TOTAL PIÈCES', "MAIN D'ŒUVRE", 'TOTAL BRUT', 'REMISE', 'TOTAL NET', 'PETITES FOURN.', 'TOTAL TTC']
+    summary_vals = [
+        fmt(total_pieces), fmt(main_oeuvre), fmt(total_brut),
+        fmt(remise), fmt(total_net), fmt(petites_fourn), fmt(total_ttc)
+    ]
+    
+    s_hdr = ParagraphStyle('sh', fontSize=6, fontName='Helvetica-Bold',
+                            textColor=white, alignment=TA_CENTER, leading=7)
+    s_val = ParagraphStyle('sv', fontSize=8, fontName='Helvetica-Bold',
+                            textColor=HexColor('#333'), alignment=TA_CENTER)
+    s_val_last = ParagraphStyle('svl', fontSize=8, fontName='Helvetica-Bold',
+                                 textColor=HexColor('#000'), alignment=TA_CENTER)
     
     bar_data = [
         [Paragraph(h, s_hdr) for h in summary_hdrs],
-        [Paragraph(f"{v}XOF", s_val) for v in summary_vals],
+        [Paragraph(f"{v}XOF", s_val if i < 6 else s_val_last) for i, v in enumerate(summary_vals)],
     ]
-    bar = Table(bar_data, colWidths=[24*mm]*7)
+    bar_widths = [25*mm, 25*mm, 25*mm, 22*mm, 25*mm, 26*mm, 32*mm]
+    bar = Table(bar_data, colWidths=bar_widths)
     bar.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), TEAL),
-        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#0d6b5e')),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        # Ligne 0: header ORANGE
+        ('BACKGROUND', (0, 0), (-1, 0), RAMYA_ORANGE),
+        ('TEXTCOLOR', (0, 0), (-1, 0), white),
+        ('TOPPADDING', (0, 0), (-1, 0), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+        # Ligne 1: valeurs sur fond blanc
+        ('BACKGROUND', (0, 1), (-1, 1), white),
+        ('TOPPADDING', (0, 1), (-1, 1), 3),
+        ('BOTTOMPADDING', (0, 1), (-1, 1), 3),
+        ('BOX', (0, 0), (-1, -1), 0.25, HexColor('#bbbbbb')),
+        ('LINEBELOW', (0, 0), (-1, 0), 0.25, RAMYA_ORANGE),
     ]))
     story.append(bar)
     story.append(Spacer(1, 5*mm))
     
-    # === MONTANT EN LETTRES ===
+    # =========================================================
+    # MONTANT EN LETTRES
+    # =========================================================
     words = number_to_words_fr(int(total_ttc))
     story.append(Paragraph(
-        f"<i>Sauf erreur, arrêté à la somme de: <b>{words} Francs CFA</b></i>",
-        ParagraphStyle('words', fontSize=9, alignment=TA_CENTER, textColor=TEAL)
+        f"<b>Sauf erreur, arrêté à la somme de: {words} Francs CFA</b>",
+        ParagraphStyle('words', fontSize=10, alignment=TA_CENTER, textColor=HexColor('#000'))
     ))
+    
+    # =========================================================
+    # ===== PAGE 2 : Note + Visa client + Signature =====
+    # =========================================================
+    from reportlab.platypus import PageBreak as _PB
+    story.append(_PB())
+    # Re-inject decorative header band for page 2? The canvas callback handles corners.
+    story.append(Spacer(1, 6*mm))
+    # Logo + co + services reprises en haut (identique)
+    story.append(ht)
+    story.append(Spacer(1, 18*mm))
+    
+    note_line = Paragraph(
+        "<b>Note:</b><br/><font size='9'>MODE DE REGLEMENT (Espèce, Chèque, Virement, Mobile money)</font>",
+        ParagraphStyle('note', fontSize=10, leading=14)
+    )
+    visa = Paragraph("<b>Visa Client</b>",
+        ParagraphStyle('visa', fontSize=10, fontName='Helvetica-Bold', alignment=TA_RIGHT))
+    
+    sig_row = [[note_line, '', visa]]
+    sig_t = Table(sig_row, colWidths=[110*mm, 10*mm, 60*mm])
+    sig_t.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+    story.append(sig_t)
     story.append(Spacer(1, 15*mm))
     
-    # === SIGNATURES ===
-    sig_data = [
-        [Paragraph("Note:", s_bold), '', Paragraph("Visa Client", s_bold)],
-        [Paragraph("MODE DE REGLEMENT (Espèce, Chèque, Virement, Mobile money)", s_small), '', ''],
-        ['', '', ''],
-        [Paragraph("Signature autorisée", s_bold), '', ''],
-    ]
-    sig = Table(sig_data, colWidths=[85*mm, 15*mm, 70*mm], rowHeights=[12*mm, 8*mm, 20*mm, 8*mm])
-    sig.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
-    story.append(sig)
-    story.append(Spacer(1, 10*mm))
+    story.append(Paragraph("<i>Signature autorisée</i>",
+        ParagraphStyle('sigauth', fontSize=10, fontName='Helvetica-Oblique')))
     
-    # === FOOTER ===
-    story.append(Paragraph(
-        "<b>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY / N°RCCM : CI-ABJ-03-2017_A10-25092 / NCC : 1746141.B</b><br/>"
-        "<b>Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 / Cel : + 225 2722204498 / 07 09 50 02 43 / 07 47 68 20 27</b><br/>"
-        "<b>Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com</b>",
-        ParagraphStyle('ft', fontSize=7, alignment=TA_CENTER, textColor=TEAL, leading=10)
-    ))
+    # ==== FOOTER via canvas ====
+    def _footer(canv, doc_):
+        _draw_corners(canv, doc_)
+        canv.saveState()
+        canv.setFont('Helvetica-Bold', 7)
+        canv.setFillColor(RAMYA_TEAL)
+        w, _ = A4
+        lines = [
+            "Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B",
+            "Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 / Cel : + 225 2722204498 / 07 09 50 02 43 / 07 47 68 20 27",
+            "Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com",
+        ]
+        y = 15*mm
+        for ln in lines:
+            canv.drawCentredString(w/2, y, ln); y -= 3.5*mm
+        canv.restoreState()
     
-    doc.build(story)
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return output_path

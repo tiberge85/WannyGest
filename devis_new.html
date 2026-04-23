@@ -6,20 +6,53 @@
 <form method="post" id="devisForm">
     <div class="form-row">
         <div class="form-group"><label>Type de document</label>
-            <select name="doc_type"><option value="devis">Devis</option><option value="proforma">Proforma</option></select></div>
-        <div class="form-group"><label>Contact commercial</label><input type="text" name="contact_commercial" placeholder="Nom du commercial"></div>
+            <select name="doc_type">
+                <option value="devis">Devis</option>
+                <option value="proforma">Proforma</option>
+            </select></div>
+        <div class="form-group"><label>Contact commercial <span style="font-size:10px;color:#888">(émis par vous)</span></label>
+            <input type="text" name="contact_commercial" id="contactCom" value="{{ default_commercial or '' }}" placeholder="Nom du commercial"></div>
     </div>
-    <div class="form-group"><label>Client enregistré</label>
-        <select name="client_id" onchange="var o=this.options[this.selectedIndex];if(o.value){document.getElementById('cn').value=o.dataset.name||''}">
+
+    <!-- Sélection client enregistré avec auto-remplissage complet -->
+    <div class="form-group">
+        <label>Client enregistré <span style="font-size:10px;color:#888">(sélectionnez pour auto-remplir)</span></label>
+        <select name="client_id" id="clientSel" onchange="fillClient()">
             <option value="">— Saisir manuellement —</option>
-            {% for c in clients %}<option value="{{ c.id }}" data-name="{{ c.name }}">{{ c.name }}</option>{% endfor %}
-        </select></div>
-    <div class="form-row">
-        <div class="form-group"><label>Nom du client *</label><input type="text" name="client_name" id="cn" required></div>
-        <div class="form-group"><label>Code client</label><input type="text" name="client_code" placeholder="Ex: C 420"></div>
+            {% for c in clients|sort(attribute='name') %}
+                <option value="{{ c.id }}"
+                    data-name="{{ c.name }}"
+                    data-code="{{ c.client_code or '' }}"
+                    data-contact="{{ c.contact_name or '' }}"
+                    data-tel="{{ c.tel or '' }}"
+                    data-email="{{ c.email or '' }}"
+                    data-address="{{ c.address or '' }}">
+                    {% if c.client_code %}[{{ c.client_code }}] {% endif %}{{ c.name }}{% if c.contact_name %} — {{ c.contact_name }}{% endif %}
+                </option>
+            {% endfor %}
+        </select>
     </div>
+
+    <!-- Info client récupérée automatiquement -->
+    <div id="clientInfo" style="display:none;margin-bottom:12px;padding:10px 12px;background:#f0fff4;border:1px solid #c8e6c9;border-radius:8px;font-size:12px">
+        <div style="font-weight:700;color:#2e7d32;margin-bottom:4px">✅ Informations client récupérées</div>
+        <div id="cInfoText" style="color:#555"></div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group" style="flex:2"><label>Nom du client *</label>
+            <input type="text" name="client_name" id="cn" required></div>
+        <div class="form-group"><label>Code client</label>
+            <input type="text" name="client_code" id="cc" placeholder="C XXX" style="font-family:monospace;font-weight:700;color:#1a7a6d"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Téléphone</label><input type="text" name="client_tel" id="cTel" placeholder="(récupéré)"></div>
+        <div class="form-group"><label>Email</label><input type="email" name="client_email" id="cEmail" placeholder="(récupéré)"></div>
+    </div>
+    <div class="form-group"><label>Adresse</label><input type="text" name="client_address" id="cAddr" placeholder="(récupérée)"></div>
+
     <div class="form-group"><label>Objet *</label><input type="text" name="objet" required placeholder="Ex: FOURNITURE ET INSTALLATION DE VIDEO-SURVEILLANCE"></div>
-    
+
     <h3 style="color:#1a3a5c;margin:16px 0 10px;font-size:15px">📦 Articles</h3>
     {% if stock_items %}
     <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px">
@@ -41,14 +74,14 @@
     </div>
     <datalist id="stockList">{% for s in stock_items %}<option value="{{ s.name }}">{% endfor %}</datalist>
     <button type="button" class="btn btn-outline btn-sm" onclick="addItem()" style="margin-bottom:14px">+ Ajouter une ligne</button>
-    
+
     <div class="form-row">
         <div class="form-group"><label>Main d'œuvre (FCFA)</label><input type="number" name="main_oeuvre" step="1" value="0"></div>
         <div class="form-group"><label>Petites fournitures</label><input type="number" name="petites_fournitures" step="1" value="0"></div>
         <div class="form-group"><label>Remise globale</label><input type="number" name="remise" step="1" value="0"></div>
     </div>
     <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px 11px;border:1.5px solid #ddd;border-radius:7px;font-size:13px" placeholder="Conditions, délais..."></textarea></div>
-    
+
     <div style="display:flex;gap:10px;margin-top:16px">
         <a href="/devis" class="btn btn-outline">Annuler</a>
         <button type="submit" class="btn btn-orange" style="flex:1">📝 Créer le devis</button>
@@ -75,7 +108,6 @@ function fillFromStock() {
     var name = sel.value;
     var price = parseFloat(opt.dataset.price || 0);
     var ref = opt.dataset.ref || '';
-    // Fill the last empty row or add a new one
     var lastDesig = document.getElementById('desig_' + itemCount);
     if (lastDesig && lastDesig.value) {
         addItem();
@@ -89,6 +121,41 @@ function fillFromStock() {
         if (prix && price) prix.value = price;
     }
     sel.value = '';
+}
+
+// ==== Auto-remplissage complet quand un client est sélectionné ====
+function fillClient() {
+    var sel = document.getElementById('clientSel');
+    var info = document.getElementById('clientInfo');
+    var infoText = document.getElementById('cInfoText');
+    if (!sel || !sel.value) {
+        // Reset (but don't clear already-typed manual values aggressively)
+        if (info) info.style.display = 'none';
+        return;
+    }
+    var opt = sel.options[sel.selectedIndex];
+    var name = opt.dataset.name || '';
+    var code = opt.dataset.code || '';
+    var contact = opt.dataset.contact || '';
+    var tel = opt.dataset.tel || '';
+    var email = opt.dataset.email || '';
+    var address = opt.dataset.address || '';
+
+    document.getElementById('cn').value = name;
+    document.getElementById('cc').value = code;
+    document.getElementById('cTel').value = tel;
+    document.getElementById('cEmail').value = email;
+    document.getElementById('cAddr').value = address;
+
+    // Feedback visuel
+    var parts = [];
+    if (code) parts.push('<b>Code:</b> ' + code);
+    if (contact) parts.push('<b>Contact:</b> ' + contact);
+    if (tel) parts.push('📞 ' + tel);
+    if (email) parts.push('✉️ ' + email);
+    if (address) parts.push('📍 ' + address);
+    infoText.innerHTML = parts.join(' &nbsp;·&nbsp; ') || '<i>Aucune info complémentaire enregistrée</i>';
+    info.style.display = '';
 }
 </script>
 {% endblock %}

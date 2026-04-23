@@ -307,14 +307,38 @@ def delete_user(user_id):
 
 # ======================== CLIENT OPERATIONS ========================
 
-def create_client(name, tel='', email='', contact_name='', address='', notes='', created_by=None):
+def create_client(name, tel='', email='', contact_name='', address='', notes='', created_by=None, client_code=''):
     conn = get_db()
-    conn.execute("""
-        INSERT INTO clients (name, tel, email, contact_name, address, notes, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (name, tel, email, contact_name, address, notes, created_by))
+    # Auto-generate code if not provided
+    if not client_code:
+        max_num = 0
+        for r in conn.execute("SELECT client_code FROM clients WHERE client_code LIKE 'C %'").fetchall():
+            try:
+                n = int(str(r['client_code']).replace('C ','').strip())
+                if n > max_num: max_num = n
+            except: pass
+        client_code = f"C {(max_num + 1):03d}"
+    # Ensure column exists (defensive)
+    try: conn.execute("ALTER TABLE clients ADD COLUMN client_code TEXT DEFAULT ''")
+    except: pass
+    try:
+        conn.execute("""
+            INSERT INTO clients (name, tel, email, contact_name, address, notes, client_code, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, tel, email, contact_name, address, notes, client_code, created_by))
+    except Exception:
+        # Fallback without client_code in case the column still doesn't exist
+        conn.execute("""
+            INSERT INTO clients (name, tel, email, contact_name, address, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (name, tel, email, contact_name, address, notes, created_by))
     conn.commit()
     client_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    # Backfill client_code in case INSERT used the fallback
+    try: conn.execute("UPDATE clients SET client_code=? WHERE id=? AND (client_code IS NULL OR client_code='')",
+                      (client_code, client_id))
+    except: pass
+    conn.commit()
     conn.close()
     return client_id
 
@@ -2865,3 +2889,40 @@ def migrate_v45():
     try: conn.execute("ALTER TABLE intervention_daily_reports ADD COLUMN images TEXT DEFAULT ''")
     except: pass
     conn.commit(); conn.close()
+
+def migrate_v46():
+    """Add client_code column to clients table and auto-generate codes for existing clients."""
+    conn = get_db()
+    # Add column
+    try: conn.execute("ALTER TABLE clients ADD COLUMN client_code TEXT DEFAULT ''")
+    except: pass
+    # Auto-generate codes for clients that don't have one
+    # Format: C XXX (e.g., C 001, C 420...)
+    rows = conn.execute("SELECT id FROM clients WHERE client_code IS NULL OR client_code='' ORDER BY id ASC").fetchall()
+    # Find the highest existing numeric code to continue the sequence
+    max_num = 0
+    for r in conn.execute("SELECT client_code FROM clients WHERE client_code LIKE 'C %'").fetchall():
+        try:
+            n = int(str(r['client_code']).replace('C ','').strip())
+            if n > max_num: max_num = n
+        except: pass
+    next_num = max_num + 1
+    for r in rows:
+        code = f"C {next_num:03d}"
+        try:
+            conn.execute("UPDATE clients SET client_code=? WHERE id=?", (code, r['id']))
+            next_num += 1
+        except: pass
+    conn.commit(); conn.close()
+
+def generate_next_client_code():
+    """Return next available client code C XXX."""
+    conn = get_db()
+    max_num = 0
+    for r in conn.execute("SELECT client_code FROM clients WHERE client_code LIKE 'C %'").fetchall():
+        try:
+            n = int(str(r['client_code']).replace('C ','').strip())
+            if n > max_num: max_num = n
+        except: pass
+    conn.close()
+    return f"C {(max_num + 1):03d}"

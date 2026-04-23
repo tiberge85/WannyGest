@@ -5,29 +5,45 @@
 <div class="card">
     <div class="card-header">
         <h3>Clients ({{ clients|length }})</h3>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('importM').classList.add('active')">📥 Import</button>
             <button class="btn btn-primary btn-sm" onclick="document.getElementById('addModal').classList.add('active')">+ Client</button>
         </div>
     </div>
     <div class="card-body" style="padding:0">
         {% if clients %}
-        <div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchCli" placeholder="🔍 Rechercher..." onkeyup="searchClients()" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div>
+        <!-- Bulk action bar + search -->
+        <div style="padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #eee">
+            <form method="post" action="/clients/delete-bulk" id="bulkForm" onsubmit="return confirmBulkDelete()" style="display:flex;gap:6px;align-items:center">
+                <span id="selCount" style="font-size:12px;font-weight:700;color:#1a3a5c;background:#e3f2fd;padding:4px 10px;border-radius:10px;display:none">0 sélectionné(s)</span>
+                <button type="submit" id="bulkDelBtn" class="btn btn-sm" style="background:#c53030;color:#fff;display:none;font-size:11px">🗑️ Supprimer la sélection</button>
+                <input type="hidden" name="ids" id="bulkIds" value="">
+            </form>
+            <div style="margin-left:auto">
+                <input type="text" id="searchCli" placeholder="🔍 Rechercher..." onkeyup="searchClients()" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px">
+            </div>
+        </div>
         <div class="table-wrap"><table id="cliTable">
             <thead><tr>
-<th style="width:40px">N°</th>
-<th style="cursor:pointer" onclick="sortTable('cliTable',1,'text')">Client / Entreprise <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
-<th style="cursor:pointer" onclick="sortTable('cliTable',2,'text')">Point focal <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
-<th>Téléphone</th><th>Email</th>
-<th style="cursor:pointer" onclick="sortTable('cliTable',5,'text')">Statut <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
-<th>Actions</th></tr></thead>
+                <th style="width:30px;text-align:center"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="Tout sélectionner"></th>
+                <th style="width:40px">N°</th>
+                <th style="width:70px">Code</th>
+                <th style="cursor:pointer" onclick="sortTable('cliTable',3,'text')">Client / Entreprise <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+                <th style="cursor:pointer" onclick="sortTable('cliTable',4,'text')">Point focal <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+                <th>Téléphone</th>
+                <th>Email</th>
+                <th style="cursor:pointer" onclick="sortTable('cliTable',7,'text')">Statut <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+                <th>Actions</th>
+            </tr></thead>
             <tbody>
             {% for c in clients|sort(attribute='name') %}
             <tr class="cli-row">
+                <td style="text-align:center"><input type="checkbox" class="selCli" value="{{ c.id }}" onchange="updateSel()"></td>
                 <td style="text-align:center;font-weight:600;color:#888">{{ loop.index }}</td>
+                <td style="font-weight:700;color:#1a7a6d;font-family:monospace;white-space:nowrap">{{ c.client_code or '—' }}</td>
                 <td><a href="/clients/{{ c.id }}" style="color:#1a3a5c;font-weight:700;text-decoration:none">{{ c.name }}</a></td>
                 <td>{{ c.contact_name or '-' }}</td>
-                <td>{{ c.tel or '-' }}</td>
+                <td style="white-space:nowrap">{{ c.tel or '-' }}</td>
                 <td style="font-size:11px">{{ c.email or '-' }}</td>
                 <td>{% set st = c.client_status or 'entreprise_sans_contrat' %}
                 <span style="padding:2px 6px;border-radius:8px;font-size:9px;font-weight:600;white-space:nowrap;
@@ -37,9 +53,9 @@
                 {% else %}background:#f0f4f8;color:#555{% endif %}">
                 {{ st|replace('_',' ')|replace('sous','sous ')|capitalize }}</span></td>
                 <td style="white-space:nowrap">
-                    <a href="/clients/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:9px">👁️</a>
-                    <a href="/clients/edit/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:9px">✏️</a>
-                    <a href="/clients/delete/{{ c.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>
+                    <a href="/clients/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Voir">👁️</a>
+                    <a href="/clients/edit/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Modifier">✏️</a>
+                    <a href="/clients/delete/{{ c.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ce client ?')" title="Supprimer">🗑️</a>
                 </td>
             </tr>
             {% endfor %}
@@ -51,6 +67,42 @@
             <button class="btn btn-outline btn-sm" onclick="cliPage(1)">Suivant ▶</button>
         </div>
         <script>
+        // ===== Selection management =====
+        function updateSel() {
+            var boxes = document.querySelectorAll('.selCli:checked');
+            var ids = Array.from(boxes).map(function(b){return b.value});
+            document.getElementById('bulkIds').value = ids.join(',');
+            var count = ids.length;
+            var cEl = document.getElementById('selCount');
+            var btn = document.getElementById('bulkDelBtn');
+            if (count > 0) {
+                cEl.style.display = ''; cEl.textContent = count + ' sélectionné(s)';
+                btn.style.display = '';
+            } else {
+                cEl.style.display = 'none'; btn.style.display = 'none';
+            }
+            var all = document.querySelectorAll('.selCli');
+            var visible = Array.from(all).filter(function(b){return b.closest('tr').style.display !== 'none'});
+            var checkedVisible = visible.filter(function(b){return b.checked});
+            var selAll = document.getElementById('selAll');
+            if (selAll) {
+                selAll.indeterminate = (checkedVisible.length > 0 && checkedVisible.length < visible.length);
+                selAll.checked = (visible.length > 0 && checkedVisible.length === visible.length);
+            }
+        }
+        function toggleAll(cb) {
+            document.querySelectorAll('.selCli').forEach(function(b){
+                if (b.closest('tr').style.display !== 'none') b.checked = cb.checked;
+            });
+            updateSel();
+        }
+        function confirmBulkDelete() {
+            var ids = document.getElementById('bulkIds').value;
+            var count = ids ? ids.split(',').length : 0;
+            if (count === 0) { alert('Aucun client sélectionné'); return false; }
+            return confirm('⚠️ Supprimer définitivement ' + count + ' client(s) ? Les factures/devis associés seront conservés mais détachés.');
+        }
+        // ===== Pagination + search =====
         var cliCurrentPage=1, cliPerPage=25;
         function cliPaginate(){
             var rows=document.querySelectorAll('.cli-row');
@@ -60,6 +112,7 @@
             rows.forEach(function(r){r.style.display='none'});
             visible.forEach(function(r,i){r.style.display=(i>=(cliCurrentPage-1)*cliPerPage&&i<cliCurrentPage*cliPerPage)?'':'none'});
             document.getElementById('cliPageInfo').textContent='Page '+cliCurrentPage+' / '+pages+' ('+total+' clients)';
+            updateSel();
         }
         function cliPage(dir){cliCurrentPage+=dir;cliPaginate()}
         function searchClients(){
@@ -78,10 +131,13 @@
 </div>
 
 <!-- Modal ajout -->
-<div class="modal-bg" id="addModal"><div class="modal" style="max-width:550px">
+<div class="modal-bg" id="addModal"><div class="modal" style="max-width:600px">
     <h3>➕ Ajouter un client</h3>
     <form method="post" action="/clients/add">
-        <div class="form-group"><label>Société / Nom *</label><input type="text" name="name" required placeholder="Nom de l'entreprise ou du particulier"></div>
+        <div class="form-row">
+            <div class="form-group" style="flex:2"><label>Société / Nom *</label><input type="text" name="name" required placeholder="Nom de l'entreprise ou du particulier"></div>
+            <div class="form-group"><label>Code client</label><input type="text" name="client_code" placeholder="Auto (C XXX)" style="font-family:monospace"></div>
+        </div>
         <div class="form-row">
             <div class="form-group"><label>Point focal</label><input type="text" name="contact_name" placeholder="Nom du responsable"></div>
             <div class="form-group"><label>Téléphone</label><input type="text" name="tel" placeholder="07 XX XX XX XX"></div>
@@ -113,6 +169,7 @@
     <h3>📥 Importer des clients (Excel)</h3>
     <form method="post" action="/clients/import" enctype="multipart/form-data">
         <div class="form-group"><label>Fichier Excel</label><input type="file" name="file" accept=".xlsx,.xls" required style="padding:6px;border:1.5px solid #ddd;border-radius:7px;width:100%"></div>
+        <div style="font-size:11px;color:#888;margin-bottom:10px">Colonnes attendues : <code>name, contact_name, tel, email, address, client_code</code></div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
             <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
             <button type="submit" class="btn btn-primary">📥 Importer</button>

@@ -3,12 +3,50 @@
 <div class="card"><div class="card-body">
 <form method="post">
     <div class="form-row">
-        <div class="form-group" style="flex:2"><label>Client *</label><input type="text" name="client_name" value="{{ devis.client_name }}" required></div>
-        <div class="form-group"><label>Code client</label><input type="text" name="client_code" value="{{ devis.client_code or '' }}"></div>
-        <div class="form-group"><label>Contact commercial</label><input type="text" name="contact_commercial" value="{{ devis.contact_commercial or '' }}"></div>
+        <div class="form-group"><label>Type de document</label>
+            <input type="text" value="{{ devis.doc_type|upper }}" disabled style="background:#f5f5f5"></div>
+        <div class="form-group"><label>Contact commercial</label>
+            <input type="text" name="contact_commercial" value="{{ devis.contact_commercial or default_commercial or '' }}" placeholder="Nom du commercial"></div>
     </div>
+
+    <!-- Client re-sélectionnable avec auto-remplissage -->
+    <div class="form-group">
+        <label>Client enregistré <span style="font-size:10px;color:#888">(changer pour auto-remplir un autre)</span></label>
+        <select name="client_id" id="clientSel" onchange="fillClient()">
+            <option value="">— Conserver la saisie actuelle —</option>
+            {% for c in clients|sort(attribute='name') %}
+                <option value="{{ c.id }}"
+                    {% if c.id == devis.client_id %}selected{% endif %}
+                    data-name="{{ c.name }}"
+                    data-code="{{ c.client_code or '' }}"
+                    data-contact="{{ c.contact_name or '' }}"
+                    data-tel="{{ c.tel or '' }}"
+                    data-email="{{ c.email or '' }}"
+                    data-address="{{ c.address or '' }}">
+                    {% if c.client_code %}[{{ c.client_code }}] {% endif %}{{ c.name }}{% if c.contact_name %} — {{ c.contact_name }}{% endif %}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="clientInfo" style="display:none;margin-bottom:12px;padding:10px 12px;background:#f0fff4;border:1px solid #c8e6c9;border-radius:8px;font-size:12px">
+        <div style="font-weight:700;color:#2e7d32;margin-bottom:4px">✅ Informations client</div>
+        <div id="cInfoText" style="color:#555"></div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group" style="flex:2"><label>Client *</label>
+            <input type="text" name="client_name" id="cn" value="{{ devis.client_name }}" required></div>
+        <div class="form-group"><label>Code client</label>
+            <input type="text" name="client_code" id="cc" value="{{ devis.client_code or '' }}" placeholder="C XXX" style="font-family:monospace;font-weight:700;color:#1a7a6d"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Téléphone</label><input type="text" name="client_tel" id="cTel" value=""></div>
+        <div class="form-group"><label>Email</label><input type="email" name="client_email" id="cEmail" value=""></div>
+    </div>
+    <div class="form-group"><label>Adresse</label><input type="text" name="client_address" id="cAddr" value=""></div>
     <div class="form-group"><label>Objet *</label><input type="text" name="objet" value="{{ devis.objet or '' }}" required></div>
-    
+
     <h3 style="color:#1a3a5c;margin:16px 0 10px;font-size:15px">📦 Articles</h3>
     {% if stock_items %}
     <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px">
@@ -21,17 +59,25 @@
     <div id="items">
     {% for item in items %}
         <div class="item-row" style="display:flex;gap:6px;margin-bottom:8px;align-items:end;flex-wrap:wrap">
-            <div style="flex:3"><{% if loop.first %}label style="font-size:11px">Désignation</label><{% endif %}input type="text" name="item_{{ loop.index }}_designation" id="desig_{{ loop.index }}" value="{{ item.designation }}" required></div>
-            <div style="flex:2"><{% if loop.first %}label style="font-size:11px">Détail</label><{% endif %}input type="text" name="item_{{ loop.index }}_detail" id="detail_{{ loop.index }}" value="{{ item.detail or '' }}"></div>
-            <div style="flex:0 0 60px"><{% if loop.first %}label style="font-size:11px">Qté</label><{% endif %}input type="number" name="item_{{ loop.index }}_qty" value="{{ item.qty }}" min="1"></div>
-            <div style="flex:0 0 100px"><{% if loop.first %}label style="font-size:11px">Prix</label><{% endif %}input type="number" name="item_{{ loop.index }}_prix" id="prix_{{ loop.index }}" value="{{ item.prix }}" step="500"></div>
-            <div style="flex:0 0 80px"><{% if loop.first %}label style="font-size:11px">Remise</label><{% endif %}input type="number" name="item_{{ loop.index }}_remise" value="{{ item.remise or 0 }}"></div>
-            {% if not loop.first %}<button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px">×</button>{% endif %}
+            {% if loop.first %}
+            <div style="flex:3"><label style="font-size:11px">Désignation</label><input type="text" name="item_{{ loop.index }}_designation" id="desig_{{ loop.index }}" value="{{ item.designation }}" required></div>
+            <div style="flex:2"><label style="font-size:11px">Détail</label><input type="text" name="item_{{ loop.index }}_detail" id="detail_{{ loop.index }}" value="{{ item.detail or '' }}"></div>
+            <div style="flex:0 0 60px"><label style="font-size:11px">Qté</label><input type="number" name="item_{{ loop.index }}_qty" value="{{ item.qty }}" min="1"></div>
+            <div style="flex:0 0 100px"><label style="font-size:11px">Prix</label><input type="number" name="item_{{ loop.index }}_prix" id="prix_{{ loop.index }}" value="{{ item.prix }}" step="500"></div>
+            <div style="flex:0 0 80px"><label style="font-size:11px">Remise</label><input type="number" name="item_{{ loop.index }}_remise" value="{{ item.remise or 0 }}"></div>
+            {% else %}
+            <div style="flex:3"><input type="text" name="item_{{ loop.index }}_designation" id="desig_{{ loop.index }}" value="{{ item.designation }}" required></div>
+            <div style="flex:2"><input type="text" name="item_{{ loop.index }}_detail" id="detail_{{ loop.index }}" value="{{ item.detail or '' }}"></div>
+            <div style="flex:0 0 60px"><input type="number" name="item_{{ loop.index }}_qty" value="{{ item.qty }}" min="1"></div>
+            <div style="flex:0 0 100px"><input type="number" name="item_{{ loop.index }}_prix" id="prix_{{ loop.index }}" value="{{ item.prix }}" step="500"></div>
+            <div style="flex:0 0 80px"><input type="number" name="item_{{ loop.index }}_remise" value="{{ item.remise or 0 }}"></div>
+            <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px">×</button>
+            {% endif %}
         </div>
     {% endfor %}
     </div>
     <button type="button" class="btn btn-outline btn-sm" onclick="addItem()" style="margin-bottom:14px">+ Ajouter une ligne</button>
-    
+
     <div class="form-row">
         <div class="form-group"><label>Main d'œuvre (FCFA)</label><input type="number" name="main_oeuvre" step="1" value="{{ devis.main_oeuvre or 0 }}"></div>
         <div class="form-group"><label>Petites fournitures</label><input type="number" name="petites_fournitures" step="1" value="{{ devis.petites_fournitures or 0 }}"></div>
@@ -41,7 +87,7 @@
     <div style="display:flex;gap:10px;margin-top:16px"><a href="/devis" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-orange" style="flex:1">💾 Sauvegarder</button></div>
 </form></div></div>
 <script>
-let itemCount = {{ items|length }};
+let itemCount = {{ items|length or 1 }};
 function addItem(){itemCount++;document.getElementById('items').insertAdjacentHTML('beforeend',
     `<div class="item-row" style="display:flex;gap:6px;margin-bottom:8px;align-items:end;flex-wrap:wrap">
     <div style="flex:3"><input type="text" name="item_${itemCount}_designation" id="desig_${itemCount}" required></div>
@@ -54,5 +100,32 @@ function fillFromStock(){var s=document.getElementById('stockSelect');if(!s||!s.
     var d=document.getElementById('desig_'+itemCount);if(d&&d.value){addItem();d=document.getElementById('desig_'+itemCount);}
     if(d){d.value=s.value;var det=document.getElementById('detail_'+itemCount);if(det&&o.dataset.ref)det.value=o.dataset.ref;
     var p=document.getElementById('prix_'+itemCount);if(p)p.value=o.dataset.price;}s.value='';}
+
+// Auto-remplissage quand on change de client
+function fillClient() {
+    var sel = document.getElementById('clientSel');
+    var info = document.getElementById('clientInfo');
+    var infoText = document.getElementById('cInfoText');
+    if (!sel || !sel.value) { if (info) info.style.display = 'none'; return; }
+    var opt = sel.options[sel.selectedIndex];
+    document.getElementById('cn').value = opt.dataset.name || '';
+    document.getElementById('cc').value = opt.dataset.code || '';
+    document.getElementById('cTel').value = opt.dataset.tel || '';
+    document.getElementById('cEmail').value = opt.dataset.email || '';
+    document.getElementById('cAddr').value = opt.dataset.address || '';
+    var parts = [];
+    if (opt.dataset.code) parts.push('<b>Code:</b> ' + opt.dataset.code);
+    if (opt.dataset.contact) parts.push('<b>Contact:</b> ' + opt.dataset.contact);
+    if (opt.dataset.tel) parts.push('📞 ' + opt.dataset.tel);
+    if (opt.dataset.email) parts.push('✉️ ' + opt.dataset.email);
+    if (opt.dataset.address) parts.push('📍 ' + opt.dataset.address);
+    infoText.innerHTML = parts.join(' &nbsp;·&nbsp; ') || '<i>Aucune info complémentaire</i>';
+    info.style.display = '';
+}
+// Pré-affichage à l'ouverture si un client est déjà lié
+document.addEventListener('DOMContentLoaded', function(){
+    var sel = document.getElementById('clientSel');
+    if (sel && sel.value) fillClient();
+});
 </script>
 {% endblock %}

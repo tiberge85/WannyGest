@@ -275,6 +275,8 @@ from models import migrate_v45
 migrate_v45()
 from models import migrate_v45
 migrate_v45()
+from models import migrate_v46
+migrate_v46()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -1170,7 +1172,8 @@ def clients_add():
         request.form['name'], request.form.get('tel', ''),
         request.form.get('email', ''), request.form.get('contact_name', ''),
         request.form.get('address', ''), request.form.get('notes', ''),
-        session['user_id']
+        session['user_id'],
+        client_code=request.form.get('client_code', '').strip()
     )
     # Save client_status
     try:
@@ -1198,6 +1201,40 @@ def clients_add():
     flash("Client ajouté", "success")
     return redirect(url_for('clients_page'))
 
+@app.route('/clients/delete-bulk', methods=['POST'])
+@permission_required('clients_edit')
+def clients_delete_bulk():
+    """Supprime plusieurs clients en une seule opération."""
+    ids_raw = request.form.getlist('ids') or request.form.get('ids','').split(',')
+    ids = [int(x) for x in ids_raw if str(x).strip().isdigit()]
+    if not ids:
+        flash("Aucun client sélectionné", "warning")
+        return redirect(url_for('clients_page'))
+    conn = _gdb()
+    deleted = 0
+    # Only delete clients that have no related records (defensive)
+    # Otherwise null-out the client_id on related tables to avoid FK issues
+    for cid in ids:
+        try:
+            # Unlink in related tables (keep history)
+            for tbl, col in [('invoices','client_id'),('devis','client_id'),('jobs','client_id'),
+                             ('visit_reports','client_id'),('interventions','client_id'),
+                             ('client_notes','client_id'),('client_attachments','client_id'),
+                             ('client_reminders','client_id'),('contracts','client_id'),
+                             ('client_requests','client_id')]:
+                try: conn.execute(f"UPDATE {tbl} SET {col}=NULL WHERE {col}=?", (cid,))
+                except: pass
+            conn.execute("DELETE FROM clients WHERE id=?", (cid,))
+            deleted += 1
+        except Exception as e:
+            pass
+    conn.commit(); conn.close()
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Clients',
+                 f"Suppression groupée de {deleted} client(s)", request.remote_addr)
+    flash(f"✅ {deleted} client(s) supprimé(s)", "success")
+    return redirect(url_for('clients_page'))
+
 @app.route('/clients/edit/<int:cid>', methods=['GET', 'POST'])
 @permission_required('clients_edit')
 def clients_edit(cid):
@@ -1214,7 +1251,7 @@ def clients_edit(cid):
         conn = _gdb3()
         for field in ['sector','city','country','website','rc_number','cnps_number',
                       'contact_title','contact_tel2','contact_email2','payment_terms',
-                      'source','status','client_status']:
+                      'source','status','client_status','client_code']:
             val = request.form.get(field, '')
             try: conn.execute(f"UPDATE clients SET {field}=? WHERE id=?", (val, cid))
             except: pass
@@ -3063,7 +3100,10 @@ def devis_new():
         from models import db_get_all
         stock_items = db_get_all('stock_items', order='name ASC')
     except: stock_items = []
-    return render_template('devis_new.html', page='devis', clients=clients, stock_items=stock_items)
+    current_user = get_user_by_id(session['user_id'])
+    default_commercial = current_user['full_name'] if current_user else ''
+    return render_template('devis_new.html', page='devis', clients=clients, stock_items=stock_items,
+                           default_commercial=default_commercial)
 
 @app.route('/devis/pdf/<int:did>')
 @permission_required('proforma')
@@ -3135,9 +3175,12 @@ def devis_edit(did):
         total_ttc = total_ht + petites_fourn - remise_glob
         
         conn = _gdb()
-        conn.execute("""UPDATE devis SET client_name=?, client_code=?, contact_commercial=?, objet=?,
+        # Re-link to client if client_id provided (user changed client selection)
+        client_id_new = request.form.get('client_id', '')
+        client_id_new = int(client_id_new) if str(client_id_new).strip().isdigit() else None
+        conn.execute("""UPDATE devis SET client_id=COALESCE(?, client_id), client_name=?, client_code=?, contact_commercial=?, objet=?,
             items_json=?, total_ht=?, petites_fournitures=?, total_ttc=?, main_oeuvre=?, remise=?, notes=?
-            WHERE id=?""", (request.form.get('client_name',''), request.form.get('client_code',''),
+            WHERE id=?""", (client_id_new, request.form.get('client_name',''), request.form.get('client_code',''),
             request.form.get('contact_commercial',''), request.form.get('objet',''),
             json.dumps(items), total_ht, petites_fourn, total_ttc, main_oeuvre, remise_glob,
             request.form.get('notes',''), did))
@@ -3148,7 +3191,10 @@ def devis_edit(did):
     clients = get_all_clients()
     from models import db_get_all
     stock_items = db_get_all('stock_items', order='name ASC')
-    return render_template('devis_edit.html', page='devis', devis=devis, items=items, clients=clients, stock_items=stock_items)
+    current_user = get_user_by_id(session['user_id'])
+    default_commercial = devis.get('contact_commercial') or (current_user['full_name'] if current_user else '')
+    return render_template('devis_edit.html', page='devis', devis=devis, items=items, clients=clients,
+                           stock_items=stock_items, default_commercial=default_commercial)
 
 @app.route('/devis/delete/<int:did>')
 @permission_required('proforma_edit')
