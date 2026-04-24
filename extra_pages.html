@@ -964,6 +964,106 @@ function toggleDetail() {
     </div>
 </div></div>
 
+<!-- ==================== WORKFLOW ACTIONS (no-print) ==================== -->
+{% if 'controle_qualite' in permissions or 'livraison_intervention' in permissions or 'admin' in permissions %}
+<div class="card no-print" style="max-width:800px;margin:14px auto 0;border-left:4px solid #1a7a6d">
+<div class="card-body" style="padding:16px">
+    <h3 style="margin:0 0 10px;font-size:14px;color:#1a3a5c">🔄 Workflow d'intervention</h3>
+    
+    <!-- Timeline visuelle -->
+    <div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;font-size:10px">
+        <div style="flex:1;min-width:90px;padding:8px 4px;text-align:center;border-radius:6px;background:{% if inter.end_work_at %}#e8f5e9;color:#2e7d32{% else %}#f0f0f0;color:#888{% endif %};font-weight:700">1. Travaux<br>{{ '✅' if inter.end_work_at else '⏳' }}</div>
+        <div style="flex:1;min-width:90px;padding:8px 4px;text-align:center;border-radius:6px;background:{% if inter.cq_status == 'passed' %}#e8f5e9;color:#2e7d32{% elif inter.cq_status == 'failed' %}#fde8e8;color:#c53030{% elif inter.end_work_at %}#fff3e0;color:#b8561f{% else %}#f0f0f0;color:#888{% endif %};font-weight:700">2. CQ<br>{{ '✅' if inter.cq_status == 'passed' else ('❌' if inter.cq_status == 'failed' else '⏳') }}</div>
+        <div style="flex:1;min-width:90px;padding:8px 4px;text-align:center;border-radius:6px;background:{% if inter.delivery_proposed_date %}#e8f5e9;color:#2e7d32{% elif inter.cq_status == 'passed' %}#fff3e0;color:#b8561f{% else %}#f0f0f0;color:#888{% endif %};font-weight:700">3. Date<br>{{ '✅' if inter.delivery_proposed_date else '⏳' }}</div>
+        <div style="flex:1;min-width:90px;padding:8px 4px;text-align:center;border-radius:6px;background:{% if inter.delivery_client_status == 'accepted' %}#e8f5e9;color:#2e7d32{% elif inter.delivery_client_status == 'proposed' %}#fff3e0;color:#b8561f{% elif inter.delivery_proposed_date %}#fff3e0;color:#b8561f{% else %}#f0f0f0;color:#888{% endif %};font-weight:700">4. Client<br>{{ '✅' if inter.delivery_client_status == 'accepted' else ('📅' if inter.delivery_client_status == 'proposed' else '⏳') }}</div>
+        <div style="flex:1;min-width:90px;padding:8px 4px;text-align:center;border-radius:6px;background:{% if inter.status == 'livre' %}#e8f5e9;color:#2e7d32{% elif inter.delivery_client_status == 'accepted' %}#fff3e0;color:#b8561f{% else %}#f0f0f0;color:#888{% endif %};font-weight:700">5. Livraison<br>{{ '✅' if inter.status == 'livre' else '⏳' }}</div>
+    </div>
+    
+    <!-- Actions -->
+    {% if inter.cq_status == 'passed' and not inter.delivery_proposed_date %}
+    <!-- ÉTAPE 3 : Proposer date -->
+    <div style="padding:12px;background:#fff3e0;border-radius:8px;margin-bottom:10px">
+        <div style="font-weight:700;color:#b8561f;margin-bottom:6px">📅 Étape 3 : Proposer une date de livraison au client</div>
+        <form method="post" action="/interventions/{{ inter.id }}/propose-delivery" style="display:flex;gap:6px;flex-wrap:wrap">
+            <input type="date" name="delivery_date" required style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+            <button type="submit" class="btn btn-primary btn-sm">📤 Envoyer au client</button>
+        </form>
+    </div>
+    {% endif %}
+    
+    {% if inter.delivery_client_status == 'accepted' and inter.status != 'livre' and ('livraison_intervention' in permissions or 'admin' in permissions) %}
+    <!-- ÉTAPE 5 : Livraison + signatures -->
+    <div style="padding:12px;background:#e8f5e9;border-radius:8px;margin-bottom:10px">
+        <div style="font-weight:700;color:#2e7d32;margin-bottom:10px">📦 Étape 5 : Procéder à la livraison (3 signatures requises)</div>
+        <form method="post" action="/interventions/{{ inter.id }}/deliver" id="delForm">
+            <div class="form-group"><label>Note de livraison</label>
+                <textarea name="delivery_note" rows="2" placeholder="Observations finales..." style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></textarea>
+            </div>
+            
+            <!-- 3 signatures -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px">
+                {% for role, field, label in [('coordinator','sig_coordinator','👤 Coordinateur'), ('client','sig_client','👤 Client'), ('technicien','sig_technicien','👤 Resp. technique')] %}
+                <div style="border:1px solid #eee;border-radius:8px;padding:8px;background:#fff">
+                    <label style="font-size:11px;font-weight:700;color:#1a3a5c">{{ label }}</label>
+                    <canvas id="sig_{{ field }}" width="260" height="80" style="border:1.5px dashed #ccc;border-radius:6px;cursor:crosshair;touch-action:none;display:block;margin-top:4px"></canvas>
+                    <input type="hidden" name="{{ field }}" id="{{ field }}_data">
+                    <button type="button" class="btn btn-outline btn-sm" style="font-size:10px;margin-top:4px" onclick="sigClear('{{ field }}')">🗑️ Effacer</button>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:12px;padding:10px;font-weight:700" onclick="return validateSignatures()">
+                📦 Valider la livraison & générer le Bon
+            </button>
+        </form>
+    </div>
+    <script>
+    var sigs = {};
+    function initSig(field){
+        var canvas = document.getElementById('sig_' + field);
+        var ctx = canvas.getContext('2d');
+        var drawing = false, lastX, lastY, hasSigned = false;
+        function getPos(e){var r=canvas.getBoundingClientRect();var t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top}}
+        canvas.addEventListener('mousedown', function(e){drawing=true;var p=getPos(e);lastX=p.x;lastY=p.y});
+        canvas.addEventListener('touchstart', function(e){e.preventDefault();drawing=true;var p=getPos(e);lastX=p.x;lastY=p.y});
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('touchmove', function(e){e.preventDefault();draw(e)});
+        canvas.addEventListener('mouseup', stop);
+        canvas.addEventListener('touchend', stop);
+        function draw(e){if(!drawing)return;var p=getPos(e);ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(p.x,p.y);ctx.strokeStyle='#1a3a5c';ctx.lineWidth=2;ctx.lineCap='round';ctx.stroke();lastX=p.x;lastY=p.y;hasSigned=true}
+        function stop(){drawing=false;if(hasSigned){document.getElementById(field+'_data').value=canvas.toDataURL('image/png')}}
+        sigs[field]={canvas:canvas,ctx:ctx,clear:function(){ctx.clearRect(0,0,canvas.width,canvas.height);document.getElementById(field+'_data').value='';hasSigned=false}};
+    }
+    function sigClear(field){if(sigs[field])sigs[field].clear()}
+    function validateSignatures(){
+        var missing = [];
+        ['sig_coordinator','sig_client','sig_technicien'].forEach(function(f){
+            if(!document.getElementById(f+'_data').value) missing.push(f.replace('sig_',''));
+        });
+        if(missing.length){alert('Signatures manquantes : ' + missing.join(', '));return false}
+        return confirm('Valider la livraison et générer le bon ?');
+    }
+    ['sig_coordinator','sig_client','sig_technicien'].forEach(initSig);
+    </script>
+    {% endif %}
+    
+    {% if inter.status == 'livre' and inter.delivery_bon_ref %}
+    <div style="padding:10px;background:#e8f5e9;border-radius:8px;margin-bottom:10px">
+        <div style="font-weight:700;color:#2e7d32">✅ Livré — Bon de livraison : <code>{{ inter.delivery_bon_ref }}</code></div>
+        <div style="font-size:11px;color:#666;margin-top:4px">Livré le {{ inter.delivered_at[:16] if inter.delivered_at else '-' }}</div>
+        {% if inter.rating_stars %}
+        <div style="margin-top:6px;font-size:12px">⭐ Évaluation client : <strong>{{ inter.rating_stars }}/5</strong>
+            {% if inter.rating_comment %} — <em>« {{ inter.rating_comment }} »</em>{% endif %}
+        </div>
+        {% else %}
+        <div style="margin-top:4px;font-size:11px;color:#888">En attente de l'évaluation du client</div>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+</div></div>
+{% endif %}
+
 {% elif page == 'caisses' %}
 <div class="page-header"><h1>💰 Multi-caisses</h1>
 <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -1444,31 +1544,94 @@ function captureGPS() {
 </script>
 
 {% elif page == 'portail_interventions' %}
-<div style="background:#1A7A6D;color:#fff;padding:12px 20px;margin:-20px -20px 20px;border-radius:0 0 12px 12px">
-    <a href="/portail/dashboard" style="color:rgba(255,255,255,0.7);text-decoration:none;font-size:12px">← Retour</a>
-    <h2 style="margin:4px 0 0;font-size:16px">🔧 Mes interventions</h2>
+<div style="background:linear-gradient(135deg,#1A7A6D 0%,#0d5b50 100%);color:#fff;padding:14px 20px;margin:-20px -20px 20px;border-radius:0 0 14px 14px;box-shadow:0 2px 8px rgba(26,122,109,0.2)">
+    <a href="/portail/dashboard" style="color:rgba(255,255,255,0.85);text-decoration:none;font-size:12px">← Retour au tableau de bord</a>
+    <h2 style="margin:6px 0 0;font-size:18px;font-weight:700">🔧 Mes interventions</h2>
 </div>
+<style>
+.wf-steps{display:flex;gap:4px;margin:10px 0;flex-wrap:wrap;font-size:10px}
+.wf-steps .s{flex:1;min-width:70px;padding:6px 4px;text-align:center;border-radius:6px;background:#f0f0f0;color:#888;border:1px solid #e0e0e0}
+.wf-steps .s.d{background:#e8f5e9;color:#2e7d32;border-color:#c8e6c9;font-weight:700}
+.wf-steps .s.c{background:#e3f2fd;color:#1a7a6d;border-color:#b3d9ff;font-weight:700}
+.star-rate{display:inline-flex;gap:4px;font-size:26px;cursor:pointer}
+.star-rate span{color:#ddd;transition:color 0.15s;user-select:none}
+.star-rate span.on,.star-rate span.h{color:#ffb400}
+</style>
 {% for i in interventions %}
 <div class="card" style="margin-bottom:12px;border-left:4px solid {% if i.status=='livre' %}#2e7d32{% elif i.status=='controle_qualite' %}#7b1fa2{% elif i.status=='travaux_termines' %}#1565c0{% elif i.status=='en_cours' %}#1A7A6D{% else %}#e8672a{% endif %}">
 <div class="card-body" style="padding:14px">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>{{ i.title }}</strong>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <strong style="font-size:14px">{{ i.title }}</strong>
         <span style="padding:3px 10px;border-radius:8px;font-size:10px;font-weight:700;{% if i.status=='livre' %}background:#e8f5e9;color:#2e7d32{% elif i.status=='controle_qualite' %}background:#f3e5f5;color:#7b1fa2{% elif i.status=='travaux_termines' %}background:#e3f2fd;color:#1565c0{% elif i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% else %}background:#fff3e0;color:#e8672a{% endif %}">
             {% if i.status=='livre' %}✅ Livré{% elif i.status=='controle_qualite' %}🔍 Contrôle qualité{% elif i.status=='travaux_termines' %}🏗️ Travaux terminés{% elif i.status=='en_cours' %}⚡ En cours{% elif i.status=='planifiee' %}📅 Planifié{% else %}{{ i.status }}{% endif %}
         </span>
     </div>
-    <div style="font-size:11px;color:#888;margin-top:4px">📅 {{ i.scheduled_date or '-' }} · 🔧 {{ i.technician_name or '-' }} · {{ i.type }}</div>
+    <div style="font-size:11px;color:#888;margin-top:4px">📅 {{ i.scheduled_date or '-' }} · 🔧 {{ i.technician_name or '-' }} · {{ i.type }}{% if i.reference %} · <span style="font-family:monospace">{{ i.reference }}</span>{% endif %}</div>
+    
+    <!-- Workflow progress bar : 5 étapes -->
+    <div class="wf-steps">
+        <div class="s {% if i.end_work_at %}d{% elif i.status=='en_cours' %}c{% endif %}">1. Travaux</div>
+        <div class="s {% if i.cq_status=='passed' %}d{% elif i.status=='travaux_termines' %}c{% endif %}">2. Contrôle qualité</div>
+        <div class="s {% if i.delivery_proposed_date %}d{% endif %}">3. Date proposée</div>
+        <div class="s {% if i.delivery_client_status in ('accepted','proposed') %}d{% elif i.delivery_proposed_date and i.delivery_client_status in ('','pending') %}c{% endif %}">4. Validation client</div>
+        <div class="s {% if i.status=='livre' %}d{% endif %}">5. Livraison</div>
+    </div>
+    
     {% if i.rapport %}<div style="font-size:12px;margin-top:6px;padding:8px;background:#f8faf9;border-radius:6px">📝 {{ i.rapport[:120] }}</div>{% endif %}
     
-    {% if i.status == 'travaux_termines' and (i.client_validated|int) == 0 %}
-    <form method="post" action="/portail/intervention/{{ i.id }}/validate" style="margin-top:8px">
-        <button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff" onclick="return confirm('Confirmer la validation des travaux ?')">
-            ✅ Valider les travaux
-        </button>
-        <span style="font-size:10px;color:#888;margin-left:6px">Cliquez pour confirmer que les travaux vous conviennent</span>
-    </form>
+    <!-- ÉTAPE 4 : Date proposée → client valide ou propose -->
+    {% if i.delivery_proposed_date and i.delivery_client_status in ('','pending') and i.status != 'livre' %}
+    <div style="margin-top:10px;padding:12px;background:#fff3e0;border-left:3px solid #e8672a;border-radius:8px">
+        <div style="font-weight:700;color:#b8561f;margin-bottom:6px">📅 Date de livraison proposée : {{ i.delivery_proposed_date }}</div>
+        <div style="font-size:11px;color:#666;margin-bottom:8px">Merci de confirmer cette date ou d'en proposer une autre.</div>
+        <form method="post" action="/portail/intervention/{{ i.id }}/delivery-response" style="display:grid;gap:8px">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label style="cursor:pointer;display:flex;gap:4px;align-items:center">
+                    <input type="radio" name="response" value="accept" checked onchange="document.getElementById('altd{{ i.id }}').style.display='none'">
+                    <span style="color:#2e7d32;font-weight:700">✅ Accepter le {{ i.delivery_proposed_date }}</span>
+                </label>
+                <label style="cursor:pointer;display:flex;gap:4px;align-items:center">
+                    <input type="radio" name="response" value="propose" onchange="document.getElementById('altd{{ i.id }}').style.display='block'">
+                    <span style="color:#b8561f;font-weight:700">📅 Proposer une autre date</span>
+                </label>
+            </div>
+            <div id="altd{{ i.id }}" style="display:none">
+                <input type="date" name="proposed_date" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+            </div>
+            <textarea name="comment" rows="2" placeholder="Commentaire (optionnel)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></textarea>
+            <button type="submit" class="btn btn-primary btn-sm" style="width:100%">📤 Envoyer ma réponse</button>
+        </form>
+    </div>
     {% endif %}
-    {% if i.client_validated %}<div style="font-size:10px;color:#2e7d32;margin-top:4px">✅ Validé le {{ i.client_validation_date }}</div>{% endif %}
+    {% if i.delivery_client_status == 'accepted' %}
+        <div style="margin-top:8px;padding:8px;background:#e8f5e9;border-radius:6px;font-size:11px;color:#2e7d32;font-weight:700">✅ Vous avez confirmé la livraison pour le {{ i.delivery_proposed_date }}</div>
+    {% elif i.delivery_client_status == 'proposed' %}
+        <div style="margin-top:8px;padding:8px;background:#fff3e0;border-radius:6px;font-size:11px;color:#b8561f">📅 Vous avez proposé une alternative : {{ i.delivery_client_proposed_date }}. En attente de confirmation.</div>
+    {% endif %}
+    
+    <!-- ÉTAPE 5 : Livré → notation 5 étoiles -->
+    {% if i.status == 'livre' and not i.rating_stars %}
+    <div style="margin-top:10px;padding:14px;background:linear-gradient(135deg,#fff8e1,#fffbf0);border:2px dashed #ffb400;border-radius:10px">
+        <div style="font-weight:700;color:#b8860b;margin-bottom:6px">⭐ Merci d'évaluer le service !</div>
+        <div style="font-size:11px;color:#666;margin-bottom:8px">{% if i.delivery_bon_ref %}Bon de livraison : <code>{{ i.delivery_bon_ref }}</code> · {% endif %}Votre retour nous aide à nous améliorer.</div>
+        <form method="post" action="/portail/intervention/{{ i.id }}/rate">
+            <div class="star-rate" id="st{{ i.id }}" onmouseleave="rateLeave({{ i.id }})">
+                {% for n in [1,2,3,4,5] %}
+                <span onmouseover="rateHover({{ i.id }}, {{ n }})" onclick="rateSet({{ i.id }}, {{ n }})">★</span>
+                {% endfor %}
+            </div>
+            <input type="hidden" name="stars" id="stv{{ i.id }}" value="5">
+            <textarea name="comment" rows="2" placeholder="Votre commentaire (optionnel)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;margin-top:6px"></textarea>
+            <button type="submit" class="btn btn-sm" style="background:#ffb400;color:#fff;margin-top:6px;font-weight:700">⭐ Envoyer mon évaluation</button>
+        </form>
+    </div>
+    {% endif %}
+    {% if i.rating_stars %}
+    <div style="margin-top:10px;padding:10px;background:#e8f5e9;border-radius:8px">
+        <div style="font-weight:700;color:#2e7d32">✅ Vous avez donné {{ i.rating_stars }}/5 étoile(s)</div>
+        {% if i.rating_comment %}<div style="font-size:11px;color:#666;margin-top:4px;font-style:italic">« {{ i.rating_comment }} »</div>{% endif %}
+    </div>
+    {% endif %}
     
     {% if i.daily_reports %}
     <details style="margin-top:6px"><summary style="font-size:11px;color:#1A7A6D;cursor:pointer;font-weight:600">📋 Suivi d'avancement ({{ i.daily_reports|length }} rapport(s))</summary>
@@ -1490,6 +1653,26 @@ function captureGPS() {
 </div></div>
 {% endfor %}
 {% if not interventions %}<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">Aucune intervention</div></div>{% endif %}
+<script>
+function rateHover(id, n){
+    var stars = document.getElementById('st'+id).querySelectorAll('span');
+    for(var i=0;i<stars.length;i++){ stars[i].className = (i < n) ? 'h' : ''; }
+}
+function rateLeave(id){
+    var v = parseInt(document.getElementById('stv'+id).value) || 5;
+    var stars = document.getElementById('st'+id).querySelectorAll('span');
+    for(var i=0;i<stars.length;i++){ stars[i].className = (i < v) ? 'on' : ''; }
+}
+function rateSet(id, n){
+    document.getElementById('stv'+id).value = n;
+    rateLeave(id);
+}
+// Init all with 5 stars selected
+document.querySelectorAll('.star-rate').forEach(function(el){
+    var id = el.id.substring(2);
+    rateLeave(id);
+});
+</script>
 
 {% elif page == 'portail_planning' %}
 <div style="background:#1A7A6D;color:#fff;padding:12px 20px;margin:-20px -20px 20px;border-radius:0 0 12px 12px">
@@ -1602,6 +1785,224 @@ function captureGPS() {
 <button type="submit" class="btn btn-primary" style="border-radius:20px;padding:10px 16px">📤</button>
 </form>
 
+{% elif page == 'controle_qualite' %}
+<div class="page-header"><h1>🔍 Contrôle qualité</h1>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+<a href="/gestion-projets/livraisons" class="btn btn-outline btn-sm">📦 Livraisons</a>
+<a href="/interventions" class="btn btn-outline btn-sm">← Interventions</a>
+</div></div>
+
+<div style="background:#e3f2fd;padding:12px 16px;border-left:4px solid #1a7a6d;border-radius:8px;margin-bottom:14px;font-size:13px">
+    <strong>💡 Rôle du coordinateur :</strong> Après que le technicien a déclaré les travaux terminés, vérifier la qualité de l'exécution sur site, joindre des photos, puis valider ou refuser.
+</div>
+
+<h3 style="font-size:14px;color:#1a3a5c;margin:14px 0 8px">⏳ À contrôler ({{ to_check|length }})</h3>
+{% if to_check %}
+{% for i in to_check %}
+<div class="card" style="margin-bottom:12px;border-left:4px solid #e8672a">
+<div class="card-body" style="padding:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:260px">
+            <div style="font-size:14px;font-weight:700;color:#1a3a5c">{{ i.title }}</div>
+            <div style="font-size:11px;color:#888;margin-top:2px">
+                <code>{{ i.reference }}</code> · 🏢 <strong>{{ i.client_name or i.client_name_full or '-' }}</strong>
+                {% if i.client_code %} · <span style="font-family:monospace;color:#1a7a6d">{{ i.client_code }}</span>{% endif %}
+                · 🔧 {{ i.tech_name_full or i.technician_name or '-' }}
+                {% if i.end_work_at %} · ⏱️ Terminé {{ i.end_work_at[:16] }}{% endif %}
+            </div>
+            {% if i.rapport %}<div style="margin-top:6px;padding:8px;background:#f8faf9;border-radius:6px;font-size:11px">📝 {{ i.rapport[:150] }}...</div>{% endif %}
+        </div>
+        <div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('cq{{ i.id }}').style.display='block'">🔍 Contrôler</button>
+        </div>
+    </div>
+    
+    <!-- Form CQ (hidden by default) -->
+    <form method="post" action="/interventions/{{ i.id }}/quality" id="cq{{ i.id }}" enctype="multipart/form-data"
+          style="display:none;margin-top:10px;padding:12px;background:#f0f7f7;border-radius:8px">
+        <div class="form-group"><label style="font-weight:700">Décision</label>
+            <div style="display:flex;gap:14px">
+                <label style="display:flex;gap:4px;align-items:center;cursor:pointer"><input type="radio" name="cq_status" value="passed" checked> <span style="color:#2e7d32;font-weight:700">✅ Validé</span></label>
+                <label style="display:flex;gap:4px;align-items:center;cursor:pointer"><input type="radio" name="cq_status" value="failed"> <span style="color:#c53030;font-weight:700">❌ Refusé (retour tech)</span></label>
+            </div>
+        </div>
+        <div class="form-group"><label>Observations *</label>
+            <textarea name="quality_report" rows="3" required placeholder="État du site, finitions, points à signaler..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></textarea>
+        </div>
+        <div class="form-group"><label>📸 Photos (optionnel)</label>
+            <input type="file" name="photos" accept="image/*" multiple capture="environment" style="padding:6px;border:1.5px dashed #ccc;border-radius:6px;width:100%">
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('cq{{ i.id }}').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer le CQ</button>
+        </div>
+    </form>
+</div></div>
+{% endfor %}
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#999">
+    <div style="font-size:36px;margin-bottom:6px">✅</div>
+    Aucune intervention en attente de contrôle qualité
+</div></div>
+{% endif %}
+
+{% if done %}
+<h3 style="font-size:14px;color:#1a3a5c;margin:20px 0 8px">📋 Historique récent</h3>
+<div class="card"><div class="card-body" style="padding:0">
+<div class="table-wrap"><table style="font-size:12px">
+<thead><tr style="background:#f5f7fa"><th>Réf</th><th>Client</th><th>Titre</th><th>CQ</th><th>Par</th><th>Date</th></tr></thead>
+<tbody>{% for i in done %}<tr style="border-bottom:1px solid #f0f0f0">
+<td><code>{{ i.reference }}</code></td>
+<td>{{ i.client_name or i.client_name_full }}</td>
+<td>{{ i.title[:40] }}</td>
+<td><span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;{% if i.cq_status == 'passed' %}background:#e8f5e9;color:#2e7d32{% else %}background:#fde8e8;color:#c53030{% endif %}">
+    {% if i.cq_status == 'passed' %}✅ Validé{% else %}❌ Refusé{% endif %}
+</span></td>
+<td>{{ i.cq_by_name or '-' }}</td>
+<td style="font-size:11px;color:#888">{{ i.cq_at[:16] if i.cq_at else '-' }}</td>
+</tr>{% endfor %}</tbody></table></div></div></div>
+{% endif %}
+
+
+{% elif page == 'gestion_livraisons' %}
+<div class="page-header"><h1>📦 Gestion des livraisons</h1>
+<a href="/gestion-projets/controle-qualite" class="btn btn-outline btn-sm">🔍 Contrôle qualité</a></div>
+
+<!-- Tabs -->
+<div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap">
+<button class="btn btn-sm" style="background:#e8672a;color:#fff" onclick="showTab('tab1')">📅 Date à proposer ({{ ready|length }})</button>
+<button class="btn btn-outline btn-sm" onclick="showTab('tab2')">⏳ En attente client ({{ waiting|length }})</button>
+<button class="btn btn-outline btn-sm" onclick="showTab('tab3')">🚚 Prêtes à livrer ({{ ready_deliver|length }})</button>
+<button class="btn btn-outline btn-sm" onclick="showTab('tab4')">✅ Livrées ({{ delivered|length }})</button>
+</div>
+
+<!-- Tab 1: Propose date -->
+<div id="tab1" class="tab-content">
+<div style="background:#fff3e0;padding:10px 14px;border-left:4px solid #e8672a;border-radius:8px;margin-bottom:12px;font-size:12px">CQ validé. Proposer une date de livraison au client.</div>
+{% if ready %}{% for i in ready %}
+<div class="card" style="margin-bottom:10px"><div class="card-body" style="padding:14px">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:240px">
+            <strong>{{ i.title }}</strong> <code style="font-size:11px">{{ i.reference }}</code>
+            <div style="font-size:11px;color:#888">🏢 {{ i.client_name or i.client_name_full }} · CQ validé {{ i.cq_at[:10] if i.cq_at else '' }}</div>
+        </div>
+        <form method="post" action="/interventions/{{ i.id }}/propose-delivery" style="display:flex;gap:6px;align-items:center">
+            <input type="date" name="delivery_date" required style="padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+            <button type="submit" class="btn btn-primary btn-sm">📅 Proposer</button>
+        </form>
+    </div>
+</div></div>
+{% endfor %}{% else %}<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#999">Aucune intervention à programmer</div></div>{% endif %}
+</div>
+
+<!-- Tab 2: Waiting -->
+<div id="tab2" class="tab-content" style="display:none">
+{% if waiting %}{% for i in waiting %}
+<div class="card" style="margin-bottom:10px"><div class="card-body" style="padding:14px">
+    <strong>{{ i.title }}</strong> <code style="font-size:11px">{{ i.reference }}</code>
+    <div style="font-size:11px;color:#888;margin-top:2px">🏢 {{ i.client_name or i.client_name_full }}</div>
+    <div style="margin-top:8px;padding:8px;background:{% if i.delivery_client_status == 'proposed' %}#fff3e0{% else %}#e3f2fd{% endif %};border-radius:6px;font-size:12px">
+        📅 <strong>Date proposée :</strong> {{ i.delivery_proposed_date }}
+        {% if i.delivery_client_status == 'proposed' %}
+            <div style="margin-top:4px;color:#b8561f;font-weight:700">⚠️ Le client propose plutôt le {{ i.delivery_client_proposed_date }}</div>
+            {% if i.delivery_client_comment %}<div style="font-size:11px;font-style:italic;color:#666;margin-top:2px">« {{ i.delivery_client_comment }} »</div>{% endif %}
+            <form method="post" action="/interventions/{{ i.id }}/propose-delivery" style="display:inline;margin-top:6px">
+                <input type="hidden" name="delivery_date" value="{{ i.delivery_client_proposed_date }}">
+                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅ Accepter date client</button>
+            </form>
+        {% else %}
+            <div style="color:#666">⏳ En attente de la réponse client</div>
+        {% endif %}
+    </div>
+</div></div>
+{% endfor %}{% else %}<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#999">Aucune attente client</div></div>{% endif %}
+</div>
+
+<!-- Tab 3: Ready to deliver -->
+<div id="tab3" class="tab-content" style="display:none">
+<div style="background:#e8f5e9;padding:10px 14px;border-left:4px solid #2e7d32;border-radius:8px;margin-bottom:12px;font-size:12px">Date acceptée par le client. Procéder à la livraison avec signatures (coordinateur + client + responsable technique).</div>
+{% if ready_deliver %}{% for i in ready_deliver %}
+<div class="card" style="margin-bottom:10px"><div class="card-body" style="padding:14px">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:240px">
+            <strong>{{ i.title }}</strong> <code style="font-size:11px">{{ i.reference }}</code>
+            <div style="font-size:11px;color:#888">🏢 {{ i.client_name or i.client_name_full }} · 📅 Livraison {{ i.delivery_proposed_date }}</div>
+        </div>
+        <a href="/interventions/{{ i.id }}/fiche" class="btn btn-primary btn-sm">📦 Procéder à la livraison</a>
+    </div>
+</div></div>
+{% endfor %}{% else %}<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#999">Aucune intervention prête à livrer</div></div>{% endif %}
+</div>
+
+<!-- Tab 4: Delivered -->
+<div id="tab4" class="tab-content" style="display:none">
+{% if delivered %}<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><table style="font-size:12px">
+<thead><tr style="background:#f5f7fa"><th>Réf</th><th>Client</th><th>Titre</th><th>Bon</th><th>Livré le</th><th>⭐</th></tr></thead>
+<tbody>{% for i in delivered %}<tr style="border-bottom:1px solid #f0f0f0">
+<td><code>{{ i.reference }}</code></td>
+<td>{{ i.client_name or i.client_name_full }}</td>
+<td>{{ i.title[:40] }}</td>
+<td style="font-family:monospace;color:#1a7a6d">{{ i.delivery_bon_ref or '-' }}</td>
+<td>{{ i.delivered_at[:16] if i.delivered_at else '-' }}</td>
+<td>{% if i.rating_stars %}{{ i.rating_stars }}/5 ★{% else %}<span style="color:#bbb">—</span>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div></div></div>{% else %}<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#999">Aucune livraison effectuée</div></div>{% endif %}
+</div>
+<script>
+function showTab(id){
+    document.querySelectorAll('.tab-content').forEach(function(el){el.style.display='none'});
+    document.getElementById(id).style.display='block';
+    document.querySelectorAll('.page-header + div button').forEach(function(b){ b.classList.remove('btn-primary'); b.classList.add('btn-outline'); b.style.background=''; b.style.color=''; });
+    event.target.classList.add('btn-primary'); event.target.classList.remove('btn-outline');
+    event.target.style.background='#e8672a'; event.target.style.color='#fff';
+}
+</script>
+
+
+{% elif page == 'admin_client_messages' %}
+<div class="page-header">
+    <h1>💬 Messages — {{ req.title }}</h1>
+    <a href="/admin/client-requests" class="btn btn-outline btn-sm">← Retour aux demandes</a>
+</div>
+
+<div class="card" style="margin-bottom:12px">
+<div class="card-body" style="padding:12px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;font-size:12px">
+        <div><strong style="color:#888;font-size:10px">CLIENT</strong><br>🏢 {{ req.client_name_full or '-' }}</div>
+        <div><strong style="color:#888;font-size:10px">TYPE</strong><br>{{ req.type }}</div>
+        <div><strong style="color:#888;font-size:10px">PRIORITÉ</strong><br>
+            <span style="padding:2px 8px;border-radius:8px;font-size:10px;{% if req.priority=='urgente' %}background:#fde8e8;color:#c53030{% elif req.priority=='haute' %}background:#fff3e0;color:#e8672a{% else %}background:#f0f4f8;color:#555{% endif %}">{{ req.priority }}</span>
+        </div>
+        <div><strong style="color:#888;font-size:10px">STATUT</strong><br>{{ req.status }}</div>
+    </div>
+    {% if req.description %}<div style="margin-top:10px;padding:8px;background:#f8faf9;border-radius:6px;font-size:12px">📝 {{ req.description }}</div>{% endif %}
+</div></div>
+
+<div style="background:#fff3e0;padding:8px 12px;border-left:3px solid #e8672a;border-radius:8px;margin-bottom:10px;font-size:11px">
+    🔒 <strong>Accès restreint</strong> : seuls les commerciaux, admins et coordinateurs peuvent voir et répondre aux messages clients.
+</div>
+
+<div class="card"><div class="card-body" style="padding:14px;min-height:300px;max-height:500px;overflow-y:auto;background:#ece5dd">
+{% if messages %}
+{% for m in messages %}
+<div style="display:flex;{% if m.sender_type == 'staff' %}justify-content:flex-end{% else %}justify-content:flex-start{% endif %};margin-bottom:8px">
+    <div style="max-width:70%;padding:8px 12px;border-radius:10px;{% if m.sender_type == 'staff' %}background:#dcf8c6;border-top-right-radius:2px{% else %}background:#fff;border-top-left-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,0.1){% endif %}">
+        <div style="font-size:10px;font-weight:700;color:{% if m.sender_type == 'staff' %}#1a7a6d{% else %}#e8672a{% endif %};margin-bottom:3px">
+            {% if m.sender_type == 'staff' %}🏢 {{ m.sender_name or 'Staff' }}{% else %}👤 Client{% endif %}
+        </div>
+        <div style="font-size:13px;color:#333;white-space:pre-wrap">{{ m.message }}</div>
+        <div style="font-size:9px;color:#888;margin-top:4px;text-align:right">{{ m.created_at[:16] if m.created_at else '' }}</div>
+    </div>
+</div>
+{% endfor %}
+{% else %}<div style="text-align:center;color:#888;padding:40px;font-size:13px">Aucun message pour cette demande</div>{% endif %}
+</div></div>
+
+<form method="post" style="display:flex;gap:8px;margin-top:10px">
+    <textarea name="message" rows="2" placeholder="Tapez votre réponse au client..." required style="flex:1;padding:10px;border:1.5px solid #ddd;border-radius:8px;font-size:13px"></textarea>
+    <button type="submit" class="btn btn-primary" style="align-self:stretch">📤 Envoyer</button>
+</form>
+
+
 {% elif page == 'client_requests' %}
 <div class="page-header"><h1>📩 Demandes clients</h1></div>
 {% if requests_list %}
@@ -1625,7 +2026,9 @@ function captureGPS() {
 <input type="date" name="scheduled_date" style="width:100%;padding:4px;margin-bottom:4px;border:1px solid #ddd;border-radius:4px;font-size:11px" value="{{ r.created_at[:10] if r.created_at else '' }}">
 <button type="submit" class="btn btn-primary btn-sm" style="width:100%;font-size:10px">✅ Convertir en intervention</button>
 </form></details>
-{% else %}✅{% endif %}</td>
+{% else %}✅{% endif %}
+<a href="/admin/client-requests/{{ r.id }}/messages" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:10px;margin-top:4px">💬 Messages</a>
+</td>
 </tr>{% endfor %}</tbody></table></div></div></div>
 {% else %}<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">Aucune demande</div></div>{% endif %}
 

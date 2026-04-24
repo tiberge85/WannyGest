@@ -281,6 +281,8 @@ from models import migrate_v47
 migrate_v47()
 from models import migrate_v48
 migrate_v48()
+from models import migrate_v49
+migrate_v49()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -302,7 +304,12 @@ try:
                    'envoyer', 'logs', 'concierge', 'concierge_edit',
                    'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit',
                    'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis',
-                   'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking'])
+                   'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking',
+                   # v47/v48/v49 additions
+                   'grand_livre', 'balance', 'caisse_multi', 'gps_itineraire',
+                   'virement_demande', 'virement_valide',
+                   'client_requests_view', 'client_users_approve',
+                   'controle_qualite', 'livraison_intervention'])
     from models import get_role_permissions as _grp
     if not _grp('concierge'):
         update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
@@ -327,17 +334,69 @@ ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin',
                    'envoyer', 'logs', 'concierge', 'concierge_edit',
                    'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit',
                    'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis',
-                   'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking']
+                   'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking',
+                   # v47/v48 permissions
+                   'grand_livre', 'balance', 'caisse_multi', 'gps_itineraire',
+                   'virement_demande', 'virement_valide',
+                   'client_requests_view', 'client_users_approve',
+                   # v17 workflow intervention
+                   'controle_qualite', 'livraison_intervention']
 
 # Permission categories for admin display
 PERM_CATEGORIES = {
-    'Comptabilité': [('comptabilite', 'Lecture'), ('comptabilite_edit', 'Modification'), ('convertir_devis', 'Convertir devis'), ('caisse_sortie', 'Caisse')],
-    'Commercial / CRM': [('clients', 'Clients lecture'), ('clients_edit', 'Clients modification'), ('proforma', 'Devis lecture'), ('proforma_edit', 'Devis modification'), ('visites', 'Visites lecture'), ('visites_edit', 'Visites modification')],
+    'Comptabilité': [
+        ('comptabilite', 'Comptabilité lecture'),
+        ('comptabilite_edit', 'Comptabilité modification'),
+        ('convertir_devis', 'Convertir devis'),
+        ('caisse_sortie', 'Caisse (entrées/sorties)'),
+        ('caisse_multi', 'Multi-caisses'),
+        ('grand_livre', 'Grand Livre'),
+        ('balance', 'Balance comptable'),
+        ('virement_demande', 'Demander virement banque→caisse'),
+        ('virement_valide', 'Valider virement (DG uniquement)'),
+    ],
+    'Commercial / CRM': [
+        ('clients', 'Clients lecture'),
+        ('clients_edit', 'Clients modification'),
+        ('proforma', 'Devis lecture'),
+        ('proforma_edit', 'Devis modification'),
+        ('visites', 'Visites lecture'),
+        ('visites_edit', 'Visites modification'),
+    ],
+    'Portail client': [
+        ('client_requests_view', 'Voir demandes clients'),
+        ('client_users_approve', 'Valider comptes clients'),
+    ],
     'Concierge': [('concierge', 'Consultation'), ('concierge_edit', 'Création/Modification')],
-    'Technique': [('centre_technique', 'Centre technique'), ('centre_technique_edit', 'Centre tech. modif'), ('traitement', 'Traitement/DPCI')],
-    'Projets': [('resp_projet', 'Resp. projet lecture'), ('resp_projet_edit', 'Resp. projet modif'), ('projets', 'Projets info')],
-    'RH & Admin': [('fichiers', 'Employés/RH'), ('contrats', 'Contrats'), ('envoyer', 'Envoi paie'), ('logs', 'Logs')],
-    'Général': [('dashboard', 'Dashboard'), ('dashboard_general', 'Dashboard général'), ('rapports_j', 'Rapports journaliers'), ('chat', 'Chat'), ('informatique', 'Informatique'), ('moyens_generaux', 'Stock lecture'), ('moyens_generaux_edit', 'Stock modification')],
+    'Technique': [
+        ('centre_technique', 'Centre technique'),
+        ('centre_technique_edit', 'Centre tech. modif'),
+        ('traitement', 'Traitement/DPCI'),
+        ('gps_itineraire', 'GPS / Itinéraire'),
+        ('controle_qualite', 'Contrôle qualité'),
+        ('livraison_intervention', 'Livraison chantier'),
+    ],
+    'Projets': [
+        ('resp_projet', 'Resp. projet lecture'),
+        ('resp_projet_edit', 'Resp. projet modif'),
+        ('projets', 'Projets info'),
+    ],
+    'RH & Admin': [
+        ('fichiers', 'Employés/RH'),
+        ('contrats', 'Contrats'),
+        ('envoyer', 'Envoi paie'),
+        ('logs', 'Logs'),
+    ],
+    'Général': [
+        ('dashboard', 'Dashboard'),
+        ('dashboard_general', 'Dashboard général'),
+        ('rapports_j', 'Rapports journaliers'),
+        ('chat', 'Chat'),
+        ('informatique', 'Informatique'),
+        ('moyens_generaux', 'Stock lecture'),
+        ('moyens_generaux_edit', 'Stock modification'),
+        ('tracking', 'Tracking GPS véhicules'),
+    ],
     'Administration': [('admin', 'Admin système')],
 }
 
@@ -413,6 +472,17 @@ def inject_globals():
                     try:
                         ctx['pending_virements_count'] = _c.execute("SELECT COUNT(*) FROM caisse_virements WHERE status='en_attente'").fetchone()[0]
                     except: ctx['pending_virements_count'] = 0
+                    # Contrôle qualité en attente
+                    try:
+                        ctx['pending_cq_count'] = _c.execute("SELECT COUNT(*) FROM interventions WHERE status='travaux_termines' AND COALESCE(cq_status,'')=''").fetchone()[0]
+                    except: ctx['pending_cq_count'] = 0
+                    # Livraisons à programmer / en attente
+                    try:
+                        ctx['pending_deliv_count'] = _c.execute("""SELECT COUNT(*) FROM interventions WHERE
+                            (cq_status='passed' AND COALESCE(delivery_proposed_date,'')='') OR
+                            (delivery_client_status='accepted' AND status!='livre') OR
+                            (delivery_client_status='proposed')""").fetchone()[0]
+                    except: ctx['pending_deliv_count'] = 0
                     _c.close()
                 except: pass
             # Weekly champion
@@ -1274,14 +1344,23 @@ def clients_edit(cid):
         user = get_user_by_id(session['user_id'])
         log_audit(session['user_id'], user['full_name'] if user else '?', 'clients', cid, 'update', 'name', client['name'], request.form['name'])
         flash("Client modifié", "success")
+        # Preserve return page (from hidden field or referrer)
+        return_to = request.form.get('return_to') or request.referrer
+        if return_to and request.host in (return_to or ''):
+            return redirect(return_to)
         return redirect(url_for('clients_page'))
-    return render_template('edit_pages.html', page='clients', client=client)
+    return render_template('edit_pages.html', page='clients', client=client, return_to=request.args.get('return_to') or request.referrer or '')
 
 @app.route('/clients/delete/<int:cid>')
 @permission_required('clients_edit')
 def clients_delete(cid):
     delete_client(cid)
     flash("Client supprimé", "success")
+    # Return to the referrer page (preserves search, pagination, tab)
+    ref = request.referrer or ''
+    # Only use referrer if it's from our own app, otherwise fallback
+    if ref and request.host in ref:
+        return redirect(ref)
     return redirect(url_for('clients_page'))
 
 
@@ -1613,6 +1692,9 @@ def contrats_edit(cid):
 def contrats_delete(cid):
     delete_contract(cid)
     flash("Contrat supprimé", "success")
+    ref = request.referrer or ''
+    if ref and request.host in ref:
+        return redirect(ref)
     return redirect(url_for('contrats_page'))
 
 
@@ -5036,10 +5118,55 @@ def portail_messages(rid):
     conn.close()
     return render_template('extra_pages.html', page='portail_messages', req=dict(req), messages=messages)
 
-# === Admin: manage client requests ===
+@app.route('/admin/client-requests/<int:rid>/messages', methods=['GET','POST'])
+@login_required
+def admin_client_request_messages(rid):
+    """Voir et répondre aux messages d'un client — accès commercial/admin/coordinateur/DG uniquement."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','commercial','coordinateur','resp_projet'):
+        flash("Accès réservé aux commerciaux, admin et coordinateurs", "error")
+        return redirect(url_for('dashboard'))
+    conn = _gdb()
+    req = conn.execute(
+        "SELECT cr.*, c.name as client_name_full FROM client_requests cr LEFT JOIN clients c ON cr.client_id=c.id WHERE cr.id=?", (rid,)).fetchone()
+    if not req:
+        flash("Demande introuvable", "error"); conn.close()
+        return redirect('/admin/client-requests')
+    req = dict(req)
+    if request.method == 'POST':
+        msg = request.form.get('message', '').strip()
+        if msg:
+            conn.execute("""INSERT INTO client_messages (request_id, client_user_id, sender_type, sender_id, sender_name, message)
+                VALUES (?,?,?,?,?,?)""",
+                (rid, 0, 'staff', session['user_id'], user['full_name'], msg))
+            # Notify the client
+            try:
+                cu = conn.execute("SELECT id FROM client_users WHERE client_id=? AND is_active=1", (req.get('client_id'),)).fetchall()
+                for c in cu:
+                    conn.execute("""INSERT INTO notifications (client_user_id, type, title, message, link)
+                        VALUES (?,?,?,?,?)""",
+                        (c['id'], 'client_message',
+                         f"💬 Nouveau message — {req.get('title','')[:40]}",
+                         f"{user['full_name']} a répondu à votre demande",
+                         f"/portail/messages/{rid}"))
+            except: pass
+            conn.commit()
+    messages = [dict(r) for r in conn.execute(
+        "SELECT * FROM client_messages WHERE request_id=? ORDER BY created_at ASC", (rid,)).fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='admin_client_messages',
+                           req=req, messages=messages)
+
+
+# === Admin / Commercial / Coordinateur: manage client requests ===
 @app.route('/admin/client-requests')
-@permission_required('admin')
+@login_required
 def admin_client_requests():
+    # Seuls admin, commerciaux, coordinateurs peuvent voir/répondre aux demandes client
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','commercial','coordinateur','resp_projet'):
+        flash("Accès réservé aux commerciaux, admin et coordinateurs", "error")
+        return redirect(url_for('dashboard'))
     conn = _gdb()
     requests_list = [dict(r) for r in conn.execute(
         "SELECT cr.*, c.name as client_name FROM client_requests cr LEFT JOIN clients c ON cr.client_id=c.id ORDER BY cr.created_at DESC").fetchall()]
@@ -5401,10 +5528,14 @@ def intervention_file(filename):
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'interventions'), filename)
 
 @app.route('/interventions/<int:iid>/quality', methods=['POST'])
-@login_required
+@permission_required('controle_qualite')
 def intervention_quality(iid):
-    """Coordinateur fait le contrôle qualité."""
+    """ÉTAPE 2 : Coordinateur fait le contrôle qualité."""
     conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter: flash("Intervention introuvable","error"); conn.close(); return redirect('/interventions')
+    inter = dict(inter)
+    
     # Save quality photos
     img_names = []
     files = request.files.getlist('photos')
@@ -5418,53 +5549,246 @@ def intervention_quality(iid):
                 f.save(os.path.join(fdir, fname))
                 img_names.append(fname)
     
-    conn.execute("""UPDATE interventions SET quality_report=?, quality_date=?, quality_by=?, status='controle_qualite' WHERE id=?""",
-        (request.form.get('quality_report','') + ('\n📸 ' + ','.join(img_names) if img_names else ''),
-         datetime.now().strftime('%Y-%m-%d'), session['user_id'], iid))
+    cq_status = request.form.get('cq_status', 'passed')  # passed | failed
+    cq_comments = request.form.get('quality_report', '')
+    user = get_user_by_id(session['user_id'])
+    actor_name = user['full_name'] if user else '?'
+    actor_role = user['role'] if user else ''
+    now_iso = datetime.now().isoformat()
+    
+    conn.execute("""UPDATE interventions SET 
+        quality_report=?, quality_date=?, quality_by=?,
+        cq_status=?, cq_at=?, cq_by=?, cq_by_name=?, cq_comments=?, cq_photos=?,
+        status=? WHERE id=?""",
+        (cq_comments + ('\n📸 ' + ','.join(img_names) if img_names else ''),
+         datetime.now().strftime('%Y-%m-%d'), session['user_id'],
+         cq_status, now_iso, session['user_id'], actor_name, cq_comments, json.dumps(img_names),
+         'controle_qualite' if cq_status == 'passed' else 'en_cours',  # si CQ failed, retour à en_cours
+         iid))
+    
+    _timeline_add(conn, iid, 'cq', f"🔍 Contrôle qualité : {cq_status.upper()}",
+        cq_comments[:200], session['user_id'], actor_name, actor_role)
+    
+    if cq_status == 'passed':
+        _notify_client(conn, iid, f"🔍 Contrôle qualité validé — {inter['reference']}",
+            f"Le contrôle qualité de « {inter['title']} » est validé. Nous allons vous proposer une date de livraison.")
+        # Notifier techs pour info
+        if inter.get('technician_id'):
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                VALUES (?,?,?,?,?)""",
+                (inter['technician_id'], 'intervention', f"✅ CQ validé — {inter['reference']}",
+                 f"Le coordinateur a validé le contrôle qualité. Prochaine étape : proposition de date de livraison.",
+                 f"/interventions/{iid}/fiche"))
+    else:
+        # CQ failed → retour au technicien
+        if inter.get('technician_id'):
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                VALUES (?,?,?,?,?)""",
+                (inter['technician_id'], 'intervention', f"⚠️ CQ refusé — reprise nécessaire — {inter['reference']}",
+                 f"Le coordinateur a refusé le contrôle qualité. Motif : {cq_comments[:100]}",
+                 f"/interventions/{iid}/fiche"))
+    
     conn.commit(); conn.close()
-    flash("Contrôle qualité enregistré", "success")
-    return redirect(request.referrer or '/interventions')
+    flash(f"Contrôle qualité {'validé ✅' if cq_status=='passed' else 'refusé ❌ — intervention remise en cours'}", "success" if cq_status == 'passed' else "warning")
+    return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
+
+@app.route('/interventions/<int:iid>/propose-delivery', methods=['POST'])
+@permission_required('controle_qualite')
+def intervention_propose_delivery(iid):
+    """ÉTAPE 3 : Coordinateur/Admin propose une date de livraison au client."""
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter: flash("Intervention introuvable","error"); conn.close(); return redirect('/interventions')
+    inter = dict(inter)
+    
+    proposed = request.form.get('delivery_date', '')
+    if not proposed:
+        flash("Date invalide","error"); conn.close(); return redirect(request.referrer or '/interventions')
+    
+    user = get_user_by_id(session['user_id'])
+    actor_name = user['full_name'] if user else '?'
+    actor_role = user['role'] if user else ''
+    now_iso = datetime.now().isoformat()
+    
+    conn.execute("""UPDATE interventions SET
+        delivery_proposed_date=?, delivery_proposed_at=?, delivery_proposed_by=?,
+        delivery_client_status='pending' WHERE id=?""",
+        (proposed, now_iso, session['user_id'], iid))
+    
+    _timeline_add(conn, iid, 'propose_delivery',
+        f"📅 Date de livraison proposée : {proposed}",
+        f"Proposée par {actor_name}", session['user_id'], actor_name, actor_role)
+    
+    _notify_client(conn, iid, f"📅 Date de livraison proposée — {inter['reference']}",
+        f"Nous proposons la date du {proposed} pour la livraison de « {inter['title']} ». Merci de valider ou proposer une autre date depuis votre portail.")
+    
+    conn.commit(); conn.close()
+    flash(f"Date de livraison proposée au client : {proposed}", "success")
+    return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
+
+@app.route('/portail/intervention/<int:iid>/delivery-response', methods=['POST'])
+@portail_required
+def portail_delivery_response(iid):
+    """ÉTAPE 4 : Client valide ou propose une autre date."""
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=? AND client_id=?",
+                         (iid, session['client_id'])).fetchone()
+    if not inter: flash("Intervention introuvable","error"); conn.close(); return redirect('/portail/interventions')
+    inter = dict(inter)
+    
+    response = request.form.get('response', '')  # 'accept' | 'propose'
+    comment = request.form.get('comment', '')
+    proposed_date = request.form.get('proposed_date', '')
+    now_iso = datetime.now().isoformat()
+    client_name = session.get('client_name', 'Client')
+    
+    if response == 'accept':
+        conn.execute("""UPDATE interventions SET
+            delivery_client_status='accepted',
+            delivery_client_comment=?,
+            delivery_client_answered_at=? WHERE id=?""",
+            (comment, now_iso, iid))
+        _timeline_add(conn, iid, 'client_accept_delivery',
+            "✅ Client a accepté la date de livraison",
+            f"{client_name} a confirmé la date du {inter.get('delivery_proposed_date','')}. {comment[:150]}")
+        # Notifier coordinateurs
+        for u in conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','resp_projet','coordinateur') AND is_active=1").fetchall():
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                VALUES (?,?,?,?,?)""",
+                (u['id'], 'intervention',
+                 f"✅ Client a validé la date — {inter['reference']}",
+                 f"{client_name} accepte la livraison le {inter.get('delivery_proposed_date','')}",
+                 f"/interventions/{iid}/fiche"))
+        flash("✅ Date de livraison validée. Nos équipes vous contacteront avant la date convenue.", "success")
+    else:
+        # Propose une autre date
+        if not proposed_date:
+            flash("Veuillez indiquer une date alternative","error"); conn.close()
+            return redirect('/portail/interventions')
+        conn.execute("""UPDATE interventions SET
+            delivery_client_status='proposed',
+            delivery_client_proposed_date=?,
+            delivery_client_comment=?,
+            delivery_client_answered_at=? WHERE id=?""",
+            (proposed_date, comment, now_iso, iid))
+        _timeline_add(conn, iid, 'client_propose_delivery',
+            f"📅 Client propose une autre date : {proposed_date}",
+            f"{client_name} : {comment[:150]}")
+        for u in conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','resp_projet','coordinateur') AND is_active=1").fetchall():
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                VALUES (?,?,?,?,?)""",
+                (u['id'], 'intervention',
+                 f"📅 Client propose une autre date — {inter['reference']}",
+                 f"{client_name} propose le {proposed_date} au lieu du {inter.get('delivery_proposed_date','')}. {comment[:80]}",
+                 f"/interventions/{iid}/fiche"))
+        flash(f"Votre proposition de date ({proposed_date}) a été transmise à nos équipes.", "success")
+    
+    conn.commit(); conn.close()
+    return redirect('/portail/interventions')
+
 
 @app.route('/interventions/<int:iid>/deliver', methods=['POST'])
-@login_required
+@permission_required('livraison_intervention')
 def intervention_deliver(iid):
-    """Livraison du site au client."""
+    """ÉTAPE 5 : Livraison du site avec 3 signatures (coordinateur, client, tech)."""
     conn = _gdb()
-    conn.execute("""UPDATE interventions SET status='livre', delivery_date=?, delivery_note=?, end_date=? WHERE id=?""",
-        (datetime.now().strftime('%Y-%m-%d'), request.form.get('delivery_note',''),
-         datetime.now().strftime('%Y-%m-%d'), iid))
-    
     inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
-    if inter:
-        # Auto-billing
-        if inter['is_billable'] and (inter['total_cost'] or 0) > 0:
+    if not inter: flash("Intervention introuvable","error"); conn.close(); return redirect('/interventions')
+    inter = dict(inter)
+    
+    now_iso = datetime.now().isoformat()
+    bon_ref = f"BL-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    user = get_user_by_id(session['user_id'])
+    actor_name = user['full_name'] if user else '?'
+    actor_role = user['role'] if user else ''
+    
+    conn.execute("""UPDATE interventions SET status='livre',
+        delivery_date=?, delivery_note=?, end_date=?,
+        delivered_at=?, delivered_by=?,
+        delivery_bon_ref=?,
+        delivery_signed_client=?,
+        delivery_signed_coordinator=?,
+        delivery_signed_technicien=?
+        WHERE id=?""",
+        (datetime.now().strftime('%Y-%m-%d'), request.form.get('delivery_note',''),
+         datetime.now().strftime('%Y-%m-%d'),
+         now_iso, session['user_id'],
+         bon_ref,
+         request.form.get('sig_client', ''),
+         request.form.get('sig_coordinator', ''),
+         request.form.get('sig_technicien', ''),
+         iid))
+    
+    _timeline_add(conn, iid, 'delivered',
+        f"📦 Site livré au client — Bon {bon_ref}",
+        f"Livré par {actor_name} en présence du client et du responsable technique",
+        session['user_id'], actor_name, actor_role)
+    
+    # Auto-billing
+    if inter.get('is_billable') and (inter.get('total_cost') or 0) > 0:
+        try:
             auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
                 f"Livraison {inter['reference']} — {inter['client_name']}",
                 '411', '706', inter['total_cost'] or 0, inter['reference'])
-        # Update linked task
-        if inter['task_id']:
-            conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
+        except: pass
+    if inter.get('task_id'):
+        try: conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
+        except: pass
+    
+    # Notifier le client — lui demander d'évaluer
+    _notify_client(conn, iid, f"📦 Chantier livré — {inter['reference']}",
+        f"Votre chantier « {inter['title']} » est livré. Bon de livraison {bon_ref}. Merci de nous laisser une note et un commentaire depuis votre portail !")
     
     conn.commit(); conn.close()
-    flash("Site livré au client", "success")
-    return redirect(request.referrer or '/interventions')
+    flash(f"Site livré — Bon de livraison {bon_ref}", "success")
+    return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
+
+@app.route('/portail/intervention/<int:iid>/rate', methods=['POST'])
+@portail_required
+def portail_rate_intervention(iid):
+    """Le client donne sa note (1-5 étoiles) + commentaire."""
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=? AND client_id=?",
+                         (iid, session['client_id'])).fetchone()
+    if not inter: flash("Intervention introuvable","error"); conn.close(); return redirect('/portail/interventions')
+    inter = dict(inter)
+    if inter.get('status') != 'livre':
+        flash("Vous ne pouvez évaluer qu'une intervention livrée","error"); conn.close()
+        return redirect('/portail/interventions')
+    
+    stars = int(request.form.get('stars', 5) or 5)
+    stars = max(1, min(5, stars))
+    comment = request.form.get('comment', '')
+    conn.execute("""UPDATE interventions SET rating_stars=?, rating_comment=?, rating_at=? WHERE id=?""",
+        (stars, comment, datetime.now().isoformat(), iid))
+    _timeline_add(conn, iid, 'rating',
+        f"⭐ Évaluation client : {stars}/5",
+        comment[:200])
+    # Notifier equipes
+    for u in conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','resp_projet','coordinateur','commercial') AND is_active=1").fetchall():
+        conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+            VALUES (?,?,?,?,?)""",
+            (u['id'], 'rating',
+             f"⭐ Note client : {stars}/5 — {inter['reference']}",
+             f"{session.get('client_name','')} a évalué le chantier. {comment[:80]}",
+             f"/interventions/{iid}/fiche"))
+    conn.commit(); conn.close()
+    flash(f"Merci pour votre évaluation ({stars}/5) !", "success")
+    return redirect('/portail/interventions')
+
 
 @app.route('/portail/intervention/<int:iid>/validate', methods=['POST'])
 @portail_required
 def portail_validate_intervention(iid):
-    """Client valide les travaux terminés."""
+    """Endpoint historique — garde pour compat."""
     conn = _gdb()
     inter = conn.execute("SELECT * FROM interventions WHERE id=? AND client_id=?", (iid, session['client_id'])).fetchone()
     if inter and inter['status'] == 'travaux_termines':
         conn.execute("UPDATE interventions SET client_validated=1, client_validation_date=? WHERE id=?",
             (datetime.now().strftime('%Y-%m-%d'), iid))
-        # Notify coordinator
-        users = conn.execute("SELECT id FROM users WHERE role IN ('admin','resp_projet') AND is_active=1").fetchall()
-        for u in users:
-            conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
-                (u['id'], 'intervention', f"✅ Client a validé — {inter['client_name']}",
-                 f"Intervention {inter['reference']} validée par le client. Contrôle qualité requis.",
-                 f"/interventions/{iid}/fiche"))
         conn.commit()
         flash("Travaux validés. Le coordinateur va procéder au contrôle qualité.", "success")
     conn.close()
@@ -5882,6 +6206,30 @@ def intervention_add():
     flash(f"Intervention {ref} créée", "success")
     return redirect(request.form.get('redirect', '/interventions'))
 
+def _notify_client(conn, iid, title, message):
+    """Envoie une notification au client propriétaire de l'intervention via son client_user."""
+    inter = conn.execute("SELECT client_id FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter or not inter['client_id']: return
+    cid = inter['client_id']
+    # Trouver tous les client_users rattachés
+    cus = conn.execute("SELECT id FROM client_users WHERE client_id=? AND is_active=1 AND account_status='approved'", (cid,)).fetchall()
+    for cu in cus:
+        try:
+            conn.execute("""INSERT INTO notifications (client_user_id, type, title, message, link)
+                            VALUES (?,?,?,?,?)""",
+                         (cu['id'], 'intervention', title, message, f"/portail/interventions"))
+        except:
+            # Fallback if notifications has no client_user_id column, silently skip
+            pass
+
+def _timeline_add(conn, iid, step, title, description, actor_id=None, actor_name='', actor_role=''):
+    try:
+        conn.execute("""INSERT INTO intervention_timeline
+            (intervention_id, step, title, description, actor_id, actor_name, actor_role)
+            VALUES (?,?,?,?,?,?,?)""",
+            (iid, step, title, description, actor_id, actor_name, actor_role))
+    except: pass
+
 @app.route('/interventions/<int:iid>/status/<status>')
 @login_required
 def intervention_status(iid, status):
@@ -5890,30 +6238,50 @@ def intervention_status(iid, status):
     conn = _gdb()
     inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
     if inter:
+        inter = dict(inter)
+        user = get_user_by_id(session['user_id'])
+        actor_name = user['full_name'] if user else '?'
+        actor_role = user['role'] if user else ''
         updates = {'status': status}
-        if status == 'en_cours': updates['start_date'] = datetime.now().strftime('%Y-%m-%d')
-        if status == 'livre': updates['end_date'] = datetime.now().strftime('%Y-%m-%d')
-        set_clause = ', '.join(f"{k}=?" for k in updates)
-        conn.execute(f"UPDATE interventions SET {set_clause} WHERE id=?", (*updates.values(), iid))
+        if status == 'en_cours':
+            updates['start_date'] = datetime.now().strftime('%Y-%m-%d')
+            _timeline_add(conn, iid, 'start', "🔧 Intervention démarrée",
+                f"Le technicien {actor_name} a commencé les travaux", session['user_id'], actor_name, actor_role)
+            _notify_client(conn, iid, f"🔧 Intervention en cours — {inter['reference']}",
+                f"Nos techniciens ont commencé les travaux de « {inter['title']} ».")
         
-        # Notify on status changes
         if status == 'travaux_termines':
-            # Notify client + coordinator
-            for role in ('admin','resp_projet'):
-                for u in conn.execute("SELECT id FROM users WHERE role=? AND is_active=1", (role,)).fetchall():
-                    conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
-                        (u['id'], 'intervention', f"🏗️ Travaux terminés — {inter['client_name']}",
-                         f"{inter['reference']}: {inter['title']}. En attente de validation client.", f"/interventions/{iid}/fiche"))
+            # ÉTAPE 1 : technicien termine
+            updates['end_work_at'] = datetime.now().isoformat()
+            updates['end_work_by'] = session['user_id']
+            _timeline_add(conn, iid, 'end_work', "🏗️ Travaux terminés par le technicien",
+                f"{actor_name} a déclaré les travaux terminés — en attente de contrôle qualité",
+                session['user_id'], actor_name, actor_role)
+            # Notifier coordinateurs + resp_projet + admin
+            for u in conn.execute(
+                "SELECT id, full_name FROM users WHERE role IN ('admin','dg','resp_projet','coordinateur') AND is_active=1").fetchall():
+                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                    VALUES (?,?,?,?,?)""",
+                    (u['id'], 'intervention', f"🔍 Contrôle qualité à réaliser — {inter['reference']}",
+                     f"Le technicien {actor_name} a terminé {inter['title']} chez {inter['client_name']}. Effectuer le CQ.",
+                     f"/gestion-projets/controle-qualite"))
+            _notify_client(conn, iid, f"🏗️ Travaux terminés — {inter['reference']}",
+                f"Les travaux « {inter['title']} » sont terminés. Nos équipes procèdent au contrôle qualité avant la livraison.")
         
         if status == 'livre':
-            # Auto-billing on delivery
-            if inter['is_billable'] and (inter['total_cost'] or 0) > 0:
-                auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
-                    f"Livraison {inter['reference']} — {inter['client_name']}",
-                    '411', '706', inter['total_cost'] or 0, inter['reference'])
-            if inter['task_id']:
-                conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
+            updates['end_date'] = datetime.now().strftime('%Y-%m-%d')
+            if inter.get('is_billable') and (inter.get('total_cost') or 0) > 0:
+                try:
+                    auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
+                        f"Livraison {inter['reference']} — {inter['client_name']}",
+                        '411', '706', inter['total_cost'] or 0, inter['reference'])
+                except: pass
+            if inter.get('task_id'):
+                try: conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
+                except: pass
         
+        set_clause = ', '.join(f"{k}=?" for k in updates)
+        conn.execute(f"UPDATE interventions SET {set_clause} WHERE id=?", (*updates.values(), iid))
         conn.commit()
         labels = {'en_cours':'En cours','travaux_termines':'Travaux terminés','controle_qualite':'Contrôle qualité','livre':'Livré','annulee':'Annulée'}
         flash(f"Statut → {labels.get(status, status)}", "success")
@@ -6008,6 +6376,12 @@ def employee_file_serve(filename):
 @app.route('/uploads/chat_files/<path:filename>')
 def chat_file_serve(filename):
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'chat_files'), filename)
+
+@app.route('/uploads/client_photos/<path:filename>')
+def client_photo_serve(filename):
+    """Serve client portal user photos."""
+    fdir = os.path.join(app.config['UPLOAD_FOLDER'], 'client_photos')
+    return send_from_directory(fdir, filename)
 
 # ======================== IMPORT CLIENTS EXCEL ========================
 
@@ -6173,6 +6547,78 @@ def prospect_item_delete(pid, table, item_id):
     return redirect(f'/prospects/view/{pid}')
 
 # ======================== RESPONSABLE PROJET ========================
+
+@app.route('/gestion-projets/controle-qualite')
+@permission_required('controle_qualite')
+def gestion_controle_qualite():
+    """Liste des interventions à contrôler (après fin des travaux)."""
+    conn = _gdb()
+    # À contrôler : travaux_termines (+ cq non encore passé)
+    to_check = [dict(r) for r in conn.execute("""
+        SELECT i.*, c.name as client_name_full, c.client_code,
+               u.full_name as tech_name_full
+        FROM interventions i
+        LEFT JOIN clients c ON i.client_id = c.id
+        LEFT JOIN users u ON i.technician_id = u.id
+        WHERE i.status = 'travaux_termines' AND COALESCE(i.cq_status,'') = ''
+        ORDER BY i.end_work_at DESC
+    """).fetchall()]
+    # Validées récemment (historique)
+    done = [dict(r) for r in conn.execute("""
+        SELECT i.*, c.name as client_name_full
+        FROM interventions i
+        LEFT JOIN clients c ON i.client_id = c.id
+        WHERE i.cq_status IN ('passed','failed')
+        ORDER BY i.cq_at DESC LIMIT 20
+    """).fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='controle_qualite',
+                           to_check=to_check, done=done)
+
+
+@app.route('/gestion-projets/livraisons')
+@permission_required('livraison_intervention')
+def gestion_livraisons():
+    """Liste des interventions en cours de livraison (après CQ validé)."""
+    conn = _gdb()
+    # Prêts pour proposition date
+    ready = [dict(r) for r in conn.execute("""
+        SELECT i.*, c.name as client_name_full, c.client_code
+        FROM interventions i
+        LEFT JOIN clients c ON i.client_id = c.id
+        WHERE i.cq_status='passed' AND COALESCE(i.delivery_proposed_date,'')=''
+        ORDER BY i.cq_at DESC
+    """).fetchall()]
+    # En attente client (date proposée, pas encore de réponse)
+    waiting = [dict(r) for r in conn.execute("""
+        SELECT i.*, c.name as client_name_full
+        FROM interventions i
+        LEFT JOIN clients c ON i.client_id = c.id
+        WHERE COALESCE(i.delivery_proposed_date,'') != ''
+          AND COALESCE(i.delivery_client_status,'') IN ('','pending','proposed')
+          AND i.status != 'livre'
+        ORDER BY i.delivery_proposed_at DESC
+    """).fetchall()]
+    # Prêts pour livraison (client a accepté)
+    ready_deliver = [dict(r) for r in conn.execute("""
+        SELECT i.*, c.name as client_name_full
+        FROM interventions i
+        LEFT JOIN clients c ON i.client_id = c.id
+        WHERE i.delivery_client_status='accepted' AND i.status != 'livre'
+        ORDER BY i.delivery_client_answered_at DESC
+    """).fetchall()]
+    # Livrés récemment
+    delivered = [dict(r) for r in conn.execute("""
+        SELECT i.*, c.name as client_name_full
+        FROM interventions i
+        LEFT JOIN clients c ON i.client_id = c.id
+        WHERE i.status='livre'
+        ORDER BY i.delivered_at DESC LIMIT 20
+    """).fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='gestion_livraisons',
+                           ready=ready, waiting=waiting, ready_deliver=ready_deliver, delivered=delivered)
+
 
 @app.route('/resp-projet')
 @permission_required('resp_projet')
@@ -6471,7 +6917,9 @@ def chat_page():
     
     conn.close()
     return render_template('chat.html', page='chat', messages=msgs, users=users,
-        channel=channel, dm_target=target, channels=channels, dm_contacts=dm_contacts)
+        channel=channel, dm_target=target, channels=channels, dm_contacts=dm_contacts,
+        now_date=datetime.now().strftime('%Y-%m-%d'),
+        yesterday_date=(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'))
 
 @app.route('/chat/send', methods=['POST'])
 @permission_required('chat')

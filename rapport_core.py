@@ -2170,11 +2170,20 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     # =========================================================
     # HEADER : Logo + nom société + liste services (comme modèle)
     # =========================================================
-    # Logo with white background padding for visibility
+    # Logo with proper aspect ratio — logo is 1536x2008 (ratio ~0.76)
     logo_el = Paragraph("", ParagraphStyle('empty', fontSize=1))
     if logo_path and os.path.exists(logo_path):
         try:
-            logo_el = RLImage(logo_path, width=26*mm, height=26*mm)
+            # Use aspect ratio from actual image to avoid distortion
+            try:
+                from PIL import Image as _PIL
+                with _PIL.open(logo_path) as _im:
+                    ratio = _im.width / _im.height
+            except:
+                ratio = 0.76  # fallback
+            logo_w = 20*mm
+            logo_h = logo_w / ratio
+            logo_el = RLImage(logo_path, width=logo_w, height=logo_h)
         except: pass
     
     company_name = Paragraph(
@@ -2194,7 +2203,7 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
                           textColor=HexColor('#333'), alignment=TA_RIGHT))
     
     header_data = [[logo_el, company_name, services]]
-    ht = Table(header_data, colWidths=[30*mm, 55*mm, 95*mm])
+    ht = Table(header_data, colWidths=[28*mm, 57*mm, 95*mm])
     ht.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),

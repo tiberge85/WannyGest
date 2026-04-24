@@ -239,7 +239,7 @@
             </div>
             {% endif %}
             
-            {% if 'resp_projet' in permissions or 'admin' in permissions %}
+            {% if 'resp_projet' in permissions or 'admin' in permissions or 'controle_qualite' in permissions or 'livraison_intervention' in permissions %}
             <div class="nav-section" id="sec-resp-proj">
                 <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 GESTION DE PROJETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
@@ -248,6 +248,12 @@
                     <a href="/kanban" class="{% if page == 'kanban' %}active{% endif %}">📋 Tâches (Kanban)</a>
                     <a href="/resp-projet/planning" class="{% if page == 'resp_planning' %}active{% endif %}">📅 Planning</a>
                     <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}">🔧 Interventions</a>
+                    {% if 'controle_qualite' in permissions or 'admin' in permissions %}
+                    <a href="/gestion-projets/controle-qualite" class="{% if page == 'controle_qualite' %}active{% endif %}">🔍 Contrôle qualité{% if pending_cq_count and pending_cq_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_cq_count }}</span>{% endif %}</a>
+                    {% endif %}
+                    {% if 'livraison_intervention' in permissions or 'admin' in permissions %}
+                    <a href="/gestion-projets/livraisons" class="{% if page == 'gestion_livraisons' %}active{% endif %}">📦 Livraisons{% if pending_deliv_count and pending_deliv_count > 0 %} <span style="background:#1a7a6d;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_deliv_count }}</span>{% endif %}</a>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -299,7 +305,7 @@
                     <a href="/depenses" class="{% if page == 'depenses' %}active{% endif %}">📉 Dépenses</a>
                     <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
                     <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">
-                        💵 Caisse sortie
+                        💵 Caisse
                         {% if caisse_pending %}<span class="badge">{{ caisse_pending }}</span>{% endif %}
                     </a>
                     <a href="/tresorerie" class="{% if page == 'tresorerie' %}active{% endif %}">🏦 Trésorerie & Banque</a>

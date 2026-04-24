@@ -3042,3 +3042,70 @@ def migrate_v48():
             except: pass
     
     conn.commit(); conn.close()
+
+
+def migrate_v49():
+    """v49 : Workflow intervention 5 étapes — contrôle qualité + date livraison + notation."""
+    conn = get_db()
+    new_cols = [
+        ('end_work_at', 'TEXT'),
+        ('end_work_by', 'INTEGER'),
+        ('cq_status', "TEXT DEFAULT ''"),
+        ('cq_at', 'TEXT'),
+        ('cq_by', 'INTEGER'),
+        ('cq_by_name', 'TEXT'),
+        ('cq_comments', 'TEXT'),
+        ('cq_photos', 'TEXT'),
+        ('delivery_proposed_date', 'TEXT'),
+        ('delivery_proposed_at', 'TEXT'),
+        ('delivery_proposed_by', 'INTEGER'),
+        ('delivery_client_status', "TEXT DEFAULT ''"),
+        ('delivery_client_proposed_date', 'TEXT'),
+        ('delivery_client_comment', 'TEXT'),
+        ('delivery_client_answered_at', 'TEXT'),
+        ('delivered_at', 'TEXT'),
+        ('delivered_by', 'INTEGER'),
+        ('delivery_signed_client', 'TEXT'),
+        ('delivery_signed_coordinator', 'TEXT'),
+        ('delivery_signed_technicien', 'TEXT'),
+        ('delivery_bon_ref', 'TEXT'),
+        ('rating_stars', 'INTEGER DEFAULT 0'),
+        ('rating_comment', 'TEXT'),
+        ('rating_at', 'TEXT'),
+    ]
+    for col, coltype in new_cols:
+        try: conn.execute(f"ALTER TABLE interventions ADD COLUMN {col} {coltype}")
+        except: pass
+    # notifications: ajouter client_user_id pour notifier les clients du portail
+    try: conn.execute("ALTER TABLE notifications ADD COLUMN client_user_id INTEGER")
+    except: pass
+    # client_messages : ajouter sender_id et sender_name pour tracer la réponse staff
+    for col, coltype in [('sender_id', 'INTEGER'), ('sender_name', 'TEXT')]:
+        try: conn.execute(f"ALTER TABLE client_messages ADD COLUMN {col} {coltype}")
+        except: pass
+    # Timeline pour traçabilité
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS intervention_timeline (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                intervention_id INTEGER NOT NULL,
+                step TEXT NOT NULL,
+                title TEXT, description TEXT,
+                actor_id INTEGER, actor_name TEXT, actor_role TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    except: pass
+    # Permissions
+    new_perms = {
+        'admin':        ['controle_qualite', 'livraison_intervention'],
+        'dg':           ['controle_qualite', 'livraison_intervention'],
+        'resp_projet':  ['controle_qualite', 'livraison_intervention'],
+        'coordinateur': ['controle_qualite', 'livraison_intervention'],
+        'technicien':   ['livraison_intervention'],
+    }
+    for role, perms in new_perms.items():
+        for perm in perms:
+            try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    conn.commit(); conn.close()

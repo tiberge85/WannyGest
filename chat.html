@@ -92,12 +92,25 @@
     </div>
     
     <div class="chat-msgs" id="chatM">
+        {% set ns = namespace(last_date=None) %}
         {% for m in messages %}
-        <div class="msg {% if m.sender_id==current_user.id %}s{% else %}r{% endif %}" id="m{{ m.id }}">
+            {% set msg_date = (m.created_at or '')[:10] %}
+            {% if msg_date and msg_date != ns.last_date %}
+                {% set ns.last_date = msg_date %}
+                <div class="msg-sys">
+                    {% set y = msg_date[:4] %}{% set mo = msg_date[5:7] %}{% set d = msg_date[8:10] %}
+                    {% set months_fr = ['','janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'] %}
+                    📅 {{ d }} {{ months_fr[mo|int] }} {{ y }}
+                    {% if msg_date == now_date %} <span style="color:#1a7a6d;font-weight:700">· Aujourd'hui</span>
+                    {% elif msg_date == yesterday_date %} <span style="color:#888">· Hier</span>
+                    {% endif %}
+                </div>
+            {% endif %}
+        <div class="msg {% if m.sender_id==current_user.id %}s{% else %}r{% endif %}" id="m{{ m.id }}" title="{{ m.created_at or '' }}">
             {% if m.sender_id != current_user.id and not dm_target %}<div class="sn">{{ m.sender_name }}</div>{% endif %}
             {{ m.content }}
             {% if m.file_url %}<div class="msg-f"><span>📎</span><a href="{{ m.file_url }}" target="_blank">{{ m.file_name or 'Fichier' }}</a></div>{% endif %}
-            <span class="tm">{{ m.created_at[-8:-3] if m.created_at else '' }}{% if m.sender_id==current_user.id %} <span class="ck">{% if m.status=='read' %}✓✓{% elif m.status=='delivered' %}✓✓{% else %}✓{% endif %}</span>{% endif %}</span>
+            <span class="tm">{{ (m.created_at or '')[11:16] }}{% if m.sender_id==current_user.id %} <span class="ck">{% if m.status=='read' %}✓✓{% elif m.status=='delivered' %}✓✓{% else %}✓{% endif %}</span>{% endif %}</span>
         </div>
         {% endfor %}
         {% if not messages %}<div class="no-chat">💬<br>Démarrez la conversation</div>{% endif %}

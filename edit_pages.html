@@ -4,6 +4,7 @@
 <div class="card" style="max-width:650px">
     <div class="card-body">
         <form method="post">
+            {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
             <h4 style="font-size:12px;color:#1a7a6d;margin:4px 0 6px;border-bottom:1px solid #1a7a6d;padding-bottom:3px">🏢 Entreprise</h4>
             <div class="form-row">
                 <div class="form-group" style="flex:2"><label>Nom de l'entreprise *</label><input type="text" name="name" value="{{ client.name }}" required></div>
