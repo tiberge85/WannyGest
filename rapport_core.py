@@ -2164,23 +2164,23 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
         except: pass
     
     company_name = Paragraph(
-        "<b>RAMYA</b><br/><b>TECHNOLOGIE &amp;</b><br/><b>INNOVATION</b>",
-        ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold',
-                       textColor=RAMYA_TEAL, leading=14, alignment=TA_CENTER)
+        "<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+        ParagraphStyle('co', fontSize=10, fontName='Helvetica-Bold',
+                       textColor=RAMYA_TEAL, leading=13, alignment=TA_CENTER)
     )
     
-    # Services : smaller (8pt) + right-aligned
+    # Services : texte puis puce (■) — tout aligné à droite
     services_html = (
-        '<font color="#F29F2F"><b>■</b></font> <b>Caméras de surveillance,</b><br/>'
-        '<font color="#F29F2F"><b>■</b></font> <b>Clôture électrique,</b><br/>'
-        '<font color="#F29F2F"><b>■</b></font> <b>Kit visiophone alarme anti-intrusion,</b><br/>'
-        '<font color="#F29F2F"><b>■</b></font> <b>Domotique, Poignées intelligentes</b>'
+        '<b>Caméras de surveillance</b> <font color="#F29F2F"><b>■</b></font><br/>'
+        '<b>Clôture électrique</b> <font color="#F29F2F"><b>■</b></font><br/>'
+        '<b>Kit visiophone alarme anti-intrusion</b> <font color="#F29F2F"><b>■</b></font><br/>'
+        '<b>Domotique, Poignées intelligentes</b> <font color="#F29F2F"><b>■</b></font>'
     )
     services = Paragraph(services_html, ParagraphStyle('svc', fontSize=8, leading=11,
                           textColor=HexColor('#333'), alignment=TA_RIGHT))
     
     header_data = [[logo_el, company_name, services]]
-    ht = Table(header_data, colWidths=[28*mm, 57*mm, 95*mm])
+    ht = Table(header_data, colWidths=[28*mm, 65*mm, 87*mm])
     ht.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
@@ -2200,14 +2200,12 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     # TITRE DEVIS + référence à droite — taille réduite
     # =========================================================
     right_info_parts = [
-        f"<font size='20' color='#4B4B4B'><b>{doc_type}</b></font>",
-        f"<font size='9'># {ref}</font>",
-        f"<font size='9'>Date: {date_str}</font>"
+        f"<font size='16' color='#4B4B4B'><b>{doc_type}</b></font>",
+        f"<font size='8'># {ref}</font>",
+        f"<font size='8'>Date: {date_str}</font>"
     ]
-    if contact:
-        right_info_parts.append(f"<font size='9'>Contact commercial: {contact}</font>")
-    # Rédacteur + horodatage en petit, sous la date
-    redacteur = devis_data.get('redacteur', '')
+    # On retire "Contact commercial" — on garde seulement "Établi par : X le ..."
+    redacteur = devis_data.get('redacteur', '') or contact or ''
     redacteur_date = devis_data.get('redacteur_date', '')
     if redacteur:
         rparts = [f"<i>Établi par :</i> <b>{redacteur}</b>"]
@@ -2215,7 +2213,7 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
         right_info_parts.append(f"<font size='8' color='#888'>{' '.join(rparts)}</font>")
     
     right_info = Paragraph("<br/>".join(right_info_parts),
-        ParagraphStyle('right_info', alignment=TA_RIGHT, leading=14))
+        ParagraphStyle('right_info', alignment=TA_RIGHT, leading=12))
     title_data = [['', right_info]]
     tt = Table(title_data, colWidths=[90*mm, 90*mm])
     tt.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),
@@ -2475,9 +2473,8 @@ def generate_bon_livraison_pdf(inter_data, output_path, logo_path=None):
             logo_el = RLImage(logo_path, width=logo_w, height=logo_h)
         except: pass
     
-    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp;</b><br/><b>INNOVATION</b>",
-        ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold',
-                       textColor=RAMYA_TEAL, leading=14, alignment=TA_CENTER))
+    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+        ParagraphStyle('co', fontSize=10, fontName='Helvetica-Bold', textColor=RAMYA_TEAL, leading=13, alignment=TA_CENTER))
     
     title_right = Paragraph(
         f"<font size='22' color='#1A7A6D'><b>BON DE LIVRAISON</b></font><br/>"
@@ -2644,9 +2641,8 @@ def generate_attestation_pdf(inter_data, output_path, logo_path=None):
             logo_el = RLImage(logo_path, width=logo_w, height=logo_h)
         except: pass
     
-    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp;</b><br/><b>INNOVATION</b>",
-        ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold',
-                       textColor=RAMYA_TEAL, leading=14, alignment=TA_CENTER))
+    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+        ParagraphStyle('co', fontSize=10, fontName='Helvetica-Bold', textColor=RAMYA_TEAL, leading=13, alignment=TA_CENTER))
     
     ht = Table([[logo_el, company, ""]], colWidths=[28*mm, 60*mm, 86*mm])
     ht.setStyle(TableStyle([

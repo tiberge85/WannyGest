@@ -22,7 +22,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #1A7A6D">
         <div style="display:flex;align-items:center;gap:12px">
             <img src="/static/logo_ramya.png" alt="RAMYA" style="height:50px" onerror="this.style.display='none'">
-            <div><strong style="font-size:14px;color:#1A7A6D">RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;color:#888">Abidjan, Côte d'Ivoire · RCCM: CI-ABJ-03-2017_A10-25092</span></div>
+            <div><strong style="font-size:14px;color:#1A7A6D">RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;color:#888">Abidjan Cocody ABATTA · N°RCCM : CI-ABJ-2017-A-25092</span></div>
         </div>
         <div style="text-align:right"><h2 style="margin:0;font-size:18px;color:#1A7A6D">FACTURE</h2>
         <div style="font-size:13px;font-weight:700">{{ inv.reference }}</div>
@@ -52,10 +52,11 @@
     {% if inv.description %}<div style="margin-top:12px;padding:10px;background:#f8faf9;border-radius:8px;font-size:12px"><strong>Notes :</strong> {{ inv.description }}</div>{% endif %}
     {% if inv.notes and inv.notes != inv.description %}<div style="margin-top:8px;padding:10px;background:#fff3e0;border-radius:8px;font-size:12px">{{ inv.notes }}</div>{% endif %}
     
-    <!-- Pied de page -->
-    <div style="margin-top:30px;padding-top:12px;border-top:2px solid #1A7A6D;display:flex;justify-content:space-between;font-size:10px;color:#888">
-        <div>RAMYA TECHNOLOGIE & INNOVATION<br>Abidjan, Côte d'Ivoire · Tél: 27 22 20 44 98<br>Email: techniqueramya@gmail.com</div>
-        <div style="text-align:right">RCCM: CI-ABJ-03-2017_A10-25092<br>Régime: Réel simplifié d'imposition<br>Banque: NSIA — CI024 01028 051340550017 94</div>
+    <!-- Pied de page officiel -->
+    <div style="margin-top:30px;padding-top:12px;border-top:2px solid #1A7A6D;font-size:9px;color:#1A7A6D;text-align:center;line-height:1.6">
+        <div><strong>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY</strong> / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B</div>
+        <div>Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 / Cel : + 225 2722204498 / 07 09 50 02 43 / 07 47 68 20 27</div>
+        <div>Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com</div>
     </div>
 </div></div></div>
 {% endblock %}

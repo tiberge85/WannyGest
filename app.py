@@ -4298,7 +4298,7 @@ def _generate_bulletin_pdf(pid):
     
     hdr = [[
         logo_el,
-        Paragraph(f"<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/>Abidjan, Côte d'Ivoire<br/>RCCM: CI-ABJ-03-2017_A10-25092", ParagraphStyle('hi',fontSize=7,textColor=white,leading=10)),
+        Paragraph(f"<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/>Abidjan, Côte d'Ivoire<br/>N°RCCM : CI-ABJ-2017-A-25092", ParagraphStyle('hi',fontSize=7,textColor=white,leading=10)),
         Paragraph(f"<b>BULLETIN DE PAIE</b><br/>{period_display}<br/>{datetime.now().strftime('%d/%m/%Y')}", ParagraphStyle('hp',fontSize=9,fontName='Helvetica-Bold',textColor=white,alignment=TA_RIGHT,leading=13))
     ]]
     ht = Table(hdr, colWidths=[35*mm, pw*0.42, pw-35*mm-pw*0.42])
