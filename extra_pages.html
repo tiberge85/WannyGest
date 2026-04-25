@@ -1425,16 +1425,17 @@ Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }}
     <a href="/portail/logout" style="color:#fff;background:rgba(255,255,255,0.2);padding:7px 13px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:600">↪ Déconnexion</a>
 </div>
 
-<form method="post" enctype="multipart/form-data" style="max-width:700px;margin:0 auto">
+<form method="post" enctype="multipart/form-data" style="max-width:700px;margin:0 auto" id="profileForm">
 <!-- PHOTO -->
 <div class="profile-section" style="text-align:center">
     <div class="profile-avatar-big">
-        {% if me.photo %}<img src="{% if me.photo.startswith('data:') %}{{ me.photo }}{% else %}/uploads/client_photos/{{ me.photo }}{% endif %}" alt="Photo de profil" id="photoPreview">
+        {% if me.photo %}<img src="{% if me.photo.startswith('data:') %}{{ me.photo }}{% else %}/uploads/client_photos/{{ me.photo }}?t={{ me.created_at or '' }}{% endif %}" alt="Photo de profil" id="photoPreview">
         {% else %}<span id="photoInitial">{{ (me.full_name or 'C')[:1]|upper }}</span>{% endif %}
         <label for="photoInput" class="photo-edit-btn" title="Changer la photo">📷</label>
     </div>
     <input type="file" name="photo" id="photoInput" accept="image/*" capture="user" style="display:none" onchange="previewPhoto(this)">
     <div style="font-size:12px;color:#888">Cliquez sur le bouton 📷 pour modifier votre photo</div>
+    <div id="photoStatus" style="font-size:11px;color:#1a7a6d;margin-top:6px;display:none"></div>
 </div>
 
 <!-- INFOS -->
@@ -1481,12 +1482,19 @@ Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }}
 <script>
 function previewPhoto(input) {
     if (input.files && input.files[0]) {
+        var file = input.files[0];
+        var sizeKb = Math.round(file.size / 1024);
         var reader = new FileReader();
         reader.onload = function(e) {
             var avatar = document.querySelector('.profile-avatar-big');
             avatar.innerHTML = '<img src="' + e.target.result + '" alt="Aperçu"><label for="photoInput" class="photo-edit-btn" title="Changer la photo">📷</label>';
+            var st = document.getElementById('photoStatus');
+            if (st) {
+                st.style.display = '';
+                st.innerHTML = '✅ ' + file.name + ' · ' + sizeKb + ' Ko — <strong style="color:#e8672a">Cliquez sur Sauvegarder pour enregistrer</strong>';
+            }
         };
-        reader.readAsDataURL(input.files[0]);
+        reader.readAsDataURL(file);
     }
 }
 </script>

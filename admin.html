@@ -83,8 +83,8 @@
             <div class="table-wrap">
                 <table>
                     <thead><tr><th style="min-width:240px;background:#1a3a5c;color:#fff">Permission</th>
-                    {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet','coordinateur','concierge','secretaire'] %}
-                    <th style="font-size:10px;text-align:center;writing-mode:vertical-lr;transform:rotate(180deg);height:80px;background:#1a3a5c;color:#fff">{{ role }}</th>
+                    {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet','proprietaire','concierge','secretaire'] %}
+                    <th style="font-size:10px;text-align:center;writing-mode:vertical-lr;transform:rotate(180deg);height:80px;background:#1a3a5c;color:#fff">{% if role == 'resp_projet' %}resp_projet / coordinateur{% else %}{{ role }}{% endif %}</th>
                     {% endfor %}</tr></thead>
                     <tbody>
                     {% for category, perms in perm_categories.items() %}
@@ -100,7 +100,7 @@
                                 {{ label }}
                                 <span style="font-size:10px;color:#aaa;margin-left:6px;font-family:monospace">{{ perm }}</span>
                             </td>
-                            {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet','coordinateur','concierge','secretaire'] %}
+                            {% for role in ['admin','dg','rh','technicien','commercial','comptable','moyens_generaux','informatique','resp_projet','proprietaire','concierge','secretaire'] %}
                             <td style="text-align:center"><input type="checkbox" name="{{ role }}_{{ perm }}" {% if perm in role_perms.get(role, []) %}checked{% endif %} {% if role == 'admin' %}disabled checked{% endif %} style="width:16px;height:16px"></td>
                             {% endfor %}
                         </tr>

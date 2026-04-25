@@ -17,10 +17,33 @@
             <form method="post" action="/clients/delete-bulk" id="bulkForm" onsubmit="return confirmBulkDelete()" style="display:flex;gap:6px;align-items:center">
                 <span id="selCount" style="font-size:12px;font-weight:700;color:#1a3a5c;background:#e3f2fd;padding:4px 10px;border-radius:10px;display:none">0 sélectionné(s)</span>
                 <button type="submit" id="bulkDelBtn" class="btn btn-sm" style="background:#c53030;color:#fff;display:none;font-size:11px">🗑️ Supprimer la sélection</button>
+                <button type="button" id="bulkMergeBtn" onclick="openMergeModal()" class="btn btn-sm" style="background:#7b1fa2;color:#fff;display:none;font-size:11px">🔗 Fusionner les 2 sélectionnés</button>
                 <input type="hidden" name="ids" id="bulkIds" value="">
             </form>
             <div style="margin-left:auto">
                 <input type="text" id="searchCli" placeholder="🔍 Rechercher..." onkeyup="searchClients()" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px">
+            </div>
+        </div>
+
+        <!-- Modal fusion doublons -->
+        <div id="mergeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+            <div style="background:#fff;border-radius:14px;padding:24px;max-width:540px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
+                <h3 style="margin:0 0 12px;color:#7b1fa2">🔗 Fusionner deux doublons</h3>
+                <p style="font-size:12px;color:#666;margin-bottom:14px">
+                    Sélectionnez le client à <strong style="color:#2e7d32">CONSERVER</strong> (tous les devis, factures, interventions du doublon seront transférés vers celui-ci).
+                    Le second sera <strong style="color:#c53030">supprimé</strong> définitivement.
+                </p>
+                <form method="post" action="/clients/merge" id="mergeForm" onsubmit="return confirmMerge()">
+                    <input type="hidden" name="return_to" id="mergeReturnTo">
+                    <div id="mergeSelection" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+                    <div style="background:#fff3e0;padding:10px;border-left:3px solid #e8672a;border-radius:6px;font-size:11px;color:#b8561f;margin-bottom:14px">
+                        ⚠️ Action irréversible. Vérifiez bien quel client conserver (celui avec les données complètes en général).
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('mergeModal').style.display='none'">Annuler</button>
+                        <button type="submit" class="btn btn-sm" style="background:#7b1fa2;color:#fff">🔗 Fusionner</button>
+                    </div>
+                </form>
             </div>
         </div>
         <div class="table-wrap"><table id="cliTable">
@@ -61,9 +84,14 @@
             {% endfor %}
             </tbody>
         </table></div>
-        <div style="padding:10px;display:flex;justify-content:center;gap:8px;align-items:center" id="cliPager">
+        <div style="padding:10px;display:flex;justify-content:center;gap:8px;align-items:center;flex-wrap:wrap" id="cliPager">
             <button class="btn btn-outline btn-sm" onclick="cliPage(-1)">◀ Précédent</button>
             <span id="cliPageInfo" style="font-size:12px;color:#888"></span>
+            <div style="display:flex;gap:4px;align-items:center">
+                <span style="font-size:11px;color:#888">Aller à la page :</span>
+                <input type="number" id="cliPageInput" min="1" style="width:55px;padding:4px 6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:center" onkeydown="if(event.key==='Enter'){cliGoToPage();event.preventDefault();}">
+                <button class="btn btn-outline btn-sm" onclick="cliGoToPage()" style="font-size:11px;padding:4px 10px">OK</button>
+            </div>
             <button class="btn btn-outline btn-sm" onclick="cliPage(1)">Suivant ▶</button>
         </div>
         <script>
@@ -75,11 +103,14 @@
             var count = ids.length;
             var cEl = document.getElementById('selCount');
             var btn = document.getElementById('bulkDelBtn');
+            var mergeBtn = document.getElementById('bulkMergeBtn');
             if (count > 0) {
                 cEl.style.display = ''; cEl.textContent = count + ' sélectionné(s)';
                 btn.style.display = '';
+                if (mergeBtn) mergeBtn.style.display = (count === 2) ? '' : 'none';
             } else {
                 cEl.style.display = 'none'; btn.style.display = 'none';
+                if (mergeBtn) mergeBtn.style.display = 'none';
             }
             var all = document.querySelectorAll('.selCli');
             var visible = Array.from(all).filter(function(b){return b.closest('tr').style.display !== 'none'});
@@ -89,6 +120,57 @@
                 selAll.indeterminate = (checkedVisible.length > 0 && checkedVisible.length < visible.length);
                 selAll.checked = (visible.length > 0 && checkedVisible.length === visible.length);
             }
+        }
+        function openMergeModal() {
+            var boxes = document.querySelectorAll('.selCli:checked');
+            if (boxes.length !== 2) { alert('Sélectionnez exactement 2 clients.'); return; }
+            var html = '';
+            boxes.forEach(function(b, i) {
+                var tr = b.closest('tr');
+                var name = tr.querySelector('td:nth-child(4)') ? tr.querySelector('td:nth-child(4)').innerText.trim() : '(sans nom)';
+                var code = tr.querySelector('td:nth-child(3)') ? tr.querySelector('td:nth-child(3)').innerText.trim() : '-';
+                html += '<label style="display:flex;gap:10px;padding:12px;background:#f8faf9;border:2px solid #e0e0e0;border-radius:10px;cursor:pointer;align-items:flex-start" onclick="selectKeep(this, '+b.value+')" data-id="'+b.value+'">';
+                html += '<input type="radio" name="keep_id" value="'+b.value+'" '+(i===0?'checked':'')+' style="margin-top:3px">';
+                html += '<div style="flex:1"><div style="font-weight:700;font-size:13px;color:#1a3a5c">'+name+'</div>';
+                html += '<div style="font-size:11px;color:#888">ID: '+b.value+' · Code: '+code+'</div></div></label>';
+            });
+            // hidden drop_id (filled dynamically)
+            html += '<input type="hidden" name="drop_id" id="mergeDropId">';
+            document.getElementById('mergeSelection').innerHTML = html;
+            // Sync drop_id with selection
+            updateMergeDropId();
+            document.querySelectorAll('#mergeSelection input[type=radio]').forEach(function(r){
+                r.addEventListener('change', updateMergeDropId);
+            });
+            document.getElementById('mergeReturnTo').value = window.location.href;
+            document.getElementById('mergeModal').style.display = 'flex';
+        }
+        function updateMergeDropId() {
+            var boxes = document.querySelectorAll('.selCli:checked');
+            var selectedKeep = document.querySelector('#mergeSelection input[name=keep_id]:checked');
+            if (!selectedKeep) return;
+            var keepVal = selectedKeep.value;
+            var dropVal = null;
+            boxes.forEach(function(b) { if (b.value !== keepVal) dropVal = b.value; });
+            if (dropVal) document.getElementById('mergeDropId').value = dropVal;
+            // Visual feedback
+            document.querySelectorAll('#mergeSelection label').forEach(function(lbl){
+                if (lbl.dataset.id === keepVal) {
+                    lbl.style.borderColor = '#2e7d32'; lbl.style.background = '#e8f5e9';
+                } else {
+                    lbl.style.borderColor = '#c53030'; lbl.style.background = '#fde8e8';
+                }
+            });
+        }
+        function selectKeep(lbl, id) {
+            var r = lbl.querySelector('input[type=radio]');
+            if (r) { r.checked = true; updateMergeDropId(); }
+        }
+        function confirmMerge() {
+            var keep = document.querySelector('#mergeSelection input[name=keep_id]:checked');
+            var drop = document.getElementById('mergeDropId').value;
+            if (!keep || !drop) { alert('Sélection invalide'); return false; }
+            return confirm('⚠️ Fusion définitive : tous les liens (devis/factures/interventions) du client ID '+drop+' vont être transférés vers le client ID '+keep.value+'. Continuer ?');
         }
         function toggleAll(cb) {
             document.querySelectorAll('.selCli').forEach(function(b){
@@ -119,10 +201,16 @@
             rows.forEach(function(r){r.style.display='none'});
             visible.forEach(function(r,i){r.style.display=(i>=(cliCurrentPage-1)*cliPerPage&&i<cliCurrentPage*cliPerPage)?'':'none'});
             document.getElementById('cliPageInfo').textContent='Page '+cliCurrentPage+' / '+pages+' ('+total+' clients)';
+            var pi = document.getElementById('cliPageInput');
+            if(pi) { pi.value = cliCurrentPage; pi.max = pages; }
             cliPersistPage();
             updateSel();
         }
         function cliPage(dir){cliCurrentPage+=dir;cliPaginate()}
+        function cliGoToPage(){
+            var v = parseInt(document.getElementById('cliPageInput').value);
+            if(!isNaN(v) && v >= 1) { cliCurrentPage = v; cliPaginate(); }
+        }
         function confirmDelClient(link, name){
             if(!confirm('⚠️ Supprimer « ' + name + ' » ? Les factures/devis associés seront conservés mais détachés.')) return false;
             try {

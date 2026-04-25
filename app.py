@@ -1365,6 +1365,36 @@ def clients_delete(cid):
     return redirect(url_for('clients_page'))
 
 
+@app.route('/clients/merge', methods=['POST'])
+@permission_required('clients_edit')
+def clients_merge():
+    """Fusionne deux doublons : keep_id garde tout, drop_id est supprimé après transfert des liens."""
+    from models import merge_clients
+    try:
+        keep_id = int(request.form.get('keep_id', 0))
+        drop_id = int(request.form.get('drop_id', 0))
+    except ValueError:
+        flash("IDs invalides", "error")
+        return redirect(request.referrer or url_for('clients_page'))
+    if not keep_id or not drop_id:
+        flash("Sélectionnez deux clients à fusionner", "error")
+        return redirect(request.referrer or url_for('clients_page'))
+    result = merge_clients(keep_id, drop_id)
+    if result['success']:
+        flash(f"✅ {result['message']}", "success")
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?',
+                     'Clients',
+                     f"Fusion clients : conservé {result.get('keep_name','')} (id {keep_id}), supprimé {result.get('drop_name','')} (id {drop_id})",
+                     request.remote_addr)
+    else:
+        flash(f"❌ {result['message']}", "error")
+    return_to = request.form.get('return_to') or request.referrer or ''
+    if return_to and request.host in return_to:
+        return redirect(return_to)
+    return redirect(url_for('clients_page'))
+
+
 # ======================== ADMIN ========================
 
 @app.route('/admin')
@@ -1372,7 +1402,7 @@ def clients_delete(cid):
 def admin_page():
     users = get_all_users()
     stats = get_dashboard_stats()
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'coordinateur', 'concierge', 'secretaire']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'proprietaire', 'concierge', 'secretaire']}
     conn = _gdb()
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
@@ -2522,14 +2552,21 @@ def invoice_new():
         redacteur_name = (cur_u['full_name'] if cur_u else '') or 'Utilisateur'
         redacteur_dt = datetime.now().strftime('%d/%m/%Y à %H:%M')
         conn = _gdb()
+        # S'assurer que la colonne created_by existe
+        try: conn.execute("ALTER TABLE invoices ADD COLUMN created_by INTEGER")
+        except: pass
+        try: conn.execute("ALTER TABLE invoices ADD COLUMN contact_commercial TEXT")
+        except: pass
         conn.execute("""INSERT INTO invoices (reference, client_name, client_id, amount, objet, 
-            description, due_date, payment_method, status, total_ht, tva, total_ttc, notes)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            description, due_date, payment_method, status, total_ht, tva, total_ttc, notes,
+            created_by, contact_commercial)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ref, request.form.get('client_name',''), int(request.form.get('client_id',0) or 0) or None,
              amount or total_ttc, request.form.get('objet',''),
              request.form.get('description',''), request.form.get('due_date',''),
              request.form.get('payment_method',''), 'a_envoyer',
-             total_ht, tva, total_ttc, request.form.get('notes','')))
+             total_ht, tva, total_ttc, request.form.get('notes',''),
+             session['user_id'], redacteur_name))
         inv_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         try:
             conn.execute("UPDATE invoices SET tva_active=?, tva_rate=?, tva_amount=?, redacteur=?, redacteur_date=? WHERE id=?",
@@ -2583,6 +2620,120 @@ def invoice_view(fid):
     inv = dict(inv)
     inv['items'] = json.loads(inv.get('items_json','[]') or '[]')
     return render_template('invoice_view.html', page='comptabilite', inv=inv, inv_items=inv['items'])
+
+
+def _build_invoice_pdf_data(inv_row, conn):
+    """Construit le dict attendu par generate_devis_pdf à partir d'une ligne invoices."""
+    inv = dict(inv_row)
+    # Contact commercial — le rédacteur est le créateur
+    redacteur = inv.get('redacteur') or ''
+    redacteur_date = inv.get('redacteur_date') or ''
+    if not redacteur and inv.get('created_by'):
+        u = conn.execute("SELECT full_name FROM users WHERE id=?", (inv['created_by'],)).fetchone()
+        if u: redacteur = u['full_name']
+    if not redacteur_date:
+        ca = inv.get('created_at', '') or ''
+        if ca:
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.strptime(ca[:19], '%Y-%m-%d %H:%M:%S')
+                redacteur_date = dt.strftime('%d/%m/%Y à %H:%M')
+            except: redacteur_date = ca[:16]
+    # Client code
+    client_code = inv.get('client_code') or ''
+    if not client_code and inv.get('client_id'):
+        c = conn.execute("SELECT client_code FROM clients WHERE id=?", (inv['client_id'],)).fetchone()
+        if c: client_code = c['client_code'] or ''
+    # Items
+    items = []
+    try: items = json.loads(inv.get('items_json','[]') or '[]')
+    except: items = []
+    # Si aucun item, créer un item unique à partir de l'objet + montant
+    if not items and inv.get('total_ht'):
+        items = [{'num': 1, 'designation': inv.get('objet','Prestation'),
+                  'detail': inv.get('description','') or '',
+                  'qty': 1, 'prix': inv.get('total_ht', 0), 'remise': 0}]
+    # Commercial
+    commercial = inv.get('contact_commercial') or ''
+    # Safe numeric casts (BDD peut renvoyer str ou None)
+    def _f(v):
+        try: return float(v) if v not in (None, '') else 0.0
+        except: return 0.0
+    return {
+        'doc_type': 'facture',
+        'reference': inv.get('reference', ''),
+        'date': (inv.get('created_at','') or '')[:10],
+        'contact_commercial': commercial,
+        'client_name': inv.get('client_name', ''),
+        'client_code': client_code,
+        'objet': inv.get('objet') or inv.get('description','') or '',
+        'items_json': json.dumps(items),
+        'total_ht': _f(inv.get('total_ht')),
+        'petites_fournitures': 0,
+        'total_ttc': _f(inv.get('total_ttc')) or _f(inv.get('amount')),
+        'main_oeuvre': 0,
+        'remise': 0,
+        'tva_active': bool(inv.get('tva_active')) or _f(inv.get('tva')) > 0,
+        'tva_rate': _f(inv.get('tva_rate')) or 18,
+        'tva_amount': _f(inv.get('tva')),
+        'notes': inv.get('notes', ''),
+        'redacteur': redacteur,
+        'redacteur_date': redacteur_date,
+    }
+
+
+@app.route('/comptabilite/facture/<int:fid>/pdf')
+@permission_required('comptabilite')
+def invoice_pdf(fid):
+    """Télécharge le PDF de la facture (même format que devis)."""
+    conn = _gdb()
+    inv_row = conn.execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
+    if not inv_row:
+        conn.close()
+        flash("Facture introuvable", "error")
+        return redirect(url_for('comptabilite_page'))
+    data = _build_invoice_pdf_data(inv_row, conn)
+    conn.close()
+    
+    from rapport_core import generate_devis_pdf
+    export_dir = os.path.join(BASE_DIR, 'exports')
+    os.makedirs(export_dir, exist_ok=True)
+    output = os.path.join(export_dir, f"{data['reference']}.pdf")
+    logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"]
+                   if os.path.exists(os.path.join(BASE_DIR, n))), None)
+    generate_devis_pdf(data, output, logo_path=logo_r)
+    return send_file(output, as_attachment=True,
+                     download_name=f"{data['reference']}.pdf")
+
+
+@app.route('/comptabilite/facture/<int:fid>/preview')
+@permission_required('comptabilite')
+def invoice_preview(fid):
+    """Prévisualise le PDF de la facture dans le navigateur (sans téléchargement)."""
+    conn = _gdb()
+    inv_row = conn.execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
+    if not inv_row:
+        conn.close()
+        flash("Facture introuvable", "error")
+        return redirect(url_for('comptabilite_page'))
+    data = _build_invoice_pdf_data(inv_row, conn)
+    conn.close()
+    
+    from rapport_core import generate_devis_pdf
+    export_dir = os.path.join(BASE_DIR, 'exports')
+    os.makedirs(export_dir, exist_ok=True)
+    output = os.path.join(export_dir, f"{data['reference']}_preview.pdf")
+    logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"]
+                   if os.path.exists(os.path.join(BASE_DIR, n))), None)
+    generate_devis_pdf(data, output, logo_path=logo_r)
+    # Inline display
+    from flask import Response
+    with open(output, 'rb') as f:
+        pdf_bytes = f.read()
+    return Response(pdf_bytes, mimetype='application/pdf', headers={
+        'Content-Disposition': f'inline; filename="{data["reference"]}.pdf"'
+    })
+
 
 @app.route('/comptabilite/facture/edit/<int:fid>', methods=['GET', 'POST'])
 @permission_required('comptabilite_edit')
@@ -5003,33 +5154,52 @@ def portail_profile():
     conn = _gdb()
     cuid = session['client_user_id']
     if request.method == 'POST':
-        # Photo upload → base64 data URI (survives Render filesystem wipe)
+        # Photo upload → base64 data URI stocké directement en BDD (survit aux redéploiements Render)
         photo_file = request.files.get('photo')
         photo_data_uri = None
+        photo_error = None
         if photo_file and photo_file.filename:
             ext = os.path.splitext(photo_file.filename)[1].lower()
-            if ext in ('.jpg','.jpeg','.png','.webp'):
+            if ext not in ('.jpg','.jpeg','.png','.webp','.gif','.bmp'):
+                photo_error = f"Format non supporté : {ext}. Utilisez JPG, PNG, WebP ou GIF."
+            else:
                 try:
                     import base64, io
                     from PIL import Image as _PIL
                     raw = photo_file.read()
-                    img = _PIL.open(io.BytesIO(raw))
-                    if img.mode in ('RGBA','LA','P'):
-                        bg = _PIL.new('RGB', img.size, (255,255,255))
-                        if img.mode == 'RGBA':
-                            bg.paste(img, mask=img.split()[-1])
-                        else:
-                            bg.paste(img.convert('RGBA'), mask=img.convert('RGBA').split()[-1])
-                        img = bg
-                    elif img.mode != 'RGB':
-                        img = img.convert('RGB')
-                    img.thumbnail((400, 400), _PIL.LANCZOS)
-                    buf = io.BytesIO()
-                    img.save(buf, format='JPEG', quality=80, optimize=True)
-                    b64 = base64.b64encode(buf.getvalue()).decode('ascii')
-                    photo_data_uri = f"data:image/jpeg;base64,{b64}"
+                    if not raw or len(raw) < 100:
+                        photo_error = "Fichier vide ou corrompu"
+                    elif len(raw) > 15 * 1024 * 1024:
+                        photo_error = "Fichier trop volumineux (>15 Mo)"
+                    else:
+                        img = _PIL.open(io.BytesIO(raw))
+                        # Convertir en RGB (JPEG ne supporte pas la transparence)
+                        if img.mode in ('RGBA','LA','P'):
+                            bg = _PIL.new('RGB', img.size, (255,255,255))
+                            if img.mode == 'RGBA':
+                                bg.paste(img, mask=img.split()[-1])
+                            elif img.mode == 'LA':
+                                bg.paste(img.convert('RGBA'), mask=img.convert('RGBA').split()[-1])
+                            else:
+                                rgba = img.convert('RGBA')
+                                bg.paste(rgba, mask=rgba.split()[-1])
+                            img = bg
+                        elif img.mode != 'RGB':
+                            img = img.convert('RGB')
+                        img.thumbnail((400, 400), _PIL.LANCZOS)
+                        buf = io.BytesIO()
+                        img.save(buf, format='JPEG', quality=80, optimize=True)
+                        b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+                        photo_data_uri = f"data:image/jpeg;base64,{b64}"
                 except Exception as e:
-                    flash(f"Erreur photo : {e}", "error")
+                    photo_error = f"Erreur de traitement : {type(e).__name__}: {str(e)[:100]}"
+                    import traceback; traceback.print_exc()
+        # S'assurer que la colonne photo existe (au cas où la migration n'aurait pas tourné)
+        try:
+            conn.execute("ALTER TABLE client_users ADD COLUMN photo TEXT DEFAULT ''")
+            conn.commit()
+        except Exception:
+            pass  # colonne déjà présente
         # Password change?
         new_pw = request.form.get('new_password', '').strip()
         old_pw = request.form.get('old_password', '').strip()
@@ -5052,20 +5222,38 @@ def portail_profile():
             'tel': request.form.get('tel','').strip(),
             'address': request.form.get('address','').strip(),
         }
-        sets = ", ".join(f"{k}=?" for k in updates)
-        params = list(updates.values())
+        # Update infos basiques séparément de la photo (pour ne pas perdre la photo si updates plantent)
         try:
-            if photo_data_uri:
-                sets += ", photo=?"
-                params.append(photo_data_uri)
-            params.append(cuid)
-            conn.execute(f"UPDATE client_users SET {sets} WHERE id=?", tuple(params))
+            conn.execute("UPDATE client_users SET full_name=?, email=?, tel=?, address=? WHERE id=?",
+                         (updates['full_name'], updates['email'], updates['tel'], updates['address'], cuid))
             conn.commit()
             session['client_name'] = updates['full_name']
-        except Exception:
+        except Exception as e:
             conn.rollback()
+            flash(f"Erreur infos : {type(e).__name__}", "error")
+        # Update photo séparément
+        photo_saved = False
+        if photo_data_uri:
+            try:
+                conn.execute("UPDATE client_users SET photo=? WHERE id=?", (photo_data_uri, cuid))
+                conn.commit()
+                # Vérification : relire la photo qui vient d'être sauvée
+                check = conn.execute("SELECT LENGTH(photo) as n FROM client_users WHERE id=?", (cuid,)).fetchone()
+                if check and check['n'] and check['n'] > 100:
+                    photo_saved = True
+                else:
+                    flash("⚠️ La photo n'a pas été persistée correctement (taille 0 après écriture)", "error")
+            except Exception as e:
+                conn.rollback()
+                flash(f"❌ Erreur sauvegarde photo : {type(e).__name__}: {e}", "error")
         conn.close()
-        flash("✅ Profil mis à jour" + (" (mot de passe modifié)" if pw_changed else "") + (" (photo enregistrée)" if photo_data_uri else ""), "success")
+        # Construire le message final
+        msg_parts = []
+        if photo_saved: msg_parts.append(f"photo enregistrée ({len(photo_data_uri)//1024} Ko)")
+        if pw_changed: msg_parts.append("mot de passe modifié")
+        if photo_error: flash(f"❌ Photo non enregistrée : {photo_error}", "error")
+        if msg_parts: flash("✅ Profil mis à jour — " + ", ".join(msg_parts), "success")
+        elif not photo_error: flash("✅ Profil mis à jour", "success")
         return redirect('/portail/profile')
     # GET
     me = dict(conn.execute("SELECT * FROM client_users WHERE id=?", (cuid,)).fetchone() or {})
@@ -5796,8 +5984,24 @@ def intervention_deliver(iid):
     _notify_client(conn, iid, f"📦 Chantier livré — {inter['reference']}",
         f"Votre chantier « {inter['title']} » est livré. Bon de livraison {bon_ref}. Merci de nous laisser une note et un commentaire depuis votre portail !")
     
+    # Notifier la COMPTABILITÉ pour émission et envoi de la facture définitive de recouvrement
+    try:
+        amount_str = ""
+        if inter.get('total_cost'):
+            amount_str = f" · Montant : {float(inter['total_cost']):,.0f} F"
+        for u in conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','comptable') AND is_active=1").fetchall():
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                VALUES (?, ?, ?, ?, ?)""",
+                (u['id'], 'facture_a_emettre',
+                 f"💰 Facture définitive à émettre — {inter['reference']}",
+                 f"Chantier livré pour {inter.get('client_name','-')} (BL {bon_ref}){amount_str}. "
+                 f"Émettez et envoyez la facture définitive par email pour recouvrement.",
+                 f"/comptabilite/facture/new?intervention_id={iid}"))
+    except Exception:
+        pass
+    
     conn.commit(); conn.close()
-    flash(f"Site livré — Bon de livraison {bon_ref}", "success")
+    flash(f"Site livré — Bon de livraison {bon_ref} · la comptabilité a été notifiée pour émettre la facture définitive", "success")
     return redirect(request.referrer or f'/interventions/{iid}/fiche')
 
 

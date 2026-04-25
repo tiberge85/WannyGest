@@ -70,6 +70,8 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
                 {% elif inv.status == 'payee' %}<span class="badge-status sent">✅ Payée</span>{% endif %}</td>
             <td style="display:flex;gap:4px;flex-wrap:wrap">
                 <a href="/comptabilite/facture/view/{{ inv.id }}" class="btn btn-outline btn-sm" title="Voir">👁️</a>
+                <a href="/comptabilite/facture/{{ inv.id }}/preview" target="_blank" class="btn btn-outline btn-sm" style="background:#fff3e0;color:#e8672a;border-color:#e8672a" title="Prévisualiser le PDF">🔍</a>
+                <a href="/comptabilite/facture/{{ inv.id }}/pdf" class="btn btn-outline btn-sm" style="background:#e3f2fd;color:#1a7a6d;border-color:#1a7a6d" title="Télécharger PDF">📄</a>
                 {% if can_edit('comptabilite') %}<a href="/comptabilite/facture/edit/{{ inv.id }}" class="btn btn-outline btn-sm" title="Modifier">✏️</a>{% endif %}
                 {% if inv.status == 'a_envoyer' %}<a href="/comptabilite/status/{{ inv.id }}/envoyee" class="btn btn-primary btn-sm">📧 Envoyée</a>{% endif %}
                 {% if inv.status == 'envoyee' %}<a href="/comptabilite/status/{{ inv.id }}/en_attente_paiement" class="btn btn-sm" style="background:#f57f17;color:#fff">⏳ Attente</a>{% endif %}

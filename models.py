@@ -204,9 +204,10 @@ def init_db():
         'comptable': ['dashboard', 'comptabilite', 'comptabilite_edit', 'clients', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'chat', 'grand_livre', 'balance', 'caisse_multi', 'virement_demande'],
         'moyens_generaux': ['dashboard', 'moyens_generaux', 'moyens_generaux_edit', 'clients', 'rapports_j', 'chat'],
         'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets', 'rapports_j', 'centre_technique', 'chat', 'gps_itineraire'],
-        'resp_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'proforma', 'chat', 'gps_itineraire', 'client_requests_view'],
+        'resp_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'proforma', 'chat', 'gps_itineraire', 'client_requests_view', 'controle_qualite', 'livraison_intervention'],
         'gestionnaire_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'clients_edit', 'rapports_j', 'proforma', 'proforma_edit', 'visites', 'centre_technique', 'chat', 'gps_itineraire'],
         'coordinateur': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'chat', 'gps_itineraire', 'client_requests_view', 'controle_qualite', 'livraison_intervention'],
+        'proprietaire': ['dashboard', 'dashboard_general', 'clients', 'comptabilite', 'grand_livre', 'balance', 'rapports_j', 'logs', 'chat', 'tracking', 'admin'],
     }
     for role, perms in default_perms.items():
         for perm in perms:
@@ -394,6 +395,54 @@ def delete_client(client_id):
     except Exception:
         conn.rollback()
         return False
+    finally:
+        conn.close()
+
+
+def merge_clients(keep_id, drop_id):
+    """Fusionne deux doublons : réattribue TOUTES les références FK du drop_id
+    vers le keep_id puis supprime le drop_id.
+    
+    Returns dict {success: bool, moved: {table: count}, message: str}
+    """
+    if keep_id == drop_id:
+        return {'success': False, 'moved': {}, 'message': 'Impossible : même ID'}
+    conn = get_db()
+    moved = {}
+    try:
+        # Vérifier que les 2 clients existent
+        k = conn.execute("SELECT id, name FROM clients WHERE id=?", (keep_id,)).fetchone()
+        d = conn.execute("SELECT id, name FROM clients WHERE id=?", (drop_id,)).fetchone()
+        if not k or not d:
+            return {'success': False, 'moved': {}, 'message': 'Un des clients est introuvable'}
+        
+        # Tables avec FK client_id → tout réattribuer vers keep_id
+        tables_to_merge = [
+            'devis', 'invoices', 'contrats', 'interventions',
+            'visits', 'tech_center', 'client_messages', 'client_requests',
+            'client_users', 'client_attachments', 'client_reminders',
+            'treasury', 'caisse_sorties', 'caisse_entrees', 'bilans', 'prospects'
+        ]
+        for tbl in tables_to_merge:
+            try:
+                cur = conn.execute(f"UPDATE {tbl} SET client_id = ? WHERE client_id = ?", (keep_id, drop_id))
+                if cur.rowcount > 0:
+                    moved[tbl] = cur.rowcount
+            except Exception:
+                pass  # table inexistante ou colonne absente
+        
+        # Supprimer le doublon
+        conn.execute("DELETE FROM clients WHERE id = ?", (drop_id,))
+        conn.commit()
+        total_moved = sum(moved.values())
+        return {
+            'success': True, 'moved': moved,
+            'keep_name': k['name'], 'drop_name': d['name'],
+            'message': f"Fusion réussie : {total_moved} lien(s) transférés de « {d['name']} » vers « {k['name']} »"
+        }
+    except Exception as e:
+        conn.rollback()
+        return {'success': False, 'moved': moved, 'message': f'Erreur : {e}'}
     finally:
         conn.close()
 

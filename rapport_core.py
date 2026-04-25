@@ -2078,33 +2078,10 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     HEADER_GRAY = HexColor('#4B4B4B')     # texte DEVIS/PROFORMA/FACTURE
     
     def _draw_corners(canv, doc_):
-        """Dessine les motifs triangulaires décoratifs aux coins — exact modèle."""
+        """Coins neutres — plus de triangles décoratifs (retirés à la demande du client)."""
+        # Ligne pointillée séparatrice au-dessus du footer
         w, h = A4
         canv.saveState()
-        # Motifs triangulaires en haut (gris translucide, coins hauts gauche + droit)
-        canv.setFillColor(HexColor('#e0e0e0'))
-        canv.setStrokeColor(HexColor('#cccccc'))
-        # haut gauche — 3 petits triangles
-        for i, (x, y, sz) in enumerate([(8*mm, h-12*mm, 4*mm), (16*mm, h-15*mm, 3*mm), (25*mm, h-10*mm, 3.5*mm)]):
-            p = canv.beginPath(); p.moveTo(x,y); p.lineTo(x+sz,y); p.lineTo(x+sz/2, y-sz); p.close()
-            canv.drawPath(p, fill=1, stroke=0)
-        # haut droit — 3 triangles
-        for i, (x, y, sz) in enumerate([(w-12*mm, h-10*mm, 4*mm), (w-24*mm, h-15*mm, 3.5*mm), (w-35*mm, h-11*mm, 3*mm)]):
-            p = canv.beginPath(); p.moveTo(x,y); p.lineTo(x-sz,y); p.lineTo(x-sz/2, y-sz); p.close()
-            canv.drawPath(p, fill=1, stroke=0)
-        # Motif triangulaire orange en bas à droite (signature visuelle)
-        canv.setFillColor(RAMYA_ORANGE)
-        # 3 triangles orange décroissants bas-droit
-        bx, by = w-8*mm, 8*mm
-        for k in range(3):
-            sz = 8*mm - k*2*mm
-            p = canv.beginPath()
-            p.moveTo(bx-k*6*mm, by)
-            p.lineTo(bx-k*6*mm - sz, by)
-            p.lineTo(bx-k*6*mm - sz/2, by + sz)
-            p.close()
-            canv.drawPath(p, fill=1, stroke=0)
-        # Ligne pointillée séparatrice au-dessus du footer
         canv.setStrokeColor(HexColor('#bbbbbb'))
         canv.setDash(2, 2)
         canv.line(15*mm, 22*mm, w-15*mm, 22*mm)
@@ -2187,7 +2164,7 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
         except: pass
     
     company_name = Paragraph(
-        "<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+        "<b>RAMYA</b><br/><b>TECHNOLOGIE &amp;</b><br/><b>INNOVATION</b>",
         ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold',
                        textColor=RAMYA_TEAL, leading=14, alignment=TA_CENTER)
     )
@@ -2498,7 +2475,7 @@ def generate_bon_livraison_pdf(inter_data, output_path, logo_path=None):
             logo_el = RLImage(logo_path, width=logo_w, height=logo_h)
         except: pass
     
-    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp;</b><br/><b>INNOVATION</b>",
         ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold',
                        textColor=RAMYA_TEAL, leading=14, alignment=TA_CENTER))
     
@@ -2667,7 +2644,7 @@ def generate_attestation_pdf(inter_data, output_path, logo_path=None):
             logo_el = RLImage(logo_path, width=logo_w, height=logo_h)
         except: pass
     
-    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+    company = Paragraph("<b>RAMYA</b><br/><b>TECHNOLOGIE &amp;</b><br/><b>INNOVATION</b>",
         ParagraphStyle('co', fontSize=11, fontName='Helvetica-Bold',
                        textColor=RAMYA_TEAL, leading=14, alignment=TA_CENTER))
     
