@@ -231,7 +231,7 @@
                 <div class="nav-section-items">
                     {% if 'clients' in permissions %}<a href="/clients" class="{% if page == 'clients' %}active{% endif %}">Relation client</a>{% endif %}
                     {% if 'clients' in permissions %}<a href="/prospects" class="{% if page == 'prospects' %}active{% endif %}">Prospects</a>{% endif %}
-                    {% if 'visites' in permissions %}<a href="/visites" class="{% if page == 'visites' %}active{% endif %}">Gestion d'interventions</a>{% endif %}
+                    {% if 'visites' in permissions %}<a href="/visites" class="{% if page == 'visites' %}active{% endif %}" style="position:relative">Gestion d'interventions{% if new_visites_count and new_visites_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_visites_count }}</span>{% endif %}</a>{% endif %}
                     {% if 'proforma' in permissions %}<a href="/devis" class="{% if page == 'devis' %}active{% endif %}">Devis / Proformas</a>{% endif %}
                     {% if 'proforma' in permissions %}<a href="/devis/templates" class="{% if page == 'devis_tpl' %}active{% endif %}">Modèles de devis</a>{% endif %}
                     {% if 'contrats' in permissions %}<a href="/contrats" class="{% if page == 'contrats' %}active{% endif %}">Contrats</a>{% endif %}

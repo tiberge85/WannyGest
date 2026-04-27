@@ -658,6 +658,81 @@ new Chart(document.getElementById('cTres'),{type:'line',data:{labels:['Recettes'
 <button class="btn btn-outline btn-sm" onclick="toggleDetail()">🔽 Afficher détails &amp; rapports</button>
 </div></div>
 
+<!-- ===== CAROUSEL DÉFILANT (auto-loop) — interventions du jour avec progression ===== -->
+{% set all_for_loop = (by_type.entretien or []) + (by_type.depannage or []) + (by_type.projet_neuf or []) %}
+{% if all_for_loop|length > 0 %}
+<style>
+@keyframes wgScrollLeft { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+.wg-loop-wrap { background:linear-gradient(135deg,#1a3a5c 0%,#0d6b5e 100%); color:#fff; padding:14px 0; border-radius:10px; margin-bottom:16px; overflow:hidden; position:relative; box-shadow:0 2px 8px rgba(0,0,0,0.1) }
+.wg-loop-track { display:flex; gap:14px; animation:wgScrollLeft 60s linear infinite; padding:0 14px; width:max-content }
+.wg-loop-wrap:hover .wg-loop-track { animation-play-state:paused }
+.wg-loop-card { background:rgba(255,255,255,0.12); border-left:3px solid #e8672a; border-radius:8px; padding:10px 14px; min-width:280px; backdrop-filter:blur(4px); flex-shrink:0 }
+.wg-loop-card.t-entretien { border-left-color:#2e7d32 }
+.wg-loop-card.t-depannage { border-left-color:#e8672a }
+.wg-loop-card.t-projet { border-left-color:#1565c0 }
+.wg-loop-card.t-visite { border-left-color:#7b1fa2 }
+.wg-loop-card .wg-l-type { font-size:9px; font-weight:700; text-transform:uppercase; opacity:0.85; margin-bottom:3px }
+.wg-loop-card .wg-l-title { font-size:13px; font-weight:700; line-height:1.2 }
+.wg-loop-card .wg-l-meta { font-size:10px; opacity:0.85; margin-top:3px }
+.wg-loop-bar { height:5px; background:rgba(255,255,255,0.2); border-radius:3px; margin-top:6px; overflow:hidden }
+.wg-loop-bar-fill { height:100%; background:linear-gradient(90deg,#e8672a,#ffb400); border-radius:3px; transition:width 0.4s }
+.wg-loop-status { display:inline-block; padding:1px 7px; border-radius:8px; font-size:9px; font-weight:700; background:rgba(255,255,255,0.2); margin-top:4px }
+.wg-loop-header { padding:0 14px 6px; font-size:11px; opacity:0.85; display:flex; gap:8px; align-items:center; justify-content:space-between }
+@media print { .wg-loop-wrap { display:none } }
+</style>
+<div class="wg-loop-wrap no-print">
+    <div class="wg-loop-header">
+        <span>🔄 Programme du jour en boucle — Survolez pour mettre en pause</span>
+        <span style="font-size:10px;opacity:0.7">{{ all_for_loop|length }} intervention(s)</span>
+    </div>
+    <div class="wg-loop-track">
+        {# On répète 2 fois pour la boucle continue #}
+        {% for repeat in range(2) %}
+        {% for i in by_type.entretien %}
+        <div class="wg-loop-card t-entretien">
+            <div class="wg-l-type">🔧 Entretien</div>
+            <div class="wg-l-title">{{ i.title or i.objet or '-' }}</div>
+            <div class="wg-l-meta">🏢 {{ i.client_name or '-' }} · 👨‍🔧 {{ i.technician_name or '-' }}{% if i.scheduled_time %} · ⏰ {{ i.scheduled_time }}{% endif %}</div>
+            {% set prog = (i.daily_reports[0].progress if i.daily_reports else 0) or 0 %}
+            <div class="wg-loop-bar"><div class="wg-loop-bar-fill" style="width:{{ prog }}%"></div></div>
+            <span class="wg-loop-status">{{ i.status|default('planifié') }} · {{ prog }}%</span>
+        </div>
+        {% endfor %}
+        {% for i in by_type.depannage %}
+        <div class="wg-loop-card t-depannage">
+            <div class="wg-l-type">⚡ Dépannage</div>
+            <div class="wg-l-title">{{ i.title or i.objet or '-' }}</div>
+            <div class="wg-l-meta">🏢 {{ i.client_name or '-' }} · 👨‍🔧 {{ i.technician_name or '-' }}{% if i.scheduled_time %} · ⏰ {{ i.scheduled_time }}{% endif %}</div>
+            {% set prog = (i.daily_reports[0].progress if i.daily_reports else 0) or 0 %}
+            <div class="wg-loop-bar"><div class="wg-loop-bar-fill" style="width:{{ prog }}%"></div></div>
+            <span class="wg-loop-status">{{ i.status|default('planifié') }} · {{ prog }}%</span>
+        </div>
+        {% endfor %}
+        {% for i in by_type.projet_neuf %}
+        <div class="wg-loop-card t-projet">
+            <div class="wg-l-type">🏗️ Projet neuf</div>
+            <div class="wg-l-title">{{ i.title or i.objet or '-' }}</div>
+            <div class="wg-l-meta">🏢 {{ i.client_name or '-' }} · 👨‍🔧 {{ i.technician_name or '-' }}{% if i.scheduled_time %} · ⏰ {{ i.scheduled_time }}{% endif %}</div>
+            {% set prog = (i.daily_reports[0].progress if i.daily_reports else 0) or 0 %}
+            <div class="wg-loop-bar"><div class="wg-loop-bar-fill" style="width:{{ prog }}%"></div></div>
+            <span class="wg-loop-status">{{ i.status|default('planifié') }} · {{ prog }}%</span>
+        </div>
+        {% endfor %}
+        {% if visits_today %}
+        {% for v in visits_today %}
+        <div class="wg-loop-card t-visite">
+            <div class="wg-l-type">📋 Visite CRM</div>
+            <div class="wg-l-title">{{ v.client_name or '-' }}</div>
+            <div class="wg-l-meta">📍 {{ v.address or '-' }}{% if v.commercial_name %} · 🤝 {{ v.commercial_name }}{% endif %}</div>
+            <span class="wg-loop-status">{{ v.statut or 'en_attente' }}</span>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 {% set tab_configs = [
     ('entretien', 'FICHE DU JOUR ENTRETIEN', by_type.entretien, 'row-entretien', 5),
     ('depannage', 'FICHE DU JOUR DEPANAGE', by_type.depannage, 'row-depan', 7),

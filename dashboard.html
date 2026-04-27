@@ -12,6 +12,17 @@
     <div class="stat-card" style="border-left:4px solid #2e7d32"><div class="stat-icon green">🎯</div><div class="stat-info"><div class="stat-num">{{ d_stats.accepte if d_stats else 0 }}</div><div class="stat-label">Devis acceptés</div></div></div>
     <div class="stat-card" style="border-left:4px solid #1A7A6D"><div class="stat-icon blue">📁</div><div class="stat-info"><div class="stat-num">{{ stats.total_jobs }}</div><div class="stat-label">Projets / Rapports</div></div></div>
     <div class="stat-card" style="border-left:4px solid #7b1fa2"><div class="stat-icon purple">👥</div><div class="stat-info"><div class="stat-num">{{ emp_stats.total if emp_stats else 0 }}</div><div class="stat-label">Employés</div></div></div>
+    {% if budget_kpi %}
+    <a href="/budgets" style="text-decoration:none">
+    <div class="stat-card" style="border-left:4px solid {% if budget_kpi.over %}#c53030{% elif budget_kpi.warn %}#f29f2f{% else %}#1565c0{% endif %};cursor:pointer">
+        <div class="stat-icon" style="background:rgba(21,101,192,0.1);color:#1565c0">💼</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ budget_kpi.percent }}%</div>
+            <div class="stat-label">Budget consommé</div>
+            <div style="font-size:9px;color:#888;margin-top:2px">{{ "{:,.0f}".format(budget_kpi.spent) }}/{{ "{:,.0f}".format(budget_kpi.planned) }} F</div>
+        </div>
+    </div></a>
+    {% endif %}
 </div>
 
 <!-- 3 columns: Factures / Devis / Visites -->

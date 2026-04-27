@@ -566,6 +566,14 @@ def inject_globals():
                                AND COALESCE(created_at, scheduled_date, '') > ?
                                AND status NOT IN ('livre','annule')""", (u_id, last_seen_t)).fetchone()[0]
                     except: ctx['my_interventions_count'] = 0
+                    # Nouvelles visites depuis dernière consultation
+                    try:
+                        last_seen_v = session.get('last_visites_seen', '1970-01-01')
+                        ctx['new_visites_count'] = _c.execute(
+                            """SELECT COUNT(*) FROM visits
+                               WHERE COALESCE(created_at, date, '') > ?""",
+                            (last_seen_v,)).fetchone()[0]
+                    except: ctx['new_visites_count'] = 0
                     _c.close()
                 except: pass
             # Weekly champion
@@ -843,11 +851,36 @@ def dashboard():
         except: sec_data['colis_pending'] = 0
         conn.close()
     
+    # === KPI Budget pour dashboard admin ===
+    budget_kpi = None
+    if role in ('admin', 'dg', 'comptable'):
+        try:
+            conn3 = _gdb()
+            from models import recompute_budget_spent
+            # Recompute tous les budgets actifs avant de sommer
+            for b in conn3.execute("SELECT id FROM dept_budgets WHERE COALESCE(is_active,1)=1").fetchall():
+                try: recompute_budget_spent(b['id'])
+                except: pass
+            row = conn3.execute(
+                """SELECT COALESCE(SUM(amount_planned),0) as p, COALESCE(SUM(amount_spent),0) as s
+                   FROM dept_budgets WHERE COALESCE(is_active,1)=1""").fetchone()
+            conn3.close()
+            if row and row['p'] > 0:
+                planned = float(row['p']); spent = float(row['s'])
+                pct = round(spent / planned * 100, 1)
+                budget_kpi = {
+                    'planned': planned, 'spent': spent, 'percent': pct,
+                    'over': spent > planned, 'warn': pct >= 80,
+                }
+        except Exception:
+            pass
+    
     return render_template('dashboard.html', page='dashboard', stats=stats, 
                           inv_stats=inv_stats, v_stats=v_stats, d_stats=d_stats,
                           emp_stats=emp_stats, user_role=role, sec_data=sec_data,
                           today_str=datetime.now().strftime('%Y-%m-%d'),
-                          announcements=announcements, trainings_upcoming=trainings_upcoming)
+                          announcements=announcements, trainings_upcoming=trainings_upcoming,
+                          budget_kpi=budget_kpi)
 
 @app.route('/dashboard-general')
 @permission_required('dashboard_general')
@@ -3446,6 +3479,8 @@ def visites_page():
     tab = request.args.get('tab', 'en_attente')
     visits = get_visit_reports(tab if tab != 'all' else None)
     v_stats = get_visit_stats()
+    # Reset badge nouvelles visites
+    session['last_visites_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return render_template('visites.html', page='visites', tab=tab, visits=visits, v_stats=v_stats)
 
 @app.route('/visites/new', methods=['GET', 'POST'])
@@ -6031,9 +6066,17 @@ def interventions_programme():
         date_display = f"{d}/{m}/{y}"
     except: date_display = date
     
+    # Visites CRM du jour pour le carrousel
+    visits_today = []
+    try:
+        visits_today = [dict(r) for r in conn.execute(
+            "SELECT * FROM visits WHERE date=? ORDER BY id DESC LIMIT 20", (date,)).fetchall()]
+    except: pass
+    
     conn.close()
     return render_template('extra_pages.html', page='programme_jour', interventions=interventions,
-                          by_type=by_type, date=date, date_display=date_display, today=today, is_admin=is_admin)
+                          by_type=by_type, date=date, date_display=date_display, today=today,
+                          is_admin=is_admin, visits_today=visits_today)
 
 @app.route('/interventions/<int:iid>/daily-report', methods=['POST'])
 @login_required
@@ -7060,18 +7103,67 @@ def intervention_rapport(iid):
 @app.route('/notifications')
 @login_required
 def notifications_page():
+    """Liste des notifications avec filtres (tous, non lu, lu) et compteurs temps réel."""
     conn = _gdb()
     user = get_user_by_id(session['user_id'])
-    notifs = [dict(r) for r in conn.execute("""SELECT * FROM notifications 
-        WHERE user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)
-        ORDER BY created_at DESC LIMIT 50""",
+    filter_state = request.args.get('filter', 'all')  # all | unread | read
+    # Where clause selon le filtre
+    where_filter = ""
+    if filter_state == 'unread':
+        where_filter = "AND COALESCE(read, 0) = 0"
+    elif filter_state == 'read':
+        where_filter = "AND COALESCE(read, 0) = 1"
+    
+    notifs = [dict(r) for r in conn.execute(f"""SELECT * FROM notifications 
+        WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?))
+        {where_filter}
+        ORDER BY created_at DESC LIMIT 100""",
         (session['user_id'], user.get('email',''))).fetchall()]
-    # Mark all as read
+    
+    # Compteurs temps réel
+    counts = conn.execute("""SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN COALESCE(read,0) = 0 THEN 1 ELSE 0 END) as unread,
+        SUM(CASE WHEN COALESCE(read,0) = 1 THEN 1 ELSE 0 END) as read
+        FROM notifications
+        WHERE user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)""",
+        (session['user_id'], user.get('email',''))).fetchone()
+    counts = dict(counts) if counts else {'total':0, 'unread':0, 'read':0}
+    counts = {k: int(v or 0) for k, v in counts.items()}
+    
+    conn.close()
+    return render_template('rh_conges.html', page='notifications', notifs=notifs,
+                          filter_state=filter_state, notif_counts=counts)
+
+
+@app.route('/notifications/mark-all-read', methods=['POST', 'GET'])
+@login_required
+def notifications_mark_all_read():
+    """Marque toutes les notifications de l'utilisateur comme lues."""
+    conn = _gdb()
+    user = get_user_by_id(session['user_id'])
     conn.execute("""UPDATE notifications SET read=1 
-        WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)) AND read=0""",
-        (session['user_id'], user.get('email','')))
+        WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)) AND COALESCE(read,0)=0""",
+        (session['user_id'], user.get('email','') if user else ''))
     conn.commit(); conn.close()
-    return render_template('rh_conges.html', page='notifications', notifs=notifs)
+    flash("✅ Toutes les notifications marquées comme lues", "success")
+    return redirect(request.referrer or '/notifications')
+
+
+@app.route('/api/notifications/count')
+@login_required
+def api_notifications_count():
+    """Endpoint JSON pour le polling temps réel des compteurs."""
+    conn = _gdb()
+    user = get_user_by_id(session['user_id'])
+    try:
+        unread = conn.execute("""SELECT COUNT(*) FROM notifications
+            WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?))
+            AND COALESCE(read,0)=0""",
+            (session['user_id'], user.get('email','') if user else '')).fetchone()[0]
+    except: unread = 0
+    conn.close()
+    return jsonify({'unread': int(unread or 0)})
 
 @app.route('/notifications/read/<int:nid>')
 @login_required
@@ -7175,14 +7267,28 @@ def tech_center():
 @login_required
 def tech_center_add():
     from models import db_insert
+    # Récupérer toutes les catégories cochées
+    system_types = request.form.getlist('system_types[]') or []
+    # Si "Autre" coché, exiger précision
+    if 'Autre' in system_types:
+        precision = (request.form.get('system_type_other','') or '').strip()
+        if not precision:
+            flash("⚠️ Vous avez coché « Autre » : merci de préciser le type de système.", "error")
+            return redirect(url_for('tech_center'))
+        system_types = [t if t != 'Autre' else f"Autre : {precision}" for t in system_types]
+    # Joindre toutes en une seule chaîne (compatibilité système existant qui stocke 1 chaîne)
+    system_type_str = ' · '.join(system_types) if system_types else ''
+    # Fallback : si l'ancien champ "system_type" était envoyé (ex: éditions anciennes), l'utiliser
+    if not system_type_str:
+        system_type_str = (request.form.get('system_type','') or '').strip()
     db_insert('tech_center', client_name=request.form.get('client_name',''),
         client_id=int(request.form['client_id']) if request.form.get('client_id') else None,
-        system_type=request.form.get('system_type',''),
+        system_type=system_type_str,
         installation_date=request.form.get('installation_date',''),
         next_maintenance=request.form.get('next_maintenance',''),
         maintenance_interval=int(request.form.get('maintenance_interval', 90) or 90),
         notes=request.form.get('notes',''), created_by=session['user_id'])
-    flash("Système ajouté au centre technique", "success")
+    flash(f"✅ Système ajouté ({len(system_types) or 1} type(s) sélectionné(s))", "success")
     return redirect(url_for('tech_center'))
 
 @app.route('/centre-technique/view/<int:sid>')
@@ -8795,8 +8901,8 @@ def caisse_demande():
 @app.route('/caisse-sortie/<int:sid>/valider')
 @login_required
 def caisse_valider(sid):
-    from models import get_db
-    """DG ou admin valide la demande."""
+    from models import get_db, recompute_budget_spent
+    """DG ou admin valide la demande de sortie de caisse → impact sur le budget département."""
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'dg', 'directeur'):
         flash("Seul le DG peut valider les sorties de caisse", "error")
@@ -8806,26 +8912,79 @@ def caisse_valider(sid):
                  (session['user_id'], user['full_name'], datetime.now().isoformat(), sid))
     conn.commit()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    s_dict = dict(s) if s else None
     conn.close()
-    if s:
+    # === MISE À JOUR AUTOMATIQUE DU BUDGET DÉPARTEMENT ===
+    budget_msg = ""
+    if s_dict and s_dict.get('department'):
+        try:
+            conn2 = get_db()
+            # Trouver les budgets actifs du département
+            budgets = conn2.execute(
+                """SELECT id, amount_planned, amount_spent FROM dept_budgets
+                   WHERE department=? AND COALESCE(is_active,1)=1
+                   ORDER BY period_start DESC""", (s_dict['department'],)).fetchall()
+            conn2.close()
+            for b in budgets:
+                recompute_budget_spent(b['id'])
+                # Vérifier dépassement
+                conn3 = get_db()
+                bnew = conn3.execute("SELECT amount_planned, amount_spent FROM dept_budgets WHERE id=?", (b['id'],)).fetchone()
+                conn3.close()
+                if bnew:
+                    if float(bnew['amount_spent']) > float(bnew['amount_planned']):
+                        budget_msg = f" ⚠️ Budget {s_dict['department']} DÉPASSÉ ({float(bnew['amount_spent']):,.0f} / {float(bnew['amount_planned']):,.0f} F)"
+                    else:
+                        ratio = (float(bnew['amount_spent']) / float(bnew['amount_planned']) * 100) if float(bnew['amount_planned']) > 0 else 0
+                        if ratio >= 80:
+                            budget_msg = f" — Budget {s_dict['department']} à {ratio:.0f}%"
+        except Exception:
+            pass
+    if s_dict:
         log_activity(session['user_id'], user['full_name'], 'Caisse',
-                    f"Sortie {s['reference']} validée — {s['montant']:,.0f} F", request.remote_addr)
-    flash("Sortie de caisse validée → transmise à la comptabilité", "success")
+                    f"Sortie {s_dict['reference']} validée — {float(s_dict['montant']):,.0f} F", request.remote_addr)
+    flash(f"✅ Sortie de caisse validée → transmise à la comptabilité{budget_msg}", "success")
     return redirect(url_for('caisse_sortie'))
+
 
 @app.route('/caisse-sortie/<int:sid>/refuser')
 @login_required
 def caisse_refuser(sid):
-    from models import get_db
+    from models import get_db, recompute_budget_spent
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'dg', 'directeur'):
         flash("Seul le DG peut refuser", "error")
         return redirect(url_for('caisse_sortie'))
     conn = get_db()
+    s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    s_dict = dict(s) if s else None
     conn.execute("UPDATE caisse_sorties SET status='refuse', valideur_id=?, valideur_name=?, validated_at=? WHERE id=? AND status='en_attente'",
                  (session['user_id'], user['full_name'], datetime.now().isoformat(), sid))
     conn.commit(); conn.close()
-    flash("Demande refusée", "info")
+    # Si la demande était précédemment validée et qu'elle est annulée → recompute
+    if s_dict and s_dict.get('department'):
+        try:
+            conn2 = get_db()
+            budgets = conn2.execute(
+                "SELECT id FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1",
+                (s_dict['department'],)).fetchall()
+            conn2.close()
+            for b in budgets:
+                recompute_budget_spent(b['id'])
+        except: pass
+    # Notifier le demandeur
+    if s_dict and s_dict.get('demandeur_id'):
+        try:
+            conn3 = get_db()
+            conn3.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                VALUES (?,?,?,?,?)""",
+                (s_dict['demandeur_id'], 'caisse_refus',
+                 f"❌ Demande caisse refusée — {s_dict['reference']}",
+                 f"Votre demande de {float(s_dict['montant']):,.0f} F (motif: {s_dict.get('motif','-')[:80]}) a été refusée par {user['full_name']}.",
+                 "/caisse-sortie"))
+            conn3.commit(); conn3.close()
+        except: pass
+    flash("Demande refusée — le demandeur a été notifié", "info")
     return redirect(url_for('caisse_sortie'))
 
 @app.route('/caisse-sortie/<int:sid>/comptabiliser')

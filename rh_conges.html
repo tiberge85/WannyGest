@@ -2,10 +2,46 @@
 {% block title %}WannyGest - {% if page == 'notifications' %}Notifications{% elif page == 'absences' %}Absences{% else %}Congés{% endif %}{% endblock %}
 {% block content %}
 {% if page == 'notifications' %}
-<div class="page-header"><h1>🔔 Notifications</h1></div>
+{% set fs = filter_state or 'all' %}
+{% set nc = notif_counts or {'total':0,'unread':0,'read':0} %}
+<!-- Auto-refresh : poll toutes les 20 secondes pour voir les nouvelles notifs -->
+<script>
+function refreshNotifCounter() {
+    fetch('/api/notifications/count').then(r => r.json()).then(d => {
+        var elt = document.getElementById('liveUnreadCount');
+        if (elt) elt.textContent = d.unread;
+        // Si on est sur le filtre "non lu" et qu'il y a un changement, recharger
+        var cur = document.getElementById('curUnreadInit');
+        if (cur && d.unread !== parseInt(cur.value)) {
+            cur.value = d.unread;
+            // Si l'utilisateur est sur l'onglet 'unread' et qu'une nouvelle notif arrive, recharger
+            if ('{{ fs }}' === 'unread' && d.unread > parseInt(cur.dataset.initial || 0)) {
+                window.location.reload();
+            }
+        }
+    }).catch(() => {});
+}
+setInterval(refreshNotifCounter, 20000);
+</script>
+<input type="hidden" id="curUnreadInit" value="{{ nc.unread }}" data-initial="{{ nc.unread }}">
+
+<div class="page-header">
+    <h1>🔔 Notifications <span style="font-size:12px;color:#888;font-weight:normal">· <span id="liveUnreadCount">{{ nc.unread }}</span> non lue(s) sur {{ nc.total }}</span></h1>
+    {% if nc.unread > 0 %}
+    <a href="/notifications/mark-all-read" class="btn btn-sm" style="background:#1A7A6D;color:#fff" onclick="return confirm('Marquer toutes les notifications comme lues ?')">✅ Tout marquer lu</a>
+    {% endif %}
+</div>
+
+<!-- Filtres -->
+<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <a href="/notifications?filter=all" class="btn btn-sm {% if fs == 'all' %}btn-primary{% else %}btn-outline{% endif %}">📋 Toutes <span style="background:rgba(0,0,0,0.1);padding:1px 7px;border-radius:8px;margin-left:4px;font-size:10px">{{ nc.total }}</span></a>
+    <a href="/notifications?filter=unread" class="btn btn-sm {% if fs == 'unread' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if fs == 'unread' %}{% else %}border-color:#e8672a;color:#e8672a{% endif %}">🔴 Non lues <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:8px;margin-left:4px;font-size:10px">{{ nc.unread }}</span></a>
+    <a href="/notifications?filter=read" class="btn btn-sm {% if fs == 'read' %}btn-primary{% else %}btn-outline{% endif %}">✅ Lues <span style="background:rgba(0,0,0,0.1);padding:1px 7px;border-radius:8px;margin-left:4px;font-size:10px">{{ nc.read }}</span></a>
+</div>
+
 {% if notifs %}
 {% for n in notifs %}
-<div class="card" style="border-left:4px solid {% if n.type == 'bulletin' %}#1A7A6D{% elif n.type == 'signature' %}#7b1fa2{% else %}#e8672a{% endif %};margin-bottom:8px">
+<div class="card" style="border-left:4px solid {% if n.type == 'bulletin' %}#1A7A6D{% elif n.type == 'signature' %}#7b1fa2{% else %}#e8672a{% endif %};margin-bottom:8px;{% if not n.read %}background:#fffaf3{% endif %}">
     <div class="card-body" style="padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div style="font-size:24px">{% if n.type == 'bulletin' %}💵{% elif n.type == 'signature' %}✍️{% else %}🔔{% endif %}</div>
         <div style="flex:1;min-width:200px">
@@ -21,12 +57,16 @@
             {% endif %}
         </div>
         {% endif %}
-        {% if not n.read %}<span style="width:8px;height:8px;border-radius:50%;background:#e8672a;flex-shrink:0"></span>{% endif %}
+        {% if not n.read %}<span style="width:8px;height:8px;border-radius:50%;background:#e8672a;flex-shrink:0" title="Non lu"></span>{% endif %}
     </div>
 </div>
 {% endfor %}
 {% else %}
-<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">Aucune notification</div></div>
+<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
+    {% if fs == 'unread' %}🎉 Aucune notification non lue !
+    {% elif fs == 'read' %}Aucune notification lue
+    {% else %}Aucune notification{% endif %}
+</div></div>
 {% endif %}
 
 {% elif page == 'absences' %}

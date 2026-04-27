@@ -39,8 +39,24 @@
 <div class="form-row"><div class="form-group"><label>Contact</label><input type="text" name="contact_name"></div>
 <div class="form-group"><label>Téléphone</label><input type="text" name="tel"></div></div>
 <div class="form-group"><label>Email</label><input type="email" name="email"></div>
-<div class="form-row"><div class="form-group"><label>Type système</label><select name="system_type"><option>Vidéosurveillance</option><option>Clôture électrique</option><option>Contrôle d'accès</option><option>Alarme</option><option>Réseau</option><option>Autre</option></select></div>
-<div class="form-group"><label>Installation</label><input type="date" name="installation_date"></div></div>
+<div class="form-row"><div class="form-group" style="flex:1"><label>Type(s) de système(s) — cochez tous les types installés sur le site</label>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#fafafa;padding:10px;border-radius:6px;border:1.5px solid #ddd">
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Vidéosurveillance"> Vidéosurveillance</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Clôture électrique"> Clôture électrique</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Contrôle d'accès"> Contrôle d'accès</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Alarme"> Alarme</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Visiophone"> Visiophone</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Domotique"> Domotique</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Détection incendie"> Détection incendie</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Réseau"> Réseau</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Câblage"> Câblage</label>
+<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" name="system_types[]" value="Autre" id="tcAutre" onchange="document.getElementById('tcAutreWrap').style.display=this.checked?'':'none';document.getElementById('tcAutreInput').required=this.checked;if(!this.checked)document.getElementById('tcAutreInput').value=''"> Autre</label>
+</div>
+<div id="tcAutreWrap" style="display:none;margin-top:8px">
+    <input name="system_type_other" id="tcAutreInput" placeholder="Précision (obligatoire si Autre coché)" style="width:100%;padding:8px;border:1.5px solid #e8672a;border-radius:6px;background:#fff8e1">
+</div>
+</div></div>
+<div class="form-row"><div class="form-group"><label>Installation</label><input type="date" name="installation_date"></div></div>
 <div class="form-row"><div class="form-group"><label>Prochaine maintenance</label><input type="date" name="next_maintenance"></div>
 <div class="form-group"><label>Intervalle (jours)</label><input type="number" name="maintenance_interval" value="90"></div></div>
 <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px"></textarea></div>
