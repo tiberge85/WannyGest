@@ -1434,7 +1434,8 @@ setTimeout(function(){ window.location.reload(); }, 60000);
 </style>
 <div class="page-header">
     <h1>💼 Gestion du budget par département</h1>
-    {% if can_edit('comptabilite') %}
+    {% if budget_scope_label %}<span style="font-size:11px;color:#888;margin-right:10px">{{ budget_scope_label }}</span>{% endif %}
+    {% if can_edit_budget %}
     <button class="btn btn-primary btn-sm" onclick="document.getElementById('addBdgModal').style.display='flex'">+ Nouveau budget</button>
     {% endif %}
 </div>
@@ -1492,7 +1493,7 @@ setTimeout(function(){ window.location.reload(); }, 60000);
     </td>
     <td style="text-align:center;white-space:nowrap">
         <a href="/budgets/{{ b.id }}/recompute" class="btn btn-sm btn-outline" style="font-size:10px" title="Recalculer">🔄</a>
-        {% if can_edit('comptabilite') %}
+        {% if can_edit_budget %}
         <button onclick="editBudget({{ b.id }}, '{{ b.department|e }}', {{ b.amount_planned or 0 }}, '{{ b.period_type }}', '{{ b.period_start or '' }}', '{{ b.period_end or '' }}', '{{ (b.notes or '')|e }}')" class="btn btn-sm btn-outline" style="font-size:10px" title="Modifier">✏️</button>
         <a href="/budgets/{{ b.id }}/delete" onclick="return confirm('Supprimer ce budget ?')" class="btn btn-sm btn-outline" style="color:#c53030;font-size:10px" title="Supprimer">🗑️</a>
         {% endif %}

@@ -93,7 +93,13 @@
             <div class="form-group"><label>Email</label><input type="email" name="email" value="{{ edit_user.email }}" required></div>
             <div class="form-group"><label>Rôle</label>
                 <select name="role">
-                    {% for r in ['technicien','rh','commercial','comptable','moyens_generaux','informatique','admin'] %}<option value="{{ r }}" {% if edit_user.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+                    {% for r in ['technicien','rh','commercial','comptable','moyens_generaux','informatique','resp_projet','coordinateur','concierge','secretaire','dg','proprietaire','admin'] %}<option value="{{ r }}" {% if edit_user.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group"><label>Département <span style="font-size:11px;color:#888">(utilisé pour limiter l'accès aux budgets de son département)</span></label>
+                <select name="department">
+                    <option value="">-- Non assigné --</option>
+                    {% for d in ['Administration','Direction Générale','Ressources Humaines','Comptabilité / Finance','Commercial','Technique','Informatique','Moyens Généraux','Conciergerie','Marketing','Logistique','Autre'] %}<option value="{{ d }}" {% if edit_user.department == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
                 </select>
             </div>
             <div class="form-group"><label>Nouveau mot de passe (laisser vide pour ne pas changer)</label><input type="password" name="password" minlength="6"></div>

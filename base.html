@@ -319,7 +319,19 @@
                     <a href="/comptabilite/balance" class="{% if page == 'balance' %}active{% endif %}">⚖️ Balance comptable</a>
                     <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
                     <a href="/comptabilite/bilan" class="{% if page == 'bilan' %}active{% endif %}">📊 Bilan SYSCOHADA</a>
+                    {% if 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
                     <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Budgets départements</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {# Section budget standalone : pour les responsables qui ont budget_view_own mais PAS comptabilite #}
+            {% if ('budget_view' in permissions or 'budget_view_own' in permissions) and 'comptabilite' not in permissions and 'admin' not in permissions %}
+            <div class="nav-section" id="sec-budget">
+                <div class="nav-section-title" onclick="toggleSection('sec-budget')">💼 BUDGET <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Mon budget département</a>
                 </div>
             </div>
             {% endif %}

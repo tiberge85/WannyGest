@@ -3243,11 +3243,35 @@ def migrate_v52():
             is_active INTEGER DEFAULT 1
         )""")
     except Exception as e: print(f"v52 dept_budgets: {e}")
-    # Lien dépenses → département (SET NULL si dept supprimé)
     try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN department TEXT")
     except: pass
     try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN budget_id INTEGER")
     except: pass
+    conn.commit(); conn.close()
+
+
+def migrate_v53():
+    """v53 : Permissions Budget + colonne department sur users."""
+    conn = get_db()
+    # Ajouter department aux utilisateurs (pour que un responsable ne voie que SON département)
+    try: conn.execute("ALTER TABLE users ADD COLUMN department TEXT")
+    except: pass
+    # Permissions par défaut Budget par rôle
+    default_budget_perms = {
+        'admin':           ['budget_view', 'budget_edit'],
+        'dg':              ['budget_view', 'budget_edit'],
+        'comptable':       ['budget_view'],                    # comptable = lecture globale
+        'rh':              ['budget_view_own'],                # responsable = son département
+        'commercial':      ['budget_view_own'],
+        'resp_projet':     ['budget_view_own'],
+        'moyens_generaux': ['budget_view_own'],
+        'informatique':    ['budget_view_own'],
+        'proprietaire':    ['budget_view'],                    # propriétaire voit tout
+    }
+    for role, perms in default_budget_perms.items():
+        for perm in perms:
+            try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
     conn.commit(); conn.close()
 
 

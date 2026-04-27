@@ -289,6 +289,8 @@ from models import migrate_v51
 migrate_v51()
 from models import migrate_v52
 migrate_v52()
+from models import migrate_v53
+migrate_v53()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -360,6 +362,11 @@ PERM_CATEGORIES = {
         ('balance', 'Balance comptable'),
         ('virement_demande', 'Demander virement banque→caisse'),
         ('virement_valide', 'Valider virement (DG uniquement)'),
+    ],
+    'Budgets': [
+        ('budget_view', 'Voir les budgets (lecture globale)'),
+        ('budget_view_own', 'Voir uniquement le budget de son département'),
+        ('budget_edit', 'Créer/Modifier/Supprimer budgets'),
     ],
     'Commercial / CRM': [
         ('clients', 'Clients lecture'),
@@ -1510,6 +1517,15 @@ def admin_edit_user(uid):
         pwd = request.form.get('password', '').strip()
         if pwd:
             updates['password'] = pwd
+        # Champ department (optionnel)
+        dept = request.form.get('department', '').strip()
+        # On le met à jour même si vide (pour permettre de réinitialiser)
+        try:
+            conn = _gdb()
+            conn.execute("UPDATE users SET department=? WHERE id=?", (dept or None, uid))
+            conn.commit()
+            conn.close()
+        except: pass
         update_user(uid, **updates)
         flash("Utilisateur modifié", "success")
         return redirect(url_for('admin_page'))
@@ -8395,20 +8411,40 @@ DEPARTMENTS = ['Administration', 'Direction Générale', 'Ressources Humaines',
 
 
 @app.route('/budgets')
-@permission_required('comptabilite')
+@login_required
 def budgets_page():
-    """Page principale : tous les budgets + barres de progression."""
-    period = request.args.get('period', 'all')  # all | mois | annee
+    """Page principale : tous les budgets + barres de progression.
+    
+    Contrôle d'accès :
+      - admin / budget_view → voit tous les budgets
+      - budget_view_own → voit uniquement les budgets de son département
+      - aucune permission → redirige vers dashboard avec flash
+    """
+    user = get_user_by_id(session['user_id'])
+    if not user:
+        return redirect(url_for('login'))
+    
+    perms = get_role_permissions(user['role'])
+    can_view_all = 'budget_view' in perms or 'admin' in perms
+    can_view_own = 'budget_view_own' in perms
+    if not (can_view_all or can_view_own):
+        flash("⛔ Vous n'avez pas accès au module Budget. Demandez à un administrateur de vous attribuer les permissions.", "error")
+        return redirect(url_for('dashboard'))
+    
+    user_dept = user.get('department') if hasattr(user, 'get') else dict(user).get('department')
+    if not can_view_all and can_view_own and not user_dept:
+        flash("⚠️ Vous n'avez pas de département assigné. Contactez un administrateur.", "warning")
+        return redirect(url_for('dashboard'))
+    
+    period = request.args.get('period', 'all')
     today = datetime.now()
     conn = _gdb()
-    # S'assurer que la table existe
     try:
         conn.execute("SELECT 1 FROM dept_budgets LIMIT 1")
     except:
         from models import migrate_v52
         migrate_v52()
     
-    # Filtre période
     where_period = "WHERE 1=1"
     params = []
     if period == 'mois':
@@ -8420,6 +8456,11 @@ def budgets_page():
         where_period += " AND (period_start LIKE ? OR period_label LIKE ?)"
         params += [f"{y}-%", f"%{y}%"]
     
+    # Si l'utilisateur ne peut voir que SON département, on filtre
+    if not can_view_all and can_view_own:
+        where_period += " AND department = ?"
+        params.append(user_dept)
+    
     budgets = []
     try:
         budgets = [dict(r) for r in conn.execute(
@@ -8428,19 +8469,16 @@ def budgets_page():
     except Exception as e:
         flash(f"Erreur chargement budgets : {e}", "error")
     
-    # Recompute spent for each budget (pour s'assurer que c'est à jour)
     from models import recompute_budget_spent
     for b in budgets:
         try: recompute_budget_spent(b['id'])
         except: pass
-    # Re-fetch après recompute
     try:
         budgets = [dict(r) for r in conn.execute(
             f"SELECT * FROM dept_budgets {where_period} AND COALESCE(is_active,1)=1 ORDER BY department, period_start DESC",
             tuple(params)).fetchall()]
     except: pass
     
-    # Calculer les ratios
     for b in budgets:
         planned = float(b.get('amount_planned') or 0)
         spent = float(b.get('amount_spent') or 0)
@@ -8448,24 +8486,26 @@ def budgets_page():
         b['percent'] = round((spent / planned * 100), 1) if planned > 0 else 0
         b['over_budget'] = spent > planned
     
-    # Totaux
     total_planned = sum(float(b.get('amount_planned') or 0) for b in budgets)
     total_spent = sum(float(b.get('amount_spent') or 0) for b in budgets)
     total_remaining = total_planned - total_spent
     total_pct = round((total_spent / total_planned * 100), 1) if total_planned > 0 else 0
     
-    # Alertes : budgets en dépassement ou >= 80%
     alerts = [b for b in budgets if b['percent'] >= 80 or b['over_budget']]
+    
+    can_edit = 'budget_edit' in perms or 'admin' in perms
+    scope_label = 'Tous les départements' if can_view_all else f"Mon département : {user_dept}"
     
     conn.close()
     return render_template('extra_pages.html', page='budgets', budgets=budgets,
                           total_planned=total_planned, total_spent=total_spent,
                           total_remaining=total_remaining, total_pct=total_pct,
-                          alerts=alerts, period=period, departments=DEPARTMENTS)
+                          alerts=alerts, period=period, departments=DEPARTMENTS,
+                          can_edit_budget=can_edit, budget_scope_label=scope_label)
 
 
 @app.route('/budgets/add', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required('budget_edit')
 def budget_add():
     department = (request.form.get('department','') or '').strip()
     amount_planned = float(request.form.get('amount_planned','0') or 0)
@@ -8476,7 +8516,6 @@ def budget_add():
     if not department or amount_planned <= 0:
         flash("⚠️ Veuillez sélectionner un département et indiquer un montant > 0", "error")
         return redirect('/budgets')
-    # Auto-générer label si vide
     label = ''
     if period_start and period_end:
         label = f"{period_start} → {period_end}"
@@ -8492,7 +8531,6 @@ def budget_add():
              amount_planned, notes, session.get('user_id')))
         bid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         conn.commit()
-        # Première recompute
         from models import recompute_budget_spent
         recompute_budget_spent(bid)
         flash(f"✅ Budget {department} créé", "success")
@@ -8504,7 +8542,7 @@ def budget_add():
 
 
 @app.route('/budgets/<int:bid>/edit', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required('budget_edit')
 def budget_edit(bid):
     conn = _gdb()
     try:
@@ -8532,11 +8570,10 @@ def budget_edit(bid):
 
 
 @app.route('/budgets/<int:bid>/delete', methods=['POST', 'GET'])
-@permission_required('comptabilite_edit')
+@permission_required('budget_edit')
 def budget_delete(bid):
     conn = _gdb()
     try:
-        # Soft delete
         conn.execute("UPDATE dept_budgets SET is_active=0 WHERE id=?", (bid,))
         conn.commit()
         flash("Budget supprimé", "success")
@@ -8547,9 +8584,14 @@ def budget_delete(bid):
 
 
 @app.route('/budgets/<int:bid>/recompute', methods=['POST', 'GET'])
-@permission_required('comptabilite')
+@login_required
 def budget_recompute(bid):
-    """Force le recalcul du montant dépensé."""
+    """Force le recalcul du montant dépensé. Accessible si on a au moins lecture."""
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    if not ('budget_view' in perms or 'budget_view_own' in perms or 'admin' in perms):
+        flash("⛔ Accès refusé", "error")
+        return redirect(url_for('dashboard'))
     from models import recompute_budget_spent
     if recompute_budget_spent(bid):
         flash("✅ Montant dépensé recalculé", "success")
