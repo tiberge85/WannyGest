@@ -338,18 +338,6 @@ from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by
 init_devis_tables()
 
 ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
-ALL_PERMISSIONS = ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general',
-                   'envoyer', 'logs', 'concierge', 'concierge_edit',
-                   'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit',
-                   'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis',
-                   'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking',
-                   # v47/v48 permissions
-                   'grand_livre', 'balance', 'caisse_multi', 'gps_itineraire',
-                   'virement_demande', 'virement_valide',
-                   'client_requests_view', 'client_users_approve',
-                   # v17 workflow intervention
-                   'controle_qualite', 'livraison_intervention']
-
 # Permission categories for admin display
 PERM_CATEGORIES = {
     'Comptabilité': [
@@ -412,6 +400,15 @@ PERM_CATEGORIES = {
     ],
     'Administration': [('admin', 'Admin système')],
 }
+
+# ALL_PERMISSIONS est dérivé automatiquement de PERM_CATEGORIES (source de vérité unique).
+# Ajouter une nouvelle permission = l'ajouter dans PERM_CATEGORIES, et c'est tout.
+ALL_PERMISSIONS = []
+for _cat, _perms in PERM_CATEGORIES.items():
+    for _perm, _label in _perms:
+        if _perm not in ALL_PERMISSIONS:
+            ALL_PERMISSIONS.append(_perm)
+
 
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
