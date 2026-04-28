@@ -1493,6 +1493,156 @@ setTimeout(function(){ window.location.reload(); }, 60000);
 </tr>{% endfor %}</tbody></table></div></div></div>
 {% endif %}
 
+{% elif page == 'backup_list' %}
+<div class="page-header"><h1>💾 Sauvegardes BDD</h1>
+<div style="display:flex;gap:6px">
+    <a href="/admin/backup/download" class="btn btn-primary btn-sm">📥 Télécharger un dump SQL</a>
+    <a href="/admin" class="btn btn-outline btn-sm">← Admin</a>
+</div></div>
+
+<div class="card" style="border-left:4px solid {% if backup_token_set %}#2e7d32{% else %}#f29f2f{% endif %}"><div class="card-body">
+    <h4 style="margin-top:0">{% if backup_token_set %}✅{% else %}⚠️{% endif %} Backup automatique programmé</h4>
+    <p style="font-size:12px">
+        {% if backup_token_set %}
+        Variable <code>BACKUP_AUTH_TOKEN</code> définie. Vous pouvez programmer un cron Render :
+        {% else %}
+        Pour activer les backups automatiques, définissez la variable d'environnement <code>BACKUP_AUTH_TOKEN</code> sur Render (Settings → Environment), puis programmez :
+        {% endif %}
+    </p>
+    <p style="background:#1a3a5c;color:#fff;padding:10px;border-radius:6px;font-family:monospace;font-size:11px;word-break:break-all">
+        curl https://rapport-pointage.ramyaci.tech/admin/backup/auto?token=$BACKUP_AUTH_TOKEN
+    </p>
+    <p style="font-size:11px;color:#888">
+        Configurez ce cron quotidiennement (par ex. 02:00) sur Render via "Cron Jobs" ou un service externe (cron-job.org, EasyCron). Les 30 derniers backups sont automatiquement conservés sur le disque persistant.
+    </p>
+</div></div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if backups %}
+<table>
+<thead><tr><th>Fichier</th><th>Date</th><th style="text-align:right">Taille</th></tr></thead>
+<tbody>
+{% for b in backups %}
+<tr><td style="font-family:monospace;font-size:11px">{{ b.name }}</td><td>{{ b.date }}</td><td style="text-align:right">{{ b.size_kb }} KB</td></tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun backup. Programmez le cron pour commencer.</div>
+{% endif %}
+</div></div>
+
+{% elif page == '2fa_setup' %}
+<div class="page-header"><h1>🔐 Authentification à deux facteurs (2FA)</h1>
+<a href="/dashboard" class="btn btn-outline btn-sm">← Retour</a></div>
+
+{% if already_enabled %}
+<div class="card" style="border-left:4px solid #2e7d32"><div class="card-body">
+    <h3 style="color:#2e7d32;margin-top:0">✅ 2FA activé</h3>
+    <p>Votre compte est protégé par l'authentification à deux facteurs. À chaque connexion, vous devrez saisir un code à 6 chiffres généré par votre application (Google Authenticator, Authy, Microsoft Authenticator, etc.).</p>
+    <form method="post" action="/admin/2fa/disable" onsubmit="return confirm('Désactiver le 2FA ? Votre compte sera moins sécurisé.')">
+        <h4>Désactiver le 2FA</h4>
+        <p style="font-size:12px;color:#888">Pour confirmer, entrez votre mot de passe :</p>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+            <input type="password" name="password" required placeholder="Votre mot de passe" style="padding:8px;border:1.5px solid #ddd;border-radius:6px;flex:1">
+            <button type="submit" class="btn" style="background:#c53030;color:#fff">⚠️ Désactiver</button>
+        </div>
+    </form>
+</div></div>
+{% else %}
+<div class="card" style="border-left:4px solid #1a3a5c"><div class="card-body">
+    <h3 style="margin-top:0">🛡️ Activer le 2FA — protection renforcée</h3>
+    <p style="font-size:13px">Pour activer le 2FA, vous avez besoin d'une application d'authentification sur votre téléphone :</p>
+    <ul style="font-size:12px;color:#666"><li><strong>Google Authenticator</strong> (Android, iOS)</li>
+        <li><strong>Microsoft Authenticator</strong> (Android, iOS)</li>
+        <li><strong>Authy</strong> (multi-plateforme)</li>
+        <li><strong>FreeOTP</strong> (Android, iOS — open source)</li></ul>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px;align-items:start">
+        <div>
+            <h4 style="margin-top:0">1️⃣ Scannez ce QR code</h4>
+            {% if qr_data_uri %}
+            <img src="{{ qr_data_uri }}" alt="QR" style="max-width:240px;border:8px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.1);border-radius:8px">
+            {% else %}
+            <p style="color:#c53030">⚠️ QR code non disponible (qrcode non installé). Saisissez manuellement le code ci-dessous.</p>
+            {% endif %}
+            <details style="margin-top:8px;font-size:11px;color:#666">
+                <summary>Saisie manuelle (si vous ne pouvez pas scanner)</summary>
+                <p>Code secret : <code style="background:#fafafa;padding:4px 8px;border-radius:4px;font-family:monospace;display:block;margin-top:6px;word-break:break-all">{{ secret }}</code></p>
+                <p>Type : Time-based (TOTP) · Algorithme : SHA1 · 6 chiffres · 30 sec</p>
+            </details>
+        </div>
+        <div>
+            <h4 style="margin-top:0">2️⃣ Validez avec le code à 6 chiffres</h4>
+            <p style="font-size:12px;color:#666">Une fois le QR scanné, votre application affiche un code à 6 chiffres qui change toutes les 30 secondes. Saisissez-le ici pour confirmer.</p>
+            <form method="post">
+                <input name="code" required placeholder="123 456" maxlength="7" pattern="[0-9 ]{6,7}" autocomplete="off"
+                       style="padding:14px;border:2px solid #1a3a5c;border-radius:8px;font-size:24px;text-align:center;letter-spacing:0.3em;font-family:monospace;width:100%;margin-bottom:10px">
+                <button type="submit" class="btn btn-primary" style="width:100%;padding:12px">✅ Activer le 2FA</button>
+            </form>
+        </div>
+    </div>
+</div></div>
+{% endif %}
+
+{% elif page == 'login_2fa' %}
+<style>body{background:linear-gradient(135deg,#1a3a5c 0%,#0d6b5e 100%) !important}</style>
+<div style="display:flex;justify-content:center;align-items:center;min-height:80vh">
+<div class="card" style="max-width:400px;width:100%">
+    <div class="card-body" style="padding:30px;text-align:center">
+        <div style="font-size:48px;margin-bottom:10px">🔐</div>
+        <h2 style="margin:0 0 6px;color:#1a3a5c">Vérification 2FA</h2>
+        <p style="color:#666;font-size:13px">Entrez le code à 6 chiffres affiché par votre application d'authentification.</p>
+        <form method="post" style="margin-top:20px">
+            <input name="code" required autofocus placeholder="123 456" maxlength="7" pattern="[0-9 ]{6,7}" autocomplete="one-time-code"
+                   style="padding:16px;border:2px solid #1a3a5c;border-radius:10px;font-size:28px;text-align:center;letter-spacing:0.3em;font-family:monospace;width:100%;margin-bottom:14px">
+            <button type="submit" class="btn btn-primary" style="width:100%;padding:14px;font-size:14px">✅ Valider</button>
+        </form>
+        <p style="font-size:11px;color:#aaa;margin-top:14px"><a href="/login" style="color:#888">Annuler et retour au login</a></p>
+    </div>
+</div>
+</div>
+
+{% elif page == 'security_logs' %}
+<div class="page-header"><h1>🛡️ Journal de sécurité</h1>
+<div style="display:flex;gap:6px"><a href="/admin" class="btn btn-outline btn-sm">← Admin</a></div>
+</div>
+
+<!-- Filtres -->
+<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <a href="/admin/security-logs?type=all" class="btn btn-sm {% if event_filter == 'all' %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous</a>
+    <a href="/admin/security-logs?type=login_success" class="btn btn-sm {% if event_filter == 'login_success' %}btn-primary{% else %}btn-outline{% endif %}">✅ Connexions OK ({{ counts.login_success or 0 }})</a>
+    <a href="/admin/security-logs?type=login_failed" class="btn btn-sm {% if event_filter == 'login_failed' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if event_filter != 'login_failed' %}border-color:#c53030;color:#c53030{% endif %}">❌ Connexions échouées ({{ counts.login_failed or 0 }})</a>
+    <a href="/admin/security-logs?type=csrf_rejected" class="btn btn-sm {% if event_filter == 'csrf_rejected' %}btn-primary{% else %}btn-outline{% endif %}">🛡️ CSRF rejetés ({{ counts.csrf_rejected or 0 }})</a>
+    <a href="/admin/security-logs?type=2fa_success" class="btn btn-sm {% if event_filter == '2fa_success' %}btn-primary{% else %}btn-outline{% endif %}">🔐 2FA OK</a>
+    <a href="/admin/security-logs?type=2fa_failed" class="btn btn-sm {% if event_filter == '2fa_failed' %}btn-primary{% else %}btn-outline{% endif %}">🔐 2FA échec</a>
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if logs %}
+<table>
+<thead><tr>
+    <th>Date</th><th>Type</th><th>Sévérité</th><th>Utilisateur</th><th>IP</th><th>Path</th><th>Détails</th>
+</tr></thead>
+<tbody>
+{% for l in logs %}
+<tr style="{% if l.severity == 'warning' %}background:#fff8e1{% elif l.severity == 'error' %}background:#fef0f0{% endif %}">
+    <td style="font-size:11px;white-space:nowrap">{{ l.created_at[:19] if l.created_at else '-' }}</td>
+    <td style="font-size:11px"><strong>{{ l.event_type }}</strong></td>
+    <td style="text-align:center"><span style="padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700;background:{% if l.severity == 'warning' %}#fff3e0;color:#b8561f{% elif l.severity == 'error' %}#fde8e8;color:#c53030{% else %}#e8f5e9;color:#2e7d32{% endif %}">{{ l.severity or 'info' }}</span></td>
+    <td style="font-size:11px">{{ l.username or ('user#' ~ l.user_id) if l.user_id else '-' }}</td>
+    <td style="font-size:11px;font-family:monospace">{{ l.ip or '-' }}</td>
+    <td style="font-size:10px;color:#666">{{ l.path or '-' }}</td>
+    <td style="font-size:10px;color:#666">{{ (l.details or '')[:80] }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun événement enregistré</div>
+{% endif %}
+</div></div>
+
 {% elif page == 'budgets' %}
 <style>
 .bdg-card{background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);border-left:4px solid #1a7a6d}
@@ -1801,7 +1951,7 @@ function editBudget(id, dept, amount, ptype, pstart, pend, notes) {
 
 <!-- Modal Add Equipment -->
 <div id="addEqModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
-<div style="background:#fff;border-radius:10px;padding:20px;max-width:520px;width:92%;max-height:88vh;overflow:auto">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:640px;width:92%;max-height:88vh;overflow:auto">
 <form method="post" action="/clients/{{ client.id }}/equipements/add">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
     <h3 style="margin:0">+ Nouvel équipement</h3>
@@ -1809,20 +1959,31 @@ function editBudget(id, dept, amount, ptype, pstart, pend, notes) {
 </div>
 <div class="form-group"><label>Nom *</label>
     <input name="name" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-<div class="form-group"><label>Catégorie(s) — cochez tous les types de systèmes installés sur le site</label>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#fafafa;padding:10px;border-radius:6px;border:1.5px solid #ddd">
+<div class="form-group">
+    <label style="display:block;margin-bottom:6px"><strong>Catégorie(s) de l'équipement</strong> <span style="font-size:11px;color:#888;font-weight:normal">— cochez tout ce qui s'applique</span></label>
+    <style>
+    .eq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px;padding:10px;background:#fafafa;border-radius:8px;border:1.5px solid #e0e0e0}
+    .eq-chip{display:flex;align-items:center;gap:7px;padding:8px 10px;background:#fff;border:2px solid #e0e0e0;border-radius:7px;cursor:pointer;font-size:11.5px;transition:all 0.15s;user-select:none;line-height:1.2}
+    .eq-chip:hover{border-color:#1a7a6d;background:#f0fffd}
+    .eq-chip input{margin:0;cursor:pointer;width:15px;height:15px;flex-shrink:0;accent-color:#1a7a6d}
+    .eq-chip input:checked + span{color:#1a7a6d;font-weight:600}
+    .eq-chip:has(input:checked){border-color:#1a7a6d;background:#e0f5f1}
+    @media (max-width:520px){.eq-grid{grid-template-columns:1fr 1fr}}
+    </style>
+    <div class="eq-grid">
+        {% set cat_emoji = {'Caméra surveillance':'📹','DVR/NVR':'💾','Clôture électrique':'⚡','Visiophone':'📞','Alarme':'🚨','Domotique':'🏠','Poignée intelligente':'🔐','Réseau':'🌐','Câblage':'🔌','Contrôle d\'accès':'🔑','Détection incendie':'🔥','Autre':'➕'} %}
         {% set cat_choices = ['Caméra surveillance','DVR/NVR','Clôture électrique','Visiophone','Alarme','Domotique','Poignée intelligente','Réseau','Câblage','Contrôle d\'accès','Détection incendie','Autre'] %}
         {% for cat in cat_choices %}
-        <label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer">
+        <label class="eq-chip">
             <input type="checkbox" name="categories[]" value="{{ cat }}" id="cat_{{ loop.index }}" {% if cat == 'Autre' %}onchange="toggleAutreField()"{% endif %}>
-            <span>{{ cat }}</span>
+            <span>{{ cat_emoji[cat] }} {{ cat }}</span>
         </label>
         {% endfor %}
     </div>
 </div>
 <div class="form-group" id="autreFieldWrap" style="display:none">
     <label>Précision (si « Autre » coché) *</label>
-    <input name="category_other" id="autreField" placeholder="Ex: Système biométrique, contrôle parental, ..." style="width:100%;padding:8px;border:1.5px solid #e8672a;border-radius:6px;background:#fff8e1">
+    <input name="category_other" id="autreField" placeholder="Ex: Système biométrique, contrôle parental, ..." style="width:100%;padding:9px 11px;border:1.5px solid #e8672a;border-radius:7px;background:#fff8e1;font-size:13px">
     <small style="color:#888;font-size:10px">Décrivez précisément le type d'équipement non listé</small>
 </div>
 <script>

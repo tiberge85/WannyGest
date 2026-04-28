@@ -51,13 +51,16 @@ setInterval(refreshNotifCounter, 20000);
         </div>
         {% if n.link %}
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <a href="{{ n.link }}" class="btn btn-sm" style="background:#1A7A6D;color:#fff">👁️ Voir</a>
+            <a href="/notifications/read/{{ n.id }}" class="btn btn-sm" style="background:#1A7A6D;color:#fff">👁️ Voir</a>
             {% if n.type == 'bulletin' %}
             <a href="{{ n.link|replace('/view','/sign') }}" class="btn btn-sm" style="background:#7b1fa2;color:#fff">✍️ Signer</a>
             {% endif %}
         </div>
         {% endif %}
-        {% if not n.read %}<span style="width:8px;height:8px;border-radius:50%;background:#e8672a;flex-shrink:0" title="Non lu"></span>{% endif %}
+        {% if not n.read %}
+        <a href="/notifications/{{ n.id }}/mark-read" class="btn btn-sm btn-outline" style="font-size:10px" title="Marquer lue">✓</a>
+        <span style="width:8px;height:8px;border-radius:50%;background:#e8672a;flex-shrink:0" title="Non lu"></span>
+        {% endif %}
     </div>
 </div>
 {% endfor %}

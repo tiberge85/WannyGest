@@ -3275,7 +3275,66 @@ def migrate_v53():
     conn.commit(); conn.close()
 
 
-def recompute_budget_spent(budget_id):
+def migrate_v54():
+    """v54 : Logs de sécurité + 2FA + backup + badge tracking persistant."""
+    conn = get_db()
+    # Table dédiée aux événements sécurité
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS security_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            user_id INTEGER,
+            username TEXT,
+            ip TEXT,
+            user_agent TEXT,
+            path TEXT,
+            details TEXT,
+            severity TEXT DEFAULT 'info',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e:
+        print(f"v54 security_logs: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_seclog_user ON security_logs(user_id)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_seclog_type ON security_logs(event_type)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_seclog_date ON security_logs(created_at)")
+    except: pass
+    # 2FA TOTP
+    try: conn.execute("ALTER TABLE users ADD COLUMN totp_secret TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0")
+    except: pass
+    # Persistance des "vu à" pour les badges (sinon ils réapparaissent à chaque login)
+    try: conn.execute("ALTER TABLE users ADD COLUMN last_interventions_seen TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE users ADD COLUMN last_my_interventions_seen TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE users ADD COLUMN last_visites_seen TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE users ADD COLUMN last_requests_seen TEXT")
+    except: pass
+    conn.commit(); conn.close()
+
+
+def log_security_event(event_type, user_id=None, username=None, ip=None,
+                       user_agent=None, path=None, details=None, severity='info'):
+    """Helper pour journaliser un événement de sécurité."""
+    conn = get_db()
+    try:
+        conn.execute("""INSERT INTO security_logs
+            (event_type, user_id, username, ip, user_agent, path, details, severity)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (event_type, user_id, username, ip, (user_agent or '')[:500],
+             path, (details or '')[:1000], severity))
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+
     """Recalcule le montant dépensé d'un budget en sommant les caisse_sorties liées."""
     conn = get_db()
     try:
@@ -3322,5 +3381,33 @@ def update_equipment_health(equipment_id, health_status, health_note='', interve
     except Exception as e:
         conn.rollback()
         return False
+    finally:
+        conn.close()
+
+
+def recompute_budget_spent(budget_id):
+    """Recalcule le montant dépensé d'un budget en sommant les caisse_sorties validées."""
+    conn = get_db()
+    try:
+        b = conn.execute("SELECT department, period_start, period_end FROM dept_budgets WHERE id=?",
+                         (budget_id,)).fetchone()
+        if not b:
+            conn.close(); return False
+        if b['period_start'] and b['period_end']:
+            row = conn.execute("""SELECT COALESCE(SUM(montant), 0) as t FROM caisse_sorties
+                WHERE department=? AND date >= ? AND date <= ?
+                AND status IN ('valide', 'comptabilise')""",
+                (b['department'], b['period_start'], b['period_end'])).fetchone()
+        else:
+            row = conn.execute("""SELECT COALESCE(SUM(montant), 0) as t FROM caisse_sorties
+                WHERE department=? AND status IN ('valide', 'comptabilise')""",
+                               (b['department'],)).fetchone()
+        total = float(row['t'] or 0)
+        conn.execute("UPDATE dept_budgets SET amount_spent=?, updated_at=? WHERE id=?",
+                     (total, datetime.now().isoformat(), budget_id))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback(); return False
     finally:
         conn.close()

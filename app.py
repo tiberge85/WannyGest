@@ -341,6 +341,8 @@ from models import migrate_v52
 migrate_v52()
 from models import migrate_v53
 migrate_v53()
+from models import migrate_v54
+migrate_v54()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -543,37 +545,57 @@ def inject_globals():
                             (delivery_client_status='accepted' AND status!='livre') OR
                             (delivery_client_status='proposed')""").fetchone()[0]
                     except: ctx['pending_deliv_count'] = 0
-                    # Demandes clients à traiter (statut soumise)
+                    # Demandes clients à traiter (statut soumise) — toujours réelles
                     try:
                         ctx['pending_requests_count'] = _c.execute(
                             "SELECT COUNT(*) FROM client_requests WHERE status='soumise'").fetchone()[0]
                     except: ctx['pending_requests_count'] = 0
-                    # Nouvelles interventions assignées (depuis dernière visite de la liste)
+                    # === Badges basés sur "last_seen" persisté en BDD (plus de fantômes au login) ===
+                    u_id = session.get('user_id', 0)
+                    user_seen = _c.execute(
+                        "SELECT last_interventions_seen, last_my_interventions_seen, last_visites_seen FROM users WHERE id=?",
+                        (u_id,)).fetchone()
+                    user_seen = dict(user_seen) if user_seen else {}
+                    # Si jamais "vu", on considère comme vu maintenant (pas de fantômes au tout premier login)
+                    now_iso = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    # Nouvelles interventions globales (admin/coord)
                     try:
-                        last_seen = session.get('last_interventions_seen', '1970-01-01')
+                        last_seen = user_seen.get('last_interventions_seen') or now_iso
                         ctx['new_interventions_count'] = _c.execute(
                             """SELECT COUNT(*) FROM interventions
                                WHERE COALESCE(created_at, scheduled_date, '') > ?
-                               AND status NOT IN ('livre','annule')""", (last_seen,)).fetchone()[0]
+                               AND status NOT IN ('livre','annule','annulee','termine','terminee')""",
+                            (last_seen,)).fetchone()[0]
                     except: ctx['new_interventions_count'] = 0
                     # Nouvelles interventions du technicien connecté
                     try:
-                        last_seen_t = session.get('last_my_interventions_seen', '1970-01-01')
-                        u_id = session.get('user_id', 0)
+                        last_seen_t = user_seen.get('last_my_interventions_seen') or now_iso
                         ctx['my_interventions_count'] = _c.execute(
                             """SELECT COUNT(*) FROM interventions
                                WHERE technician_id=?
                                AND COALESCE(created_at, scheduled_date, '') > ?
-                               AND status NOT IN ('livre','annule')""", (u_id, last_seen_t)).fetchone()[0]
+                               AND status NOT IN ('livre','annule','annulee','termine','terminee')""",
+                            (u_id, last_seen_t)).fetchone()[0]
                     except: ctx['my_interventions_count'] = 0
-                    # Nouvelles visites depuis dernière consultation
+                    # Nouvelles visites
                     try:
-                        last_seen_v = session.get('last_visites_seen', '1970-01-01')
+                        last_seen_v = user_seen.get('last_visites_seen') or now_iso
                         ctx['new_visites_count'] = _c.execute(
                             """SELECT COUNT(*) FROM visits
-                               WHERE COALESCE(created_at, date, '') > ?""",
+                               WHERE COALESCE(created_at, date, '') > ?
+                               AND COALESCE(statut,'en_attente') = 'en_attente'""",
                             (last_seen_v,)).fetchone()[0]
                     except: ctx['new_visites_count'] = 0
+                    # Initialiser last_seen sur le premier login (pour éviter les fantômes)
+                    if not user_seen.get('last_interventions_seen'):
+                        try:
+                            _c.execute("""UPDATE users SET 
+                                last_interventions_seen=COALESCE(last_interventions_seen, ?),
+                                last_my_interventions_seen=COALESCE(last_my_interventions_seen, ?),
+                                last_visites_seen=COALESCE(last_visites_seen, ?)
+                                WHERE id=?""", (now_iso, now_iso, now_iso, u_id))
+                            _c.commit()
+                        except: pass
                     _c.close()
                 except: pass
             # Weekly champion
@@ -598,6 +620,15 @@ def inject_globals():
                         "SELECT * FROM tender_links WHERE is_active=1 AND (deadline='' OR deadline>=?) ORDER BY deadline", (today,)).fetchall()]
                     ctx['active_tenders'] = tenders
                 except: pass
+                # Interventions du jour pour le ticker (max 15)
+                try:
+                    today_s = datetime.now().strftime('%Y-%m-%d')
+                    ctx['today_interventions'] = [dict(r) for r in _sc.execute(
+                        """SELECT id, reference, title, client_name, status, type, progress
+                           FROM interventions
+                           WHERE scheduled_date=? AND status NOT IN ('annule','annulee')
+                           ORDER BY scheduled_time, id LIMIT 15""", (today_s,)).fetchall()]
+                except: ctx['today_interventions'] = []
                 _sc.close()
             except: pass
     else:
@@ -708,6 +739,76 @@ def check_session_timeout():
                 pass
         session['last_active'] = datetime.now().isoformat()
 
+
+# ============================================================
+# CSRF PROTECTION (double-submit cookie pattern)
+# ============================================================
+import secrets as _csrf_secrets
+
+# Routes exemptes de CSRF (pour les appels d'API JSON ou webhooks externes)
+CSRF_EXEMPT_PATHS = {
+    '/api/notifications/count',
+}
+# Endpoints publics qui font POST avant que la session existe
+CSRF_BOOTSTRAP_ENDPOINTS = {'login', 'portail_login', 'portail_register'}
+
+
+def _ensure_csrf_token():
+    """Génère un token CSRF unique par session si absent."""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = _csrf_secrets.token_urlsafe(32)
+    return session['_csrf_token']
+
+
+@app.context_processor
+def _inject_csrf_token():
+    """Rend csrf_token() disponible dans tous les templates."""
+    return {'csrf_token': _ensure_csrf_token}
+
+
+@app.after_request
+def _set_csrf_cookie(response):
+    """Pose le token CSRF dans un cookie lisible par JS (pour double-submit)."""
+    if 'user_id' in session or 'client_user_id' in session:
+        token = _ensure_csrf_token()
+        # Cookie NON HTTPOnly (doit être lisible par JS pour le poser dans header)
+        response.set_cookie('csrftoken', token,
+                           secure=app.config.get('SESSION_COOKIE_SECURE', True),
+                           samesite='Lax', httponly=False)
+    return response
+
+
+@app.before_request
+def _csrf_protect():
+    """Vérifie le token CSRF sur toutes les requêtes mutantes."""
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return
+    if request.endpoint in CSRF_BOOTSTRAP_ENDPOINTS:
+        return
+    if request.path in CSRF_EXEMPT_PATHS:
+        return
+    expected = session.get('_csrf_token')
+    if not expected:
+        # Pas de session active → on laisse Flask traiter, ça redirigera vers login
+        return
+    # Token accepté depuis : form _csrf, header X-CSRFToken, ou cookie csrftoken (double-submit)
+    received = (request.form.get('_csrf')
+                or request.headers.get('X-CSRFToken')
+                or request.cookies.get('csrftoken'))
+    if not received or not _csrf_secrets.compare_digest(expected, received):
+        try:
+            from models import log_security_event
+            log_security_event('csrf_rejected',
+                user_id=session.get('user_id'),
+                ip=request.remote_addr,
+                user_agent=request.headers.get('User-Agent', ''),
+                path=request.path,
+                details=f"method={request.method}",
+                severity='warning')
+        except: pass
+        flash("⚠️ Action refusée pour des raisons de sécurité (token CSRF invalide). Rechargez la page et réessayez.", "error")
+        return abort(403)
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -729,6 +830,16 @@ def login():
         if user:
             _record_login_attempt(ip, True)
             record_login_attempt(username, True, ip)
+            from models import log_security_event
+            log_security_event('login_success', user_id=user['id'], username=user['full_name'],
+                ip=ip, user_agent=request.headers.get('User-Agent',''), severity='info')
+            # ===== 2FA : si activé, ne pas finaliser la session, demander code =====
+            if user.get('totp_enabled') and user.get('totp_secret'):
+                session.clear()
+                session['_pending_2fa_user_id'] = user['id']
+                session['_pending_2fa_username'] = user['full_name']
+                session['_pending_2fa_ip'] = ip
+                return redirect(url_for('login_2fa'))
             # Régénération du session ID pour empêcher la session fixation
             session.clear()
             session['user_id'] = user['id']
@@ -763,6 +874,12 @@ def login():
         
         _record_login_attempt(ip, False)
         record_login_attempt(username, False, ip)
+        try:
+            from models import log_security_event
+            log_security_event('login_failed', username=username, ip=ip,
+                user_agent=request.headers.get('User-Agent',''),
+                details=f"Failed login for {username}", severity='warning')
+        except: pass
         remaining = 5 - get_failed_attempts(username)
         flash(f"Identifiants incorrects ({remaining} tentative(s) restante(s))", "error")
     return render_template('login.html')
@@ -794,6 +911,133 @@ def register():
             return redirect('/admin')
         flash(msg, "error")
     return render_template('register.html')
+
+# ============================================================
+# 2FA TOTP (Two-Factor Authentication)
+# ============================================================
+
+@app.route('/login/2fa', methods=['GET', 'POST'])
+def login_2fa():
+    """Étape 2 du login : code TOTP."""
+    pending_uid = session.get('_pending_2fa_user_id')
+    if not pending_uid:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        code = (request.form.get('code', '') or '').strip().replace(' ', '')
+        try:
+            import pyotp
+            user = get_user_by_id(pending_uid)
+            if not user or not user.get('totp_secret'):
+                flash("Configuration 2FA invalide. Contactez l'admin.", "error")
+                return redirect(url_for('login'))
+            totp = pyotp.TOTP(user['totp_secret'])
+            if totp.verify(code, valid_window=1):
+                # OK, finaliser la session
+                ip = session.get('_pending_2fa_ip', request.remote_addr)
+                username = session.get('_pending_2fa_username', user.get('full_name','?'))
+                session.clear()
+                session['user_id'] = pending_uid
+                session['last_active'] = datetime.now().isoformat()
+                session.permanent = True
+                log_activity(pending_uid, username, 'Connexion 2FA', "2FA validé", ip)
+                from models import log_security_event
+                log_security_event('2fa_success', user_id=pending_uid, username=username, ip=ip)
+                flash(f"Bienvenue {username} !", "success")
+                return redirect(url_for('dashboard'))
+            else:
+                from models import log_security_event
+                log_security_event('2fa_failed', user_id=pending_uid,
+                    username=session.get('_pending_2fa_username',''),
+                    ip=request.remote_addr, severity='warning')
+                flash("❌ Code 2FA invalide. Veuillez réessayer.", "error")
+        except ImportError:
+            flash("Erreur : pyotp non installé. Contactez l'admin.", "error")
+    return render_template('extra_pages.html', page='login_2fa')
+
+
+@app.route('/admin/2fa/setup', methods=['GET', 'POST'])
+@login_required
+def two_fa_setup():
+    """Page pour activer le 2FA sur le compte courant."""
+    user = get_user_by_id(session['user_id'])
+    if not user:
+        return redirect(url_for('login'))
+    
+    try:
+        import pyotp
+    except ImportError:
+        flash("Le module pyotp n'est pas installé sur le serveur.", "error")
+        return redirect(url_for('dashboard'))
+    
+    # Si POST avec code, on vérifie + active
+    if request.method == 'POST':
+        code = (request.form.get('code', '') or '').strip().replace(' ', '')
+        secret = session.get('_pending_totp_secret')
+        if not secret:
+            flash("Erreur : la session de configuration a expiré. Recommencez.", "error")
+            return redirect(url_for('two_fa_setup'))
+        totp = pyotp.TOTP(secret)
+        if totp.verify(code, valid_window=1):
+            conn = _gdb()
+            conn.execute("UPDATE users SET totp_secret=?, totp_enabled=1 WHERE id=?",
+                         (secret, user['id']))
+            conn.commit(); conn.close()
+            session.pop('_pending_totp_secret', None)
+            from models import log_security_event
+            log_security_event('2fa_enabled', user_id=user['id'], username=user['full_name'],
+                ip=request.remote_addr, severity='info')
+            flash("✅ 2FA activé sur votre compte. À votre prochaine connexion, un code vous sera demandé.", "success")
+            return redirect(url_for('dashboard'))
+        else:
+            flash("❌ Code invalide. Vérifiez l'horloge de votre téléphone et réessayez.", "error")
+    
+    # GET : générer secret + QR
+    if user.get('totp_enabled'):
+        return render_template('extra_pages.html', page='2fa_setup', already_enabled=True, user=user)
+    
+    secret = session.get('_pending_totp_secret')
+    if not secret:
+        secret = pyotp.random_base32()
+        session['_pending_totp_secret'] = secret
+    totp = pyotp.TOTP(secret)
+    issuer = "WannyGest RAMYA"
+    uri = totp.provisioning_uri(name=user['full_name'] or user['username'], issuer_name=issuer)
+    
+    # Générer QR en data URI
+    qr_data_uri = ''
+    try:
+        import qrcode
+        import io, base64
+        qr = qrcode.QRCode(version=1, box_size=8, border=2)
+        qr.add_data(uri); qr.make(fit=True)
+        img = qr.make_image(fill_color="#1a3a5c", back_color="white")
+        buf = io.BytesIO(); img.save(buf, format='PNG')
+        qr_data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception as e:
+        pass
+    return render_template('extra_pages.html', page='2fa_setup',
+                          secret=secret, uri=uri, qr_data_uri=qr_data_uri, user=user)
+
+
+@app.route('/admin/2fa/disable', methods=['POST'])
+@login_required
+def two_fa_disable():
+    """Désactive le 2FA (nécessite mot de passe pour confirmation)."""
+    user = get_user_by_id(session['user_id'])
+    pwd = request.form.get('password', '')
+    auth = authenticate_user(user['username'], pwd)
+    if not auth:
+        flash("❌ Mot de passe incorrect. Le 2FA reste actif.", "error")
+        return redirect(url_for('two_fa_setup'))
+    conn = _gdb()
+    conn.execute("UPDATE users SET totp_enabled=0, totp_secret=NULL WHERE id=?", (user['id'],))
+    conn.commit(); conn.close()
+    from models import log_security_event
+    log_security_event('2fa_disabled', user_id=user['id'], username=user['full_name'],
+        ip=request.remote_addr, severity='warning')
+    flash("⚠️ 2FA désactivé sur votre compte.", "warning")
+    return redirect(url_for('dashboard'))
+
 
 @app.route('/logout')
 def logout():
@@ -1417,34 +1661,65 @@ def clients_add():
 @permission_required('clients_edit')
 def clients_delete_bulk():
     """Supprime plusieurs clients en une seule opération."""
-    ids_raw = request.form.getlist('ids') or request.form.get('ids','').split(',')
-    ids = [int(x) for x in ids_raw if str(x).strip().isdigit()]
+    # Accepte ids comme liste répétée OU comme CSV dans un champ unique
+    ids_list = request.form.getlist('ids')
+    if len(ids_list) == 1 and ',' in ids_list[0]:
+        ids_list = ids_list[0].split(',')
+    elif len(ids_list) == 0:
+        ids_list = (request.form.get('ids','') or '').split(',')
+    ids = []
+    for x in ids_list:
+        x = str(x).strip()
+        if x.isdigit():
+            ids.append(int(x))
+    
     if not ids:
         flash("Aucun client sélectionné", "warning")
         return redirect(url_for('clients_page'))
+    
     conn = _gdb()
     deleted = 0
-    # Only delete clients that have no related records (defensive)
-    # Otherwise null-out the client_id on related tables to avoid FK issues
+    errors = []
+    
     for cid in ids:
         try:
-            # Unlink in related tables (keep history)
-            for tbl, col in [('invoices','client_id'),('devis','client_id'),('jobs','client_id'),
-                             ('visit_reports','client_id'),('interventions','client_id'),
-                             ('client_notes','client_id'),('client_attachments','client_id'),
-                             ('client_reminders','client_id'),('contracts','client_id'),
-                             ('client_requests','client_id')]:
+            # Détacher les enregistrements liés (préserver l'historique)
+            unlink_tables = [
+                ('invoices','client_id'),('devis','client_id'),('jobs','client_id'),
+                ('visit_reports','client_id'),('interventions','client_id'),
+                ('client_notes','client_id'),('client_attachments','client_id'),
+                ('client_reminders','client_id'),('contracts','client_id'),
+                ('client_requests','client_id'),('client_users','client_id'),
+                ('client_equipments','client_id'),('tech_center','client_id')
+            ]
+            for tbl, col in unlink_tables:
                 try: conn.execute(f"UPDATE {tbl} SET {col}=NULL WHERE {col}=?", (cid,))
-                except: pass
-            conn.execute("DELETE FROM clients WHERE id=?", (cid,))
-            deleted += 1
+                except Exception: pass  # table peut ne pas exister
+            
+            # Supprimer
+            cur = conn.execute("DELETE FROM clients WHERE id=?", (cid,))
+            if cur.rowcount > 0:
+                deleted += 1
+            else:
+                errors.append(f"id={cid} introuvable")
         except Exception as e:
-            pass
-    conn.commit(); conn.close()
+            errors.append(f"id={cid}: {str(e)[:60]}")
+    
+    conn.commit()
+    conn.close()
+    
     user = get_user_by_id(session['user_id'])
     log_activity(session['user_id'], user['full_name'] if user else '?', 'Clients',
-                 f"Suppression groupée de {deleted} client(s)", request.remote_addr)
-    flash(f"✅ {deleted} client(s) supprimé(s)", "success")
+                 f"Suppression groupée : {deleted}/{len(ids)} client(s) supprimé(s)" + (f" — erreurs: {errors[:3]}" if errors else ""),
+                 request.remote_addr)
+    
+    if deleted == len(ids):
+        flash(f"✅ {deleted} client(s) supprimé(s)", "success")
+    elif deleted > 0:
+        flash(f"⚠️ {deleted}/{len(ids)} client(s) supprimé(s). Erreurs : {'; '.join(errors[:3])}", "warning")
+    else:
+        flash(f"❌ Aucun client supprimé. Erreurs : {'; '.join(errors[:3])}", "error")
+    
     return redirect(url_for('clients_page'))
 
 @app.route('/clients/edit/<int:cid>', methods=['GET', 'POST'])
@@ -3479,8 +3754,13 @@ def visites_page():
     tab = request.args.get('tab', 'en_attente')
     visits = get_visit_reports(tab if tab != 'all' else None)
     v_stats = get_visit_stats()
-    # Reset badge nouvelles visites
-    session['last_visites_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # Reset badge nouvelles visites (persisté BDD)
+    try:
+        _u = _gdb()
+        _u.execute("UPDATE users SET last_visites_seen=? WHERE id=?",
+                   (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session['user_id']))
+        _u.commit(); _u.close()
+    except: pass
     return render_template('visites.html', page='visites', tab=tab, visits=visits, v_stats=v_stats)
 
 @app.route('/visites/new', methods=['GET', 'POST'])
@@ -6912,9 +7192,13 @@ def interventions_list():
     projects = [dict(r) for r in conn.execute("SELECT id, name FROM projects ORDER BY name").fetchall()]
     clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
     technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin') ORDER BY full_name").fetchall()]
+    # Marquer les interventions comme "vues" pour réinitialiser le badge (persisté BDD)
+    try:
+        conn.execute("UPDATE users SET last_interventions_seen=? WHERE id=?",
+                     (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session['user_id']))
+        conn.commit()
+    except: pass
     conn.close()
-    # Marquer les interventions comme "vues" pour réinitialiser le badge
-    session['last_interventions_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return render_template('extra_pages.html', page='interventions', interventions=interventions,
                           projects=projects, clients=clients, technicians=technicians)
 
@@ -6930,8 +7214,12 @@ def interventions_tech():
         interventions = [dict(r) for r in conn.execute(
             "SELECT * FROM interventions WHERE technician_id=? OR created_by=? ORDER BY scheduled_date DESC",
             (session['user_id'], session['user_id'])).fetchall()]
+    try:
+        conn.execute("UPDATE users SET last_my_interventions_seen=? WHERE id=?",
+                     (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session['user_id']))
+        conn.commit()
+    except: pass
     conn.close()
-    session['last_my_interventions_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     return render_template('extra_pages.html', page='interventions_tech', interventions=interventions, is_admin=is_admin)
 
 @app.route('/interventions/add', methods=['POST'])
@@ -7178,6 +7466,20 @@ def notification_read(nid):
         link = '/dashboard'
     conn.close()
     return redirect(link)
+
+
+@app.route('/notifications/<int:nid>/mark-read')
+@login_required
+def notification_mark_read(nid):
+    """Marque une notif comme lue sans rediriger vers son lien (reste sur /notifications)."""
+    conn = _gdb()
+    user = get_user_by_id(session['user_id'])
+    # Sécurité : ne marque que les notifs du user courant
+    conn.execute("""UPDATE notifications SET read=1
+        WHERE id=? AND (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?))""",
+        (nid, session['user_id'], user.get('email','') if user else ''))
+    conn.commit(); conn.close()
+    return redirect(request.referrer or '/notifications')
 
 # ======================== EMPLOYEE PHOTO ========================
 
@@ -8421,6 +8723,137 @@ def kanban_move(tid, status):
 
 
 # ======================== HISTORIQUE DES MODIFICATIONS ========================
+
+@app.route('/admin/security-logs')
+@permission_required('admin')
+def admin_security_logs():
+    """Page admin : journal des événements de sécurité."""
+    conn = _gdb()
+    event_filter = request.args.get('type', 'all')
+    severity_filter = request.args.get('severity', 'all')
+    
+    where_clauses = ["1=1"]
+    params = []
+    if event_filter != 'all':
+        where_clauses.append("event_type = ?")
+        params.append(event_filter)
+    if severity_filter != 'all':
+        where_clauses.append("severity = ?")
+        params.append(severity_filter)
+    where = " AND ".join(where_clauses)
+    
+    logs = []
+    try:
+        logs = [dict(r) for r in conn.execute(
+            f"SELECT * FROM security_logs WHERE {where} ORDER BY created_at DESC LIMIT 200",
+            tuple(params)).fetchall()]
+    except: pass
+    
+    # Compteurs
+    counts = {}
+    try:
+        for row in conn.execute(
+            "SELECT event_type, COUNT(*) as n FROM security_logs WHERE created_at > date('now','-30 days') GROUP BY event_type").fetchall():
+            counts[row['event_type']] = row['n']
+    except: pass
+    conn.close()
+    return render_template('extra_pages.html', page='security_logs',
+                          logs=logs, counts=counts,
+                          event_filter=event_filter, severity_filter=severity_filter)
+
+
+# ============================================================
+# BACKUP AUTOMATIQUE BDD
+# ============================================================
+
+@app.route('/admin/backup/download')
+@permission_required('admin')
+def admin_backup_download():
+    """Télécharge un dump SQL de la BDD courante."""
+    try:
+        from models import DB_PATH
+        import sqlite3 as _sql
+        conn = _sql.connect(DB_PATH)
+        # Générer un dump SQL textuel
+        lines = []
+        lines.append(f"-- WannyGest BDD backup")
+        lines.append(f"-- Date : {datetime.now().isoformat()}")
+        lines.append(f"-- Source : {DB_PATH}")
+        lines.append("")
+        lines.append("BEGIN TRANSACTION;")
+        for sql in conn.iterdump():
+            lines.append(sql)
+        lines.append("COMMIT;")
+        dump_text = "\n".join(lines)
+        conn.close()
+        from models import log_security_event
+        log_security_event('backup_download', user_id=session.get('user_id'),
+            ip=request.remote_addr, severity='info')
+        # Retour comme fichier téléchargeable
+        from flask import Response
+        filename = f"wannygest-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.sql"
+        return Response(dump_text,
+            mimetype='application/sql',
+            headers={'Content-Disposition': f'attachment; filename={filename}'})
+    except Exception as e:
+        flash(f"❌ Erreur backup : {e}", "error")
+        return redirect(url_for('admin_page'))
+
+
+@app.route('/admin/backup/auto')
+def admin_backup_auto():
+    """Backup auto déclenché par cron externe (Render scheduled jobs).
+    Auth via token query string : ?token=BACKUP_AUTH_TOKEN (env var).
+    Sauvegarde sur disque dans <PERSISTENT_DIR>/backups/.
+    """
+    expected_token = os.environ.get('BACKUP_AUTH_TOKEN', '')
+    received_token = request.args.get('token', '')
+    if not expected_token or not _csrf_secrets.compare_digest(expected_token, received_token):
+        try:
+            from models import log_security_event
+            log_security_event('backup_auto_unauthorized', ip=request.remote_addr,
+                path=request.path, severity='warning')
+        except: pass
+        return jsonify({'error': 'unauthorized'}), 403
+    try:
+        from models import DB_PATH
+        import shutil
+        backup_dir = os.path.join(PERSISTENT_DIR, 'backups')
+        os.makedirs(backup_dir, exist_ok=True)
+        # Nom : ramya-YYYYMMDD-HHMMSS.db
+        dst = os.path.join(backup_dir, f"ramya-{datetime.now().strftime('%Y%m%d-%H%M%S')}.db")
+        shutil.copy2(DB_PATH, dst)
+        # Garder seulement les 30 derniers backups
+        all_backups = sorted([f for f in os.listdir(backup_dir) if f.startswith('ramya-')])
+        for old in all_backups[:-30]:
+            try: os.remove(os.path.join(backup_dir, old))
+            except: pass
+        from models import log_security_event
+        log_security_event('backup_auto_success', ip=request.remote_addr,
+            details=f"Saved to {dst}", severity='info')
+        return jsonify({'ok': True, 'file': os.path.basename(dst), 'kept': len(all_backups[-30:])})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/backup/list')
+@permission_required('admin')
+def admin_backup_list():
+    """Liste les backups disponibles."""
+    backup_dir = os.path.join(PERSISTENT_DIR, 'backups')
+    backups = []
+    if os.path.exists(backup_dir):
+        for f in sorted(os.listdir(backup_dir), reverse=True):
+            if f.startswith('ramya-'):
+                fp = os.path.join(backup_dir, f)
+                backups.append({
+                    'name': f,
+                    'size_kb': round(os.path.getsize(fp) / 1024, 1),
+                    'date': datetime.fromtimestamp(os.path.getmtime(fp)).strftime('%Y-%m-%d %H:%M:%S')
+                })
+    return render_template('extra_pages.html', page='backup_list', backups=backups,
+        backup_token_set=bool(os.environ.get('BACKUP_AUTH_TOKEN','')))
+
 
 @app.route('/historique')
 @permission_required('admin')

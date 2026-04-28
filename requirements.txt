@@ -5,3 +5,5 @@ reportlab>=4.0.0
 Pillow>=10.0.0
 numpy>=1.24.0
 pypdf>=4.0.0
+pyotp>=2.9.0
+qrcode>=7.4.0
