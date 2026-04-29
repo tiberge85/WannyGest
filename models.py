@@ -3392,7 +3392,258 @@ def migrate_v55():
         for perm in perms:
             try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
             except: pass
+    # Permissions par défaut Achats / Stock
+    default_achats_perms = {
+        'admin':           ['achats', 'achats_edit'],
+        'dg':              ['achats', 'achats_edit'],
+        'comptable':       ['achats', 'achats_edit'],
+        'moyens_generaux': ['achats', 'achats_edit'],
+        'resp_projet':     ['achats'],
+    }
+    for role, perms in default_achats_perms.items():
+        for perm in perms:
+            try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
     conn.commit(); conn.close()
+
+
+def migrate_v56():
+    """v56 : Pénalités retard + Modules RH + Multi-entreprises pointage."""
+    conn = get_db()
+    # Pénalités sur hr_pointages (champ calculé à l'enregistrement)
+    try: conn.execute("ALTER TABLE hr_pointages ADD COLUMN penalty_amount REAL DEFAULT 0")
+    except: pass
+    # Configuration des pénalités (par entreprise)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS hr_penalty_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id INTEGER,
+            penalty_per_minute REAL DEFAULT 0,
+            grace_minutes INTEGER DEFAULT 0,
+            currency TEXT DEFAULT 'XOF',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v56 hr_penalty_config: {e}")
+    
+    # Modules RH activables/désactivables
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS hr_modules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_key TEXT UNIQUE NOT NULL,
+            label TEXT NOT NULL,
+            description TEXT,
+            icon TEXT,
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            config_json TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v56 hr_modules: {e}")
+    # Modules par défaut
+    default_modules = [
+        ('pointage', 'Pointage', 'Présence employés via boutons + QR', '⏱️', 1, 1),
+        ('penalites', 'Pénalités retard', 'Calcul automatique des pénalités selon retard', '💰', 1, 2),
+        ('rapports_pdf', 'Rapports mensuels PDF', 'Export PDF par employé', '📄', 1, 3),
+        ('absences_auto', 'Détection absences', 'Notification RH si pas de pointage matin', '⚠️', 1, 4),
+        ('graphiques', 'Graphiques de présence', 'Visualisations stats mensuelles', '📊', 1, 5),
+        ('badges', 'Badges employés', 'Cartes ID avec QR personnel', '🪪', 0, 6),
+        ('cantine', 'Ticket cantine', 'Gestion repas employés', '🍽️', 0, 7),
+        ('navette', 'Navette transport', 'Inscription navette journalière', '🚐', 0, 8),
+        ('formation', 'Formations internes', 'Inscriptions et présences', '🎓', 0, 9),
+        ('avances', 'Avances sur salaire', 'Demande/validation avances', '💵', 0, 10),
+    ]
+    for mk, lbl, desc, ic, ac, so in default_modules:
+        try: conn.execute("""INSERT OR IGNORE INTO hr_modules
+            (module_key, label, description, icon, is_active, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?)""", (mk, lbl, desc, ic, ac, so))
+        except: pass
+    
+    # Multi-entreprises (espaces de pointage isolés pour autres clients/structures)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS pointage_companies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            slug TEXT UNIQUE NOT NULL,
+            welcome_message TEXT,
+            primary_color TEXT DEFAULT '#1a7a6d',
+            logo_data_uri TEXT,
+            penalty_per_minute REAL DEFAULT 0,
+            grace_minutes INTEGER DEFAULT 10,
+            timezone TEXT DEFAULT 'Africa/Abidjan',
+            is_active INTEGER DEFAULT 1,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v56 pointage_companies: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_pcomp_slug ON pointage_companies(slug)")
+    except: pass
+    
+    # Employés rattachés à une entreprise (séparé de users WannyGest)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS pointage_company_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            salt TEXT,
+            full_name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            poste TEXT,
+            heure_arrivee TEXT DEFAULT '08:00',
+            heure_pause TEXT DEFAULT '12:00',
+            heure_retour TEXT DEFAULT '13:00',
+            heure_depart TEXT DEFAULT '17:00',
+            tolerance_retard_minutes INTEGER DEFAULT 10,
+            is_active INTEGER DEFAULT 1,
+            last_login TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(company_id, username)
+        )""")
+    except Exception as e: print(f"v56 pointage_company_users: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_pcu_company ON pointage_company_users(company_id)")
+    except: pass
+    
+    # Pointages des employés multi-entreprises (table parallèle pour ne pas mélanger)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS pointage_company_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id INTEGER NOT NULL,
+            company_user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            datetime_full TEXT NOT NULL,
+            latitude REAL,
+            longitude REAL,
+            photo TEXT,
+            status TEXT DEFAULT 'normal',
+            ecart_minutes INTEGER DEFAULT 0,
+            penalty_amount REAL DEFAULT 0,
+            ip TEXT,
+            user_agent TEXT,
+            method TEXT DEFAULT 'button',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v56 pointage_company_records: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_pcr_company_date ON pointage_company_records(company_id, date)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_pcr_user_date ON pointage_company_records(company_user_id, date)")
+    except: pass
+    
+    # Détection absences : log des notifications déjà envoyées
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS hr_absence_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            alert_type TEXT,
+            notified_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, date, alert_type)
+        )""")
+    except: pass
+    
+    conn.commit(); conn.close()
+
+
+def compute_penalty(ecart_minutes, penalty_per_minute=0, grace_minutes=0):
+    """Calcule la pénalité en F CFA pour un retard donné."""
+    if ecart_minutes <= 0 or penalty_per_minute <= 0:
+        return 0
+    if ecart_minutes <= grace_minutes:
+        return 0
+    billable = ecart_minutes - grace_minutes
+    return round(billable * penalty_per_minute, 2)
+
+
+def get_company_penalty_config(company_id=None):
+    """Récupère la config pénalité (de l'entreprise multi ou la config globale)."""
+    conn = get_db()
+    if company_id:
+        row = conn.execute(
+            "SELECT penalty_per_minute, grace_minutes FROM pointage_companies WHERE id=?",
+            (company_id,)).fetchone()
+        if row:
+            conn.close()
+            return {'penalty_per_minute': row['penalty_per_minute'] or 0,
+                    'grace_minutes': row['grace_minutes'] or 0}
+    # Sinon config globale
+    try:
+        row = conn.execute(
+            "SELECT penalty_per_minute, grace_minutes FROM hr_penalty_config WHERE company_id IS NULL AND COALESCE(is_active,1)=1 LIMIT 1").fetchone()
+        if row:
+            conn.close()
+            return {'penalty_per_minute': row['penalty_per_minute'] or 0,
+                    'grace_minutes': row['grace_minutes'] or 0}
+    except: pass
+    conn.close()
+    return {'penalty_per_minute': 0, 'grace_minutes': 0}
+
+
+def is_module_active(module_key):
+    """Vérifie si un module RH est activé."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT is_active FROM hr_modules WHERE module_key=?", (module_key,)).fetchone()
+        conn.close()
+        return bool(row and row['is_active'])
+    except:
+        conn.close()
+        return False
+
+
+def detect_absences_today():
+    """Détecte les employés sans pointage 'arrivee' au-delà de leur horaire prévu.
+    Retourne la liste des absents non encore notifiés ce jour."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    now_time = datetime.now().strftime('%H:%M')
+    conn = get_db()
+    absent_users = []
+    try:
+        # Joindre planning + users actifs, exclure clients
+        rows = conn.execute("""
+            SELECT u.id, u.full_name, u.email, u.role, u.department,
+                   COALESCE(p.heure_arrivee, '08:00') as h_arrivee,
+                   COALESCE(p.tolerance_retard_minutes, 10) as tol
+            FROM users u
+            LEFT JOIN hr_planning p ON p.user_id=u.id AND COALESCE(p.is_active,1)=1
+            WHERE COALESCE(u.is_active,1)=1
+              AND u.role != 'client'
+              AND NOT EXISTS (
+                  SELECT 1 FROM hr_pointages hp
+                  WHERE hp.user_id=u.id AND hp.date=? AND hp.type='arrivee'
+              )
+        """, (today,)).fetchall()
+        
+        for r in rows:
+            # Déjà notifié aujourd'hui ?
+            already = conn.execute(
+                "SELECT 1 FROM hr_absence_alerts WHERE user_id=? AND date=? AND alert_type='no_arrival'",
+                (r['id'], today)).fetchone()
+            if already: continue
+            
+            # Heure prévue + tolérance + 30 min → on considère absent
+            try:
+                eh, em = r['h_arrivee'].split(':')[:2]
+                expected_min = int(eh)*60 + int(em)
+                cutoff_min = expected_min + int(r['tol']) + 30
+                nh, nm = now_time.split(':')[:2]
+                now_min = int(nh)*60 + int(nm)
+                if now_min >= cutoff_min:
+                    absent_users.append(dict(r))
+                    # Marquer notifié (pour ne pas spammer)
+                    conn.execute("""INSERT OR IGNORE INTO hr_absence_alerts
+                        (user_id, date, alert_type) VALUES (?, ?, 'no_arrival')""",
+                        (r['id'], today))
+            except: pass
+        conn.commit()
+    except Exception as e:
+        print(f"detect_absences_today: {e}")
+    conn.close()
+    return absent_users
 
 
 def get_today_pointages(user_id, date_str=None):

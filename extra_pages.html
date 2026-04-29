@@ -1905,6 +1905,561 @@ function getMyPos(){
 {% endif %}
 </div></div>
 
+{% elif page == 'pointage_penalites' %}
+<div class="page-header">
+    <h1>💰 Pénalités retard</h1>
+    <a href="/admin/pointage" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<div class="card" style="border-left:4px solid #1a7a6d"><div class="card-body">
+    <h3 style="margin-top:0">⚙️ Configuration</h3>
+    <p style="font-size:12px;color:#666">Définissez le montant prélevé par minute de retard sur l'arrivée. Une période de tolérance permet de ne pas pénaliser les petits retards.</p>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end">
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Pénalité par minute (F CFA)</label>
+            <input type="number" name="penalty_per_minute" value="{{ cfg.penalty_per_minute or 0 }}" min="0" step="50" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Tolérance (min sans pénalité)</label>
+            <input type="number" name="grace_minutes" value="{{ cfg.grace_minutes or 0 }}" min="0" max="60" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Devise</label>
+            <input name="currency" value="{{ cfg.currency or 'XOF' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer</button>
+    </form>
+    <p style="font-size:11px;color:#888;margin-top:10px">
+    Exemple : 100 F/min, tolérance 5 min → un retard de 20 min = 15 × 100 = <strong>1 500 F CFA</strong>
+    </p>
+</div></div>
+
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">📊 Statistiques du mois ({{ month_str }})</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px">
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #c53030">
+        <div style="font-size:22px;font-weight:800;color:#c53030">{{ stats.total_late or 0 }}</div>
+        <div style="font-size:11px;color:#888">⏰ Retards ce mois</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #f29f2f">
+        <div style="font-size:22px;font-weight:800;color:#b8561f">{{ "{:,.0f}".format(stats.total_penalty or 0) }} F</div>
+        <div style="font-size:11px;color:#888">💰 Pénalités totales</div>
+    </div>
+</div>
+
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">🏆 Top 10 retardataires du mois</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if stats.top_offenders %}
+<table>
+<thead><tr><th>Employé</th><th>Département</th><th>Nb retards</th><th>Total minutes</th><th>Pénalité (F CFA)</th></tr></thead>
+<tbody>
+{% for o in stats.top_offenders %}
+<tr style="{% if loop.index <= 3 %}background:#fef0f0{% endif %}">
+    <td><strong>{{ o.full_name }}</strong></td>
+    <td style="font-size:11px">{{ o.department or '-' }}</td>
+    <td style="text-align:center">{{ o.nb_retards }}</td>
+    <td style="text-align:center">{{ o.total_minutes }} min</td>
+    <td style="text-align:right;font-weight:700;color:#c53030">{{ "{:,.0f}".format(o.total_penalty or 0) }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun retard ce mois — bravo à toute l'équipe ! 🎉</div>
+{% endif %}
+</div></div>
+
+{% elif page == 'pointage_absences' %}
+<div class="page-header">
+    <h1>⚠️ Détection absences</h1>
+    <a href="/admin/pointage" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<div class="card" style="border-left:4px solid #f29f2f"><div class="card-body">
+    <h3 style="margin-top:0">📅 Absences du {{ today }}</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:0">
+    Employés actifs n'ayant pas pointé leur arrivée 30 min après leur horaire prévu (+ tolérance). Les RH/admin/DG ont reçu une notification.
+    </p>
+</div></div>
+
+{% if absent %}
+<div class="card"><div class="card-body" style="padding:0">
+<table>
+<thead><tr><th>Employé</th><th>Rôle</th><th>Département</th><th>Horaire prévu</th><th>Email</th></tr></thead>
+<tbody>
+{% for a in absent %}
+<tr style="background:#fef0f0">
+    <td><strong>{{ a.full_name }}</strong></td>
+    <td style="font-size:11px">{{ a.role }}</td>
+    <td style="font-size:11px">{{ a.department or '-' }}</td>
+    <td style="font-family:monospace">{{ a.h_arrivee }}</td>
+    <td style="font-size:11px">{{ a.email or '-' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div></div>
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;padding:40px;color:#2e7d32">
+    <div style="font-size:48px">🎉</div>
+    <h3 style="color:#2e7d32;margin:6px 0">Aucune absence détectée</h3>
+    <p style="color:#888;font-size:12px">Tous les employés actifs ont pointé leur arrivée ce matin.</p>
+</div></div>
+{% endif %}
+
+{% elif page == 'pointage_graphiques' %}
+<div class="page-header">
+    <h1>📊 Graphiques de présence</h1>
+    <a href="/admin/pointage" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<form method="get" style="background:#fff;padding:12px;border-radius:10px;margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+    <div><label style="font-size:11px;color:#888;display:block">Mois</label>
+        <input type="month" name="month" value="{{ month }}" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Employé (optionnel)</label>
+        <select name="user_id" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;min-width:180px">
+            <option value="">Tous</option>
+            {% for u in users %}<option value="{{ u.id }}" {% if user_filter == u.id|string %}selected{% endif %}>{{ u.full_name }}</option>{% endfor %}
+        </select></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+</form>
+
+<!-- Présence par jour -->
+<div class="card"><div class="card-body">
+<h3 style="margin-top:0">Présence par jour ({{ month }})</h3>
+{% if daily %}
+<style>
+.bar-row{display:flex;gap:6px;align-items:center;padding:4px 0;font-size:11px}
+.bar-row .lbl{width:90px;color:#666;font-family:monospace}
+.bar-row .bar-wrap{flex:1;display:flex;height:18px;border-radius:4px;overflow:hidden;background:#f5f5f5}
+.bar-row .bar{height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;min-width:18px}
+</style>
+{% set max_day = daily | map(attribute='ok') | max %}
+{% for d in daily %}
+{% set total = (d.ok or 0) + (d.late or 0) + (d.early or 0) %}
+<div class="bar-row">
+    <div class="lbl">{{ d.date }}</div>
+    <div class="bar-wrap">
+        {% if d.ok %}<div class="bar" style="background:#2e7d32;flex:{{ d.ok }}" title="Normal: {{ d.ok }}">{{ d.ok }}</div>{% endif %}
+        {% if d.late %}<div class="bar" style="background:#c53030;flex:{{ d.late }}" title="Retard: {{ d.late }}">{{ d.late }}</div>{% endif %}
+        {% if d.early %}<div class="bar" style="background:#b8561f;flex:{{ d.early }}" title="Avance: {{ d.early }}">{{ d.early }}</div>{% endif %}
+    </div>
+    <div style="width:60px;text-align:right;color:#888">{{ total }} pers.</div>
+</div>
+{% endfor %}
+<div style="display:flex;gap:14px;margin-top:14px;font-size:11px">
+    <span><span style="display:inline-block;width:12px;height:12px;background:#2e7d32;border-radius:2px"></span> Normal</span>
+    <span><span style="display:inline-block;width:12px;height:12px;background:#c53030;border-radius:2px"></span> Retard</span>
+    <span><span style="display:inline-block;width:12px;height:12px;background:#b8561f;border-radius:2px"></span> Avance</span>
+</div>
+{% else %}
+<p style="color:#888;text-align:center;padding:20px">Aucune donnée pour ce mois.</p>
+{% endif %}
+</div></div>
+
+<!-- Stats par employé -->
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">👥 Statistiques par employé</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if by_user %}
+<table>
+<thead><tr><th>Employé</th><th>Département</th><th>Arrivées</th><th>Retards</th><th>% retard</th><th>Total écart</th><th>Pénalité</th></tr></thead>
+<tbody>
+{% for u in by_user %}
+{% set pct = ((u.nb_retards or 0) / u.nb_arrivees * 100) | round(1) if u.nb_arrivees else 0 %}
+<tr>
+    <td><strong>{{ u.full_name or '-' }}</strong></td>
+    <td style="font-size:11px">{{ u.department or '-' }}</td>
+    <td style="text-align:center">{{ u.nb_arrivees or 0 }}</td>
+    <td style="text-align:center;{% if u.nb_retards %}color:#c53030;font-weight:700{% endif %}">{{ u.nb_retards or 0 }}</td>
+    <td style="text-align:center">{{ pct }}%</td>
+    <td style="text-align:center">{{ u.total_ecart or 0 }} min</td>
+    <td style="text-align:right;color:#c53030;font-weight:700">{{ "{:,.0f}".format(u.total_penalty or 0) }} F</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p style="color:#888;text-align:center;padding:30px">Aucune donnée.</p>
+{% endif %}
+</div></div>
+
+{% elif page == 'hr_modules' %}
+<div class="page-header">
+    <h1>🎛️ Modules RH</h1>
+    <a href="/admin/pointage" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<div class="card" style="border-left:4px solid #1a7a6d"><div class="card-body">
+    <p style="font-size:12px;color:#666;margin:0">
+    Activez/désactivez les modules RH selon les besoins de votre structure. Les modules désactivés restent dans le code mais ne sont pas visibles aux utilisateurs.
+    </p>
+</div></div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">
+{% for m in modules %}
+<div class="card" style="border-left:4px solid {% if m.is_active %}#2e7d32{% else %}#aaa{% endif %}">
+    <div class="card-body">
+        <div style="display:flex;align-items:center;gap:10px">
+            <div style="font-size:32px">{{ m.icon or '📋' }}</div>
+            <div style="flex:1">
+                <h3 style="margin:0;font-size:14px">{{ m.label }}</h3>
+                <p style="margin:4px 0 0;font-size:11px;color:#666">{{ m.description or '' }}</p>
+            </div>
+        </div>
+        <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+            <span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;{% if m.is_active %}background:#e8f5e9;color:#2e7d32{% else %}background:#f5f5f5;color:#888{% endif %}">
+                {% if m.is_active %}✅ Actif{% else %}⏸️ Inactif{% endif %}
+            </span>
+            <form method="post" style="margin:0">
+                <input type="hidden" name="module_id" value="{{ m.id }}">
+                <input type="hidden" name="action" value="toggle">
+                <button type="submit" class="btn btn-sm" style="background:{% if m.is_active %}#c53030{% else %}#2e7d32{% endif %};color:#fff;font-size:10px">
+                    {% if m.is_active %}⏸️ Désactiver{% else %}▶️ Activer{% endif %}
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+</div>
+
+{% elif page == 'pointage_companies' %}
+<div class="page-header">
+    <h1>🏢 Entreprises pointage</h1>
+    <a href="/admin/pointage" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<div class="card" style="border-left:4px solid #7b1fa2"><div class="card-body">
+    <p style="font-size:12px;color:#666;margin:0 0 10px">
+    Créez des espaces de pointage isolés pour vos clients. Chaque entreprise a sa propre URL <code>/pt/&lt;slug&gt;</code>, son propre logo, message de bienvenue, et ses employés. Les pointages sont totalement séparés.
+    </p>
+    <h3 style="margin:8px 0 6px">+ Nouvelle entreprise</h3>
+    <form method="post" action="/admin/pointage/companies/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Nom de l'entreprise *</label>
+            <input name="name" required placeholder="Société XYZ" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Identifiant URL (slug)</label>
+            <input name="slug" placeholder="auto si vide" pattern="[a-z0-9-]+" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Couleur</label>
+            <input type="color" name="primary_color" value="#1a7a6d" style="width:100%;height:36px;padding:2px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Pénalité F/min</label>
+            <input type="number" name="penalty_per_minute" value="0" min="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Tolérance (min)</label>
+            <input type="number" name="grace_minutes" value="10" min="0" max="60" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div style="grid-column:1/-1">
+            <label style="font-size:11px;color:#888;display:block">Message de bienvenue</label>
+            <input name="welcome_message" placeholder="Bienvenue sur l'espace pointage de votre entreprise !" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">+ Créer l'entreprise</button>
+    </form>
+</div></div>
+
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">📋 Entreprises actives ({{ companies|length }})</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">
+{% for c in companies %}
+<div class="card" style="border-top:4px solid {{ c.primary_color or '#1a7a6d' }}">
+    <div class="card-body">
+        <h3 style="margin:0;font-size:14px;color:#1a3a5c">{{ c.name }}</h3>
+        <div style="font-size:11px;color:#888;margin-top:4px">
+            👥 {{ c.nb_users or 0 }} employé(s) · 💰 {{ c.penalty_per_minute or 0 }} F/min retard
+        </div>
+        <div style="margin-top:8px;padding:6px;background:#fafafa;border-radius:6px;font-size:10px;font-family:monospace;word-break:break-all">
+            🔗 /pt/{{ c.slug }}
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <a href="/admin/pointage/companies/{{ c.id }}" class="btn btn-primary btn-sm" style="font-size:10px">⚙️ Gérer</a>
+            <a href="/pt/{{ c.slug }}" target="_blank" class="btn btn-outline btn-sm" style="font-size:10px">🚪 Voir login</a>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#888">
+    Aucune entreprise — créez-en une avec le formulaire ci-dessus.
+</div></div>
+{% endfor %}
+</div>
+
+{% elif page == 'pointage_company_detail' %}
+<div class="page-header">
+    <h1>🏢 {{ company.name }}</h1>
+    <div style="display:flex;gap:6px">
+        <a href="/pt/{{ company.slug }}" target="_blank" class="btn btn-outline btn-sm">🚪 Voir login employé</a>
+        <a href="/admin/pointage/companies" class="btn btn-outline btn-sm">← Liste</a>
+    </div>
+</div>
+
+<!-- Édition entreprise -->
+<div class="card"><div class="card-body">
+    <h3 style="margin-top:0">⚙️ Configuration</h3>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end">
+        <input type="hidden" name="action" value="update_company">
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Nom</label>
+            <input name="name" value="{{ company.name }}" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Couleur</label>
+            <input type="color" name="primary_color" value="{{ company.primary_color or '#1a7a6d' }}" style="width:100%;height:36px;padding:2px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Pénalité F/min</label>
+            <input type="number" name="penalty_per_minute" value="{{ company.penalty_per_minute or 0 }}" min="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#888;display:block">Tolérance (min)</label>
+            <input type="number" name="grace_minutes" value="{{ company.grace_minutes or 10 }}" min="0" max="60" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div style="grid-column:1/-1">
+            <label style="font-size:11px;color:#888;display:block">Message de bienvenue (s'affiche à chaque connexion)</label>
+            <textarea name="welcome_message" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">{{ company.welcome_message or '' }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer</button>
+    </form>
+</div></div>
+
+<!-- Ajouter employé -->
+<div class="card" style="margin-top:14px"><div class="card-body">
+    <h3 style="margin-top:0">+ Ajouter un employé</h3>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
+        <input type="hidden" name="action" value="add_user">
+        <div><label style="font-size:11px;color:#888;display:block">Identifiant *</label>
+            <input name="username" required pattern="[a-z0-9._-]+" placeholder="jdoe" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Nom complet *</label>
+            <input name="full_name" required placeholder="Jean Doe" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Mot de passe</label>
+            <input name="password" placeholder="auto si vide" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Poste</label>
+            <input name="poste" placeholder="Caissier" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Téléphone</label>
+            <input name="phone" placeholder="07 XX XX XX XX" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Email</label>
+            <input name="email" type="email" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Arrivée</label>
+            <input type="time" name="heure_arrivee" value="08:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Pause</label>
+            <input type="time" name="heure_pause" value="12:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Retour</label>
+            <input type="time" name="heure_retour" value="13:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Départ</label>
+            <input type="time" name="heure_depart" value="17:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Tolérance</label>
+            <input type="number" name="tolerance" value="10" min="0" max="60" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+    </form>
+</div></div>
+
+<!-- Import CSV bulk -->
+<div class="card" style="margin-top:14px"><div class="card-body">
+    <h3 style="margin-top:0">📥 Import CSV en masse</h3>
+    <p style="font-size:11px;color:#666">Format : <code>username;full_name;password;heure_arrivee;heure_depart</code> — un employé par ligne. Header optionnel.</p>
+    <form method="post">
+        <input type="hidden" name="action" value="import_csv">
+        <textarea name="csv_content" rows="5" placeholder="jdoe;Jean Doe;motdepasse123;08:00;17:00&#10;mtraore;Mariam Traoré;;08:30;17:30" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace;font-size:11px"></textarea>
+        <button type="submit" class="btn btn-primary btn-sm" style="margin-top:6px">📥 Importer</button>
+    </form>
+</div></div>
+
+<!-- Liste employés -->
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">👥 Employés ({{ users|length }})</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if users %}
+<table>
+<thead><tr><th>Identifiant</th><th>Nom</th><th>Poste</th><th>Horaires</th><th>Dernière connexion</th><th>Actif</th><th>Actions</th></tr></thead>
+<tbody>
+{% for u in users %}
+<tr style="{% if not u.is_active %}background:#fafafa;color:#888{% endif %}">
+    <td style="font-family:monospace">{{ u.username }}</td>
+    <td><strong>{{ u.full_name }}</strong>{% if u.phone %}<br><span style="font-size:10px;color:#888">{{ u.phone }}</span>{% endif %}</td>
+    <td style="font-size:11px">{{ u.poste or '-' }}</td>
+    <td style="font-family:monospace;font-size:11px">{{ u.heure_arrivee }}–{{ u.heure_depart }}</td>
+    <td style="font-size:10px">{{ u.last_login[:16] if u.last_login else '—' }}</td>
+    <td style="text-align:center">{% if u.is_active %}✅{% else %}⏸️{% endif %}</td>
+    <td>
+        <form method="post" action="/admin/pointage/companies/{{ company.id }}/user/{{ u.id }}/reset" style="display:inline" onsubmit="return confirm('Réinitialiser le mot de passe ?')">
+            <button type="submit" class="btn btn-sm" style="background:#f29f2f;color:#fff;font-size:10px" title="Reset password">🔑</button>
+        </form>
+        <a href="/admin/pointage/companies/{{ company.id }}/user/{{ u.id }}/toggle" class="btn btn-sm" style="background:#888;color:#fff;font-size:10px">{% if u.is_active %}⏸️{% else %}▶️{% endif %}</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun employé. Ajoutez-en avec le formulaire ci-dessus.</div>
+{% endif %}
+</div></div>
+
+<!-- Pointages récents -->
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">📋 Pointages récents</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if recent %}
+<table>
+<thead><tr><th>Date/Heure</th><th>Employé</th><th>Type</th><th>Statut</th><th>Écart</th><th>Pénalité</th></tr></thead>
+<tbody>
+{% for p in recent %}
+<tr>
+    <td style="font-family:monospace;font-size:11px">{{ p.date }} {{ p.time }}</td>
+    <td>{{ p.full_name or '-' }}</td>
+    <td style="font-size:11px">{{ p.type }}</td>
+    <td>
+        {% if p.status == 'retard' %}<span style="padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#fde8e8;color:#c53030">⏰ Retard</span>
+        {% elif p.status == 'avance' %}<span style="padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#fff3e0;color:#b8561f">🚀 Avance</span>
+        {% else %}<span style="padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#e8f5e9;color:#2e7d32">✅ OK</span>{% endif %}
+    </td>
+    <td style="text-align:center;font-size:11px">{{ p.ecart_minutes }}min</td>
+    <td style="text-align:right;color:#c53030;font-size:11px">{% if p.penalty_amount %}{{ "{:,.0f}".format(p.penalty_amount) }} F{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun pointage encore.</div>
+{% endif %}
+</div></div>
+
+{% elif page == 'pt_login' %}
+<style>
+body{background:linear-gradient(135deg,{{ company.primary_color or '#1a7a6d' }} 0%, #1a3a5c 100%) !important; min-height:100vh}
+.pt-login-card{background:#fff;border-radius:14px;padding:30px;max-width:380px;width:100%;margin:50px auto;box-shadow:0 8px 30px rgba(0,0,0,0.2)}
+</style>
+<div style="display:flex;justify-content:center;align-items:flex-start;min-height:100vh">
+<div class="pt-login-card">
+    <div style="text-align:center;margin-bottom:20px">
+        {% if company.logo_data_uri %}
+        <img src="{{ company.logo_data_uri }}" alt="logo" style="max-width:120px;max-height:80px">
+        {% else %}
+        <div style="width:80px;height:80px;background:{{ company.primary_color or '#1a7a6d' }};color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:800;margin:0 auto">
+            {{ (company.name or '?')[0]|upper }}
+        </div>
+        {% endif %}
+        <h1 style="margin:14px 0 4px;color:{{ company.primary_color or '#1a7a6d' }}">{{ company.name }}</h1>
+        <p style="color:#666;font-size:12px;margin:0">Espace pointage employés</p>
+    </div>
+    
+    {% if company.welcome_message %}
+    <div style="background:#f0f9f7;border-left:3px solid {{ company.primary_color or '#1a7a6d' }};padding:10px;border-radius:6px;margin-bottom:18px;font-size:12px;color:#1a3a5c;font-style:italic">
+        {{ company.welcome_message }}
+    </div>
+    {% endif %}
+    
+    <form method="post">
+        <div style="margin-bottom:12px">
+            <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Identifiant</label>
+            <input name="username" required autofocus autocomplete="username" style="width:100%;padding:10px 14px;border:2px solid #ddd;border-radius:8px;font-size:14px">
+        </div>
+        <div style="margin-bottom:18px">
+            <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">Mot de passe</label>
+            <input type="password" name="password" required autocomplete="current-password" style="width:100%;padding:10px 14px;border:2px solid #ddd;border-radius:8px;font-size:14px">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;padding:12px;background:{{ company.primary_color or '#1a7a6d' }};border:none;border-radius:8px;color:#fff;font-weight:700;font-size:13px;cursor:pointer">🚪 Se connecter</button>
+    </form>
+    <p style="font-size:10px;color:#888;text-align:center;margin-top:14px">
+        🔒 Espace sécurisé · Vos pointages sont privés et chiffrés.
+    </p>
+</div>
+</div>
+
+{% elif page == 'pt_dashboard' %}
+<style>
+body{background:#f5f7f9 !important}
+.pt-hero{background:linear-gradient(135deg,{{ company.primary_color or '#1a7a6d' }} 0%, #1a3a5c 100%);color:#fff;padding:18px;border-radius:14px;margin-bottom:14px;text-align:center}
+.pt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.pt-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 14px;border-radius:14px;font-size:13px;font-weight:700;cursor:pointer;border:none;text-align:center;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.1)}
+.pt-btn:disabled{opacity:0.4;cursor:not-allowed}
+.pt-btn .ic{font-size:28px;margin-bottom:6px}
+.pt-btn.t-arrivee{background:linear-gradient(135deg,#2e7d32,#1b5e20)}
+.pt-btn.t-pause{background:linear-gradient(135deg,#f29f2f,#e8672a)}
+.pt-btn.t-retour{background:linear-gradient(135deg,#1a7a6d,#0d5b50)}
+.pt-btn.t-depart{background:linear-gradient(135deg,#c53030,#8b1c1c)}
+@media (max-width:480px){.pt-grid{grid-template-columns:1fr}}
+</style>
+<div class="pt-hero">
+    <div style="display:flex;justify-content:space-between;align-items:start;font-size:11px;opacity:0.9">
+        <span>{{ user.full_name }}{% if user.poste %} · {{ user.poste }}{% endif %}</span>
+        <a href="/pt/{{ company.slug }}/logout" style="color:#fff;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:6px;text-decoration:none;font-size:10px">↪ Déconnexion</a>
+    </div>
+    <h1 style="margin:6px 0 0;font-size:18px">{{ company.name }}</h1>
+    <div id="liveClock" style="font-size:36px;font-weight:800;margin-top:8px;font-family:monospace">--:--:--</div>
+    <div style="font-size:11px;opacity:0.85">{{ today }}</div>
+</div>
+
+<form method="post" id="ptCompanyForm">
+    <input type="hidden" name="type" id="ptCType">
+    <input type="hidden" name="latitude" id="ptCLat">
+    <input type="hidden" name="longitude" id="ptCLng">
+    <div class="pt-grid">
+        {% set labels = {'arrivee':'🟢 Arrivée','pause':'☕ Début pause','retour':'🔄 Retour pause','depart':'🔴 Départ'} %}
+        {% for t in ['arrivee','pause','retour','depart'] %}
+        {% set s = state[t] %}
+        <button type="button" class="pt-btn t-{{ t }}" {% if s.done or not s.can %}disabled{% endif %} onclick="ptcSubmit('{{ t }}')">
+            <div class="ic">{{ labels[t].split(' ')[0] }}</div>
+            <div>{{ labels[t].split(' ',1)[1] }}</div>
+            {% if s.done %}<div style="font-size:11px;font-weight:400;margin-top:4px">✓ {{ s.done.time }}</div>{% endif %}
+        </button>
+        {% endfor %}
+    </div>
+</form>
+
+{% if pointages %}
+<div style="background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <h3 style="margin:0 0 10px;color:#1a3a5c;font-size:14px">📋 Aujourd'hui</h3>
+    {% for p in pointages %}
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px">
+        <span>{{ {'arrivee':'🟢 Arrivée','pause':'☕ Pause','retour':'🔄 Retour','depart':'🔴 Départ'}[p.type] }}</span>
+        <div>
+            <span style="font-family:monospace;font-weight:700">{{ p.time }}</span>
+            {% if p.status == 'retard' %}<span style="padding:1px 7px;border-radius:8px;font-size:10px;background:#fde8e8;color:#c53030">⏰ {{ p.ecart_minutes }}min{% if p.penalty_amount %} · {{ "{:,.0f}".format(p.penalty_amount) }} F{% endif %}</span>
+            {% elif p.status == 'avance' %}<span style="padding:1px 7px;border-radius:8px;font-size:10px;background:#fff3e0;color:#b8561f">🚀 {{ -p.ecart_minutes }}min</span>
+            {% else %}<span style="padding:1px 7px;border-radius:8px;font-size:10px;background:#e8f5e9;color:#2e7d32">✓ OK</span>{% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<script>
+function tick(){
+    var d=new Date(); var h=String(d.getHours()).padStart(2,'0');
+    var m=String(d.getMinutes()).padStart(2,'0'); var s=String(d.getSeconds()).padStart(2,'0');
+    var el=document.getElementById('liveClock'); if(el) el.textContent=h+':'+m+':'+s;
+}
+tick(); setInterval(tick, 1000);
+function ptcSubmit(type){
+    document.getElementById('ptCType').value = type;
+    var labels = {'arrivee':'Arrivée','pause':'Début pause','retour':'Retour pause','depart':'Départ'};
+    if (!confirm('Pointer "' + labels[type] + '" maintenant ?')) return;
+    var form = document.getElementById('ptCompanyForm');
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            function(pos){
+                document.getElementById('ptCLat').value = pos.coords.latitude;
+                document.getElementById('ptCLng').value = pos.coords.longitude;
+                form.submit();
+            },
+            function(){ form.submit(); },
+            {timeout: 5000}
+        );
+    } else { form.submit(); }
+}
+</script>
+
+{% elif page == 'pt_not_found' %}
+<style>body{background:#f5f7f9 !important}</style>
+<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:60vh;text-align:center;padding:30px">
+    <div style="font-size:64px">🏢</div>
+    <h1 style="color:#c53030;margin:14px 0 6px">Entreprise introuvable</h1>
+    <p style="color:#666;font-size:13px">L'espace pointage <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">/pt/{{ slug }}</code> n'existe pas ou a été désactivé.</p>
+    <p style="color:#888;font-size:12px;margin-top:14px">Vérifiez l'URL avec votre administrateur.</p>
+</div>
+
 {% elif page == '2fa_setup' %}
 <div class="page-header"><h1>🔐 Authentification à deux facteurs (2FA)</h1>
 <a href="/dashboard" class="btn btn-outline btn-sm">← Retour</a></div>

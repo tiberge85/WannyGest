@@ -345,6 +345,8 @@ from models import migrate_v54
 migrate_v54()
 from models import migrate_v55
 migrate_v55()
+from models import migrate_v56
+migrate_v56()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -411,6 +413,10 @@ PERM_CATEGORIES = {
         ('balance', 'Balance comptable'),
         ('virement_demande', 'Demander virement banque→caisse'),
         ('virement_valide', 'Valider virement (DG uniquement)'),
+    ],
+    'Achats / Stock': [
+        ('achats', 'Voir les achats / fournisseurs / stock'),
+        ('achats_edit', 'Créer/Modifier achats, fournisseurs, commandes'),
     ],
     'Budgets': [
         ('budget_view', 'Voir les budgets (lecture globale)'),
@@ -506,6 +512,28 @@ def permission_required(perm):
             if user['role'] == 'admin':
                 return f(*args, **kwargs)
             if not has_permission(user['role'], perm):
+                flash("Accès non autorisé", "error")
+                return redirect(url_for('dashboard'))
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
+def permission_required_any(*perms):
+    """Accès si l'utilisateur a AU MOINS UNE des permissions listées."""
+    def decorator(f):
+        @functools.wraps(f)
+        def decorated(*args, **kwargs):
+            if 'user_id' not in session:
+                return redirect(url_for('login'))
+            user = get_user_by_id(session['user_id'])
+            if not user:
+                flash("Accès non autorisé", "error")
+                return redirect(url_for('dashboard'))
+            if user['role'] == 'admin':
+                return f(*args, **kwargs)
+            user_perms = get_role_permissions(user['role'])
+            if not any(p in user_perms for p in perms):
                 flash("Accès non autorisé", "error")
                 return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
@@ -9175,24 +9203,35 @@ def pointage_action():
     planning = get_user_planning(uid)
     status, ecart = compute_pointage_status(uid, type_action, time_str, planning)
     
+    # Calcul pénalité (uniquement pour 'arrivee' en retard)
+    penalty_amount = 0
+    if status == 'retard' and type_action == 'arrivee':
+        from models import compute_penalty, get_company_penalty_config
+        cfg = get_company_penalty_config(None)
+        penalty_amount = compute_penalty(ecart, cfg.get('penalty_per_minute', 0),
+                                         cfg.get('grace_minutes', 0))
+    
     # Méthode (bouton ou QR)
     method = 'qr' if request.method == 'GET' else 'button'
     
-    # Insertion
+    # Insertion (avec penalty_amount)
     conn = _gdb()
     conn.execute("""INSERT INTO hr_pointages
         (user_id, type, date, time, datetime_full, latitude, longitude,
-         location_address, photo, status, ecart_minutes, ip, user_agent, method)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+         location_address, photo, status, ecart_minutes, ip, user_agent, method, penalty_amount)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, type_action, today_str, time_str, now.isoformat(),
          lat_f, lng_f, location_address, photo_filename, status, ecart,
-         request.remote_addr, (request.headers.get('User-Agent','') or '')[:200], method))
+         request.remote_addr, (request.headers.get('User-Agent','') or '')[:200], method, penalty_amount))
     conn.commit(); conn.close()
     
     # Notification + flash adaptés
     label = POINTAGE_LABELS.get(type_action, type_action)
     if status == 'retard':
-        flash(f"⚠️ {label} enregistré à {time_str} — ⏰ Retard de {abs(ecart)} min", "warning")
+        msg = f"⚠️ {label} enregistré à {time_str} — ⏰ Retard de {abs(ecart)} min"
+        if penalty_amount > 0:
+            msg += f" — 💰 Pénalité {penalty_amount:,.0f} F CFA"
+        flash(msg, "warning")
     elif status == 'avance':
         flash(f"✅ {label} enregistré à {time_str} — 🚀 En avance de {abs(ecart)} min", "info")
     else:
@@ -9467,6 +9506,714 @@ def admin_pointage_delete(pid):
     except: pass
     conn.close()
     return redirect(url_for('admin_pointage_dashboard'))
+
+
+# ============================================================
+# PÉNALITÉS RETARD
+# ============================================================
+
+@app.route('/admin/pointage/penalites', methods=['GET', 'POST'])
+@permission_required('pointage_edit')
+def admin_pointage_penalites():
+    """Configurer la pénalité par minute de retard (config globale RAMYA)."""
+    conn = _gdb()
+    if request.method == 'POST':
+        try:
+            ppm = float(request.form.get('penalty_per_minute', '0') or 0)
+            grace = int(request.form.get('grace_minutes', '0') or 0)
+            currency = request.form.get('currency', 'XOF')
+            existing = conn.execute(
+                "SELECT id FROM hr_penalty_config WHERE company_id IS NULL").fetchone()
+            if existing:
+                conn.execute("""UPDATE hr_penalty_config SET
+                    penalty_per_minute=?, grace_minutes=?, currency=?, is_active=1, updated_at=?
+                    WHERE id=?""", (ppm, grace, currency, datetime.now().isoformat(), existing['id']))
+            else:
+                conn.execute("""INSERT INTO hr_penalty_config
+                    (company_id, penalty_per_minute, grace_minutes, currency, is_active)
+                    VALUES (NULL, ?, ?, ?, 1)""", (ppm, grace, currency))
+            conn.commit()
+            flash(f"✅ Pénalité réglée : {ppm} F/min après {grace} min de tolérance", "success")
+        except Exception as e:
+            flash(f"❌ Erreur : {e}", "error")
+    
+    cfg = {'penalty_per_minute': 0, 'grace_minutes': 0, 'currency': 'XOF'}
+    try:
+        row = conn.execute(
+            "SELECT * FROM hr_penalty_config WHERE company_id IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+        if row: cfg = dict(row)
+    except: pass
+    
+    # Stats des pénalités du mois courant
+    month_str = datetime.now().strftime('%Y-%m')
+    stats = {'total_penalty': 0, 'total_late': 0, 'top_offenders': []}
+    try:
+        s = conn.execute("""SELECT
+            COALESCE(SUM(penalty_amount),0) as total_penalty,
+            COUNT(*) as total_late
+            FROM hr_pointages WHERE date LIKE ? AND status='retard' AND type='arrivee'""",
+            (f'{month_str}%',)).fetchone()
+        stats.update({k:v for k,v in dict(s).items()})
+        stats['top_offenders'] = [dict(r) for r in conn.execute("""
+            SELECT u.full_name, u.department,
+                COUNT(*) as nb_retards,
+                SUM(p.ecart_minutes) as total_minutes,
+                SUM(p.penalty_amount) as total_penalty
+            FROM hr_pointages p LEFT JOIN users u ON p.user_id=u.id
+            WHERE p.date LIKE ? AND p.status='retard' AND p.type='arrivee'
+            GROUP BY p.user_id ORDER BY total_penalty DESC LIMIT 10""",
+            (f'{month_str}%',)).fetchall()]
+    except: pass
+    conn.close()
+    return render_template('extra_pages.html', page='pointage_penalites',
+                          cfg=cfg, stats=stats, month_str=month_str)
+
+
+# ============================================================
+# RAPPORT MENSUEL PDF PAR EMPLOYÉ
+# ============================================================
+
+@app.route('/admin/pointage/rapport/<int:user_id>/<month>')
+@login_required
+def admin_pointage_rapport_pdf(user_id, month):
+    """Génère un PDF mensuel pour un employé. month = 'YYYY-MM'."""
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    if not ('pointage_admin' in perms or 'admin' in perms or 'pointage_edit' in perms):
+        if user_id != session.get('user_id'):
+            flash("⛔ Accès refusé", "error")
+            return redirect(url_for('dashboard'))
+    
+    target = get_user_by_id(user_id)
+    if not target:
+        flash("Utilisateur introuvable", "error")
+        return redirect(url_for('admin_pointage_dashboard'))
+    
+    conn = _gdb()
+    pointages = [dict(r) for r in conn.execute(
+        "SELECT * FROM hr_pointages WHERE user_id=? AND date LIKE ? ORDER BY date, time",
+        (user_id, f'{month}%')).fetchall()]
+    
+    # Aggrégats par jour
+    days_data = {}
+    for p in pointages:
+        d = p['date']
+        if d not in days_data:
+            days_data[d] = {'arrivee':None,'pause':None,'retour':None,'depart':None,'penalty':0}
+        days_data[d][p['type']] = p
+        days_data[d]['penalty'] += float(p.get('penalty_amount') or 0)
+    
+    total_work_min = 0; total_pause_min = 0; total_retards = 0; total_penalty = 0; nb_jours_present = 0
+    rows_pdf = []
+    for d, dd in sorted(days_data.items()):
+        h_arr = dd['arrivee']['time'] if dd['arrivee'] else '-'
+        h_dep = dd['depart']['time'] if dd['depart'] else '-'
+        h_pause = dd['pause']['time'] if dd['pause'] else '-'
+        h_retour = dd['retour']['time'] if dd['retour'] else '-'
+        # Calcul durée du jour
+        work_min = 0; pause_min = 0
+        try:
+            if dd['arrivee'] and dd['depart']:
+                af = datetime.fromisoformat(dd['arrivee']['datetime_full'])
+                df = datetime.fromisoformat(dd['depart']['datetime_full'])
+                total = int((df - af).total_seconds() / 60)
+                if dd['pause'] and dd['retour']:
+                    pf = datetime.fromisoformat(dd['pause']['datetime_full'])
+                    rf = datetime.fromisoformat(dd['retour']['datetime_full'])
+                    pause_min = int((rf - pf).total_seconds() / 60)
+                    work_min = total - pause_min
+                else:
+                    work_min = total
+        except: pass
+        total_work_min += max(0, work_min)
+        total_pause_min += max(0, pause_min)
+        total_penalty += dd['penalty']
+        if dd['arrivee']: nb_jours_present += 1
+        if dd['arrivee'] and dd['arrivee'].get('status') == 'retard':
+            total_retards += 1
+        rows_pdf.append({
+            'date': d, 'arrivee': h_arr, 'pause': h_pause, 'retour': h_retour, 'depart': h_dep,
+            'work_min': work_min, 'pause_min': pause_min,
+            'status': dd['arrivee']['status'] if dd['arrivee'] else 'absent',
+            'penalty': dd['penalty']
+        })
+    conn.close()
+    
+    # Génération PDF avec ReportLab
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image)
+        import io
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm,
+                                topMargin=15*mm, bottomMargin=15*mm)
+        story = []
+        styles = getSampleStyleSheet()
+        # En-tête
+        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>", 
+            ParagraphStyle('h', fontSize=14, textColor=HexColor('#1a7a6d'), alignment=TA_CENTER)))
+        story.append(Paragraph(f"Rapport mensuel de présence — {month}",
+            ParagraphStyle('h2', fontSize=12, textColor=HexColor('#1a3a5c'), alignment=TA_CENTER)))
+        story.append(Spacer(1, 6*mm))
+        
+        # Info employé
+        info = f"<b>Employé :</b> {target['full_name']}<br/>"
+        info += f"<b>Rôle :</b> {target['role']}<br/>"
+        if target.get('department'): info += f"<b>Département :</b> {target['department']}<br/>"
+        info += f"<b>Période :</b> {month}"
+        story.append(Paragraph(info, ParagraphStyle('info', fontSize=10)))
+        story.append(Spacer(1, 4*mm))
+        
+        # Synthèse
+        h_total = total_work_min // 60; m_total = total_work_min % 60
+        h_pause = total_pause_min // 60; m_pause = total_pause_min % 60
+        synth_data = [
+            ['Jours présents', f'{nb_jours_present}'],
+            ['Heures travaillées', f'{h_total}h {m_total}min'],
+            ['Heures de pause', f'{h_pause}h {m_pause}min'],
+            ['Nombre de retards', f'{total_retards}'],
+            ['Pénalités totales', f'{total_penalty:,.0f} F CFA'],
+        ]
+        synth_t = Table(synth_data, colWidths=[60*mm, 60*mm])
+        synth_t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(0,-1),HexColor('#1a7a6d')),
+            ('TEXTCOLOR',(0,0),(0,-1),HexColor('#ffffff')),
+            ('FONTNAME',(0,0),(-1,-1),'Helvetica-Bold'),
+            ('FONTSIZE',(0,0),(-1,-1),10),
+            ('PADDING',(0,0),(-1,-1),6),
+            ('BACKGROUND',(1,0),(1,-1),HexColor('#f0f9f7')),
+            ('GRID',(0,0),(-1,-1),0.5,HexColor('#cccccc'))
+        ]))
+        story.append(synth_t)
+        story.append(Spacer(1, 6*mm))
+        
+        # Détail jour par jour
+        story.append(Paragraph("<b>Détail journalier</b>", ParagraphStyle('h3', fontSize=11, textColor=HexColor('#1a3a5c'))))
+        story.append(Spacer(1, 2*mm))
+        detail = [['Date','Arrivée','Pause','Retour','Départ','Travail','Statut','Pénalité']]
+        for r in rows_pdf:
+            wh = r['work_min'] // 60; wm = r['work_min'] % 60
+            detail.append([r['date'], r['arrivee'], r['pause'], r['retour'], r['depart'],
+                          f'{wh}h{wm:02d}', r['status'].upper(),
+                          f'{r["penalty"]:,.0f} F' if r['penalty'] else '-'])
+        dt = Table(detail, colWidths=[22*mm, 18*mm, 18*mm, 18*mm, 18*mm, 18*mm, 22*mm, 22*mm])
+        dt.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),HexColor('#1a7a6d')),
+            ('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+            ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+            ('FONTSIZE',(0,0),(-1,-1),8),
+            ('ALIGN',(1,0),(-1,-1),'CENTER'),
+            ('GRID',(0,0),(-1,-1),0.3,HexColor('#cccccc')),
+            ('PADDING',(0,0),(-1,-1),3),
+        ]))
+        # Surligner les jours en retard
+        for i, r in enumerate(rows_pdf, 1):
+            if r['status'] == 'retard':
+                dt.setStyle(TableStyle([('BACKGROUND',(0,i),(-1,i), HexColor('#fde8e8'))]))
+            elif r['status'] == 'absent':
+                dt.setStyle(TableStyle([('BACKGROUND',(0,i),(-1,i), HexColor('#fafafa')),
+                                        ('TEXTCOLOR',(0,i),(-1,i), HexColor('#888888'))]))
+        story.append(dt)
+        
+        story.append(Spacer(1, 8*mm))
+        story.append(Paragraph(
+            f"<i>Document généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} par WannyGest</i>",
+            ParagraphStyle('foot', fontSize=8, textColor=HexColor('#888888'), alignment=TA_CENTER)))
+        
+        doc.build(story)
+        buf.seek(0)
+        filename = f"presence-{target['username']}-{month}.pdf"
+        return Response(buf.getvalue(), mimetype='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename={filename}'})
+    except Exception as e:
+        flash(f"❌ Erreur génération PDF : {e}", "error")
+        return redirect(url_for('admin_pointage_dashboard'))
+
+
+# ============================================================
+# DÉTECTION ABSENCES + GRAPHIQUES
+# ============================================================
+
+@app.route('/admin/pointage/absences')
+@permission_required_any('pointage_admin', 'pointage_dept', 'admin')
+def admin_pointage_absences():
+    """Liste des absences détectées du jour + déclenchement notifications."""
+    from models import detect_absences_today
+    absent = detect_absences_today()
+    # Notifier les RH/admin
+    if absent:
+        try:
+            conn = _gdb()
+            for r in conn.execute(
+                "SELECT id, full_name FROM users WHERE role IN ('admin','dg','rh') AND COALESCE(is_active,1)=1").fetchall():
+                msg = f"{len(absent)} employé(s) absent(s) ce matin : " + ", ".join([a['full_name'] for a in absent[:5]])
+                if len(absent) > 5: msg += f" (+{len(absent)-5})"
+                # Éviter doublon notification
+                today = datetime.now().strftime('%Y-%m-%d')
+                already = conn.execute(
+                    "SELECT id FROM notifications WHERE user_id=? AND type='absence_alert' AND title LIKE ? AND created_at LIKE ?",
+                    (r['id'], '%Absences%', f'{today}%')).fetchone()
+                if not already:
+                    conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                        VALUES (?, ?, ?, ?, ?)""",
+                        (r['id'], 'absence_alert',
+                         f"⚠️ Absences du {today}", msg, "/admin/pointage/absences"))
+            conn.commit(); conn.close()
+        except: pass
+    return render_template('extra_pages.html', page='pointage_absences',
+                          absent=absent, today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/admin/pointage/graphiques')
+@permission_required_any('pointage_admin', 'pointage_dept', 'admin')
+def admin_pointage_graphiques():
+    """Page graphiques mensuels (présence/retard/heures)."""
+    month = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    user_filter = request.args.get('user_id', '')
+    
+    conn = _gdb()
+    where = ["date LIKE ?"]
+    params = [f'{month}%']
+    if user_filter and user_filter.isdigit():
+        where.append("user_id = ?")
+        params.append(int(user_filter))
+    where_sql = " AND ".join(where)
+    
+    # Stats par jour
+    daily = []
+    try:
+        for r in conn.execute(f"""SELECT date,
+            SUM(CASE WHEN type='arrivee' AND status='normal' THEN 1 ELSE 0 END) as ok,
+            SUM(CASE WHEN type='arrivee' AND status='retard' THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN type='arrivee' AND status='avance' THEN 1 ELSE 0 END) as early
+            FROM hr_pointages WHERE {where_sql} GROUP BY date ORDER BY date""",
+            tuple(params)).fetchall():
+            daily.append(dict(r))
+    except: pass
+    
+    # Stats par employé
+    by_user = []
+    try:
+        for r in conn.execute(f"""SELECT u.id, u.full_name, u.department,
+            SUM(CASE WHEN p.type='arrivee' THEN 1 ELSE 0 END) as nb_arrivees,
+            SUM(CASE WHEN p.type='arrivee' AND p.status='retard' THEN 1 ELSE 0 END) as nb_retards,
+            SUM(CASE WHEN p.type='arrivee' THEN p.ecart_minutes ELSE 0 END) as total_ecart,
+            SUM(p.penalty_amount) as total_penalty
+            FROM hr_pointages p LEFT JOIN users u ON p.user_id=u.id
+            WHERE {where_sql} GROUP BY p.user_id ORDER BY nb_retards DESC""",
+            tuple(params)).fetchall():
+            by_user.append(dict(r))
+    except: pass
+    
+    users = []
+    try:
+        users = [dict(r) for r in conn.execute(
+            "SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client' ORDER BY full_name").fetchall()]
+    except: pass
+    conn.close()
+    
+    return render_template('extra_pages.html', page='pointage_graphiques',
+                          daily=daily, by_user=by_user, month=month,
+                          user_filter=user_filter, users=users)
+
+
+# ============================================================
+# MODULES RH (activation/désactivation)
+# ============================================================
+
+@app.route('/admin/hr-modules', methods=['GET', 'POST'])
+@permission_required_any('admin', 'pointage_edit')
+def admin_hr_modules():
+    """Activer/désactiver les modules RH."""
+    conn = _gdb()
+    if request.method == 'POST':
+        mid = request.form.get('module_id')
+        action = request.form.get('action', 'toggle')
+        if mid and mid.isdigit():
+            try:
+                if action == 'enable':
+                    conn.execute("UPDATE hr_modules SET is_active=1 WHERE id=?", (int(mid),))
+                elif action == 'disable':
+                    conn.execute("UPDATE hr_modules SET is_active=0 WHERE id=?", (int(mid),))
+                else:
+                    conn.execute("UPDATE hr_modules SET is_active=CASE WHEN is_active=1 THEN 0 ELSE 1 END WHERE id=?", (int(mid),))
+                conn.commit()
+                flash("✅ Module mis à jour", "success")
+            except Exception as e:
+                flash(f"❌ Erreur : {e}", "error")
+    
+    modules = []
+    try:
+        modules = [dict(r) for r in conn.execute(
+            "SELECT * FROM hr_modules ORDER BY sort_order, id").fetchall()]
+    except: pass
+    conn.close()
+    return render_template('extra_pages.html', page='hr_modules', modules=modules)
+
+
+# ============================================================
+# MULTI-ENTREPRISES POINTAGE
+# ============================================================
+
+@app.route('/admin/pointage/companies')
+@permission_required_any('admin', 'pointage_edit')
+def admin_pointage_companies_list():
+    """Liste des entreprises clientes du module pointage."""
+    conn = _gdb()
+    companies = []
+    try:
+        companies = [dict(r) for r in conn.execute(
+            "SELECT * FROM pointage_companies ORDER BY name").fetchall()]
+        # Compter les employés par entreprise
+        for c in companies:
+            try:
+                c['nb_users'] = conn.execute(
+                    "SELECT COUNT(*) FROM pointage_company_users WHERE company_id=? AND COALESCE(is_active,1)=1",
+                    (c['id'],)).fetchone()[0]
+            except: c['nb_users'] = 0
+    except: pass
+    conn.close()
+    return render_template('extra_pages.html', page='pointage_companies', companies=companies)
+
+
+@app.route('/admin/pointage/companies/add', methods=['POST'])
+@permission_required_any('admin', 'pointage_edit')
+def admin_pointage_company_add():
+    """Créer une nouvelle entreprise + ses employés."""
+    import re
+    name = (request.form.get('name', '') or '').strip()
+    slug = (request.form.get('slug', '') or '').strip().lower()
+    if not slug:
+        slug = re.sub(r'[^a-z0-9-]', '-', name.lower()).strip('-')
+    welcome = (request.form.get('welcome_message', '') or f'Bienvenue chez {name} !').strip()
+    color = (request.form.get('primary_color', '#1a7a6d') or '#1a7a6d').strip()
+    ppm = float(request.form.get('penalty_per_minute', '0') or 0)
+    grace = int(request.form.get('grace_minutes', '10') or 10)
+    
+    if not name or not slug:
+        flash("Nom et identifiant requis.", "error")
+        return redirect(url_for('admin_pointage_companies_list'))
+    
+    conn = _gdb()
+    try:
+        conn.execute("""INSERT INTO pointage_companies
+            (name, slug, welcome_message, primary_color, penalty_per_minute, grace_minutes, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (name, slug, welcome, color, ppm, grace, session.get('user_id')))
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        flash(f"✅ Entreprise '{name}' créée. URL pointage : /pt/{slug}", "success")
+        conn.close()
+        return redirect(url_for('admin_pointage_company_detail', cid=cid))
+    except Exception as e:
+        conn.close()
+        flash(f"❌ Erreur : {e}", "error")
+        return redirect(url_for('admin_pointage_companies_list'))
+
+
+@app.route('/admin/pointage/companies/<int:cid>', methods=['GET', 'POST'])
+@permission_required_any('admin', 'pointage_edit')
+def admin_pointage_company_detail(cid):
+    """Voir / éditer une entreprise + gérer ses employés."""
+    import hashlib, secrets as _s, csv, io
+    conn = _gdb()
+    company = conn.execute("SELECT * FROM pointage_companies WHERE id=?", (cid,)).fetchone()
+    if not company:
+        flash("Entreprise introuvable", "error")
+        conn.close(); return redirect(url_for('admin_pointage_companies_list'))
+    company = dict(company)
+    
+    if request.method == 'POST':
+        # Update company info
+        if request.form.get('action') == 'update_company':
+            try:
+                conn.execute("""UPDATE pointage_companies SET
+                    name=?, welcome_message=?, primary_color=?,
+                    penalty_per_minute=?, grace_minutes=?
+                    WHERE id=?""",
+                    (request.form.get('name'), request.form.get('welcome_message'),
+                     request.form.get('primary_color', '#1a7a6d'),
+                     float(request.form.get('penalty_per_minute', '0') or 0),
+                     int(request.form.get('grace_minutes', '10') or 10), cid))
+                conn.commit()
+                flash("✅ Entreprise mise à jour", "success")
+            except Exception as e:
+                flash(f"❌ Erreur : {e}", "error")
+        # Add employee
+        elif request.form.get('action') == 'add_user':
+            uname = (request.form.get('username') or '').strip().lower()
+            full = (request.form.get('full_name') or '').strip()
+            pwd = (request.form.get('password') or '').strip() or _s.token_hex(4)
+            if not uname or not full:
+                flash("Identifiant et nom requis", "error")
+            else:
+                salt = _s.token_hex(8)
+                ph = hashlib.sha256((pwd + salt).encode()).hexdigest()
+                try:
+                    conn.execute("""INSERT INTO pointage_company_users
+                        (company_id, username, password_hash, salt, full_name, email, phone, poste,
+                         heure_arrivee, heure_pause, heure_retour, heure_depart, tolerance_retard_minutes)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (cid, uname, ph, salt, full,
+                         request.form.get('email','').strip(),
+                         request.form.get('phone','').strip(),
+                         request.form.get('poste','').strip(),
+                         request.form.get('heure_arrivee','08:00'),
+                         request.form.get('heure_pause','12:00'),
+                         request.form.get('heure_retour','13:00'),
+                         request.form.get('heure_depart','17:00'),
+                         int(request.form.get('tolerance','10') or 10)))
+                    conn.commit()
+                    flash(f"✅ Employé '{full}' ajouté. Identifiants : {uname} / {pwd}", "success")
+                except Exception as e:
+                    flash(f"❌ Erreur (identifiant peut-être déjà pris) : {e}", "error")
+        # Bulk import CSV
+        elif request.form.get('action') == 'import_csv':
+            try:
+                csv_text = (request.form.get('csv_content') or '').strip()
+                if csv_text:
+                    reader = csv.reader(io.StringIO(csv_text), delimiter=';')
+                    rows = list(reader)
+                    if rows and rows[0] and rows[0][0].lower() in ('username','identifiant','user'):
+                        rows = rows[1:]
+                    nb = 0; errs = 0
+                    for r in rows:
+                        if len(r) < 2: continue
+                        uname = (r[0] or '').strip().lower()
+                        full = (r[1] or '').strip()
+                        if not uname or not full: continue
+                        pwd = r[2].strip() if len(r) > 2 and r[2].strip() else _s.token_hex(4)
+                        h_arr = r[3].strip() if len(r) > 3 and r[3].strip() else '08:00'
+                        h_dep = r[4].strip() if len(r) > 4 and r[4].strip() else '17:00'
+                        salt = _s.token_hex(8)
+                        ph = hashlib.sha256((pwd + salt).encode()).hexdigest()
+                        try:
+                            conn.execute("""INSERT INTO pointage_company_users
+                                (company_id, username, password_hash, salt, full_name,
+                                 heure_arrivee, heure_depart) VALUES (?,?,?,?,?,?,?)""",
+                                (cid, uname, ph, salt, full, h_arr, h_dep))
+                            nb += 1
+                        except: errs += 1
+                    conn.commit()
+                    flash(f"✅ {nb} employé(s) importé(s) ({errs} erreur(s))", "success")
+            except Exception as e:
+                flash(f"❌ Erreur CSV : {e}", "error")
+    
+    users = []
+    try:
+        users = [dict(r) for r in conn.execute(
+            "SELECT id, username, full_name, email, phone, poste, heure_arrivee, heure_depart, is_active, last_login FROM pointage_company_users WHERE company_id=? ORDER BY full_name",
+            (cid,)).fetchall()]
+    except: pass
+    
+    # Pointages récents
+    recent = []
+    try:
+        recent = [dict(r) for r in conn.execute("""
+            SELECT pcr.*, pcu.full_name FROM pointage_company_records pcr
+            LEFT JOIN pointage_company_users pcu ON pcr.company_user_id=pcu.id
+            WHERE pcr.company_id=? ORDER BY pcr.datetime_full DESC LIMIT 30""", (cid,)).fetchall()]
+    except: pass
+    conn.close()
+    return render_template('extra_pages.html', page='pointage_company_detail',
+                          company=company, users=users, recent=recent)
+
+
+@app.route('/admin/pointage/companies/<int:cid>/user/<int:uid>/reset', methods=['POST'])
+@permission_required_any('admin', 'pointage_edit')
+def admin_pointage_company_user_reset(cid, uid):
+    """Reset password de l'employé multi-entreprise."""
+    import hashlib, secrets as _s
+    new_pwd = _s.token_hex(4)
+    salt = _s.token_hex(8)
+    ph = hashlib.sha256((new_pwd + salt).encode()).hexdigest()
+    conn = _gdb()
+    try:
+        conn.execute("UPDATE pointage_company_users SET password_hash=?, salt=? WHERE id=? AND company_id=?",
+                     (ph, salt, uid, cid))
+        conn.commit()
+        flash(f"✅ Nouveau mot de passe : {new_pwd}", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect(url_for('admin_pointage_company_detail', cid=cid))
+
+
+@app.route('/admin/pointage/companies/<int:cid>/user/<int:uid>/toggle', methods=['POST', 'GET'])
+@permission_required_any('admin', 'pointage_edit')
+def admin_pointage_company_user_toggle(cid, uid):
+    conn = _gdb()
+    try:
+        conn.execute("UPDATE pointage_company_users SET is_active=CASE WHEN is_active=1 THEN 0 ELSE 1 END WHERE id=? AND company_id=?",
+                     (uid, cid))
+        conn.commit()
+        flash("✅ Statut modifié", "success")
+    except: pass
+    conn.close()
+    return redirect(url_for('admin_pointage_company_detail', cid=cid))
+
+
+# ===== Interface employé multi-entreprise =====
+
+@app.route('/pt/<slug>', methods=['GET', 'POST'])
+def pointage_company_login(slug):
+    """Login employé d'une entreprise externe."""
+    import hashlib
+    conn = _gdb()
+    company = conn.execute("SELECT * FROM pointage_companies WHERE slug=? AND COALESCE(is_active,1)=1",
+                          (slug,)).fetchone()
+    if not company:
+        conn.close()
+        return render_template('extra_pages.html', page='pt_not_found', slug=slug), 404
+    company = dict(company)
+    
+    if request.method == 'POST':
+        username = (request.form.get('username','') or '').strip().lower()
+        password = request.form.get('password','') or ''
+        u = conn.execute(
+            "SELECT * FROM pointage_company_users WHERE company_id=? AND username=? AND COALESCE(is_active,1)=1",
+            (company['id'], username)).fetchone()
+        if u:
+            u = dict(u)
+            ph = hashlib.sha256((password + (u.get('salt') or '')).encode()).hexdigest()
+            if ph == u['password_hash']:
+                conn.execute("UPDATE pointage_company_users SET last_login=? WHERE id=?",
+                            (datetime.now().isoformat(), u['id']))
+                conn.commit(); conn.close()
+                # Session séparée
+                session.clear()
+                session['pt_company_id'] = company['id']
+                session['pt_company_slug'] = company['slug']
+                session['pt_company_name'] = company['name']
+                session['pt_user_id'] = u['id']
+                session['pt_user_name'] = u['full_name']
+                session.permanent = True
+                flash(f"✅ {company['welcome_message']}", "success")
+                return redirect(url_for('pointage_company_dashboard', slug=slug))
+        conn.close()
+        flash("❌ Identifiants incorrects", "error")
+        return render_template('extra_pages.html', page='pt_login', company=company)
+    
+    conn.close()
+    return render_template('extra_pages.html', page='pt_login', company=company)
+
+
+@app.route('/pt/<slug>/dashboard', methods=['GET', 'POST'])
+def pointage_company_dashboard(slug):
+    """Dashboard employé multi-entreprise."""
+    if session.get('pt_company_slug') != slug:
+        return redirect(url_for('pointage_company_login', slug=slug))
+    
+    conn = _gdb()
+    company = dict(conn.execute("SELECT * FROM pointage_companies WHERE id=?",
+                               (session['pt_company_id'],)).fetchone())
+    user = dict(conn.execute("SELECT * FROM pointage_company_users WHERE id=?",
+                            (session['pt_user_id'],)).fetchone())
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    pointages = [dict(r) for r in conn.execute(
+        "SELECT * FROM pointage_company_records WHERE company_user_id=? AND date=? ORDER BY datetime_full",
+        (user['id'], today)).fetchall()]
+    
+    if request.method == 'POST':
+        from models import compute_penalty
+        action = (request.form.get('type','') or '').strip().lower()
+        if action not in ('arrivee','pause','retour','depart'):
+            flash("Type invalide", "error")
+        else:
+            types_done = [p['type'] for p in pointages]
+            if action in types_done:
+                flash(f"⚠️ Vous avez déjà pointé '{action}' aujourd'hui.", "warning")
+            else:
+                order = ['arrivee','pause','retour','depart']
+                idx = order.index(action)
+                ok = True
+                for prev in order[:idx]:
+                    if prev in ('pause','retour'): continue
+                    if prev not in types_done: ok = False
+                if action == 'retour' and 'pause' not in types_done: ok = False
+                if not ok:
+                    flash(f"⚠️ Ordre incorrect (vous devez d'abord faire les pointages précédents)", "warning")
+                else:
+                    now = datetime.now()
+                    time_str = now.strftime('%H:%M')
+                    # Calcul statut
+                    expected_field = {'arrivee':'heure_arrivee','pause':'heure_pause',
+                                      'retour':'heure_retour','depart':'heure_depart'}[action]
+                    expected = user.get(expected_field, '08:00')
+                    tol = int(user.get('tolerance_retard_minutes', 10) or 10)
+                    try:
+                        eh, em = expected.split(':')[:2]
+                        ah, am = time_str.split(':')[:2]
+                        ecart = (int(ah)*60+int(am)) - (int(eh)*60+int(em))
+                    except: ecart = 0
+                    if action in ('arrivee','retour'):
+                        status = 'retard' if ecart > tol else ('avance' if ecart < -tol else 'normal')
+                    else:
+                        status = 'avance' if ecart < -tol else ('retard' if ecart > tol else 'normal')
+                    # Pénalité
+                    pen = 0
+                    if status == 'retard' and action == 'arrivee':
+                        pen = compute_penalty(ecart, company['penalty_per_minute'] or 0,
+                                            company['grace_minutes'] or 0)
+                    lat = request.form.get('latitude')
+                    lng = request.form.get('longitude')
+                    try: lat = float(lat) if lat else None
+                    except: lat = None
+                    try: lng = float(lng) if lng else None
+                    except: lng = None
+                    conn.execute("""INSERT INTO pointage_company_records
+                        (company_id, company_user_id, type, date, time, datetime_full,
+                         latitude, longitude, status, ecart_minutes, penalty_amount, ip, user_agent, method)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (company['id'], user['id'], action, today, time_str, now.isoformat(),
+                         lat, lng, status, ecart, pen, request.remote_addr,
+                         (request.headers.get('User-Agent','') or '')[:200], 'button'))
+                    conn.commit()
+                    if status == 'retard':
+                        flash(f"⚠️ {action} enregistré à {time_str} — Retard {ecart}min" + (f" — Pénalité {pen:.0f} F CFA" if pen else ""), "warning")
+                    elif status == 'avance':
+                        flash(f"✅ {action} à {time_str} — Avance {abs(ecart)}min", "info")
+                    else:
+                        flash(f"✅ {action} enregistré à {time_str}", "success")
+                    conn.close()
+                    return redirect(url_for('pointage_company_dashboard', slug=slug))
+        # Refresh pointages
+        pointages = [dict(r) for r in conn.execute(
+            "SELECT * FROM pointage_company_records WHERE company_user_id=? AND date=? ORDER BY datetime_full",
+            (user['id'], today)).fetchall()]
+    
+    conn.close()
+    types_done = [p['type'] for p in pointages]
+    state = {}
+    order = ['arrivee','pause','retour','depart']
+    for t in order:
+        done = next((p for p in pointages if p['type'] == t), None)
+        can = (t not in types_done)
+        # Validation ordre
+        if can:
+            idx = order.index(t)
+            for prev in order[:idx]:
+                if prev in ('pause','retour'): continue
+                if prev not in types_done: can = False
+            if t == 'retour' and 'pause' not in types_done: can = False
+        state[t] = {'done': done, 'can': can}
+    
+    return render_template('extra_pages.html', page='pt_dashboard',
+                          company=company, user=user, pointages=pointages,
+                          state=state, today=today)
+
+
+@app.route('/pt/<slug>/logout')
+def pointage_company_logout(slug):
+    if session.get('pt_company_slug') == slug:
+        session.clear()
+    flash("👋 Vous êtes déconnecté(e).", "info")
+    return redirect(url_for('pointage_company_login', slug=slug))
 
 
 DEPARTMENTS = ['Administration', 'Direction Générale', 'Ressources Humaines',
@@ -10646,7 +11393,7 @@ def stock_redirect():
 # ======================== MODULE ACHATS ========================
 
 @app.route('/achats')
-@permission_required('comptabilite')
+@permission_required_any('achats', 'comptabilite')
 def achats_page():
     tab = request.args.get('tab', 'fournisseurs')
     conn = _gdb()
@@ -10674,7 +11421,7 @@ def achats_page():
     return render_template('achats.html', page='achats', **data)
 
 @app.route('/achats/fournisseur/add', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_fournisseur_add():
     _dbi('achats_fournisseurs', name=request.form['name'], contact_name=request.form.get('contact_name',''),
         tel=request.form.get('tel',''), email=request.form.get('email',''),
@@ -10683,7 +11430,7 @@ def achats_fournisseur_add():
     flash("Fournisseur ajouté", "success"); return redirect('/achats?tab=fournisseurs')
 
 @app.route('/achats/fournisseur/edit/<int:fid>', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_fournisseur_edit(fid):
     conn = _gdb()
     conn.execute("""UPDATE achats_fournisseurs SET name=?,contact_name=?,tel=?,email=?,address=?,city=?,sector=?,payment_terms=?,notes=? WHERE id=?""",
@@ -10694,13 +11441,13 @@ def achats_fournisseur_edit(fid):
     flash("Fournisseur modifié", "success"); return redirect('/achats?tab=fournisseurs')
 
 @app.route('/achats/fournisseur/delete/<int:fid>')
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_fournisseur_delete(fid):
     conn = _gdb(); conn.execute("DELETE FROM achats_fournisseurs WHERE id=?", (fid,)); conn.commit(); conn.close()
     flash("Fournisseur supprimé", "success"); return redirect('/achats?tab=fournisseurs')
 
 @app.route('/achats/demande/add', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_demande_add():
     ref = f"DA-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     _dbi('achats_demandes', reference=ref, date=request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
@@ -10709,7 +11456,7 @@ def achats_demande_add():
     flash(f"Demande {ref} créée", "success"); return redirect('/achats?tab=demandes')
 
 @app.route('/achats/demande/<int:did>/approve')
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_demande_approve(did):
     conn = _gdb()
     conn.execute("UPDATE achats_demandes SET status='approuvee', approved_by=?, approved_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -10718,7 +11465,7 @@ def achats_demande_approve(did):
     flash("Demande approuvée", "success"); return redirect('/achats?tab=demandes')
 
 @app.route('/achats/demande/<int:did>/reject')
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_demande_reject(did):
     conn = _gdb()
     conn.execute("UPDATE achats_demandes SET status='refusee' WHERE id=?", (did,))
@@ -10746,7 +11493,7 @@ def achats_devis_status(did, status):
     flash("Statut mis à jour", "success"); return redirect('/achats?tab=devis')
 
 @app.route('/achats/commande/add', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_commande_add():
     ref = f"BC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     _dbi('achats_commandes', reference=ref, fournisseur_id=int(request.form.get('fournisseur_id',0) or 0),
@@ -10758,14 +11505,14 @@ def achats_commande_add():
     flash(f"Bon de commande {ref} créé", "success"); return redirect('/achats?tab=commandes')
 
 @app.route('/achats/commande/<int:cid>/status/<status>')
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_commande_status(cid, status):
     if status in ('en_cours', 'livree', 'annulee'):
         conn = _gdb(); conn.execute("UPDATE achats_commandes SET status=? WHERE id=?", (status, cid)); conn.commit(); conn.close()
     flash("Statut mis à jour", "success"); return redirect('/achats?tab=commandes')
 
 @app.route('/achats/contrat/add', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_contrat_add():
     ref = f"CTR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     _dbi('achats_contrats', reference=ref, fournisseur_id=int(request.form.get('fournisseur_id',0) or 0),
@@ -10782,7 +11529,7 @@ if __name__ == '__main__':
 # ======================== IMPORT/EXPORT STOCK & FOURNISSEURS ========================
 
 @app.route('/achats/fournisseurs/import', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def import_fournisseurs():
     if 'file' not in request.files or not request.files['file'].filename:
         flash("Aucun fichier sélectionné", "error"); return redirect('/achats?tab=fournisseurs')
@@ -10826,7 +11573,7 @@ def import_fournisseurs():
     return redirect('/achats?tab=fournisseurs')
 
 @app.route('/achats/fournisseurs/export')
-@permission_required('comptabilite')
+@permission_required_any('achats', 'comptabilite')
 def export_fournisseurs():
     import openpyxl
     wb = openpyxl.Workbook()
@@ -10853,7 +11600,7 @@ def export_fournisseurs():
     return send_file(output, as_attachment=True, download_name='Fournisseurs_RAMYA.xlsx')
 
 @app.route('/achats/stock/import', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def import_stock():
     if 'file' not in request.files or not request.files['file'].filename:
         flash("Aucun fichier sélectionné", "error"); return redirect('/achats?tab=stock')
@@ -10899,7 +11646,7 @@ def import_stock():
     return redirect('/achats?tab=stock')
 
 @app.route('/achats/stock/export')
-@permission_required('comptabilite')
+@permission_required_any('achats', 'comptabilite')
 def export_stock():
     import openpyxl
     from openpyxl.styles import Font, PatternFill
@@ -10927,7 +11674,7 @@ def export_stock():
     return send_file(output, as_attachment=True, download_name='Stock_RAMYA.xlsx')
 
 @app.route('/achats/stock/category/add', methods=['POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def stock_category_add():
     name = request.form.get('name','').strip()
     if name:
@@ -10939,7 +11686,7 @@ def stock_category_add():
     return redirect('/achats?tab=stock')
 
 @app.route('/achats/stock/category/delete/<int:cid>')
-@permission_required('comptabilite_edit')
+@permission_required_any('achats_edit', 'comptabilite_edit')
 def stock_category_delete(cid):
     conn = _gdb()
     conn.execute("DELETE FROM stock_categories WHERE id=?", (cid,))
