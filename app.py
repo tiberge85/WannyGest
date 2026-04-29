@@ -343,6 +343,8 @@ from models import migrate_v53
 migrate_v53()
 from models import migrate_v54
 migrate_v54()
+from models import migrate_v55
+migrate_v55()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -380,9 +382,16 @@ try:
     if not _grp('client'):
         update_role_permissions('client', ['dashboard'])
     if 'informatique' not in _grp('technicien'):
-        update_role_permissions('technicien', ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat'])
+        # Conserver toute permission déjà accordée + ajouter les défauts
+        existing = _grp('technicien')
+        defaults = ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat']
+        merged = list(set(existing + defaults))
+        update_role_permissions('technicien', merged)
     if 'centre_technique' not in _grp('resp_projet'):
-        update_role_permissions('resp_projet', ['dashboard', 'resp_projet', 'resp_projet_edit', 'projets', 'informatique', 'centre_technique', 'clients', 'visites', 'rapports_j', 'chat'])
+        existing = _grp('resp_projet')
+        defaults = ['dashboard', 'resp_projet', 'resp_projet_edit', 'projets', 'informatique', 'centre_technique', 'clients', 'visites', 'rapports_j', 'chat']
+        merged = list(set(existing + defaults))
+        update_role_permissions('resp_projet', merged)
 except: pass
 
 from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
@@ -407,6 +416,12 @@ PERM_CATEGORIES = {
         ('budget_view', 'Voir les budgets (lecture globale)'),
         ('budget_view_own', 'Voir uniquement le budget de son département'),
         ('budget_edit', 'Créer/Modifier/Supprimer budgets'),
+    ],
+    'Pointage RH': [
+        ('pointage', 'Pointer (employé)'),
+        ('pointage_admin', 'Dashboard RH pointage : voir tous'),
+        ('pointage_dept', 'Voir le pointage de son département'),
+        ('pointage_edit', 'Configurer plannings + zones GPS + corriger'),
     ],
     'Commercial / CRM': [
         ('clients', 'Clients lecture'),
@@ -484,7 +499,13 @@ def permission_required(perm):
             if 'user_id' not in session:
                 return redirect(url_for('login'))
             user = get_user_by_id(session['user_id'])
-            if not user or not has_permission(user['role'], perm):
+            if not user:
+                flash("Accès non autorisé", "error")
+                return redirect(url_for('dashboard'))
+            # Le rôle 'admin' a accès à tout (admin override)
+            if user['role'] == 'admin':
+                return f(*args, **kwargs)
+            if not has_permission(user['role'], perm):
                 flash("Accès non autorisé", "error")
                 return redirect(url_for('dashboard'))
             return f(*args, **kwargs)
@@ -7512,6 +7533,20 @@ def employee_file_serve(filename):
     if '..' in filename or filename.startswith('/'): abort(403)
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'employees'), filename)
 
+@app.route('/uploads/pointages/<path:filename>')
+@login_required
+def pointage_photo_serve(filename):
+    """Photos preuve de pointage — accessible aux RH et à l'utilisateur lui-même."""
+    if '..' in filename or filename.startswith('/'): abort(403)
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    if not ('pointage_admin' in perms or 'admin' in perms or 'pointage_dept' in perms):
+        # Vérifier que c'est sa propre photo (préfixe pt_<uid>_)
+        prefix = f"pt_{session['user_id']}_"
+        if not filename.startswith(prefix):
+            abort(403)
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'pointages'), filename)
+
 @app.route('/uploads/chat_files/<path:filename>')
 @login_required
 def chat_file_serve(filename):
@@ -9042,6 +9077,397 @@ def devis_from_template(tid):
 # ============================================================
 # MODULE GESTION DU BUDGET PAR DÉPARTEMENT
 # ============================================================
+
+# ============================================================
+# MODULE POINTAGE RH (présence employés via smartphone + QR)
+# ============================================================
+
+POINTAGE_TYPES = ['arrivee', 'pause', 'retour', 'depart']
+POINTAGE_LABELS = {
+    'arrivee': '🟢 Arrivée',
+    'pause':   '☕ Début pause',
+    'retour':  '🔄 Retour pause',
+    'depart':  '🔴 Départ',
+}
+
+
+@app.route('/pointage')
+@permission_required('pointage')
+def pointage_page():
+    """Page employé : 4 boutons + statut du jour."""
+    from models import get_today_pointages, get_user_planning, can_pointer, compute_work_duration
+    uid = session['user_id']
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    pointages = get_today_pointages(uid, today_str)
+    planning = get_user_planning(uid)
+    
+    # Statut de chaque action (déjà fait, possible, bloqué)
+    state = {}
+    for t in POINTAGE_TYPES:
+        done = next((p for p in pointages if p['type'] == t), None)
+        ok, msg = can_pointer(uid, t, today_str)
+        state[t] = {'done': done, 'can': ok, 'message': msg, 'label': POINTAGE_LABELS[t]}
+    
+    work_min, pause_min = compute_work_duration(uid, today_str)
+    user = get_user_by_id(uid)
+    
+    return render_template('extra_pages.html', page='pointage_employee',
+                          pointages=pointages, state=state, planning=planning,
+                          work_min=work_min, pause_min=pause_min,
+                          today_str=today_str, user=user,
+                          POINTAGE_TYPES=POINTAGE_TYPES,
+                          POINTAGE_LABELS=POINTAGE_LABELS)
+
+
+@app.route('/pointage/action', methods=['POST', 'GET'])
+@permission_required('pointage')
+def pointage_action():
+    """Effectue un pointage. Accepte POST (form) ou GET (depuis QR code)."""
+    from models import (can_pointer, compute_pointage_status, get_user_planning,
+                        is_in_authorized_zone, log_security_event)
+    uid = session['user_id']
+    type_action = (request.values.get('type', '') or '').strip().lower()
+    
+    if type_action not in POINTAGE_TYPES:
+        flash("❌ Type de pointage invalide.", "error")
+        return redirect(url_for('pointage_page'))
+    
+    # Vérifier autorisation (ordre, doublon)
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    ok, msg = can_pointer(uid, type_action, today_str)
+    if not ok:
+        flash(f"⚠️ {msg}", "warning")
+        return redirect(url_for('pointage_page'))
+    
+    # GPS (optionnel)
+    lat = request.values.get('latitude')
+    lng = request.values.get('longitude')
+    try:
+        lat_f = float(lat) if lat else None
+        lng_f = float(lng) if lng else None
+    except: lat_f = lng_f = None
+    
+    # Vérifier zone autorisée (si configurée)
+    in_zone, zone_name = is_in_authorized_zone(lat_f, lng_f)
+    location_address = zone_name or ''
+    if in_zone is False:
+        flash("⛔ Vous n'êtes pas dans une zone de pointage autorisée. Approchez-vous du site.", "error")
+        log_security_event('pointage_zone_rejected', user_id=uid, ip=request.remote_addr,
+            details=f"type={type_action} lat={lat_f} lng={lng_f}", severity='warning')
+        return redirect(url_for('pointage_page'))
+    
+    # Photo (optionnelle)
+    photo_filename = ''
+    if 'photo' in request.files:
+        f = request.files['photo']
+        if f and f.filename:
+            ext = os.path.splitext(f.filename)[1].lower()
+            if ext in ('.jpg', '.jpeg', '.png', '.webp'):
+                fname = f"pt_{uid}_{type_action}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+                fdir = os.path.join(app.config['UPLOAD_FOLDER'], 'pointages')
+                os.makedirs(fdir, exist_ok=True)
+                f.save(os.path.join(fdir, fname))
+                photo_filename = fname
+    
+    # Calcul statut + écart
+    now = datetime.now()
+    time_str = now.strftime('%H:%M')
+    planning = get_user_planning(uid)
+    status, ecart = compute_pointage_status(uid, type_action, time_str, planning)
+    
+    # Méthode (bouton ou QR)
+    method = 'qr' if request.method == 'GET' else 'button'
+    
+    # Insertion
+    conn = _gdb()
+    conn.execute("""INSERT INTO hr_pointages
+        (user_id, type, date, time, datetime_full, latitude, longitude,
+         location_address, photo, status, ecart_minutes, ip, user_agent, method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (uid, type_action, today_str, time_str, now.isoformat(),
+         lat_f, lng_f, location_address, photo_filename, status, ecart,
+         request.remote_addr, (request.headers.get('User-Agent','') or '')[:200], method))
+    conn.commit(); conn.close()
+    
+    # Notification + flash adaptés
+    label = POINTAGE_LABELS.get(type_action, type_action)
+    if status == 'retard':
+        flash(f"⚠️ {label} enregistré à {time_str} — ⏰ Retard de {abs(ecart)} min", "warning")
+    elif status == 'avance':
+        flash(f"✅ {label} enregistré à {time_str} — 🚀 En avance de {abs(ecart)} min", "info")
+    else:
+        flash(f"✅ {label} enregistré à {time_str}", "success")
+    
+    log_activity(uid, get_user_by_id(uid)['full_name'] if get_user_by_id(uid) else '?',
+                 'Pointage', f"{type_action} à {time_str} ({status})", request.remote_addr)
+    
+    return redirect(url_for('pointage_page'))
+
+
+@app.route('/pointage/qr')
+@permission_required('pointage')
+def pointage_qr_codes():
+    """Page admin : génère des QR codes pour chaque type de pointage."""
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    if 'pointage_edit' not in perms and 'admin' not in perms:
+        flash("⛔ Accès refusé", "error")
+        return redirect(url_for('pointage_page'))
+    
+    base_url = request.host_url.rstrip('/')
+    qrs = []
+    for t in POINTAGE_TYPES:
+        url = f"{base_url}/pointage/action?type={t}"
+        qr_data_uri = ''
+        try:
+            import qrcode, io, base64
+            qr = qrcode.QRCode(version=1, box_size=10, border=2)
+            qr.add_data(url); qr.make(fit=True)
+            colors = {'arrivee':'#2e7d32','pause':'#f29f2f','retour':'#1a7a6d','depart':'#c53030'}
+            img = qr.make_image(fill_color=colors.get(t,'#1a3a5c'), back_color="white")
+            buf = io.BytesIO(); img.save(buf, format='PNG')
+            qr_data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        except Exception: pass
+        qrs.append({'type': t, 'label': POINTAGE_LABELS[t], 'url': url, 'qr': qr_data_uri})
+    
+    return render_template('extra_pages.html', page='pointage_qr', qrs=qrs)
+
+
+@app.route('/admin/pointage')
+@login_required
+def admin_pointage_dashboard():
+    """Dashboard RH : liste des pointages avec filtres."""
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_view_all = 'pointage_admin' in perms or 'admin' in perms
+    can_view_dept = 'pointage_dept' in perms
+    if not (can_view_all or can_view_dept):
+        flash("⛔ Vous n'avez pas accès au dashboard pointage.", "error")
+        return redirect(url_for('dashboard'))
+    
+    # Filtres
+    date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    user_filter = request.args.get('user_id', '')
+    dept_filter = request.args.get('department', '')
+    status_filter = request.args.get('status', '')
+    
+    where_clauses = ["p.date = ?"]
+    params = [date_filter]
+    
+    if not can_view_all and can_view_dept:
+        # Restreindre au département de l'utilisateur
+        my_dept = user.get('department') if hasattr(user, 'get') else dict(user).get('department')
+        if not my_dept:
+            flash("⚠️ Aucun département assigné à votre compte.", "warning")
+            return redirect(url_for('dashboard'))
+        where_clauses.append("u.department = ?")
+        params.append(my_dept)
+    elif dept_filter:
+        where_clauses.append("u.department = ?")
+        params.append(dept_filter)
+    
+    if user_filter and user_filter.isdigit():
+        where_clauses.append("p.user_id = ?")
+        params.append(int(user_filter))
+    if status_filter:
+        where_clauses.append("p.status = ?")
+        params.append(status_filter)
+    
+    where = " AND ".join(where_clauses)
+    
+    conn = _gdb()
+    pointages = []
+    try:
+        pointages = [dict(r) for r in conn.execute(f"""
+            SELECT p.*, u.full_name, u.role, u.department
+            FROM hr_pointages p
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE {where}
+            ORDER BY p.datetime_full DESC""", tuple(params)).fetchall()]
+    except: pass
+    
+    # Stats du jour
+    stats = {'total': 0, 'normal': 0, 'retard': 0, 'avance': 0, 'unique_users': 0}
+    try:
+        s = conn.execute(f"""SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN p.status='normal' THEN 1 ELSE 0 END) as normal,
+            SUM(CASE WHEN p.status='retard' THEN 1 ELSE 0 END) as retard,
+            SUM(CASE WHEN p.status='avance' THEN 1 ELSE 0 END) as avance,
+            COUNT(DISTINCT p.user_id) as unique_users
+            FROM hr_pointages p LEFT JOIN users u ON p.user_id=u.id WHERE {where}""",
+            tuple(params)).fetchone()
+        stats = {k: int(v or 0) for k, v in dict(s).items()}
+    except: pass
+    
+    # Liste des employés ayant pointé "arrivée" aujourd'hui
+    users_present = []
+    try:
+        users_present = [dict(r) for r in conn.execute("""
+            SELECT u.id, u.full_name, u.department, u.role,
+                   MIN(CASE WHEN p.type='arrivee' THEN p.time END) as h_arrivee,
+                   MAX(CASE WHEN p.type='depart' THEN p.time END) as h_depart,
+                   MAX(CASE WHEN p.type='arrivee' THEN p.status END) as status_arrivee
+            FROM users u
+            LEFT JOIN hr_pointages p ON p.user_id=u.id AND p.date=?
+            WHERE COALESCE(u.is_active,1)=1 AND u.role != 'client'
+            GROUP BY u.id ORDER BY u.full_name""", (date_filter,)).fetchall()]
+    except: pass
+    
+    # Liste users + departments pour filtres
+    users = []
+    try:
+        users = [dict(r) for r in conn.execute(
+            "SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client' ORDER BY full_name").fetchall()]
+    except: pass
+    
+    conn.close()
+    return render_template('extra_pages.html', page='pointage_admin',
+                          pointages=pointages, stats=stats, users_present=users_present,
+                          date_filter=date_filter, user_filter=user_filter,
+                          dept_filter=dept_filter, status_filter=status_filter,
+                          users=users, departments=DEPARTMENTS,
+                          POINTAGE_LABELS=POINTAGE_LABELS,
+                          can_edit_pointage='pointage_edit' in perms or 'admin' in perms)
+
+
+@app.route('/admin/pointage/planning', methods=['GET', 'POST'])
+@permission_required('pointage_edit')
+def admin_pointage_planning():
+    """Configurer le planning d'un utilisateur."""
+    conn = _gdb()
+    if request.method == 'POST':
+        uid = int(request.form.get('user_id', 0) or 0)
+        if uid > 0:
+            existing = conn.execute("SELECT id FROM hr_planning WHERE user_id=?", (uid,)).fetchone()
+            if existing:
+                conn.execute("""UPDATE hr_planning SET
+                    heure_arrivee=?, heure_pause=?, heure_retour=?, heure_depart=?,
+                    tolerance_retard_minutes=?, updated_at=?, is_active=1 WHERE user_id=?""",
+                    (request.form.get('heure_arrivee','08:00'),
+                     request.form.get('heure_pause','12:00'),
+                     request.form.get('heure_retour','13:00'),
+                     request.form.get('heure_depart','17:00'),
+                     int(request.form.get('tolerance','10') or 10),
+                     datetime.now().isoformat(), uid))
+            else:
+                conn.execute("""INSERT INTO hr_planning
+                    (user_id, heure_arrivee, heure_pause, heure_retour, heure_depart, tolerance_retard_minutes, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, 1)""",
+                    (uid, request.form.get('heure_arrivee','08:00'),
+                     request.form.get('heure_pause','12:00'),
+                     request.form.get('heure_retour','13:00'),
+                     request.form.get('heure_depart','17:00'),
+                     int(request.form.get('tolerance','10') or 10)))
+            conn.commit()
+            flash("✅ Planning enregistré.", "success")
+    
+    plannings = []
+    try:
+        plannings = [dict(r) for r in conn.execute("""
+            SELECT p.*, u.full_name, u.role, u.department
+            FROM hr_planning p LEFT JOIN users u ON p.user_id=u.id
+            ORDER BY u.full_name""").fetchall()]
+    except: pass
+    
+    users = []
+    try:
+        users = [dict(r) for r in conn.execute(
+            "SELECT id, full_name, role, department FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client' ORDER BY full_name").fetchall()]
+    except: pass
+    
+    conn.close()
+    return render_template('extra_pages.html', page='pointage_planning',
+                          plannings=plannings, users=users)
+
+
+@app.route('/admin/pointage/zones', methods=['GET', 'POST'])
+@permission_required('pointage_edit')
+def admin_pointage_zones():
+    """Configurer les zones GPS autorisées."""
+    conn = _gdb()
+    if request.method == 'POST':
+        try:
+            conn.execute("""INSERT INTO hr_zones_pointage
+                (name, latitude, longitude, radius_meters, is_active)
+                VALUES (?, ?, ?, ?, 1)""",
+                (request.form.get('name','').strip(),
+                 float(request.form.get('latitude','0') or 0),
+                 float(request.form.get('longitude','0') or 0),
+                 int(request.form.get('radius','100') or 100)))
+            conn.commit()
+            flash("✅ Zone ajoutée.", "success")
+        except Exception as e:
+            flash(f"❌ Erreur : {e}", "error")
+    
+    zones = []
+    try:
+        zones = [dict(r) for r in conn.execute(
+            "SELECT * FROM hr_zones_pointage ORDER BY name").fetchall()]
+    except: pass
+    conn.close()
+    return render_template('extra_pages.html', page='pointage_zones', zones=zones)
+
+
+@app.route('/admin/pointage/zones/<int:zid>/delete', methods=['POST', 'GET'])
+@permission_required('pointage_edit')
+def admin_pointage_zones_delete(zid):
+    conn = _gdb()
+    try:
+        conn.execute("DELETE FROM hr_zones_pointage WHERE id=?", (zid,))
+        conn.commit()
+        flash("Zone supprimée.", "success")
+    except: pass
+    conn.close()
+    return redirect(url_for('admin_pointage_zones'))
+
+
+@app.route('/admin/pointage/export.csv')
+@login_required
+def admin_pointage_export_csv():
+    """Export CSV des pointages."""
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    if not ('pointage_admin' in perms or 'admin' in perms):
+        flash("⛔ Accès refusé", "error")
+        return redirect(url_for('dashboard'))
+    
+    date_from = request.args.get('from', datetime.now().strftime('%Y-%m-01'))
+    date_to = request.args.get('to', datetime.now().strftime('%Y-%m-%d'))
+    
+    conn = _gdb()
+    rows = conn.execute("""SELECT p.date, p.time, u.full_name, u.role, u.department,
+        p.type, p.status, p.ecart_minutes, p.latitude, p.longitude, p.method
+        FROM hr_pointages p LEFT JOIN users u ON p.user_id=u.id
+        WHERE p.date >= ? AND p.date <= ? ORDER BY p.datetime_full DESC""",
+        (date_from, date_to)).fetchall()
+    conn.close()
+    
+    import io, csv
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=';')
+    w.writerow(['Date','Heure','Employé','Rôle','Département','Type','Statut','Écart (min)','Latitude','Longitude','Méthode'])
+    for r in rows:
+        w.writerow([r['date'], r['time'], r['full_name'], r['role'], r['department'] or '',
+                    r['type'], r['status'], r['ecart_minutes'] or 0,
+                    r['latitude'] or '', r['longitude'] or '', r['method'] or ''])
+    return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename=pointages-{date_from}-{date_to}.csv'})
+
+
+@app.route('/admin/pointage/<int:pid>/delete', methods=['POST', 'GET'])
+@permission_required('pointage_edit')
+def admin_pointage_delete(pid):
+    """Supprimer un pointage erroné."""
+    conn = _gdb()
+    try:
+        conn.execute("DELETE FROM hr_pointages WHERE id=?", (pid,))
+        conn.commit()
+        flash("Pointage supprimé.", "success")
+    except: pass
+    conn.close()
+    return redirect(url_for('admin_pointage_dashboard'))
+
 
 DEPARTMENTS = ['Administration', 'Direction Générale', 'Ressources Humaines',
                'Comptabilité / Finance', 'Commercial', 'Technique',

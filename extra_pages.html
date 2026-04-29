@@ -1532,6 +1532,379 @@ setTimeout(function(){ window.location.reload(); }, 60000);
 {% endif %}
 </div></div>
 
+{% elif page == 'pointage_employee' %}
+<style>
+.pt-hero{background:linear-gradient(135deg,#1A7A6D 0%,#0d5b50 100%);color:#fff;padding:18px;border-radius:14px;margin-bottom:14px;text-align:center}
+.pt-hero h1{margin:0;font-size:18px;font-weight:700}
+.pt-hero .clock{font-size:38px;font-weight:800;margin-top:6px;font-family:monospace}
+.pt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.pt-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 14px;border-radius:14px;font-size:14px;font-weight:700;cursor:pointer;border:none;text-align:center;text-decoration:none;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.1);transition:transform 0.1s}
+.pt-btn:hover:not(:disabled){transform:translateY(-2px)}
+.pt-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+.pt-btn .ic{font-size:28px;margin-bottom:6px}
+.pt-btn.t-arrivee{background:linear-gradient(135deg,#2e7d32,#1b5e20)}
+.pt-btn.t-pause{background:linear-gradient(135deg,#f29f2f,#e8672a)}
+.pt-btn.t-retour{background:linear-gradient(135deg,#1a7a6d,#0d5b50)}
+.pt-btn.t-depart{background:linear-gradient(135deg,#c53030,#8b1c1c)}
+.pt-done{background:#fafafa !important;color:#666 !important;cursor:default}
+.pt-time{font-size:11px;font-weight:400;margin-top:4px;opacity:0.9}
+.pt-summary{background:#fff;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.pt-stat-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0}
+.pt-stat-row:last-child{border-bottom:none}
+.pt-status{padding:1px 8px;border-radius:8px;font-size:10px;font-weight:700}
+.pt-status.normal{background:#e8f5e9;color:#2e7d32}
+.pt-status.retard{background:#fde8e8;color:#c53030}
+.pt-status.avance{background:#fff3e0;color:#b8561f}
+@media (max-width: 480px){.pt-grid{grid-template-columns:1fr}}
+</style>
+<div class="pt-hero">
+    <div style="font-size:11px;opacity:0.85">{{ user.full_name }} · {{ user.role }}{% if user.department %} · {{ user.department }}{% endif %}</div>
+    <h1>📅 Pointage du jour</h1>
+    <div class="clock" id="liveClock">--:--:--</div>
+    <div style="font-size:11px;opacity:0.85;margin-top:4px">{{ today_str }}</div>
+</div>
+
+<form method="post" action="/pointage/action" id="pointForm" enctype="multipart/form-data">
+    <input type="hidden" name="type" id="ptType">
+    <input type="hidden" name="latitude" id="ptLat">
+    <input type="hidden" name="longitude" id="ptLng">
+    
+    <div class="pt-grid">
+        {% for t in POINTAGE_TYPES %}
+        {% set s = state[t] %}
+        <button type="button" class="pt-btn t-{{ t }} {% if s.done %}pt-done{% endif %}"
+                {% if s.done or not s.can %}disabled title="{{ s.message }}"{% endif %}
+                onclick="submitPointage('{{ t }}')">
+            <div class="ic">{{ s.label.split(' ')[0] }}</div>
+            <div>{{ s.label.split(' ',1)[1] }}</div>
+            {% if s.done %}<div class="pt-time">✓ pointé à {{ s.done.time }}</div>{% endif %}
+        </button>
+        {% endfor %}
+    </div>
+</form>
+
+<div class="pt-summary">
+    <h3 style="margin:0 0 10px;color:#1a3a5c;font-size:14px">⏱️ Mon temps aujourd'hui</h3>
+    <div class="pt-stat-row">
+        <span>Temps de travail</span>
+        <strong style="color:#2e7d32">{{ (work_min // 60)|int }}h {{ (work_min % 60)|int }}min</strong>
+    </div>
+    <div class="pt-stat-row">
+        <span>Temps de pause</span>
+        <strong style="color:#f29f2f">{{ (pause_min // 60)|int }}h {{ (pause_min % 60)|int }}min</strong>
+    </div>
+    <div class="pt-stat-row">
+        <span>Horaire prévu</span>
+        <span style="font-size:11px;color:#888">{{ planning.heure_arrivee }}–{{ planning.heure_pause }} · {{ planning.heure_retour }}–{{ planning.heure_depart }}</span>
+    </div>
+</div>
+
+{% if pointages %}
+<div class="pt-summary">
+    <h3 style="margin:0 0 10px;color:#1a3a5c;font-size:14px">📋 Historique du jour</h3>
+    {% for p in pointages %}
+    <div class="pt-stat-row">
+        <span>{{ POINTAGE_LABELS[p.type] }} <span style="color:#888;font-size:10px">{{ p.method }}</span></span>
+        <div>
+            <span style="font-family:monospace;font-weight:700">{{ p.time }}</span>
+            <span class="pt-status {{ p.status }}">{% if p.status == 'retard' %}⏰ Retard {{ p.ecart_minutes|int }}min{% elif p.status == 'avance' %}🚀 Avance {{ -p.ecart_minutes|int }}min{% else %}✓ OK{% endif %}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<script>
+// Horloge live
+function tick(){
+    var d=new Date(); var h=String(d.getHours()).padStart(2,'0');
+    var m=String(d.getMinutes()).padStart(2,'0'); var s=String(d.getSeconds()).padStart(2,'0');
+    var el=document.getElementById('liveClock'); if(el) el.textContent=h+':'+m+':'+s;
+}
+tick(); setInterval(tick, 1000);
+
+function submitPointage(type) {
+    document.getElementById('ptType').value = type;
+    var labels = {'arrivee':'Arrivée','pause':'Début de pause','retour':'Retour de pause','depart':'Départ'};
+    if (!confirm('Pointer "' + labels[type] + '" maintenant ?')) return;
+    
+    // Tenter de récupérer la position GPS
+    var form = document.getElementById('pointForm');
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            function(pos){
+                document.getElementById('ptLat').value = pos.coords.latitude;
+                document.getElementById('ptLng').value = pos.coords.longitude;
+                form.submit();
+            },
+            function(err){
+                // GPS refusé/échec : on soumet quand même
+                console.log('GPS refusé:', err.message);
+                form.submit();
+            },
+            {timeout: 5000, enableHighAccuracy: false}
+        );
+    } else {
+        form.submit();
+    }
+}
+</script>
+
+{% elif page == 'pointage_qr' %}
+<div class="page-header">
+    <h1>🔗 QR Codes de pointage</h1>
+    <div style="display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ Imprimer</button>
+        <a href="/pointage" class="btn btn-outline btn-sm">← Pointage</a>
+    </div>
+</div>
+
+<div class="card no-print"><div class="card-body" style="background:#fff8e1;border-left:4px solid #f29f2f">
+    <p style="margin:0;font-size:12px;color:#b8561f">
+    💡 <strong>Mode d'emploi</strong> : imprimez ces QR codes et affichez-les à l'entrée du site, en pause, etc. Les employés scannent avec leur téléphone (n'importe quel app appareil photo / Google Lens) et sont automatiquement redirigés vers la page de pointage. Ils doivent être connectés à WannyGest pour que le pointage fonctionne.
+    </p>
+</div></div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+{% for q in qrs %}
+<div class="card" style="text-align:center;break-inside:avoid">
+    <div class="card-body">
+        <h3 style="margin:0 0 10px;color:#1a3a5c">{{ q.label }}</h3>
+        {% if q.qr %}
+        <img src="{{ q.qr }}" alt="QR {{ q.type }}" style="max-width:240px;width:100%;border:8px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.1);border-radius:8px">
+        {% else %}
+        <div style="padding:30px;background:#fee;color:#c53030">QR non généré (qrcode manquant)</div>
+        {% endif %}
+        <div style="font-size:10px;color:#888;margin-top:10px;font-family:monospace;word-break:break-all">{{ q.url }}</div>
+    </div>
+</div>
+{% endfor %}
+</div>
+
+{% elif page == 'pointage_admin' %}
+<div class="page-header">
+    <h1>📊 Dashboard RH — Pointage</h1>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if can_edit_pointage %}
+        <a href="/admin/pointage/planning" class="btn btn-outline btn-sm">⚙️ Plannings</a>
+        <a href="/admin/pointage/zones" class="btn btn-outline btn-sm">📍 Zones GPS</a>
+        <a href="/pointage/qr" class="btn btn-outline btn-sm">🔗 QR Codes</a>
+        {% endif %}
+        <a href="/admin/pointage/export.csv?from={{ date_filter }}&to={{ date_filter }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff">📥 Export CSV</a>
+    </div>
+</div>
+
+<!-- Stats -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px">
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #1a7a6d;box-shadow:0 1px 3px rgba(0,0,0,0.04)">
+        <div style="font-size:22px;font-weight:800;color:#1a7a6d">{{ stats.unique_users }}</div>
+        <div style="font-size:11px;color:#888">👥 Employés présents</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #2e7d32;box-shadow:0 1px 3px rgba(0,0,0,0.04)">
+        <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ stats.normal }}</div>
+        <div style="font-size:11px;color:#888">✅ Pointages normaux</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #c53030;box-shadow:0 1px 3px rgba(0,0,0,0.04)">
+        <div style="font-size:22px;font-weight:800;color:#c53030">{{ stats.retard }}</div>
+        <div style="font-size:11px;color:#888">⏰ Retards</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #f29f2f;box-shadow:0 1px 3px rgba(0,0,0,0.04)">
+        <div style="font-size:22px;font-weight:800;color:#b8561f">{{ stats.avance }}</div>
+        <div style="font-size:11px;color:#888">🚀 Avances</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #7b1fa2;box-shadow:0 1px 3px rgba(0,0,0,0.04)">
+        <div style="font-size:22px;font-weight:800;color:#7b1fa2">{{ stats.total }}</div>
+        <div style="font-size:11px;color:#888">📋 Total pointages</div>
+    </div>
+</div>
+
+<!-- Filtres -->
+<form method="get" style="background:#fff;padding:12px;border-radius:10px;margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+    <div><label style="font-size:11px;color:#888;display:block">Date</label>
+        <input type="date" name="date" value="{{ date_filter }}" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Employé</label>
+        <select name="user_id" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;min-width:150px">
+            <option value="">Tous</option>
+            {% for u in users %}<option value="{{ u.id }}" {% if user_filter == u.id|string %}selected{% endif %}>{{ u.full_name }}</option>{% endfor %}
+        </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Département</label>
+        <select name="department" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Tous</option>
+            {% for d in departments %}<option value="{{ d }}" {% if dept_filter == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+        </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Statut</label>
+        <select name="status" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Tous</option>
+            <option value="normal" {% if status_filter == 'normal' %}selected{% endif %}>✅ Normal</option>
+            <option value="retard" {% if status_filter == 'retard' %}selected{% endif %}>⏰ Retard</option>
+            <option value="avance" {% if status_filter == 'avance' %}selected{% endif %}>🚀 Avance</option>
+        </select></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+</form>
+
+<!-- Tableau présence du jour -->
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">👥 Employés ({{ date_filter }})</h3>
+<div class="card"><div class="card-body" style="padding:0;overflow:auto">
+<table>
+<thead><tr><th>Employé</th><th>Département</th><th>Arrivée</th><th>Départ</th><th>Statut arrivée</th></tr></thead>
+<tbody>
+{% for u in users_present %}
+<tr style="{% if u.status_arrivee == 'retard' %}background:#fef0f0{% elif not u.h_arrivee %}background:#fafafa;color:#999{% endif %}">
+    <td><strong>{{ u.full_name }}</strong><br><span style="font-size:10px;color:#888">{{ u.role }}</span></td>
+    <td style="font-size:11px">{{ u.department or '-' }}</td>
+    <td style="font-family:monospace">{{ u.h_arrivee or '—' }}</td>
+    <td style="font-family:monospace">{{ u.h_depart or '—' }}</td>
+    <td>
+        {% if u.h_arrivee %}
+            {% if u.status_arrivee == 'retard' %}<span class="pt-status retard" style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fde8e8;color:#c53030">⏰ Retard</span>
+            {% elif u.status_arrivee == 'avance' %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fff3e0;color:#b8561f">🚀 Avance</span>
+            {% else %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#e8f5e9;color:#2e7d32">✅ OK</span>{% endif %}
+        {% else %}
+            <span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fafafa;color:#999">⚠️ Absent</span>
+        {% endif %}
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div></div>
+
+<!-- Détail des pointages -->
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">📋 Détail des pointages</h3>
+<div class="card"><div class="card-body" style="padding:0;overflow:auto">
+{% if pointages %}
+<table>
+<thead><tr><th>Heure</th><th>Employé</th><th>Type</th><th>Statut</th><th>Écart</th><th>GPS</th><th>Méthode</th>{% if can_edit_pointage %}<th>Actions</th>{% endif %}</tr></thead>
+<tbody>
+{% for p in pointages %}
+<tr>
+    <td style="font-family:monospace">{{ p.time }}</td>
+    <td><strong>{{ p.full_name or 'user#' ~ p.user_id }}</strong>{% if p.department %}<br><span style="font-size:10px;color:#888">{{ p.department }}</span>{% endif %}</td>
+    <td style="font-size:11px">{{ POINTAGE_LABELS[p.type] }}</td>
+    <td>
+        {% if p.status == 'retard' %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fde8e8;color:#c53030">⏰ Retard</span>
+        {% elif p.status == 'avance' %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fff3e0;color:#b8561f">🚀 Avance</span>
+        {% else %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#e8f5e9;color:#2e7d32">✅ OK</span>{% endif %}
+    </td>
+    <td style="font-size:11px">{% if p.ecart_minutes %}{% if p.ecart_minutes > 0 %}+{% endif %}{{ p.ecart_minutes }}min{% else %}—{% endif %}</td>
+    <td style="font-size:10px;color:#666">{% if p.latitude and p.longitude %}<a href="https://www.google.com/maps?q={{ p.latitude }},{{ p.longitude }}" target="_blank">📍 voir</a>{% if p.location_address %}<br>{{ p.location_address }}{% endif %}{% else %}—{% endif %}</td>
+    <td style="font-size:10px">{{ p.method or 'button' }}</td>
+    {% if can_edit_pointage %}
+    <td><a href="/admin/pointage/{{ p.id }}/delete" onclick="return confirm('Supprimer ce pointage ?')" style="color:#c53030;font-size:10px">🗑️</a></td>
+    {% endif %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun pointage pour ce filtre.</div>
+{% endif %}
+</div></div>
+
+{% elif page == 'pointage_planning' %}
+<div class="page-header"><h1>⚙️ Planning des employés</h1>
+<a href="/admin/pointage" class="btn btn-outline btn-sm">← Dashboard</a></div>
+
+<div class="card"><div class="card-body">
+<h3 style="margin-top:0">+ Définir / modifier un planning</h3>
+<form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;align-items:end">
+    <div><label style="font-size:11px;color:#888;display:block">Employé</label>
+        <select name="user_id" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">--</option>
+            {% for u in users %}<option value="{{ u.id }}">{{ u.full_name }} ({{ u.role }})</option>{% endfor %}
+        </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Arrivée</label>
+        <input type="time" name="heure_arrivee" value="08:00" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Pause</label>
+        <input type="time" name="heure_pause" value="12:00" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Retour</label>
+        <input type="time" name="heure_retour" value="13:00" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Départ</label>
+        <input type="time" name="heure_depart" value="17:00" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Tolérance (min)</label>
+        <input type="number" name="tolerance" value="10" min="0" max="60" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer</button>
+</form>
+</div></div>
+
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">📋 Plannings actifs</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if plannings %}
+<table>
+<thead><tr><th>Employé</th><th>Département</th><th>Arrivée</th><th>Pause</th><th>Retour</th><th>Départ</th><th>Tolérance</th></tr></thead>
+<tbody>
+{% for p in plannings %}
+<tr><td><strong>{{ p.full_name }}</strong><br><span style="font-size:10px;color:#888">{{ p.role }}</span></td>
+    <td style="font-size:11px">{{ p.department or '-' }}</td>
+    <td style="font-family:monospace">{{ p.heure_arrivee }}</td>
+    <td style="font-family:monospace">{{ p.heure_pause }}</td>
+    <td style="font-family:monospace">{{ p.heure_retour }}</td>
+    <td style="font-family:monospace">{{ p.heure_depart }}</td>
+    <td>{{ p.tolerance_retard_minutes or 10 }} min</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun planning défini. Créez-en avec le formulaire ci-dessus.</div>
+{% endif %}
+</div></div>
+
+{% elif page == 'pointage_zones' %}
+<div class="page-header"><h1>📍 Zones GPS autorisées</h1>
+<a href="/admin/pointage" class="btn btn-outline btn-sm">← Dashboard</a></div>
+
+<div class="card" style="border-left:4px solid #1a7a6d"><div class="card-body">
+<p style="font-size:12px;color:#666;margin-top:0">
+Définir des zones GPS où le pointage est autorisé. Si <strong>aucune zone n'est définie</strong>, les pointages sont acceptés depuis n'importe où. Si une ou plusieurs zones existent, l'employé doit être dans l'une d'elles. Le pointage sans GPS reste accepté (l'employé peut refuser le partage).
+</p>
+<h3 style="margin:8px 0 6px">+ Ajouter une zone</h3>
+<form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
+    <div><label style="font-size:11px;color:#888;display:block">Nom du site</label>
+        <input name="name" required placeholder="Bureau Cocody" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Latitude</label>
+        <input type="number" step="any" name="latitude" required id="zoneLat" placeholder="5.348" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Longitude</label>
+        <input type="number" step="any" name="longitude" required id="zoneLng" placeholder="-4.024" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Rayon (mètres)</label>
+        <input type="number" name="radius" value="100" min="20" max="5000" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="button" class="btn btn-outline btn-sm" onclick="getMyPos()">📍 Ma position</button>
+    <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+</form>
+</div></div>
+
+<script>
+function getMyPos(){
+    if(!navigator.geolocation){alert('Géolocalisation non disponible');return;}
+    navigator.geolocation.getCurrentPosition(function(pos){
+        document.getElementById('zoneLat').value = pos.coords.latitude.toFixed(6);
+        document.getElementById('zoneLng').value = pos.coords.longitude.toFixed(6);
+    }, function(err){alert('GPS refusé : '+err.message);});
+}
+</script>
+
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">📋 Zones définies</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if zones %}
+<table>
+<thead><tr><th>Nom</th><th>Latitude</th><th>Longitude</th><th>Rayon</th><th>Voir</th><th>Actions</th></tr></thead>
+<tbody>
+{% for z in zones %}
+<tr><td><strong>{{ z.name }}</strong></td>
+    <td style="font-family:monospace">{{ z.latitude }}</td>
+    <td style="font-family:monospace">{{ z.longitude }}</td>
+    <td>{{ z.radius_meters }}m</td>
+    <td><a href="https://www.google.com/maps?q={{ z.latitude }},{{ z.longitude }}" target="_blank">📍 carte</a></td>
+    <td><a href="/admin/pointage/zones/{{ z.id }}/delete" onclick="return confirm('Supprimer la zone ?')" style="color:#c53030">🗑️</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucune zone définie — pointage autorisé depuis partout.</div>
+{% endif %}
+</div></div>
+
 {% elif page == '2fa_setup' %}
 <div class="page-header"><h1>🔐 Authentification à deux facteurs (2FA)</h1>
 <a href="/dashboard" class="btn btn-outline btn-sm">← Retour</a></div>

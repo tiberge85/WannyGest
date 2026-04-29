@@ -201,6 +201,9 @@
         <div class="sidebar-nav">
             {% if user_role != 'concierge' %}
             <a href="/dashboard" class="{% if page == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
+            {% if 'pointage' in permissions %}
+            <a href="/pointage" class="{% if page == 'pointage_employee' %}active{% endif %}" style="background:linear-gradient(135deg,#1A7A6D,#0d5b50);color:#fff !important;font-weight:600">⏱️ Mon pointage</a>
+            {% endif %}
             {% endif %}
             <a href="/notifications" class="{% if page == 'notifications' %}active{% endif %}" style="position:relative">🔔 Notifications{% if notif_count %} <span class="badge">{{ notif_count }}</span>{% endif %}</a>
             {% if 'dashboard_general' in permissions %}
@@ -287,6 +290,14 @@
                     <a href="/rh/contrats-rh" class="{% if page == 'contrats_rh' %}active{% endif %}">Contrats personnel</a>
                     <a href="/rh/organigramme" class="{% if page == 'organigramme' %}active{% endif %}">Organigramme</a>
                     <a href="/rh/annonces" class="{% if page == 'annonces' %}active{% endif %}">Annonces</a>
+                    {% if 'pointage_admin' in permissions or 'pointage_dept' in permissions or 'admin' in permissions %}
+                    <a href="/admin/pointage" class="{% if page == 'pointage_admin' %}active{% endif %}">⏱️ Dashboard pointage</a>
+                    {% endif %}
+                    {% if 'pointage_edit' in permissions or 'admin' in permissions %}
+                    <a href="/admin/pointage/planning" class="{% if page == 'pointage_planning' %}active{% endif %}">⚙️ Plannings pointage</a>
+                    <a href="/admin/pointage/zones" class="{% if page == 'pointage_zones' %}active{% endif %}">📍 Zones GPS pointage</a>
+                    <a href="/pointage/qr" class="{% if page == 'pointage_qr' %}active{% endif %}">🔗 QR codes pointage</a>
+                    {% endif %}
                     <a href="/fichiers" class="{% if page == 'fichiers' %}active{% endif %}">
                         Fichiers à envoyer
                         {% if pending_count %}<span class="badge">{{ pending_count }}</span>{% endif %}

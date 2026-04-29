@@ -3317,6 +3317,202 @@ def migrate_v54():
     conn.commit(); conn.close()
 
 
+def migrate_v55():
+    """v55 : Module Pointage RH — Planning + Pointages + Géolocalisation."""
+    conn = get_db()
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS hr_planning (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            day_of_week INTEGER,
+            heure_arrivee TEXT DEFAULT '08:00',
+            heure_pause TEXT DEFAULT '12:00',
+            heure_retour TEXT DEFAULT '13:00',
+            heure_depart TEXT DEFAULT '17:00',
+            tolerance_retard_minutes INTEGER DEFAULT 10,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v55 hr_planning: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_planning_user ON hr_planning(user_id)")
+    except: pass
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS hr_pointages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            datetime_full TEXT NOT NULL,
+            latitude REAL,
+            longitude REAL,
+            location_address TEXT,
+            photo TEXT,
+            status TEXT DEFAULT 'normal',
+            ecart_minutes INTEGER DEFAULT 0,
+            ip TEXT,
+            user_agent TEXT,
+            method TEXT DEFAULT 'button',
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v55 hr_pointages: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_pointage_user_date ON hr_pointages(user_id, date)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_pointage_date ON hr_pointages(date)")
+    except: pass
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS hr_zones_pointage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            radius_meters INTEGER DEFAULT 100,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v55 hr_zones_pointage: {e}")
+    # Permissions par défaut Pointage par rôle
+    default_pointage_perms = {
+        'admin':           ['pointage', 'pointage_admin', 'pointage_edit'],
+        'dg':              ['pointage', 'pointage_admin', 'pointage_edit'],
+        'rh':              ['pointage', 'pointage_admin', 'pointage_edit'],
+        'comptable':       ['pointage', 'pointage_admin'],
+        'commercial':      ['pointage', 'pointage_dept'],
+        'technicien':      ['pointage'],
+        'resp_projet':     ['pointage', 'pointage_dept'],
+        'moyens_generaux': ['pointage', 'pointage_dept'],
+        'informatique':    ['pointage'],
+        'concierge':       ['pointage'],
+        'secretaire':      ['pointage'],
+        'proprietaire':    ['pointage', 'pointage_admin'],
+    }
+    for role, perms in default_pointage_perms.items():
+        for perm in perms:
+            try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    conn.commit(); conn.close()
+
+
+def get_today_pointages(user_id, date_str=None):
+    if not date_str:
+        date_str = datetime.now().strftime('%Y-%m-%d')
+    conn = get_db()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM hr_pointages WHERE user_id=? AND date=? ORDER BY datetime_full",
+        (user_id, date_str)).fetchall()]
+    conn.close()
+    return rows
+
+
+def get_user_planning(user_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM hr_planning WHERE user_id=? AND COALESCE(is_active,1)=1 LIMIT 1",
+        (user_id,)).fetchone()
+    conn.close()
+    if row: return dict(row)
+    return {'heure_arrivee': '08:00', 'heure_pause': '12:00',
+            'heure_retour': '13:00', 'heure_depart': '17:00',
+            'tolerance_retard_minutes': 10}
+
+
+def can_pointer(user_id, type_action, date_str=None):
+    """Retourne (bool, message)."""
+    if not date_str:
+        date_str = datetime.now().strftime('%Y-%m-%d')
+    today_p = get_today_pointages(user_id, date_str)
+    types_done = [p['type'] for p in today_p]
+    if type_action in types_done:
+        return False, f"Vous avez déjà pointé '{type_action}' aujourd'hui."
+    order = ['arrivee', 'pause', 'retour', 'depart']
+    if type_action not in order:
+        return False, "Type de pointage inconnu."
+    expected_idx = order.index(type_action)
+    for prev_type in order[:expected_idx]:
+        if prev_type in ('pause', 'retour'):
+            continue
+        if prev_type not in types_done:
+            return False, f"Vous devez d'abord pointer '{prev_type}'."
+    if type_action == 'retour' and 'pause' not in types_done:
+        return False, "Vous devez d'abord pointer 'pause' avant 'retour'."
+    return True, "OK"
+
+
+def compute_pointage_status(user_id, type_action, time_str, planning=None):
+    if not planning:
+        planning = get_user_planning(user_id)
+    expected_field = {'arrivee':'heure_arrivee','pause':'heure_pause',
+                      'retour':'heure_retour','depart':'heure_depart'}.get(type_action)
+    if not expected_field: return 'normal', 0
+    expected = planning.get(expected_field, '08:00')
+    tolerance = int(planning.get('tolerance_retard_minutes', 10) or 10)
+    try:
+        eh, em = expected.split(':')[:2]
+        ah, am = time_str.split(':')[:2]
+        ecart = (int(ah)*60 + int(am)) - (int(eh)*60 + int(em))
+        if type_action in ('arrivee', 'retour'):
+            if ecart > tolerance: return 'retard', ecart
+            elif ecart < -tolerance: return 'avance', ecart
+        else:
+            if ecart < -tolerance: return 'avance', ecart
+            elif ecart > tolerance: return 'retard', ecart
+        return 'normal', ecart
+    except Exception:
+        return 'normal', 0
+
+
+def compute_work_duration(user_id, date_str=None):
+    points = get_today_pointages(user_id, date_str)
+    pts = {p['type']: p['datetime_full'] for p in points}
+    work_min = 0; pause_min = 0
+    def _d(a, b):
+        try:
+            return int((datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 60)
+        except: return 0
+    if 'arrivee' in pts and 'depart' in pts:
+        total = _d(pts['arrivee'], pts['depart'])
+        if 'pause' in pts and 'retour' in pts:
+            pause_min = _d(pts['pause'], pts['retour'])
+            work_min = total - pause_min
+        else:
+            work_min = total
+    elif 'arrivee' in pts and 'pause' in pts and 'retour' not in pts:
+        work_min = _d(pts['arrivee'], pts['pause'])
+    elif 'arrivee' in pts and 'pause' not in pts:
+        work_min = _d(pts['arrivee'], datetime.now().isoformat())
+    elif 'arrivee' in pts and 'retour' in pts and 'depart' not in pts:
+        if 'pause' in pts:
+            pause_min = _d(pts['pause'], pts['retour'])
+            work_min = _d(pts['arrivee'], pts['pause']) + _d(pts['retour'], datetime.now().isoformat())
+    return max(0, work_min), max(0, pause_min)
+
+
+def haversine_meters(lat1, lon1, lat2, lon2):
+    import math
+    R = 6371000
+    phi1 = math.radians(lat1); phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1); dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def is_in_authorized_zone(latitude, longitude):
+    if latitude is None or longitude is None:
+        return None, None
+    conn = get_db()
+    zones = [dict(r) for r in conn.execute(
+        "SELECT * FROM hr_zones_pointage WHERE COALESCE(is_active,1)=1").fetchall()]
+    conn.close()
+    if not zones: return True, None
+    for z in zones:
+        d = haversine_meters(latitude, longitude, z['latitude'], z['longitude'])
+        if d <= z['radius_meters']:
+            return True, z['name']
+    return False, None
+
+
 def log_security_event(event_type, user_id=None, username=None, ip=None,
                        user_agent=None, path=None, details=None, severity='info'):
     """Helper pour journaliser un événement de sécurité."""
