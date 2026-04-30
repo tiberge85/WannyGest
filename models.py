@@ -3675,6 +3675,660 @@ def migrate_v58():
     conn.close()
 
 
+def migrate_v59():
+    """v59 : Module Comptabilité Pro (Sage-like SYSCOHADA).
+    Tables : compta_comptes, compta_journaux, compta_ecritures, compta_lignes,
+             compta_periodes, compta_compteurs, compta_lettrages, compta_lettrage_lignes."""
+    conn = get_db()
+    
+    # 1. Plan comptable
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_comptes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT UNIQUE NOT NULL,
+            nom TEXT NOT NULL,
+            type TEXT NOT NULL,
+            classe INTEGER,
+            parent_numero TEXT,
+            is_lettrable INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_compta_comptes_num ON compta_comptes(numero)")
+    except: pass
+    
+    # 2. Journaux
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_journaux (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE NOT NULL,
+            nom TEXT NOT NULL,
+            type TEXT,
+            compte_contrepartie TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except: pass
+    
+    # 3. Écritures (en-tête)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_ecritures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            journal_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            libelle TEXT NOT NULL,
+            statut TEXT DEFAULT 'brouillard',
+            numero_piece TEXT,
+            piece_externe TEXT,
+            tiers_id INTEGER,
+            tiers_type TEXT,
+            total_debit REAL DEFAULT 0,
+            total_credit REAL DEFAULT 0,
+            validated_at TEXT,
+            validated_by INTEGER,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (journal_id) REFERENCES compta_journaux(id)
+        )""")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_ecr_date ON compta_ecritures(date)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_ecr_journal ON compta_ecritures(journal_id)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_ecr_statut ON compta_ecritures(statut)")
+    except: pass
+    
+    # 4. Lignes d'écriture
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_lignes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ecriture_id INTEGER NOT NULL,
+            compte_id INTEGER NOT NULL,
+            compte_numero TEXT,
+            libelle TEXT,
+            debit REAL DEFAULT 0,
+            credit REAL DEFAULT 0,
+            lettrage_code TEXT,
+            tiers_id INTEGER,
+            tiers_type TEXT,
+            ordre INTEGER DEFAULT 0,
+            FOREIGN KEY (ecriture_id) REFERENCES compta_ecritures(id) ON DELETE CASCADE,
+            FOREIGN KEY (compte_id) REFERENCES compta_comptes(id)
+        )""")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_ligne_ecr ON compta_lignes(ecriture_id)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_ligne_compte ON compta_lignes(compte_id)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_ligne_lettrage ON compta_lignes(lettrage_code)")
+    except: pass
+    
+    # 5. Compteurs (pour numérotation auto)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_compteurs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            journal_id INTEGER NOT NULL,
+            annee INTEGER NOT NULL,
+            mois INTEGER NOT NULL,
+            dernier_numero INTEGER DEFAULT 0,
+            UNIQUE(journal_id, annee, mois)
+        )""")
+    except: pass
+    
+    # 6. Périodes
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_periodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            annee INTEGER NOT NULL,
+            mois INTEGER NOT NULL,
+            statut TEXT DEFAULT 'ouverte',
+            cloture_at TEXT,
+            cloture_by INTEGER,
+            UNIQUE(annee, mois)
+        )""")
+    except: pass
+    
+    # 7. Lettrages (en-tête)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_lettrages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE NOT NULL,
+            date TEXT NOT NULL,
+            compte_id INTEGER,
+            tiers_id INTEGER,
+            tiers_type TEXT,
+            statut TEXT DEFAULT 'partiel',
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except: pass
+    
+    # 8. Lignes de lettrage (lien lettrage <-> lignes d'écriture)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS compta_lettrage_lignes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lettrage_id INTEGER NOT NULL,
+            ligne_id INTEGER NOT NULL,
+            montant REAL NOT NULL,
+            FOREIGN KEY (lettrage_id) REFERENCES compta_lettrages(id) ON DELETE CASCADE,
+            FOREIGN KEY (ligne_id) REFERENCES compta_lignes(id) ON DELETE CASCADE
+        )""")
+    except: pass
+    
+    # === Plan comptable SYSCOHADA initial (essentiels) ===
+    plan_initial = [
+        # Classe 1 — Capitaux
+        ('101', 'Capital social', 'passif', 1),
+        ('106', 'Réserves', 'passif', 1),
+        ('120', 'Résultat net : bénéfice', 'passif', 1),
+        ('129', 'Résultat net : perte', 'actif', 1),
+        ('161', 'Emprunts obligataires', 'passif', 1),
+        ('164', 'Emprunts auprès des établissements de crédit', 'passif', 1),
+        # Classe 2 — Immobilisations
+        ('201', 'Frais d\'établissement', 'actif', 2),
+        ('213', 'Constructions', 'actif', 2),
+        ('215', 'Installations techniques', 'actif', 2),
+        ('218', 'Autres immobilisations corporelles', 'actif', 2),
+        ('2182', 'Matériel de transport', 'actif', 2),
+        ('2183', 'Matériel informatique', 'actif', 2),
+        ('2184', 'Mobilier de bureau', 'actif', 2),
+        # Classe 3 — Stocks
+        ('311', 'Marchandises', 'actif', 3),
+        ('322', 'Matières premières', 'actif', 3),
+        # Classe 4 — Tiers
+        ('401', 'Fournisseurs, dettes en compte', 'passif', 4),
+        ('411', 'Clients', 'actif', 4),
+        ('421', 'Personnel, avances et acomptes', 'actif', 4),
+        ('422', 'Personnel, rémunérations dues', 'passif', 4),
+        ('431', 'CNPS', 'passif', 4),
+        ('441', 'État, impôt sur les bénéfices', 'passif', 4),
+        ('445', 'État, TVA', 'passif', 4),
+        ('4451', 'État, TVA collectée', 'passif', 4),
+        ('4452', 'État, TVA déductible', 'actif', 4),
+        ('467', 'Autres comptes débiteurs ou créditeurs', 'passif', 4),
+        # Classe 5 — Trésorerie
+        ('512', 'Banque', 'actif', 5),
+        ('521', 'Banque (compte courant)', 'actif', 5),
+        ('571', 'Caisse', 'actif', 5),
+        ('581', 'Virements internes', 'actif', 5),
+        # Classe 6 — Charges
+        ('601', 'Achats de marchandises', 'charge', 6),
+        ('604', 'Achats stockés de matières et fournitures', 'charge', 6),
+        ('605', 'Autres achats', 'charge', 6),
+        ('611', 'Transports sur achats', 'charge', 6),
+        ('622', 'Locations et charges locatives', 'charge', 6),
+        ('625', 'Primes d\'assurance', 'charge', 6),
+        ('631', 'Frais bancaires', 'charge', 6),
+        ('632', 'Rémunérations d\'intermédiaires', 'charge', 6),
+        ('641', 'Impôts et taxes directs', 'charge', 6),
+        ('661', 'Charges de personnel', 'charge', 6),
+        ('664', 'Charges sociales', 'charge', 6),
+        ('672', 'Intérêts', 'charge', 6),
+        ('675', 'Autres charges financières', 'charge', 6),
+        ('681', 'Dotations aux amortissements', 'charge', 6),
+        # Classe 7 — Produits
+        ('701', 'Ventes de marchandises', 'produit', 7),
+        ('706', 'Services vendus', 'produit', 7),
+        ('707', 'Produits annexes', 'produit', 7),
+        ('711', 'Subventions d\'exploitation', 'produit', 7),
+        ('775', 'Produits exceptionnels', 'produit', 7),
+        ('791', 'Reprises sur provisions', 'produit', 7),
+    ]
+    for num, nom, typ, classe in plan_initial:
+        # is_lettrable pour 401, 411, 421, 422
+        lettrable = 1 if num in ('401', '411', '421', '422', '467') else 0
+        try:
+            conn.execute("""INSERT OR IGNORE INTO compta_comptes
+                (numero, nom, type, classe, is_lettrable, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)""", (num, nom, typ, classe, lettrable))
+        except: pass
+    
+    # === Journaux par défaut ===
+    journaux_initial = [
+        ('ACH', 'Journal des achats', 'achats', '401'),
+        ('VTE', 'Journal des ventes', 'ventes', '411'),
+        ('CAISSE', 'Journal de caisse', 'tresorerie', '571'),
+        ('BANQUE', 'Journal de banque', 'tresorerie', '512'),
+        ('OD', 'Opérations diverses', 'od', None),
+        ('PAIE', 'Journal de paie', 'paie', '422'),
+        ('ANO', 'Écritures à nouveau', 'an', None),
+    ]
+    for code, nom, typ, contrepartie in journaux_initial:
+        try:
+            conn.execute("""INSERT OR IGNORE INTO compta_journaux
+                (code, nom, type, compte_contrepartie, is_active)
+                VALUES (?, ?, ?, ?, 1)""", (code, nom, typ, contrepartie))
+        except: pass
+    
+    # === Période du mois courant ouverte par défaut ===
+    from datetime import datetime as _dt
+    now = _dt.now()
+    try:
+        conn.execute("""INSERT OR IGNORE INTO compta_periodes
+            (annee, mois, statut) VALUES (?, ?, 'ouverte')""",
+            (now.year, now.month))
+    except: pass
+    
+    # Permissions par défaut
+    default_compta_perms = {
+        'admin':     ['compta_pro', 'compta_pro_edit', 'compta_pro_valide', 'compta_pro_cloture'],
+        'dg':        ['compta_pro', 'compta_pro_edit', 'compta_pro_valide', 'compta_pro_cloture'],
+        'comptable': ['compta_pro', 'compta_pro_edit', 'compta_pro_valide'],
+        'proprietaire': ['compta_pro'],
+    }
+    for role, perms in default_compta_perms.items():
+        for perm in perms:
+            try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    conn.commit(); conn.close()
+
+
+# ======================== SERVICES COMPTABLES ========================
+
+def compta_periode_est_ouverte(annee, mois):
+    """Vérifie qu'une période est ouverte (autorise écriture)."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT statut FROM compta_periodes WHERE annee=? AND mois=?",
+                          (annee, mois)).fetchone()
+        if not row:
+            # Auto-créer ouverte si n'existe pas
+            conn.execute("INSERT OR IGNORE INTO compta_periodes (annee, mois, statut) VALUES (?, ?, 'ouverte')",
+                        (annee, mois))
+            conn.commit()
+            conn.close(); return True
+        result = row['statut'] == 'ouverte'
+    except: result = True
+    conn.close()
+    return result
+
+
+def compta_get_next_numero(journal_code, annee, mois):
+    """Génère le prochain numéro de pièce : ACH-202604-0001"""
+    conn = get_db()
+    try:
+        j = conn.execute("SELECT id FROM compta_journaux WHERE code=?", (journal_code,)).fetchone()
+        if not j:
+            conn.close(); return None
+        jid = j['id']
+        # Récupérer ou créer le compteur
+        row = conn.execute("""SELECT dernier_numero FROM compta_compteurs
+            WHERE journal_id=? AND annee=? AND mois=?""", (jid, annee, mois)).fetchone()
+        if row:
+            next_num = (row['dernier_numero'] or 0) + 1
+            conn.execute("""UPDATE compta_compteurs SET dernier_numero=?
+                WHERE journal_id=? AND annee=? AND mois=?""", (next_num, jid, annee, mois))
+        else:
+            next_num = 1
+            conn.execute("""INSERT INTO compta_compteurs (journal_id, annee, mois, dernier_numero)
+                VALUES (?, ?, ?, ?)""", (jid, annee, mois, next_num))
+        conn.commit()
+        conn.close()
+        return f"{journal_code}-{annee}{mois:02d}-{next_num:04d}"
+    except Exception as e:
+        print(f"compta_get_next_numero: {e}")
+        conn.close()
+        return None
+
+
+def compta_creer_ecriture(journal_code, date, libelle, lignes, user_id, piece_externe='', validate=False):
+    """Crée une écriture en brouillard (ou validée si validate=True).
+    lignes = [{'compte_numero':..., 'libelle':..., 'debit':..., 'credit':...}, ...]
+    Retourne (id_ecriture, error_msg). Vérifie débit=crédit, période ouverte."""
+    from datetime import datetime as _dt
+    
+    # Vérifier période
+    try:
+        d = _dt.strptime(date, '%Y-%m-%d')
+        annee = d.year; mois = d.month
+    except:
+        return None, "Date invalide"
+    
+    if not compta_periode_est_ouverte(annee, mois):
+        return None, f"La période {annee}-{mois:02d} est CLÔTURÉE. Aucune écriture autorisée."
+    
+    # Vérifier débit = crédit
+    total_debit = sum(float(l.get('debit', 0) or 0) for l in lignes)
+    total_credit = sum(float(l.get('credit', 0) or 0) for l in lignes)
+    if abs(total_debit - total_credit) > 0.01:
+        return None, f"Écriture non équilibrée : Débit {total_debit:.2f} ≠ Crédit {total_credit:.2f}"
+    
+    if total_debit <= 0:
+        return None, "Montant total nul"
+    
+    if len(lignes) < 2:
+        return None, "Une écriture doit contenir au moins 2 lignes"
+    
+    conn = get_db()
+    try:
+        # Récupérer journal
+        j = conn.execute("SELECT id, code FROM compta_journaux WHERE code=?", (journal_code,)).fetchone()
+        if not j:
+            conn.close(); return None, f"Journal '{journal_code}' inexistant"
+        
+        # Statut
+        statut = 'valide' if validate else 'brouillard'
+        numero_piece = None
+        validated_at = None
+        validated_by = None
+        if validate:
+            numero_piece = compta_get_next_numero(journal_code, annee, mois)
+            validated_at = _dt.now().isoformat()
+            validated_by = user_id
+        
+        # Insert en-tête
+        conn.execute("""INSERT INTO compta_ecritures
+            (journal_id, date, libelle, statut, numero_piece, piece_externe,
+             total_debit, total_credit, validated_at, validated_by, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (j['id'], date, libelle, statut, numero_piece, piece_externe,
+             total_debit, total_credit, validated_at, validated_by, user_id))
+        eid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        
+        # Insert lignes
+        for ordre, l in enumerate(lignes):
+            num = (l.get('compte_numero') or '').strip()
+            cpt = conn.execute("SELECT id FROM compta_comptes WHERE numero=?", (num,)).fetchone()
+            if not cpt:
+                conn.rollback(); conn.close()
+                return None, f"Compte '{num}' inexistant. Créez-le d'abord."
+            conn.execute("""INSERT INTO compta_lignes
+                (ecriture_id, compte_id, compte_numero, libelle, debit, credit,
+                 tiers_id, tiers_type, ordre)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (eid, cpt['id'], num, l.get('libelle', libelle),
+                 float(l.get('debit', 0) or 0), float(l.get('credit', 0) or 0),
+                 l.get('tiers_id'), l.get('tiers_type'), ordre))
+        
+        conn.commit()
+        conn.close()
+        return eid, None
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return None, f"Erreur DB: {e}"
+
+
+def compta_valider_ecriture(ecriture_id, user_id):
+    """Valide une écriture brouillard → statut valide + numéro de pièce."""
+    from datetime import datetime as _dt
+    conn = get_db()
+    try:
+        e = conn.execute("""SELECT e.*, j.code as journal_code FROM compta_ecritures e
+            LEFT JOIN compta_journaux j ON e.journal_id=j.id WHERE e.id=?""",
+            (ecriture_id,)).fetchone()
+        if not e:
+            conn.close(); return False, "Écriture introuvable"
+        if e['statut'] == 'valide':
+            conn.close(); return False, "Écriture déjà validée"
+        
+        # Vérif équilibre encore une fois
+        if abs(float(e['total_debit'] or 0) - float(e['total_credit'] or 0)) > 0.01:
+            conn.close(); return False, "Écriture non équilibrée"
+        
+        # Vérif période
+        d = _dt.strptime(e['date'], '%Y-%m-%d')
+        if not compta_periode_est_ouverte(d.year, d.month):
+            conn.close(); return False, "Période clôturée"
+        
+        # Numéro de pièce
+        numero = compta_get_next_numero(e['journal_code'], d.year, d.month)
+        conn.execute("""UPDATE compta_ecritures SET statut='valide', numero_piece=?,
+            validated_at=?, validated_by=? WHERE id=?""",
+            (numero, _dt.now().isoformat(), user_id, ecriture_id))
+        conn.commit()
+        conn.close()
+        return True, numero
+    except Exception as ex:
+        conn.close()
+        return False, f"Erreur: {ex}"
+
+
+def compta_cloturer_periode(annee, mois, user_id):
+    """Clôture une période (admin)."""
+    from datetime import datetime as _dt
+    conn = get_db()
+    try:
+        # Vérifier qu'aucune écriture en brouillard sur cette période
+        bad = conn.execute("""SELECT COUNT(*) FROM compta_ecritures
+            WHERE statut='brouillard' AND date LIKE ?""",
+            (f'{annee}-{mois:02d}%',)).fetchone()[0]
+        if bad and bad > 0:
+            conn.close()
+            return False, f"❌ {bad} écriture(s) en brouillard sur cette période. Validez-les ou supprimez-les avant de clôturer."
+        
+        conn.execute("""INSERT INTO compta_periodes (annee, mois, statut, cloture_at, cloture_by)
+            VALUES (?, ?, 'cloturee', ?, ?)
+            ON CONFLICT(annee, mois) DO UPDATE SET statut='cloturee', cloture_at=excluded.cloture_at, cloture_by=excluded.cloture_by""",
+            (annee, mois, _dt.now().isoformat(), user_id))
+        conn.commit()
+        conn.close()
+        return True, f"Période {annee}-{mois:02d} clôturée"
+    except Exception as e:
+        conn.close()
+        return False, f"Erreur: {e}"
+
+
+def compta_balance(date_from=None, date_to=None):
+    """Balance comptable : solde par compte sur la période."""
+    conn = get_db()
+    where = "WHERE e.statut='valide'"
+    params = []
+    if date_from:
+        where += " AND e.date >= ?"; params.append(date_from)
+    if date_to:
+        where += " AND e.date <= ?"; params.append(date_to)
+    
+    rows = conn.execute(f"""SELECT
+        c.numero, c.nom, c.type, c.classe,
+        COALESCE(SUM(l.debit), 0) as total_debit,
+        COALESCE(SUM(l.credit), 0) as total_credit
+        FROM compta_lignes l
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        JOIN compta_comptes c ON l.compte_id=c.id
+        {where}
+        GROUP BY c.id ORDER BY c.numero""", tuple(params)).fetchall()
+    conn.close()
+    
+    balance = []
+    for r in rows:
+        d = float(r['total_debit'] or 0); cr = float(r['total_credit'] or 0)
+        solde = d - cr
+        balance.append({
+            'numero': r['numero'], 'nom': r['nom'],
+            'type': r['type'], 'classe': r['classe'],
+            'total_debit': d, 'total_credit': cr,
+            'solde_debiteur': max(0, solde),
+            'solde_crediteur': max(0, -solde),
+        })
+    return balance
+
+
+def compta_grand_livre(compte_numero, date_from=None, date_to=None):
+    """Grand livre d'un compte : tous les mouvements détaillés."""
+    conn = get_db()
+    where = "WHERE c.numero=? AND e.statut='valide'"
+    params = [compte_numero]
+    if date_from:
+        where += " AND e.date >= ?"; params.append(date_from)
+    if date_to:
+        where += " AND e.date <= ?"; params.append(date_to)
+    
+    rows = conn.execute(f"""SELECT
+        e.date, e.numero_piece, e.libelle as e_libelle,
+        l.libelle as l_libelle, l.debit, l.credit, l.lettrage_code,
+        j.code as journal_code, e.id as ecriture_id, l.id as ligne_id
+        FROM compta_lignes l
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        JOIN compta_comptes c ON l.compte_id=c.id
+        JOIN compta_journaux j ON e.journal_id=j.id
+        {where}
+        ORDER BY e.date, e.id, l.ordre""", tuple(params)).fetchall()
+    conn.close()
+    
+    lignes = []
+    cumul = 0
+    for r in rows:
+        d = dict(r)
+        cumul += float(d.get('debit') or 0) - float(d.get('credit') or 0)
+        d['cumul'] = cumul
+        lignes.append(d)
+    return lignes
+
+
+def compta_compte_resultat(date_from=None, date_to=None):
+    """Compte de résultat : charges (classe 6) vs produits (classe 7)."""
+    conn = get_db()
+    where = "WHERE e.statut='valide'"
+    params = []
+    if date_from:
+        where += " AND e.date >= ?"; params.append(date_from)
+    if date_to:
+        where += " AND e.date <= ?"; params.append(date_to)
+    
+    charges = [dict(r) for r in conn.execute(f"""SELECT
+        c.numero, c.nom,
+        COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) as solde
+        FROM compta_lignes l
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        JOIN compta_comptes c ON l.compte_id=c.id
+        {where} AND c.type='charge'
+        GROUP BY c.id HAVING solde != 0 ORDER BY c.numero""",
+        tuple(params)).fetchall()]
+    
+    produits = [dict(r) for r in conn.execute(f"""SELECT
+        c.numero, c.nom,
+        COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) as solde
+        FROM compta_lignes l
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        JOIN compta_comptes c ON l.compte_id=c.id
+        {where} AND c.type='produit'
+        GROUP BY c.id HAVING solde != 0 ORDER BY c.numero""",
+        tuple(params)).fetchall()]
+    
+    conn.close()
+    
+    total_charges = sum(c['solde'] for c in charges)
+    total_produits = sum(p['solde'] for p in produits)
+    resultat = total_produits - total_charges
+    
+    return {
+        'charges': charges, 'produits': produits,
+        'total_charges': total_charges, 'total_produits': total_produits,
+        'resultat': resultat,
+        'beneficiaire': resultat >= 0,
+    }
+
+
+def compta_bilan(date_to=None):
+    """Bilan : actif vs passif (cumul depuis le début)."""
+    conn = get_db()
+    where = "WHERE e.statut='valide'"
+    params = []
+    if date_to:
+        where += " AND e.date <= ?"; params.append(date_to)
+    
+    actifs = [dict(r) for r in conn.execute(f"""SELECT
+        c.numero, c.nom,
+        COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) as solde
+        FROM compta_lignes l
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        JOIN compta_comptes c ON l.compte_id=c.id
+        {where} AND c.type='actif'
+        GROUP BY c.id HAVING solde > 0 ORDER BY c.numero""",
+        tuple(params)).fetchall()]
+    
+    passifs = [dict(r) for r in conn.execute(f"""SELECT
+        c.numero, c.nom,
+        COALESCE(SUM(l.credit), 0) - COALESCE(SUM(l.debit), 0) as solde
+        FROM compta_lignes l
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        JOIN compta_comptes c ON l.compte_id=c.id
+        {where} AND c.type='passif'
+        GROUP BY c.id HAVING solde > 0 ORDER BY c.numero""",
+        tuple(params)).fetchall()]
+    
+    conn.close()
+    
+    total_actif = sum(a['solde'] for a in actifs)
+    total_passif = sum(p['solde'] for p in passifs)
+    
+    # Résultat de l'exercice = composante du passif
+    res = compta_compte_resultat(None, date_to)
+    resultat_exo = res['resultat']
+    
+    return {
+        'actifs': actifs, 'passifs': passifs,
+        'total_actif': total_actif, 'total_passif': total_passif,
+        'resultat_exercice': resultat_exo,
+        'equilibre': abs(total_actif - (total_passif + resultat_exo)) < 0.01,
+    }
+
+
+def compta_lettrer(ligne_ids, user_id):
+    """Lie ensemble plusieurs lignes (lettrage : facture + paiement).
+    Si la somme débit == somme crédit → solde, sinon partiel.
+    Retourne (code_lettrage, error)."""
+    from datetime import datetime as _dt
+    if not ligne_ids or len(ligne_ids) < 2:
+        return None, "Sélectionnez au moins 2 lignes"
+    
+    conn = get_db()
+    try:
+        # Vérifier qu'elles concernent toutes le même compte (lettrable)
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM compta_lignes WHERE id IN ({})".format(','.join('?'*len(ligne_ids))),
+            tuple(ligne_ids)).fetchall()]
+        if len(rows) != len(ligne_ids):
+            conn.close(); return None, "Certaines lignes introuvables"
+        
+        comptes = set(r['compte_id'] for r in rows)
+        if len(comptes) > 1:
+            conn.close(); return None, "Toutes les lignes doivent concerner le même compte"
+        
+        cpt_id = list(comptes)[0]
+        cpt = conn.execute("SELECT numero, is_lettrable FROM compta_comptes WHERE id=?", (cpt_id,)).fetchone()
+        if not cpt['is_lettrable']:
+            conn.close(); return None, f"Le compte {cpt['numero']} n'est pas lettrable"
+        
+        # Vérif qu'aucune n'est déjà lettrée
+        deja = [r for r in rows if r.get('lettrage_code')]
+        if deja:
+            conn.close(); return None, f"{len(deja)} ligne(s) déjà lettrée(s)"
+        
+        total_debit = sum(float(r['debit'] or 0) for r in rows)
+        total_credit = sum(float(r['credit'] or 0) for r in rows)
+        diff = abs(total_debit - total_credit)
+        statut = 'solde' if diff < 0.01 else 'partiel'
+        
+        # Générer code lettrage (LXXX par compte)
+        code = f"L{datetime.now().strftime('%Y%m%d%H%M%S')[-8:]}"
+        
+        # Créer en-tête
+        conn.execute("""INSERT INTO compta_lettrages
+            (code, date, compte_id, statut, created_by)
+            VALUES (?, ?, ?, ?, ?)""",
+            (code, _dt.now().strftime('%Y-%m-%d'), cpt_id, statut, user_id))
+        lid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        
+        # Lier
+        for r in rows:
+            montant = float(r['debit'] or 0) + float(r['credit'] or 0)
+            conn.execute("""INSERT INTO compta_lettrage_lignes (lettrage_id, ligne_id, montant)
+                VALUES (?, ?, ?)""", (lid, r['id'], montant))
+            # Marquer la ligne
+            conn.execute("UPDATE compta_lignes SET lettrage_code=? WHERE id=?", (code, r['id']))
+        
+        conn.commit()
+        conn.close()
+        return code, None
+    except Exception as e:
+        conn.close()
+        return None, f"Erreur: {e}"
+
+
 def get_purchase_status(purchase_id):
     """Retourne (status, total_paye, reste, pct_paye) pour un achat."""
     conn = get_db()

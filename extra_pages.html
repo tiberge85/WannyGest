@@ -943,6 +943,7 @@ function toggleDetail() {
 <a href="/interventions/{{ inter.id }}/attestation.pdf" class="btn btn-sm no-print" style="background:#7b1fa2;color:#fff;font-weight:700">📜 Attestation</a>
 {% endif %}
 <button class="btn btn-sm no-print" style="background:#1a3a5c;color:#fff" onclick="window.print()">🖨️ Imprimer</button>
+<a href="/interventions/{{ inter.id }}/fiche.pdf" class="btn btn-sm no-print" style="background:#7b1fa2;color:#fff" target="_blank">📄 Télécharger PDF</a>
 {% if current_user and current_user.role in ('admin','dg','resp_projet','coordinateur') and inter.status in ('livre','termine','terminee','travaux_termines','controle_qualite') %}
 <button class="btn btn-sm no-print" style="background:#1976d2;color:#fff" onclick="document.getElementById('sendMailModal').style.display='flex'">📧 Envoyer au client (email)</button>
 <button class="btn btn-sm no-print" style="background:#25d366;color:#fff" onclick="document.getElementById('sendWaModal').style.display='flex'">💬 Envoyer (WhatsApp)</button>
@@ -1729,9 +1730,47 @@ function submitPointage(type) {
         <a href="/pointage/qr" class="btn btn-outline btn-sm">🔗 QR Codes</a>
         {% endif %}
         <a href="/admin/pointage/export.csv?from={{ date_filter }}&to={{ date_filter }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff">📥 Export CSV</a>
-        <a href="/admin/pointage/rapport-entreprise/{{ date_filter[:7] }}" class="btn btn-sm" style="background:#7b1fa2;color:#fff" target="_blank" title="PDF complet : rapports individuels + présence + classement + graphique">📊 Rapport entreprise complet</a>
+        <button type="button" class="btn btn-sm" style="background:#7b1fa2;color:#fff" onclick="document.getElementById('rapportEntModal').style.display='flex'" title="PDF complet">📊 Rapport entreprise complet</button>
     </div>
 </div>
+
+<!-- Modal sélection entreprise pour rapport -->
+<div id="rapportEntModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:500px;width:92%">
+    <h3 style="margin:0 0 12px;color:#7b1fa2">📊 Rapport entreprise complet</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:14px">PDF avec rapports individuels par employé, présence globale, classement retards/absences et graphique. Choisissez l'entreprise et le mois.</p>
+    <form method="get" id="rapportEntForm" target="_blank">
+        <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:#888;display:block">Entreprise</label>
+            <select name="company_id" id="rapportCompanyId" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">🏢 RAMYA TECHNOLOGIE (personnel interne)</option>
+                {% for c in pointage_companies_list or [] %}
+                <option value="{{ c.id }}">🏭 {{ c.name }} ({{ c.nb_users or 0 }} employés)</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="margin-bottom:14px">
+            <label style="font-size:11px;color:#888;display:block">Mois</label>
+            <input type="month" name="month_picker" id="rapportMonth" value="{{ date_filter[:7] }}" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('rapportEntModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📊 Générer PDF</button>
+        </div>
+    </form>
+</div></div>
+<script>
+document.getElementById('rapportEntForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var month = document.getElementById('rapportMonth').value;
+    var cid = document.getElementById('rapportCompanyId').value;
+    if (!month) return;
+    var url = '/admin/pointage/rapport-entreprise/' + month;
+    if (cid) url += '?company_id=' + cid;
+    window.open(url, '_blank');
+    document.getElementById('rapportEntModal').style.display = 'none';
+});
+</script>
 
 <!-- Stats -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px">

@@ -351,6 +351,8 @@ from models import migrate_v57
 migrate_v57()
 from models import migrate_v58
 migrate_v58()
+from models import migrate_v59
+migrate_v59()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -417,6 +419,12 @@ PERM_CATEGORIES = {
         ('balance', 'Balance comptable'),
         ('virement_demande', 'Demander virement banque→caisse'),
         ('virement_valide', 'Valider virement (DG uniquement)'),
+    ],
+    'Comptabilité Pro (SYSCOHADA)': [
+        ('compta_pro', 'Module Comptabilité Pro - Lecture'),
+        ('compta_pro_edit', 'Saisir écritures (brouillard)'),
+        ('compta_pro_valide', 'Valider écritures'),
+        ('compta_pro_cloture', 'Clôturer périodes'),
     ],
     'Achats / Stock': [
         ('achats', 'Voir les achats / fournisseurs / stock'),
@@ -6428,10 +6436,257 @@ def interventions_programme():
                           is_admin=is_admin, visits_today=visits_today)
 
 
+def _generate_intervention_fiche_pdf(inter, conn):
+    """Génère un PDF complet de la fiche d'intervention (à attacher en email/WhatsApp).
+    Retourne (filename, bytes) ou (None, None) en cas d'erreur."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as PLImage)
+        import io
+        
+        TEAL = HexColor('#1A7A6D')
+        ORANGE = HexColor('#F29F2F')
+        BLUE = HexColor('#1a3a5c')
+        GREY = HexColor('#666666')
+        LIGHT = HexColor('#f0f0f0')
+        
+        # Récupérer infos client
+        client_info = {}
+        if inter.get('client_id'):
+            c = conn.execute("SELECT name, tel, email, address FROM clients WHERE id=?", (inter['client_id'],)).fetchone()
+            if c: client_info = dict(c)
+        
+        # Récupérer technicien
+        tech_name = ''
+        if inter.get('technician_id'):
+            t = conn.execute("SELECT full_name FROM users WHERE id=?", (inter['technician_id'],)).fetchone()
+            if t: tech_name = t['full_name']
+        
+        # Timeline
+        timeline = []
+        try:
+            timeline = [dict(r) for r in conn.execute("""
+                SELECT * FROM intervention_timeline WHERE intervention_id=? ORDER BY created_at ASC""",
+                (inter['id'],)).fetchall()]
+        except: pass
+        
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm,
+                                topMargin=12*mm, bottomMargin=12*mm)
+        story = []
+        
+        # En-tête : logo + nom société
+        try:
+            logo_path = os.path.join(BASE_DIR, 'logo_ramya.png')
+            if os.path.exists(logo_path):
+                story.append(PLImage(logo_path, width=40*mm, height=20*mm))
+        except: pass
+        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>",
+            ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
+        story.append(Paragraph("Abidjan, Côte d'Ivoire — CCTV · Contrôle d'accès · IT",
+            ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER)))
+        story.append(Spacer(1, 6*mm))
+        
+        story.append(Paragraph(f"<b>FICHE D'INTERVENTION — {inter.get('reference','')}</b>",
+            ParagraphStyle('ti', fontSize=13, textColor=BLUE, alignment=TA_CENTER, backColor=HexColor('#fff3e0'),
+                          borderPadding=6, borderColor=ORANGE, borderWidth=1)))
+        story.append(Spacer(1, 5*mm))
+        
+        # Bloc client + intervention
+        info_data = [
+            [Paragraph("<b>CLIENT</b>", ParagraphStyle('h1', fontSize=10, textColor=HexColor('#ffffff'))),
+             Paragraph("<b>INTERVENTION</b>", ParagraphStyle('h2', fontSize=10, textColor=HexColor('#ffffff')))],
+            [
+                Paragraph(
+                    f"<b>{client_info.get('name', inter.get('client_name','-'))}</b><br/>"
+                    f"📞 {client_info.get('tel','-')}<br/>"
+                    f"✉️ {client_info.get('email','-')}<br/>"
+                    f"📍 {client_info.get('address','-')}",
+                    ParagraphStyle('ci', fontSize=9, leading=13)),
+                Paragraph(
+                    f"<b>Type:</b> {inter.get('type','-')}<br/>"
+                    f"<b>Date prévue:</b> {inter.get('scheduled_date','-')} {inter.get('scheduled_time','') or ''}<br/>"
+                    f"<b>Statut:</b> {inter.get('status','-').upper()}<br/>"
+                    f"<b>Technicien:</b> {tech_name or '-'}",
+                    ParagraphStyle('ii', fontSize=9, leading=13)),
+            ]
+        ]
+        t_info = Table(info_data, colWidths=[90*mm, 90*mm])
+        t_info.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+            ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+            ('GRID',(0,0),(-1,-1),0.4,HexColor('#cccccc')),
+            ('VALIGN',(0,0),(-1,-1),'TOP'),
+            ('PADDING',(0,0),(-1,-1),6),
+        ]))
+        story.append(t_info)
+        story.append(Spacer(1, 5*mm))
+        
+        # Description / titre
+        if inter.get('title'):
+            story.append(Paragraph(f"<b>Objet :</b> {inter['title']}",
+                ParagraphStyle('obj', fontSize=10, textColor=BLUE)))
+            story.append(Spacer(1, 2*mm))
+        if inter.get('description'):
+            story.append(Paragraph("<b>Description des travaux</b>",
+                ParagraphStyle('lbl', fontSize=10, textColor=BLUE)))
+            story.append(Paragraph(inter['description'],
+                ParagraphStyle('desc', fontSize=9, leading=12, textColor=HexColor('#333333'),
+                              backColor=LIGHT, borderPadding=6)))
+            story.append(Spacer(1, 4*mm))
+        
+        # Récap horaires
+        if inter.get('start_work_at') or inter.get('end_work_at') or inter.get('delivered_at'):
+            story.append(Paragraph("<b>Suivi temporel</b>",
+                ParagraphStyle('lbl', fontSize=10, textColor=BLUE)))
+            time_data = [['Évènement', 'Date/Heure']]
+            if inter.get('start_work_at'): time_data.append(['🚀 Début travaux', str(inter['start_work_at'])[:16]])
+            if inter.get('end_work_at'): time_data.append(['🏗️ Fin travaux', str(inter['end_work_at'])[:16]])
+            if inter.get('cq_at'): time_data.append(['🔍 Contrôle qualité', str(inter['cq_at'])[:16]])
+            if inter.get('delivered_at'): time_data.append(['✅ Livrée', str(inter['delivered_at'])[:16]])
+            t_time = Table(time_data, colWidths=[90*mm, 90*mm])
+            t_time.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(-1,0),BLUE),
+                ('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+                ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                ('FONTSIZE',(0,0),(-1,-1),9),
+                ('GRID',(0,0),(-1,-1),0.3,HexColor('#cccccc')),
+                ('PADDING',(0,0),(-1,-1),5),
+            ]))
+            story.append(t_time)
+            story.append(Spacer(1, 4*mm))
+        
+        # Timeline (max 10 derniers évènements)
+        if timeline:
+            story.append(Paragraph("<b>Historique des étapes</b>",
+                ParagraphStyle('lbl', fontSize=10, textColor=BLUE)))
+            tl_data = [['Date', 'Étape', 'Description']]
+            for ev in timeline[-10:]:
+                desc = (ev.get('description') or '')[:80]
+                tl_data.append([
+                    str(ev.get('created_at',''))[:16],
+                    ev.get('title',''),
+                    desc,
+                ])
+            t_tl = Table(tl_data, colWidths=[35*mm, 50*mm, 95*mm])
+            t_tl.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(-1,0),HexColor('#e0f5f1')),
+                ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                ('FONTSIZE',(0,0),(-1,-1),8),
+                ('GRID',(0,0),(-1,-1),0.25,HexColor('#cccccc')),
+                ('PADDING',(0,0),(-1,-1),4),
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+            ]))
+            story.append(t_tl)
+            story.append(Spacer(1, 4*mm))
+        
+        # Montant si facturable
+        if inter.get('is_billable') and (inter.get('total_cost') or 0) > 0:
+            story.append(Spacer(1, 3*mm))
+            mont_data = [['MONTANT TOTAL', f"{float(inter['total_cost']):,.0f} F CFA"]]
+            t_mont = Table(mont_data, colWidths=[120*mm, 60*mm])
+            t_mont.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(0,0),ORANGE),
+                ('BACKGROUND',(1,0),(1,0),HexColor('#fff3e0')),
+                ('TEXTCOLOR',(0,0),(0,0),HexColor('#ffffff')),
+                ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                ('FONTSIZE',(0,0),(-1,-1),12),
+                ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                ('PADDING',(0,0),(-1,-1),8),
+                ('GRID',(0,0),(-1,-1),0.5,ORANGE),
+            ]))
+            story.append(t_mont)
+        
+        # Bloc signatures
+        story.append(Spacer(1, 8*mm))
+        sig_data = [
+            ['Signature client', 'Signature technicien', 'Cachet RAMYA'],
+            ['', '', ''],
+        ]
+        t_sig = Table(sig_data, colWidths=[60*mm, 60*mm, 60*mm], rowHeights=[7*mm, 28*mm])
+        t_sig.setStyle(TableStyle([
+            ('FONTSIZE',(0,0),(-1,0),9),
+            ('TEXTCOLOR',(0,0),(-1,0),GREY),
+            ('ALIGN',(0,0),(-1,0),'CENTER'),
+            ('GRID',(0,0),(-1,-1),0.5,HexColor('#cccccc')),
+            ('VALIGN',(0,0),(-1,-1),'TOP'),
+            ('PADDING',(0,0),(-1,0),4),
+        ]))
+        story.append(t_sig)
+        
+        # Pied
+        story.append(Spacer(1, 6*mm))
+        story.append(Paragraph(
+            f"<i>Document généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} — RAMYA Technologie &amp; Innovation, Abidjan</i>",
+            ParagraphStyle('foot', fontSize=8, textColor=GREY, alignment=TA_CENTER)))
+        
+        doc.build(story)
+        buf.seek(0)
+        filename = f"fiche-intervention-{inter.get('reference','sans-ref').replace('/','-')}.pdf"
+        return filename, buf.getvalue()
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return None, None
+
+
+@app.route('/interventions/<int:iid>/fiche.pdf')
+@login_required
+def intervention_fiche_pdf(iid):
+    """Télécharge la fiche d'intervention en PDF."""
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter:
+        flash("Intervention introuvable", "error")
+        conn.close(); return redirect(url_for('interventions_programme'))
+    inter = dict(inter)
+    filename, data = _generate_intervention_fiche_pdf(inter, conn)
+    conn.close()
+    if not data:
+        flash("Erreur génération PDF", "error")
+        return redirect(f'/interventions/{iid}/fiche')
+    return Response(data, mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename={filename}'})
+
+
+@app.route('/public/fiche/<token>')
+def public_intervention_fiche_pdf(token):
+    """Téléchargement public d'une fiche PDF via token (utilisé pour WhatsApp).
+    Le token est généré au moment de l'envoi WA et valide 72h."""
+    if not token or len(token) < 8:
+        return "Token invalide", 404
+    conn = _gdb()
+    try:
+        row = conn.execute("""SELECT * FROM public_pdf_tokens WHERE token=?
+            AND expires_at > ?""", (token, datetime.now().isoformat())).fetchone()
+        if not row:
+            conn.close()
+            return "Lien expiré ou invalide. Demandez un nouveau lien à votre interlocuteur.", 404
+        iid = row['intervention_id']
+        inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+        if not inter:
+            conn.close()
+            return "Intervention introuvable", 404
+        inter = dict(inter)
+        filename, data = _generate_intervention_fiche_pdf(inter, conn)
+        conn.close()
+        if not data:
+            return "Erreur génération PDF", 500
+        return Response(data, mimetype='application/pdf',
+            headers={'Content-Disposition': f'inline; filename={filename}'})
+    except Exception as e:
+        conn.close()
+        return f"Erreur: {e}", 500
+
+
 @app.route('/interventions/<int:iid>/fiche/send-mail', methods=['POST', 'GET'])
 @login_required
 def intervention_fiche_send_mail(iid):
-    """Envoie la fiche d'intervention par email au client.
+    """Envoie la fiche d'intervention en PDF par email au client.
     SEULS le coordinateur projet, resp_projet, admin et dg peuvent envoyer (après exécution des travaux)."""
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'dg', 'resp_projet', 'coordinateur'):
@@ -6486,6 +6741,11 @@ Cordialement,
 RAMYA TECHNOLOGIE & INNOVATION
 Abidjan, Côte d'Ivoire"""
     
+    # Générer le PDF de la fiche pour l'attacher
+    conn2 = _gdb()
+    pdf_filename, pdf_bytes = _generate_intervention_fiche_pdf(inter, conn2)
+    conn2.close()
+    
     # Tentative d'envoi via SMTP en utilisant les paramètres admin sauvegardés (fonction existante)
     sent = False
     try:
@@ -6495,11 +6755,17 @@ Abidjan, Côte d'Ivoire"""
             import smtplib
             from email.mime.text import MIMEText
             from email.mime.multipart import MIMEMultipart
+            from email.mime.application import MIMEApplication
             msg = MIMEMultipart()
             msg['From'] = smtp_cfg.get('smtp_user')
             msg['To'] = client_email
             msg['Subject'] = subject
             msg.attach(MIMEText(body, 'plain', 'utf-8'))
+            # Pièce jointe PDF
+            if pdf_bytes:
+                attach = MIMEApplication(pdf_bytes, _subtype='pdf')
+                attach.add_header('Content-Disposition', 'attachment', filename=pdf_filename)
+                msg.attach(attach)
             with smtplib.SMTP(smtp_cfg['smtp_host'], int(smtp_cfg.get('smtp_port', 587)), timeout=15) as server:
                 server.ehlo(); server.starttls(); server.ehlo()
                 server.login(smtp_cfg['smtp_user'], smtp_cfg.get('smtp_pass', ''))
@@ -6508,11 +6774,12 @@ Abidjan, Côte d'Ivoire"""
     except Exception as e:
         print(f"SMTP admin error: {e}")
     
-    # Fallback : SMTP via env vars
+    # Fallback : SMTP via env vars (avec pièce jointe)
     if not sent:
         try:
             from models import send_email_smtp
-            sent = send_email_smtp(client_email, subject, body)
+            attachments = [(pdf_filename, pdf_bytes, 'application/pdf')] if pdf_bytes else None
+            sent = send_email_smtp(client_email, subject, body, attachments=attachments)
         except Exception as e:
             print(f"SMTP env error: {e}")
     
@@ -6595,15 +6862,39 @@ def intervention_fiche_whatsapp(iid):
             phone_clean = '+225' + phone_clean
     phone_clean = phone_clean.lstrip('+')
     
+    # Générer un token d'accès public au PDF (24h)
+    import secrets, hashlib
+    token = secrets.token_urlsafe(16)
+    conn_t = _gdb()
+    try:
+        conn_t.execute("""CREATE TABLE IF NOT EXISTS public_pdf_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT UNIQUE NOT NULL,
+            intervention_id INTEGER NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+        from datetime import timedelta as _td
+        expires = (datetime.now() + _td(hours=72)).isoformat()
+        conn_t.execute("INSERT INTO public_pdf_tokens (token, intervention_id, expires_at, created_by) VALUES (?,?,?,?)",
+                      (token, iid, expires, session['user_id']))
+        conn_t.commit()
+    except Exception as e:
+        print(f"token: {e}")
+    conn_t.close()
+    
     base_url = request.host_url.rstrip('/')
-    fiche_url = f"{base_url}/interventions/{iid}/fiche"
+    pdf_url = f"{base_url}/public/fiche/{token}"
     
     msg = f"""Bonjour {client_name},
-Voici la fiche d'intervention {inter.get('reference','-')} du {inter.get('scheduled_date','-')}.
+Veuillez trouver ci-dessous la fiche d'intervention {inter.get('reference','-')} du {inter.get('scheduled_date','-')}.
 Type : {inter.get('type','-')}
 Statut : {inter.get('status','-')}
 
-Consulter en ligne : {fiche_url}
+📄 Télécharger la fiche PDF : {pdf_url}
+
+(Lien valable 72 heures)
 
 Cordialement,
 RAMYA TECHNOLOGIE"""
@@ -7880,7 +8171,7 @@ def tech_center():
 
 
 @app.route('/centre-technique/mes-interventions')
-@permission_required('centre_technique')
+@permission_required_any('centre_technique', 'controle_qualite', 'livraison_intervention', 'resp_projet', 'admin')
 def tech_my_interventions():
     """Historique d'interventions du technicien avec filtres :
     - nouvelles (planifiee)
@@ -9874,6 +10165,16 @@ def admin_pointage_dashboard():
             "SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client' ORDER BY full_name").fetchall()]
     except: pass
     
+    # Liste des entreprises pointage pour le sélecteur de rapport
+    pointage_companies_list = []
+    try:
+        pointage_companies_list = [dict(r) for r in conn.execute("""
+            SELECT c.id, c.name, c.slug,
+                   (SELECT COUNT(*) FROM pointage_company_users WHERE company_id=c.id AND COALESCE(is_active,1)=1) as nb_users
+            FROM pointage_companies c WHERE COALESCE(c.is_active,1)=1 ORDER BY c.name
+        """).fetchall()]
+    except: pass
+    
     conn.close()
     return render_template('extra_pages.html', page='pointage_admin',
                           pointages=pointages, stats=stats, users_present=users_present,
@@ -9881,6 +10182,7 @@ def admin_pointage_dashboard():
                           dept_filter=dept_filter, status_filter=status_filter,
                           users=users, departments=DEPARTMENTS,
                           POINTAGE_LABELS=POINTAGE_LABELS,
+                          pointage_companies_list=pointage_companies_list,
                           can_edit_pointage='pointage_edit' in perms or 'admin' in perms)
 
 
@@ -10238,28 +10540,122 @@ def admin_pointage_rapport_pdf(user_id, month):
 @app.route('/admin/pointage/rapport-entreprise/<month>')
 @permission_required_any('pointage_admin', 'admin')
 def admin_pointage_rapport_entreprise(month):
-    """PDF complet : tous les employés de l'entreprise sur le mois.
-    Inclut : rapport individuel par employé, rapport présence, classement retards/absences, graphique."""
+    """PDF complet : tous les employés sur le mois.
+    Param ?company_id= pour rapport d'une entreprise pointage spécifique (sinon = RAMYA)."""
+    
+    company_id = request.args.get('company_id', '').strip()
+    company_name = "RAMYA TECHNOLOGIE & INNOVATION"
+    company_subtitle = "Abidjan, Côte d'Ivoire"
     
     conn = _gdb()
-    # Récupérer tous les utilisateurs actifs (sauf clients)
-    users = [dict(r) for r in conn.execute("""
-        SELECT id, username, full_name, role, department FROM users
-        WHERE COALESCE(is_active,1)=1 AND role != 'client'
-        ORDER BY full_name
-    """).fetchall()]
     
-    if not users:
-        flash("Aucun employé actif", "warning")
-        conn.close()
-        return redirect(url_for('admin_pointage_dashboard'))
-    
-    from models import get_user_planning
-    
-    # Construire les données pour chaque employé
-    emps = []
-    for u in users:
-        planning = get_user_planning(u['id'])
+    if company_id and company_id.isdigit():
+        # Rapport pour une entreprise pointage spécifique
+        cid = int(company_id)
+        comp = conn.execute("SELECT * FROM pointage_companies WHERE id=?", (cid,)).fetchone()
+        if not comp:
+            flash("Entreprise introuvable", "error")
+            conn.close()
+            return redirect(url_for('admin_pointage_dashboard'))
+        company_name = comp['name']
+        company_subtitle = f"Espace pointage — slug: {comp['slug']}"
+        
+        # Récupérer les employés de cette entreprise
+        users = [dict(r) for r in conn.execute("""
+            SELECT id, username, full_name, poste as department, '' as role,
+                   heure_arrivee, heure_pause, heure_retour, heure_depart
+            FROM pointage_company_users WHERE company_id=? AND COALESCE(is_active,1)=1
+            ORDER BY full_name
+        """, (cid,)).fetchall()]
+        
+        if not users:
+            flash(f"Aucun employé actif dans l'entreprise '{company_name}'", "warning")
+            conn.close()
+            return redirect(url_for('admin_pointage_dashboard'))
+        
+        # Construire emps depuis pointage_company_records
+        from datetime import datetime as _dt, date as _date, timedelta as _td
+        emps = []
+        for u in users:
+            sched_start = u.get('heure_arrivee', '08:00')
+            sched_end = u.get('heure_depart', '17:00')
+            
+            pointages = [dict(r) for r in conn.execute(
+                "SELECT * FROM pointage_company_records WHERE company_user_id=? AND date LIKE ? ORDER BY date, time",
+                (u['id'], f'{month}%')).fetchall()]
+            
+            by_day = {}
+            for p in pointages:
+                d = p['date']
+                if d not in by_day:
+                    by_day[d] = {'arrivee':None,'pause':None,'retour':None,'depart':None}
+                by_day[d][p['type']] = p
+            
+            records = []
+            for d in sorted(by_day.keys()):
+                dd = by_day[d]
+                arrival = dd['arrivee']['time'] if dd['arrivee'] else ''
+                departure = dd['depart']['time'] if dd['depart'] else ''
+                dur = ''
+                try:
+                    if dd['arrivee'] and dd['depart']:
+                        af = _dt.fromisoformat(dd['arrivee']['datetime_full'])
+                        df = _dt.fromisoformat(dd['depart']['datetime_full'])
+                        total_min = int((df - af).total_seconds() / 60)
+                        pause_min = 0
+                        if dd['pause'] and dd['retour']:
+                            pf = _dt.fromisoformat(dd['pause']['datetime_full'])
+                            rf = _dt.fromisoformat(dd['retour']['datetime_full'])
+                            pause_min = int((rf - pf).total_seconds() / 60)
+                        worked = total_min - pause_min
+                        dur = f"{worked//60:02d}:{worked%60:02d}"
+                except: pass
+                records.append({
+                    'date': d, 'sched_start': sched_start, 'sched_end': sched_end,
+                    'arrival': arrival, 'departure': departure, 'duration': dur,
+                })
+            
+            # Compléter avec jours sans pointage
+            try:
+                y, m_int = month.split('-')
+                y, m_int = int(y), int(m_int)
+                first = _date(y, m_int, 1)
+                if m_int == 12: last = _date(y+1, 1, 1) - _td(days=1)
+                else: last = _date(y, m_int+1, 1) - _td(days=1)
+                existing = set(r['date'] for r in records)
+                cur = first
+                while cur <= last:
+                    ds = cur.strftime('%Y-%m-%d')
+                    if ds not in existing and cur.weekday() < 5:
+                        records.append({'date': ds, 'sched_start': sched_start, 'sched_end': sched_end,
+                                       'arrival': '', 'departure': '', 'duration': ''})
+                    cur += _td(days=1)
+                records.sort(key=lambda r: r['date'])
+            except: pass
+            
+            emps.append({
+                'name': u['full_name'],
+                'ref': u['username'],
+                'records': records,
+            })
+    else:
+        # Rapport RAMYA (défaut, comportement v31)
+        users = [dict(r) for r in conn.execute("""
+            SELECT id, username, full_name, role, department FROM users
+            WHERE COALESCE(is_active,1)=1 AND role != 'client'
+            ORDER BY full_name
+        """).fetchall()]
+        
+        if not users:
+            flash("Aucun employé actif", "warning")
+            conn.close()
+            return redirect(url_for('admin_pointage_dashboard'))
+        
+        from models import get_user_planning
+        
+        emps = []
+        for u in users:
+            planning = get_user_planning(u['id'])
         sched_start = planning.get('heure_arrivee', '08:00')
         sched_end = planning.get('heure_depart', '17:00')
         
@@ -10346,9 +10742,13 @@ def admin_pointage_rapport_entreprise(month):
         S = rapport_core.make_styles()
         
         period = f"Période : {month}"
-        provider_name = "RAMYA TECHNOLOGIE & INNOVATION"
-        provider_info = "Abidjan, Côte d'Ivoire"
-        client_name = "Rapport interne — Personnel RAMYA"
+        # Utiliser le nom de l'entreprise dynamiquement (multi-entreprises ou RAMYA)
+        provider_name = company_name
+        provider_info = company_subtitle
+        if company_id:
+            client_name = f"Rapport personnel — {company_name}"
+        else:
+            client_name = "Rapport interne — Personnel RAMYA"
         client_info = ""
         
         now = datetime.now()
@@ -10394,7 +10794,10 @@ def admin_pointage_rapport_entreprise(month):
         
         doc.build(story)
         buf.seek(0)
-        filename = f"rapport-personnel-RAMYA-{month}.pdf"
+        # Slugify name pour filename
+        import re as _re
+        slug = _re.sub(r'[^a-zA-Z0-9-]', '-', company_name).strip('-').lower()[:30]
+        filename = f"rapport-{slug}-{month}.pdf"
         return Response(buf.getvalue(), mimetype='application/pdf',
                        headers={'Content-Disposition': f'attachment; filename={filename}'})
     except Exception as e:

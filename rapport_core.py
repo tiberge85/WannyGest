@@ -636,88 +636,81 @@ def _prepare_logo(logo_path, work_dir=None):
 
 
 def _generate_chart_image(pct_presence, pct_absence, logo_path=None, work_dir=None):
-    """Génère un graphique donut 3D avec légende et logo au centre."""
+    """Génère un graphique camembert 2D plein (sans 3D, sans trou) avec légende.
+    Le logo est ajouté au-dessus du cercle, semi-transparent."""
     try:
         from PIL import Image, ImageDraw, ImageFont
         
         W, H = 1000, 700
-        cx, cy = 350, 320
-        outer_r = 260
-        inner_r = 130
-        depth = 30  # Profondeur 3D
+        cx, cy = 350, 350
+        radius = 270
         
+        # Image RGBA blanche pour permettre la transparence
         img = Image.new('RGBA', (W, H), (255, 255, 255, 255))
         draw = ImageDraw.Draw(img)
         
         # Couleurs
-        teal = (26, 122, 109, 255)
-        teal_dark = (18, 90, 80, 255)
-        red = (232, 93, 74, 255)
-        red_dark = (180, 65, 50, 255)
+        teal = (26, 122, 109, 255)      # Présence
+        red = (232, 93, 74, 255)        # Absence
         green_c = (46, 125, 50, 255)
         orange_c = (232, 103, 42, 255)
         blue_c = (26, 58, 92, 255)
         
-        # === 3D DEPTH (ombres dessous) ===
-        for d in range(depth, 0, -1):
-            shade = int(200 - d * 3)
-            draw.ellipse([cx-outer_r, cy-outer_r+d, cx+outer_r, cy+outer_r+d],
-                        fill=(shade, shade, shade, 80))
+        bbox_circle = [cx - radius, cy - radius, cx + radius, cy + radius]
         
-        # Disque 3D inférieur (ombre du donut)
-        for d in range(depth, 0, -1):
-            draw.ellipse([cx-outer_r, cy-outer_r+d, cx+outer_r, cy+outer_r+d], fill=teal_dark)
-            if pct_absence > 0:
-                a_start = -90
-                a_end = -90 + (360 * pct_absence / 100)
-                draw.pieslice([cx-outer_r, cy-outer_r+d, cx+outer_r, cy+outer_r+d],
-                             start=a_start, end=a_end, fill=red_dark)
-        
-        # Disque principal (dessus)
-        draw.ellipse([cx-outer_r, cy-outer_r, cx+outer_r, cy+outer_r], fill=teal)
-        if pct_absence > 0:
-            a_start = -90
-            a_end = -90 + (360 * pct_absence / 100)
-            draw.pieslice([cx-outer_r, cy-outer_r, cx+outer_r, cy+outer_r],
-                         start=a_start, end=a_end, fill=red)
-        
-        # Reflet lumineux (effet 3D)
-        for i in range(20):
-            alpha = int(40 - i * 2)
-            draw.ellipse([cx-outer_r+i+30, cy-outer_r+i+20, cx-30, cy-30],
-                        fill=(255, 255, 255, alpha))
-        
-        # Trou central
-        if logo_path and os.path.exists(logo_path):
-            clean_path = _prepare_logo(logo_path, work_dir)
-            if clean_path:
-                logo = Image.open(clean_path).convert('RGBA')
-                logo_size = inner_r * 2 + 10
-                logo = logo.resize((logo_size, logo_size), Image.LANCZOS)
-                lx, ly = cx - logo_size // 2, cy - logo_size // 2
-                img.paste(logo, (lx, ly), logo)
-            else:
-                draw.ellipse([cx-inner_r, cy-inner_r, cx+inner_r, cy+inner_r], fill=(255,255,255,255))
+        # Cercle plein 2D : si tout présence, cercle plein vert. Sinon découpe en deux secteurs.
+        if pct_absence <= 0:
+            # 100% présence : cercle entièrement teal
+            draw.ellipse(bbox_circle, fill=teal, outline=(255,255,255,255), width=4)
+        elif pct_presence <= 0:
+            # 100% absence : cercle entièrement red
+            draw.ellipse(bbox_circle, fill=red, outline=(255,255,255,255), width=4)
         else:
-            draw.ellipse([cx-inner_r, cy-inner_r, cx+inner_r, cy+inner_r], fill=(255,255,255,255))
-            try: font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
-            except: font = ImageFont.load_default()
-            text = f"{pct_presence:.1f}%"
-            bbox = draw.textbbox((0, 0), text, font=font)
-            tw = bbox[2] - bbox[0]
-            th = bbox[3] - bbox[1]
-            draw.text((cx - tw//2, cy - th//2), text, fill=teal, font=font)
+            # Camembert PLEIN (pas de trou)
+            # Secteur présence (teal) à partir de l'angle -90° (haut), va dans le sens horaire
+            angle_presence = 360 * pct_presence / 100
+            draw.pieslice(bbox_circle, start=-90, end=-90 + angle_presence,
+                         fill=teal, outline=(255,255,255,255), width=4)
+            # Secteur absence (rouge) sur le reste
+            draw.pieslice(bbox_circle, start=-90 + angle_presence, end=270,
+                         fill=red, outline=(255,255,255,255), width=4)
+        
+        # Logo au CENTRE en superposition transparente (sans trou dans le camembert)
+        if logo_path and os.path.exists(logo_path):
+            try:
+                clean_path = _prepare_logo(logo_path, work_dir)
+                if clean_path:
+                    logo = Image.open(clean_path).convert('RGBA')
+                    # Logo plus petit que le cercle (40% du diamètre) pour ne pas masquer les secteurs
+                    logo_size = int(radius * 0.95)
+                    logo.thumbnail((logo_size, logo_size), Image.LANCZOS)
+                    # Rendre le logo semi-transparent pour le voir au-dessus du camembert
+                    alpha = logo.split()[3] if logo.mode == 'RGBA' else None
+                    if alpha:
+                        # Réduire opacité à 80%
+                        new_alpha = alpha.point(lambda p: int(p * 0.85))
+                        logo.putalpha(new_alpha)
+                    lw, lh = logo.size
+                    lx_pos, ly_pos = cx - lw // 2, cy - lh // 2
+                    img.paste(logo, (lx_pos, ly_pos), logo)
+            except Exception as e:
+                print(f"  Logo: {e}")
+        
+        # Pourcentages au centre (par-dessus le logo si présent)
+        try: 
+            font_pct = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        except: 
+            font_pct = ImageFont.load_default()
         
         # === LÉGENDE (à droite) ===
         try:
-            font_leg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
             font_leg_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-            font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+            font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
             font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
         except:
-            font_leg = font_leg_b = font_title = font_small = ImageFont.load_default()
+            font_leg_b = font_title = font_small = ImageFont.load_default()
         
-        lx_start = 660
+        lx_start = 680
         ly = 80
         
         draw.text((lx_start, ly), "Légende", fill=blue_c, font=font_title)
@@ -750,7 +743,7 @@ def _generate_chart_image(pct_presence, pct_absence, logo_path=None, work_dir=No
             draw.text((lx_start + 130, ly), f"= {full}", fill=(100,100,100), font=font_small)
             ly += 28
         
-        # Assiduité rules
+        # Règles d'assiduité
         ly += 15
         draw.text((lx_start, ly), "Règles d'assiduité", fill=blue_c, font=font_title)
         ly += 32
@@ -760,11 +753,11 @@ def _generate_chart_image(pct_presence, pct_absence, logo_path=None, work_dir=No
             draw.text((lx_start+20, ly-4), f"{pct_label} → {label}", fill=(80,80,80), font=font_small)
             ly += 28
         
-        # Convert to RGB
+        # Convert to RGB pour PDF
         final = Image.new('RGB', (W, H), (255, 255, 255))
         final.paste(img, mask=img.split()[3])
         
-        out_dir = work_dir or os.path.dirname(os.path.abspath(logo_path)) if logo_path else '/tmp'
+        out_dir = work_dir or (os.path.dirname(os.path.abspath(logo_path)) if logo_path else '/tmp')
         chart_path = os.path.join(out_dir, '_chart_donut.png')
         final.save(chart_path, 'PNG', quality=95)
         return chart_path
