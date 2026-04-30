@@ -383,6 +383,9 @@
                 <div class="nav-section-title" onclick="toggleSection('sec-moyens')">🏠 MOYENS GÉNÉRAUX <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/achats" class="{% if page == 'achats' %}active{% endif %}">🛒 Achats</a>
+                    {% if 'fournisseurs' in permissions or 'admin' in permissions %}
+                    <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail') %}active{% endif %}">🏭 Fournisseurs (suivi paiements)</a>
+                    {% endif %}
                     <a href="/moyens-generaux/fournitures" class="{% if page == 'fournitures' %}active{% endif %}">📦 Fournitures bureau</a>
                     <a href="/moyens-generaux/maintenance" class="{% if page == 'maintenance' %}active{% endif %}">🔧 Maintenance</a>
                     <a href="/moyens-generaux/vehicules" class="{% if page == 'vehicules' %}active{% endif %}">🚗 Parc véhicules</a>

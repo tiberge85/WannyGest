@@ -3548,6 +3548,131 @@ def migrate_v56():
     conn.commit(); conn.close()
 
 
+def migrate_v57():
+    """v57 : Module Fournisseurs / Achats / Paiements (acomptes)."""
+    conn = get_db()
+    # Table fournisseurs (séparée d'achats_fournisseurs si différent)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS suppliers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            telephone TEXT,
+            email TEXT,
+            adresse TEXT,
+            contact TEXT,
+            notes TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v57 suppliers: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_supplier_name ON suppliers(nom)")
+    except: pass
+    
+    # Table achats fournisseurs
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS supplier_purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_id INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            categorie TEXT,
+            montant_total REAL NOT NULL,
+            date TEXT,
+            date_echeance TEXT,
+            departement TEXT,
+            notes TEXT,
+            attachment TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v57 supplier_purchases: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_purch_supplier ON supplier_purchases(supplier_id)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_purch_date ON supplier_purchases(date)")
+    except: pass
+    
+    # Table paiements (acomptes)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS supplier_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            purchase_id INTEGER NOT NULL,
+            montant REAL NOT NULL,
+            date TEXT NOT NULL,
+            mode_paiement TEXT,
+            reference TEXT,
+            caisse_sortie_id INTEGER,
+            notes TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except Exception as e: print(f"v57 supplier_payments: {e}")
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_pay_purchase ON supplier_payments(purchase_id)")
+    except: pass
+    
+    # Permissions par défaut
+    default_fournisseurs_perms = {
+        'admin':           ['fournisseurs', 'fournisseurs_edit'],
+        'dg':              ['fournisseurs', 'fournisseurs_edit'],
+        'comptable':       ['fournisseurs', 'fournisseurs_edit'],
+        'moyens_generaux': ['fournisseurs', 'fournisseurs_edit'],
+        'resp_projet':     ['fournisseurs'],
+        'commercial':      ['fournisseurs'],
+    }
+    for role, perms in default_fournisseurs_perms.items():
+        for perm in perms:
+            try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    conn.commit(); conn.close()
+
+
+def get_purchase_status(purchase_id):
+    """Retourne (status, total_paye, reste, pct_paye) pour un achat."""
+    conn = get_db()
+    try:
+        purchase = conn.execute("SELECT montant_total FROM supplier_purchases WHERE id=?",
+                               (purchase_id,)).fetchone()
+        if not purchase:
+            conn.close(); return ('inconnu', 0, 0, 0)
+        total = float(purchase['montant_total'] or 0)
+        paid = conn.execute("SELECT COALESCE(SUM(montant), 0) FROM supplier_payments WHERE purchase_id=?",
+                           (purchase_id,)).fetchone()[0] or 0
+        paid = float(paid)
+        reste = max(0, total - paid)
+        pct = (paid / total * 100) if total > 0 else 0
+        if paid <= 0: status = 'non_paye'
+        elif paid >= total: status = 'solde'
+        else: status = 'partiel'
+        conn.close()
+        return (status, paid, reste, pct)
+    except Exception:
+        conn.close()
+        return ('inconnu', 0, 0, 0)
+
+
+def get_supplier_summary(supplier_id):
+    """Retourne le total des achats, total payé, reste pour un fournisseur."""
+    conn = get_db()
+    try:
+        total_purch = conn.execute(
+            "SELECT COALESCE(SUM(montant_total), 0) FROM supplier_purchases WHERE supplier_id=?",
+            (supplier_id,)).fetchone()[0] or 0
+        total_paid = conn.execute("""SELECT COALESCE(SUM(sp.montant), 0)
+            FROM supplier_payments sp JOIN supplier_purchases p ON sp.purchase_id=p.id
+            WHERE p.supplier_id=?""", (supplier_id,)).fetchone()[0] or 0
+        conn.close()
+        return {
+            'total_purchases': float(total_purch),
+            'total_paid': float(total_paid),
+            'reste': max(0, float(total_purch) - float(total_paid)),
+            'pct_paid': (float(total_paid) / float(total_purch) * 100) if total_purch else 0,
+        }
+    except Exception:
+        conn.close()
+        return {'total_purchases': 0, 'total_paid': 0, 'reste': 0, 'pct_paid': 0}
+
+
 def compute_penalty(ecart_minutes, penalty_per_minute=0, grace_minutes=0):
     """Calcule la pénalité en F CFA pour un retard donné."""
     if ecart_minutes <= 0 or penalty_per_minute <= 0:
@@ -3592,6 +3717,55 @@ def is_module_active(module_key):
         return bool(row and row['is_active'])
     except:
         conn.close()
+        return False
+
+
+def send_email_smtp(to_email, subject, body, attachments=None):
+    """Envoie un email via SMTP. Utilise les variables d'env :
+    SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_USE_TLS.
+    Retourne True/False."""
+    import os, smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.base import MIMEBase
+    from email import encoders
+    
+    host = os.environ.get('SMTP_HOST', '')
+    port = int(os.environ.get('SMTP_PORT', '587') or 587)
+    smtp_user = os.environ.get('SMTP_USER', '')
+    smtp_pwd = os.environ.get('SMTP_PASSWORD', '')
+    smtp_from = os.environ.get('SMTP_FROM', smtp_user or 'noreply@ramyaci.tech')
+    use_tls = os.environ.get('SMTP_USE_TLS', '1') in ('1', 'true', 'True')
+    
+    if not host or not smtp_user:
+        return False  # Pas configuré
+    
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = smtp_from
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # Pièces jointes
+        if attachments:
+            for filename, data, mime_type in attachments:
+                part = MIMEBase(*mime_type.split('/'))
+                part.set_payload(data)
+                encoders.encode_base64(part)
+                part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+                msg.attach(part)
+        
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.ehlo()
+            if use_tls:
+                server.starttls()
+                server.ehlo()
+            server.login(smtp_user, smtp_pwd)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"send_email_smtp error: {e}")
         return False
 
 
@@ -3670,24 +3844,41 @@ def get_user_planning(user_id):
 
 
 def can_pointer(user_id, type_action, date_str=None):
-    """Retourne (bool, message)."""
+    """Retourne (bool, message). Applique l'ordre strict :
+    1. Arrivée OBLIGATOIRE en premier (pas de pause/retour/départ sans arrivée).
+    2. Retour OBLIGATOIRE après pause (pas de retour sans pause).
+    3. Si pause faite, départ exige retour (pas de départ sans retour de pause).
+    4. Pas de doublon le même jour."""
     if not date_str:
         date_str = datetime.now().strftime('%Y-%m-%d')
     today_p = get_today_pointages(user_id, date_str)
     types_done = [p['type'] for p in today_p]
-    if type_action in types_done:
-        return False, f"Vous avez déjà pointé '{type_action}' aujourd'hui."
-    order = ['arrivee', 'pause', 'retour', 'depart']
-    if type_action not in order:
+    
+    labels = {'arrivee':"l'arrivée", 'pause':"le début de pause",
+              'retour':"le retour de pause", 'depart':"le départ"}
+    
+    # Règle 0 : type connu
+    if type_action not in ('arrivee', 'pause', 'retour', 'depart'):
         return False, "Type de pointage inconnu."
-    expected_idx = order.index(type_action)
-    for prev_type in order[:expected_idx]:
-        if prev_type in ('pause', 'retour'):
-            continue
-        if prev_type not in types_done:
-            return False, f"Vous devez d'abord pointer '{prev_type}'."
+    
+    # Règle 1 : pas de doublon
+    if type_action in types_done:
+        return False, f"❌ Vous avez déjà pointé {labels[type_action]} aujourd'hui."
+    
+    # Règle 2 : ARRIVÉE obligatoire avant tout
+    if type_action != 'arrivee' and 'arrivee' not in types_done:
+        return False, f"⛔ Vous devez d'abord pointer votre ARRIVÉE avant de pointer {labels[type_action]}."
+    
+    # Règle 3 : RETOUR exige PAUSE faite avant
     if type_action == 'retour' and 'pause' not in types_done:
-        return False, "Vous devez d'abord pointer 'pause' avant 'retour'."
+        return False, "⛔ Vous devez d'abord pointer le DÉBUT DE PAUSE avant le retour de pause."
+    
+    # Règle 4 : si PAUSE faite mais pas RETOUR, on ne peut pas DÉPART (oblige à pointer retour avant)
+    if type_action == 'depart' and 'pause' in types_done and 'retour' not in types_done:
+        return False, "⛔ Vous êtes en pause. Pointez d'abord le RETOUR DE PAUSE avant votre départ."
+    
+    # Règle 5 : ordre PAUSE après ARRIVÉE (déjà couvert par règle 2)
+    
     return True, "OK"
 
 

@@ -58,8 +58,10 @@
             <div class="c-av ch">G</div><div class="c-info"><div class="c-name"># Général</div><div class="c-last">Canal principal</div></div></a>
         {% for ch in channels %}
         <a href="/chat?channel={{ ch.name|lower|replace(' ','_') }}" class="c-item {% if channel==ch.name|lower|replace(' ','_') %}active{% endif %}" data-n="{{ ch.name|lower }}">
-            <div class="c-av ch">{{ ch.name[:1] }}</div><div class="c-info"><div class="c-name"># {{ ch.name }}</div><div class="c-last">{{ ch.description or '' }}</div></div></a>
+            <div class="c-av ch">{{ ch.name[:1] }}</div><div class="c-info"><div class="c-name"># {{ ch.name }}</div><div class="c-last">{{ ch.description or '' }}</div></div>
+            <a href="/chat/channel/{{ ch.id }}/members" style="opacity:0.5;font-size:13px;padding:2px 6px" title="Gérer">⚙️</a></a>
         {% endfor %}
+        <button onclick="document.getElementById('newChannelModal').style.display='flex'" style="margin:8px 14px;padding:8px;background:#1a7a6d;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700">+ Créer un canal</button>
         {% else %}
         {% for c in dm_contacts %}
         <a href="/chat?dm={{ c.uid }}" class="c-item {% if dm_target and dm_target.id==c.uid %}active{% endif %}" data-n="{{ c.full_name|lower }}">
@@ -178,4 +180,42 @@ function startCall(t){
     });
 }
 </script>
+
+<!-- Modal Création de canal -->
+<div id="newChannelModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:520px;width:92%;max-height:88vh;overflow:auto">
+    <h3 style="margin:0 0 12px;color:#1a7a6d">💬 Créer un nouveau canal</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:14px">Sélectionnez les membres qui pourront discuter dans ce canal.</p>
+    <form method="post" action="/chat/channel/create">
+        <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:#888;display:block">Nom du canal *</label>
+            <input name="name" required placeholder="Projet Alpha" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:#888;display:block">Description (optionnel)</label>
+            <input name="description" placeholder="Discussion autour du projet..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:#888;display:block">Membres à inviter</label>
+            <div style="max-height:240px;overflow-y:auto;border:1.5px solid #ddd;border-radius:6px;padding:8px;background:#fafafa">
+                {% for u in users %}{% if u.id != current_user.id %}
+                <label style="display:flex;gap:8px;align-items:center;padding:5px 4px;border-radius:4px;cursor:pointer;font-size:12px" onmouseover="this.style.background='#fff'" onmouseout="this.style.background='transparent'">
+                    <input type="checkbox" name="members[]" value="{{ u.id }}">
+                    <span style="background:#1a7a6d;color:#fff;width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">{{ u.full_name[:2]|upper }}</span>
+                    <span><strong>{{ u.full_name }}</strong> <span style="color:#888;font-size:10px">— {{ u.role }}{% if u.department %} · {{ u.department }}{% endif %}</span></span>
+                </label>
+                {% endif %}{% endfor %}
+            </div>
+            <div style="margin-top:6px;display:flex;gap:6px">
+                <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelectorAll('#newChannelModal input[name=\'members[]\']').forEach(c=>c.checked=true)" style="font-size:10px">Tout cocher</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="document.querySelectorAll('#newChannelModal input[name=\'members[]\']').forEach(c=>c.checked=false)" style="font-size:10px">Tout décocher</button>
+            </div>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('newChannelModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-sm" style="background:#1a7a6d;color:#fff">+ Créer le canal</button>
+        </div>
+    </form>
+</div></div>
+
 {% endblock %}

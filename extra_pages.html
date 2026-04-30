@@ -943,6 +943,42 @@ function toggleDetail() {
 <a href="/interventions/{{ inter.id }}/attestation.pdf" class="btn btn-sm no-print" style="background:#7b1fa2;color:#fff;font-weight:700">📜 Attestation</a>
 {% endif %}
 <button class="btn btn-sm no-print" style="background:#1a3a5c;color:#fff" onclick="window.print()">🖨️ Imprimer</button>
+<button class="btn btn-sm no-print" style="background:#1976d2;color:#fff" onclick="document.getElementById('sendMailModal').style.display='flex'">📧 Envoyer par email</button>
+<button class="btn btn-sm no-print" style="background:#25d366;color:#fff" onclick="document.getElementById('sendWaModal').style.display='flex'">💬 Envoyer WhatsApp</button>
+</div></div>
+
+<!-- Modal Email -->
+<div id="sendMailModal" class="no-print" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:500px;width:92%">
+    <h3 style="margin:0 0 12px;color:#1976d2">📧 Envoyer la fiche par email</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:12px">Le client recevra un récapitulatif de l'intervention. Si l'email du client est manquant, saisissez-le ci-dessous.</p>
+    <form method="post" action="/interventions/{{ inter.id }}/fiche/send-mail">
+        <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:#888;display:block">Destinataire</label>
+            <input type="email" name="email" value="{{ inter.client_info.email if inter.client_info else '' }}" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('sendMailModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-sm" style="background:#1976d2;color:#fff">📧 Envoyer</button>
+        </div>
+    </form>
+</div></div>
+
+<!-- Modal WhatsApp -->
+<div id="sendWaModal" class="no-print" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:500px;width:92%">
+    <h3 style="margin:0 0 12px;color:#25d366">💬 Envoyer la fiche par WhatsApp</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:12px">Un message WhatsApp pré-rempli s'ouvrira avec le résumé et un lien vers la fiche en ligne.</p>
+    <form method="get" action="/interventions/{{ inter.id }}/fiche/whatsapp">
+        <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:#888;display:block">Numéro WhatsApp (avec indicatif pays, ex: +225XXXXXXXX)</label>
+            <input type="tel" name="phone" value="{{ inter.client_info.phone if inter.client_info else '' }}" required placeholder="+225 07 00 00 00 00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('sendWaModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-sm" style="background:#25d366;color:#fff">💬 Ouvrir WhatsApp</button>
+        </div>
+    </form>
 </div></div>
 
 <div class="card" style="max-width:800px;margin:0 auto">
@@ -1746,7 +1782,7 @@ function submitPointage(type) {
 <h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">👥 Employés ({{ date_filter }})</h3>
 <div class="card"><div class="card-body" style="padding:0;overflow:auto">
 <table>
-<thead><tr><th>Employé</th><th>Département</th><th>Arrivée</th><th>Départ</th><th>Statut arrivée</th></tr></thead>
+<thead><tr><th>Employé</th><th>Département</th><th>Arrivée</th><th>Départ</th><th>Statut arrivée</th><th>Rapport</th></tr></thead>
 <tbody>
 {% for u in users_present %}
 <tr style="{% if u.status_arrivee == 'retard' %}background:#fef0f0{% elif not u.h_arrivee %}background:#fafafa;color:#999{% endif %}">
@@ -1762,6 +1798,9 @@ function submitPointage(type) {
         {% else %}
             <span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fafafa;color:#999">⚠️ Absent</span>
         {% endif %}
+    </td>
+    <td>
+        <a href="/admin/pointage/rapport/{{ u.id }}/{{ date_filter[:7] }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px" target="_blank" title="Télécharger rapport mensuel PDF">📄 PDF</a>
     </td>
 </tr>
 {% endfor %}
@@ -2023,6 +2062,86 @@ function getMyPos(){
     <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
 </form>
 
+<!-- ===== DONUT CIRCULAIRE COMPLET avec logo RAMYA au centre ===== -->
+{% set total_ok = (daily | map(attribute='ok') | map('default', 0) | sum) | int %}
+{% set total_late = (daily | map(attribute='late') | map('default', 0) | sum) | int %}
+{% set total_early = (daily | map(attribute='early') | map('default', 0) | sum) | int %}
+{% set total_all = total_ok + total_late + total_early %}
+{% if total_all > 0 %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+<h3 style="margin-top:0;color:#1a3a5c">🎯 Vue d'ensemble du mois</h3>
+<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:30px;padding:14px">
+    <div style="position:relative;width:280px;height:280px">
+        {# Calcul des angles de chaque arc (en pourcentage du total) #}
+        {% set pct_ok = (total_ok / total_all * 100) | round(2) %}
+        {% set pct_late = (total_late / total_all * 100) | round(2) %}
+        {% set pct_early = (total_early / total_all * 100) | round(2) %}
+        {# stroke-dasharray = (proportion * circumference) | (rest of circumference) #}
+        {# Circle r=80, circumference = 2*pi*80 = 502.65 #}
+        {% set circ = 502.65 %}
+        {% set len_ok = (pct_ok / 100 * circ) | round(2) %}
+        {% set len_late = (pct_late / 100 * circ) | round(2) %}
+        {% set len_early = (pct_early / 100 * circ) | round(2) %}
+        {# Décalages cumulatifs pour stroke-dashoffset #}
+        {% set off_ok = 0 %}
+        {% set off_late = -len_ok %}
+        {% set off_early = (-(len_ok + len_late)) %}
+        <svg viewBox="0 0 200 200" style="width:100%;height:100%;transform:rotate(-90deg)">
+            <!-- Cercle de fond -->
+            <circle cx="100" cy="100" r="80" fill="none" stroke="#f0f0f0" stroke-width="32"/>
+            <!-- Arc Normal (vert) -->
+            {% if total_ok > 0 %}
+            <circle cx="100" cy="100" r="80" fill="none" stroke="#2e7d32" stroke-width="32"
+                    stroke-dasharray="{{ len_ok }} {{ circ - len_ok }}"
+                    stroke-dashoffset="{{ off_ok }}" stroke-linecap="butt"/>
+            {% endif %}
+            <!-- Arc Retard (rouge) -->
+            {% if total_late > 0 %}
+            <circle cx="100" cy="100" r="80" fill="none" stroke="#c53030" stroke-width="32"
+                    stroke-dasharray="{{ len_late }} {{ circ - len_late }}"
+                    stroke-dashoffset="{{ off_late }}" stroke-linecap="butt"/>
+            {% endif %}
+            <!-- Arc Avance (orange) -->
+            {% if total_early > 0 %}
+            <circle cx="100" cy="100" r="80" fill="none" stroke="#f29f2f" stroke-width="32"
+                    stroke-dasharray="{{ len_early }} {{ circ - len_early }}"
+                    stroke-dashoffset="{{ off_early }}" stroke-linecap="butt"/>
+            {% endif %}
+        </svg>
+        {# Logo RAMYA au centre, sans fond #}
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:96px;height:96px;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center">
+            <img src="/static/logo_ramya.png" alt="RAMYA" style="max-width:80px;max-height:50px;mix-blend-mode:multiply;filter:contrast(1.1)" onerror="this.style.display='none'">
+            <div style="font-size:10px;color:#1a3a5c;font-weight:700;margin-top:2px">{{ total_all }}</div>
+            <div style="font-size:8px;color:#888">pointages</div>
+        </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:180px">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2e7d32">
+            <div style="width:14px;height:14px;border-radius:50%;background:#2e7d32"></div>
+            <div style="flex:1">
+                <div style="font-size:11px;color:#666">À l'heure</div>
+                <div style="font-size:18px;font-weight:800;color:#2e7d32">{{ total_ok }} <span style="font-size:11px;color:#888">({{ pct_ok }}%)</span></div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#fde8e8;border-radius:8px;border-left:4px solid #c53030">
+            <div style="width:14px;height:14px;border-radius:50%;background:#c53030"></div>
+            <div style="flex:1">
+                <div style="font-size:11px;color:#666">En retard</div>
+                <div style="font-size:18px;font-weight:800;color:#c53030">{{ total_late }} <span style="font-size:11px;color:#888">({{ pct_late }}%)</span></div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#fff3e0;border-radius:8px;border-left:4px solid #f29f2f">
+            <div style="width:14px;height:14px;border-radius:50%;background:#f29f2f"></div>
+            <div style="flex:1">
+                <div style="font-size:11px;color:#666">En avance</div>
+                <div style="font-size:18px;font-weight:800;color:#b8561f">{{ total_early }} <span style="font-size:11px;color:#888">({{ pct_early }}%)</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+</div></div>
+{% endif %}
+
 <!-- Présence par jour -->
 <div class="card"><div class="card-body">
 <h3 style="margin-top:0">Présence par jour ({{ month }})</h3>
@@ -2283,10 +2402,11 @@ function getMyPos(){
     <td style="font-size:10px">{{ u.last_login[:16] if u.last_login else '—' }}</td>
     <td style="text-align:center">{% if u.is_active %}✅{% else %}⏸️{% endif %}</td>
     <td>
+        <a href="/admin/pointage/companies/{{ company.id }}/user/{{ u.id }}/edit" class="btn btn-sm" style="background:#1976d2;color:#fff;font-size:10px" title="Modifier">✏️</a>
         <form method="post" action="/admin/pointage/companies/{{ company.id }}/user/{{ u.id }}/reset" style="display:inline" onsubmit="return confirm('Réinitialiser le mot de passe ?')">
             <button type="submit" class="btn btn-sm" style="background:#f29f2f;color:#fff;font-size:10px" title="Reset password">🔑</button>
         </form>
-        <a href="/admin/pointage/companies/{{ company.id }}/user/{{ u.id }}/toggle" class="btn btn-sm" style="background:#888;color:#fff;font-size:10px">{% if u.is_active %}⏸️{% else %}▶️{% endif %}</a>
+        <a href="/admin/pointage/companies/{{ company.id }}/user/{{ u.id }}/toggle" class="btn btn-sm" style="background:#888;color:#fff;font-size:10px" title="Activer/Désactiver">{% if u.is_active %}⏸️{% else %}▶️{% endif %}</a>
     </td>
 </tr>
 {% endfor %}
@@ -2323,6 +2443,450 @@ function getMyPos(){
 {% else %}
 <div style="text-align:center;padding:30px;color:#888">Aucun pointage encore.</div>
 {% endif %}
+</div></div>
+
+{% elif page == 'chat_channel_members' %}
+<div class="page-header">
+    <h1>💬 Gestion canal — # {{ channel.name }}</h1>
+    <a href="/chat?channel={{ channel.name|lower|replace(' ','_') }}" class="btn btn-outline btn-sm">← Retour au chat</a>
+</div>
+
+{% if can_manage %}
+<div class="card"><div class="card-body">
+    <h3 style="margin-top:0">⚙️ Paramètres du canal</h3>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;align-items:end">
+        <input type="hidden" name="action" value="rename">
+        <div><label style="font-size:11px;color:#888;display:block">Nom</label>
+            <input name="name" value="{{ channel.name }}" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Description</label>
+            <input name="description" value="{{ channel.description or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer</button>
+    </form>
+</div></div>
+
+<div class="card" style="margin-top:14px"><div class="card-body">
+    <h3 style="margin-top:0">+ Ajouter un membre</h3>
+    <form method="post" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <input type="hidden" name="action" value="add">
+        <div style="flex:1;min-width:200px">
+            <label style="font-size:11px;color:#888;display:block">Choisir un utilisateur</label>
+            <select name="user_id" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">--</option>
+                {% for u in available %}<option value="{{ u.id }}">{{ u.full_name }} ({{ u.role }})</option>{% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+    </form>
+</div></div>
+{% endif %}
+
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">👥 Membres ({{ members|length }})</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if members %}
+<table>
+<thead><tr><th>Nom</th><th>Rôle WannyGest</th><th>Département</th><th>Rôle canal</th><th>Rejoint le</th>{% if can_manage %}<th>Actions</th>{% endif %}</tr></thead>
+<tbody>
+{% for m in members %}
+<tr>
+    <td><strong>{{ m.full_name }}</strong></td>
+    <td style="font-size:11px">{{ m.role }}</td>
+    <td style="font-size:11px">{{ m.department or '-' }}</td>
+    <td><span style="padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700;{% if m.ch_role == 'owner' %}background:#fff3e0;color:#b8561f{% else %}background:#e0f5f1;color:#1a7a6d{% endif %}">{% if m.ch_role == 'owner' %}👑 Owner{% else %}👤 Membre{% endif %}</span></td>
+    <td style="font-size:10px">{{ m.joined_at[:10] if m.joined_at else '-' }}</td>
+    {% if can_manage %}
+    <td>
+        {% if m.ch_role != 'owner' %}
+        <form method="post" style="display:inline" onsubmit="return confirm('Retirer ce membre ?')">
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="user_id" value="{{ m.id }}">
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px">🗑️ Retirer</button>
+        </form>
+        {% else %}—{% endif %}
+    </td>
+    {% endif %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun membre.</div>
+{% endif %}
+</div></div>
+
+{% if can_manage %}
+<div class="card" style="margin-top:14px;border-left:4px solid #c53030"><div class="card-body">
+    <h3 style="margin-top:0;color:#c53030">⚠️ Zone dangereuse</h3>
+    <p style="font-size:12px;color:#666">La suppression du canal est définitive. Les messages ne seront plus accessibles dans ce canal.</p>
+    <form method="post" onsubmit="return confirm('SUPPRIMER DÉFINITIVEMENT le canal {{ channel.name }} ? Cette action est irréversible.')">
+        <input type="hidden" name="action" value="delete">
+        <button type="submit" class="btn" style="background:#c53030;color:#fff">🗑️ Supprimer le canal</button>
+    </form>
+</div></div>
+{% endif %}
+
+{% elif page == 'fournisseurs_list' %}
+<div class="page-header">
+    <h1>🏭 Fournisseurs</h1>
+    <div style="display:flex;gap:6px">
+        <a href="/fournisseurs/export.csv" class="btn btn-outline btn-sm">📥 Export CSV</a>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('newSupModal').style.display='flex'">+ Nouveau fournisseur</button>
+    </div>
+</div>
+
+<!-- Stats globales -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:14px">
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #1a3a5c">
+        <div style="font-size:22px;font-weight:800;color:#1a3a5c">{{ "{:,.0f}".format(grand_total) }} F</div>
+        <div style="font-size:11px;color:#888">💰 Total achats</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #2e7d32">
+        <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ "{:,.0f}".format(grand_paid) }} F</div>
+        <div style="font-size:11px;color:#888">✅ Total payé</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #c53030">
+        <div style="font-size:22px;font-weight:800;color:#c53030">{{ "{:,.0f}".format(grand_rest) }} F</div>
+        <div style="font-size:11px;color:#888">🔴 Reste à payer (dette)</div>
+    </div>
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if suppliers %}
+<table>
+<thead><tr><th>Fournisseur</th><th>Contact</th><th>Total achats</th><th>Payé</th><th>Reste</th><th>% payé</th><th>Actions</th></tr></thead>
+<tbody>
+{% for s in suppliers %}
+<tr>
+    <td>
+        <strong>{{ s.nom }}</strong>
+        {% if s.adresse %}<br><span style="font-size:10px;color:#888">📍 {{ s.adresse }}</span>{% endif %}
+    </td>
+    <td style="font-size:11px">
+        {% if s.telephone %}📞 {{ s.telephone }}<br>{% endif %}
+        {% if s.email %}✉️ {{ s.email }}{% endif %}
+    </td>
+    <td style="font-weight:700">{{ "{:,.0f}".format(s.total_purchases or 0) }} F</td>
+    <td style="color:#2e7d32">{{ "{:,.0f}".format(s.total_paid or 0) }} F</td>
+    <td style="color:#c53030;font-weight:700">{{ "{:,.0f}".format(s.reste or 0) }} F</td>
+    <td>
+        <div style="position:relative;width:80px;height:14px;background:#f0f0f0;border-radius:7px;overflow:hidden">
+            <div style="position:absolute;inset:0;width:{{ s.pct_paid|round|int }}%;background:{% if s.pct_paid >= 100 %}#2e7d32{% elif s.pct_paid > 0 %}#f29f2f{% else %}#c53030{% endif %}"></div>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#1a3a5c">{{ s.pct_paid|round|int }}%</div>
+        </div>
+    </td>
+    <td>
+        <a href="/fournisseurs/{{ s.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px">📋 Détail</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun fournisseur. Créez-en un avec le bouton ci-dessus.</div>
+{% endif %}
+</div></div>
+
+<!-- Modal nouveau fournisseur -->
+<div id="newSupModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:500px;width:92%;max-height:88vh;overflow:auto">
+    <h3 style="margin:0 0 12px;color:#1a7a6d">+ Nouveau fournisseur</h3>
+    <form method="post" action="/fournisseurs/add">
+        <div style="margin-bottom:8px"><label style="font-size:11px;color:#888;display:block">Nom *</label>
+            <input name="nom" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><label style="font-size:11px;color:#888;display:block">Téléphone</label>
+                <input name="telephone" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            <div><label style="font-size:11px;color:#888;display:block">Email</label>
+                <input type="email" name="email" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        </div>
+        <div style="margin:8px 0"><label style="font-size:11px;color:#888;display:block">Adresse</label>
+            <input name="adresse" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Personne contact</label>
+            <input name="contact" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div style="margin-top:8px"><label style="font-size:11px;color:#888;display:block">Notes</label>
+            <textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></textarea></div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:12px">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('newSupModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">+ Créer</button>
+        </div>
+    </form>
+</div></div>
+
+{% elif page == 'fournisseur_detail' %}
+<div class="page-header">
+    <h1>🏭 {{ supplier.nom }}</h1>
+    <div style="display:flex;gap:6px">
+        <a href="/fournisseurs" class="btn btn-outline btn-sm">← Liste</a>
+    </div>
+</div>
+
+<!-- Synthèse -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:14px">
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #1a3a5c">
+        <div style="font-size:20px;font-weight:800;color:#1a3a5c">{{ "{:,.0f}".format(summary.total_purchases) }} F</div>
+        <div style="font-size:10px;color:#888">Total achats</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #2e7d32">
+        <div style="font-size:20px;font-weight:800;color:#2e7d32">{{ "{:,.0f}".format(summary.total_paid) }} F</div>
+        <div style="font-size:10px;color:#888">Total payé</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #c53030">
+        <div style="font-size:20px;font-weight:800;color:#c53030">{{ "{:,.0f}".format(summary.reste) }} F</div>
+        <div style="font-size:10px;color:#888">Reste à payer</div>
+    </div>
+    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #f29f2f">
+        <div style="font-size:20px;font-weight:800;color:#b8561f">{{ summary.pct_paid|round|int }}%</div>
+        <div style="font-size:10px;color:#888">Couverture paiement</div>
+    </div>
+</div>
+
+<!-- Infos contact -->
+<div class="card"><div class="card-body">
+    <h3 style="margin-top:0">📋 Informations</h3>
+    {% if can_edit %}
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;align-items:end">
+        <input type="hidden" name="action" value="update_supplier">
+        <div><label style="font-size:11px;color:#888;display:block">Nom</label>
+            <input name="nom" value="{{ supplier.nom }}" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Téléphone</label>
+            <input name="telephone" value="{{ supplier.telephone or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Email</label>
+            <input type="email" name="email" value="{{ supplier.email or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Contact</label>
+            <input name="contact" value="{{ supplier.contact or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div style="grid-column:1/-1"><label style="font-size:11px;color:#888;display:block">Adresse</label>
+            <input name="adresse" value="{{ supplier.adresse or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div style="grid-column:1/-1"><label style="font-size:11px;color:#888;display:block">Notes</label>
+            <textarea name="notes" rows="2" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">{{ supplier.notes or '' }}</textarea></div>
+        <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer</button>
+    </form>
+    {% else %}
+    <p>📞 {{ supplier.telephone or '-' }}<br>✉️ {{ supplier.email or '-' }}<br>📍 {{ supplier.adresse or '-' }}</p>
+    {% endif %}
+</div></div>
+
+{% if can_edit %}
+<div class="card" style="margin-top:14px"><div class="card-body">
+    <h3 style="margin-top:0">+ Nouvel achat</h3>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
+        <input type="hidden" name="action" value="add_purchase">
+        <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Description *</label>
+            <input name="description" required placeholder="Caméras IP 4MP x10" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Catégorie</label>
+            <input name="categorie" placeholder="Équipement" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Montant total (F CFA) *</label>
+            <input type="number" name="montant_total" required min="0" step="100" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Date</label>
+            <input type="date" name="date" value="{{ today_str if today_str else '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Date échéance</label>
+            <input type="date" name="date_echeance" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Département</label>
+            <input name="departement" placeholder="Technique, Commercial..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
+    </form>
+</div></div>
+{% endif %}
+
+<!-- Liste achats -->
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">🛒 Achats ({{ purchases|length }})</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if purchases %}
+<table>
+<thead><tr><th>Date</th><th>Description</th><th>Total</th><th>Payé</th><th>Reste</th><th>Statut</th><th>Échéance</th><th>Action</th></tr></thead>
+<tbody>
+{% for p in purchases %}
+<tr style="{% if p.overdue %}background:#fde8e8{% endif %}">
+    <td style="font-size:11px;font-family:monospace">{{ p.date or '-' }}</td>
+    <td><strong>{{ p.description }}</strong>{% if p.categorie %}<br><span style="font-size:10px;color:#888">{{ p.categorie }}</span>{% endif %}</td>
+    <td style="font-weight:700">{{ "{:,.0f}".format(p.montant_total) }} F</td>
+    <td style="color:#2e7d32">{{ "{:,.0f}".format(p.total_paid or 0) }} F</td>
+    <td style="color:#c53030;font-weight:700">{{ "{:,.0f}".format(p.reste or 0) }} F</td>
+    <td>
+        {% if p.status == 'solde' %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#e8f5e9;color:#2e7d32">🟢 Soldé</span>
+        {% elif p.status == 'partiel' %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fff3e0;color:#b8561f">🟠 Partiel ({{ p.pct_paid|round|int }}%)</span>
+        {% else %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fde8e8;color:#c53030">🔴 Non payé</span>{% endif %}
+    </td>
+    <td style="font-size:10px">{% if p.date_echeance %}{{ p.date_echeance }}{% if p.overdue %} ⚠️{% endif %}{% else %}—{% endif %}</td>
+    <td>
+        <a href="/fournisseurs/purchase/{{ p.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px">📋 Voir</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun achat. Ajoutez-en un avec le formulaire ci-dessus.</div>
+{% endif %}
+</div></div>
+
+{% elif page == 'purchase_detail' %}
+<div class="page-header">
+    <h1>📋 Achat — {{ purchase.description }}</h1>
+    <div style="display:flex;gap:6px">
+        <a href="/fournisseurs/{{ purchase.supplier_id }}" class="btn btn-outline btn-sm">← {{ purchase.supplier_nom }}</a>
+    </div>
+</div>
+
+<!-- Synthèse -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px">
+        <div>
+            <div style="font-size:11px;color:#888">Description</div>
+            <div style="font-weight:700">{{ purchase.description }}</div>
+        </div>
+        <div>
+            <div style="font-size:11px;color:#888">Montant total</div>
+            <div style="font-size:20px;font-weight:800;color:#1a3a5c">{{ "{:,.0f}".format(purchase.montant_total) }} F</div>
+        </div>
+        <div>
+            <div style="font-size:11px;color:#888">Total payé</div>
+            <div style="font-size:20px;font-weight:800;color:#2e7d32">{{ "{:,.0f}".format(purchase.total_paid) }} F</div>
+        </div>
+        <div>
+            <div style="font-size:11px;color:#888">Reste à payer</div>
+            <div style="font-size:20px;font-weight:800;color:#c53030">{{ "{:,.0f}".format(purchase.reste) }} F</div>
+        </div>
+        <div>
+            <div style="font-size:11px;color:#888">Date</div>
+            <div style="font-weight:700">{{ purchase.date or '-' }}</div>
+        </div>
+        {% if purchase.date_echeance %}
+        <div>
+            <div style="font-size:11px;color:#888">Échéance</div>
+            <div style="font-weight:700;{% if purchase.reste > 0 and purchase.date_echeance < today_str|default('9999') %}color:#c53030{% endif %}">{{ purchase.date_echeance }}{% if purchase.reste > 0 and purchase.date_echeance < today_str|default('9999') %} ⚠️ Dépassée{% endif %}</div>
+        </div>
+        {% endif %}
+    </div>
+    <!-- Barre de progression -->
+    <div style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:11px;color:#888">Progression du paiement</span>
+            <span style="font-weight:700">{{ purchase.pct_paid|round|int }}%</span>
+        </div>
+        <div style="position:relative;height:18px;background:#f0f0f0;border-radius:9px;overflow:hidden">
+            <div style="position:absolute;inset:0;width:{{ purchase.pct_paid|round|int }}%;background:linear-gradient(90deg,{% if purchase.pct_paid >= 100 %}#2e7d32,#1b5e20{% elif purchase.pct_paid > 0 %}#f29f2f,#e8672a{% else %}#c53030,#8b1c1c{% endif %});transition:width 0.4s"></div>
+        </div>
+    </div>
+    <div style="margin-top:14px">
+        {% if purchase.status == 'solde' %}<span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700;background:#e8f5e9;color:#2e7d32">🟢 Soldé</span>
+        {% elif purchase.status == 'partiel' %}<span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700;background:#fff3e0;color:#b8561f">🟠 Partiellement payé</span>
+        {% else %}<span style="padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700;background:#fde8e8;color:#c53030">🔴 Non payé</span>{% endif %}
+    </div>
+</div></div>
+
+{% if can_edit and purchase.reste > 0 %}
+<div class="card" style="margin-top:14px"><div class="card-body">
+    <h3 style="margin-top:0">+ Ajouter un paiement (acompte)</h3>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
+        <input type="hidden" name="action" value="add_payment">
+        <div><label style="font-size:11px;color:#888;display:block">Montant (F CFA) *</label>
+            <input type="number" name="montant" required min="1" max="{{ purchase.reste|int }}" step="100" placeholder="Max: {{ '{:,.0f}'.format(purchase.reste) }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Date *</label>
+            <input type="date" name="date" required value="{{ today_str if today_str else '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Mode</label>
+            <select name="mode_paiement" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="espece">💵 Espèces</option>
+                <option value="cheque">💳 Chèque</option>
+                <option value="virement">🏦 Virement</option>
+                <option value="mobile">📱 Mobile money</option>
+            </select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Référence</label>
+            <input name="reference" placeholder="N° chèque, ref virement..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <button type="submit" class="btn btn-primary btn-sm">+ Enregistrer paiement</button>
+    </form>
+</div></div>
+{% endif %}
+
+<!-- Liste paiements -->
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">💰 Historique des paiements ({{ payments|length }})</h3>
+<div class="card"><div class="card-body" style="padding:0">
+{% if payments %}
+<table>
+<thead><tr><th>Date</th><th>Montant</th><th>Mode</th><th>Référence</th><th>Saisi par</th>{% if can_edit %}<th>Action</th>{% endif %}</tr></thead>
+<tbody>
+{% for pay in payments %}
+<tr>
+    <td style="font-family:monospace;font-size:11px">{{ pay.date }}</td>
+    <td style="font-weight:700;color:#2e7d32">{{ "{:,.0f}".format(pay.montant) }} F</td>
+    <td style="font-size:11px">{{ {'espece':'💵 Espèces','cheque':'💳 Chèque','virement':'🏦 Virement','mobile':'📱 Mobile'}[pay.mode_paiement] if pay.mode_paiement else '-' }}</td>
+    <td style="font-size:11px">{{ pay.reference or '-' }}</td>
+    <td style="font-size:11px">{{ pay.creator or '-' }}</td>
+    {% if can_edit %}
+    <td>
+        <form method="post" style="display:inline" onsubmit="return confirm('Supprimer ce paiement ?')">
+            <input type="hidden" name="action" value="delete_payment">
+            <input type="hidden" name="payment_id" value="{{ pay.id }}">
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px">🗑️</button>
+        </form>
+    </td>
+    {% endif %}
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucun paiement. {% if can_edit and purchase.reste > 0 %}Ajoutez-en un avec le formulaire ci-dessus.{% endif %}</div>
+{% endif %}
+</div></div>
+
+{% elif page == 'pointage_company_user_edit' %}
+<div class="page-header">
+    <h1>✏️ Modifier employé — {{ user.full_name }}</h1>
+    <a href="/admin/pointage/companies/{{ company.id }}" class="btn btn-outline btn-sm">← Retour {{ company.name }}</a>
+</div>
+
+<div class="card"><div class="card-body">
+<form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Identifiant *</label>
+        <input name="username" value="{{ user.username }}" required pattern="[a-z0-9._-]+" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Nom complet *</label>
+        <input name="full_name" value="{{ user.full_name }}" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Email</label>
+        <input type="email" name="email" value="{{ user.email or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Téléphone</label>
+        <input name="phone" value="{{ user.phone or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Poste</label>
+        <input name="poste" value="{{ user.poste or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Heure d'arrivée</label>
+        <input type="time" name="heure_arrivee" value="{{ user.heure_arrivee or '08:00' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Début de pause</label>
+        <input type="time" name="heure_pause" value="{{ user.heure_pause or '12:00' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Retour de pause</label>
+        <input type="time" name="heure_retour" value="{{ user.heure_retour or '13:00' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Heure de départ</label>
+        <input type="time" name="heure_depart" value="{{ user.heure_depart or '17:00' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Tolérance (min)</label>
+        <input type="number" name="tolerance" value="{{ user.tolerance_retard_minutes or 10 }}" min="0" max="60" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div style="grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end;margin-top:10px">
+        <a href="/admin/pointage/companies/{{ company.id }}" class="btn btn-outline btn-sm">Annuler</a>
+        <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer les modifications</button>
+    </div>
+</form>
+</div></div>
+
+<div class="card" style="margin-top:14px;border-left:4px solid #f29f2f"><div class="card-body">
+<p style="font-size:12px;color:#666;margin:0">
+    💡 Pour réinitialiser le mot de passe, utilisez le bouton 🔑 sur la liste des employés. Pour activer/désactiver, utilisez ⏸️/▶️.
+</p>
 </div></div>
 
 {% elif page == 'pt_login' %}

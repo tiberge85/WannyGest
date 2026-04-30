@@ -347,6 +347,8 @@ from models import migrate_v55
 migrate_v55()
 from models import migrate_v56
 migrate_v56()
+from models import migrate_v57
+migrate_v57()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -417,6 +419,10 @@ PERM_CATEGORIES = {
     'Achats / Stock': [
         ('achats', 'Voir les achats / fournisseurs / stock'),
         ('achats_edit', 'Créer/Modifier achats, fournisseurs, commandes'),
+    ],
+    'Fournisseurs (suivi achats)': [
+        ('fournisseurs', 'Voir fournisseurs et achats'),
+        ('fournisseurs_edit', 'Créer/Modifier fournisseurs, achats, paiements'),
     ],
     'Budgets': [
         ('budget_view', 'Voir les budgets (lecture globale)'),
@@ -666,7 +672,7 @@ def inject_globals():
                 try:
                     today = datetime.now().strftime('%Y-%m-%d')
                     tenders = [dict(r) for r in _sc.execute(
-                        "SELECT * FROM tender_links WHERE is_active=1 AND (deadline='' OR deadline>=?) ORDER BY deadline", (today,)).fetchall()]
+                        "SELECT * FROM tender_links WHERE active=1 AND (deadline='' OR deadline>=?) ORDER BY deadline", (today,)).fetchall()]
                     ctx['active_tenders'] = tenders
                 except: pass
                 # Interventions du jour pour le ticker (max 15)
@@ -6407,6 +6413,141 @@ def interventions_programme():
                           by_type=by_type, date=date, date_display=date_display, today=today,
                           is_admin=is_admin, visits_today=visits_today)
 
+
+@app.route('/interventions/<int:iid>/fiche/send-mail', methods=['POST', 'GET'])
+@login_required
+def intervention_fiche_send_mail(iid):
+    """Envoie la fiche d'intervention par email au client (PDF en pièce jointe)."""
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter:
+        flash("Intervention introuvable", "error")
+        conn.close(); return redirect(url_for('interventions_programme'))
+    inter = dict(inter)
+    
+    # Récupérer email client
+    client_email = ''
+    client_name = inter.get('client_name', '')
+    if inter.get('client_id'):
+        c = conn.execute("SELECT email, name FROM clients WHERE id=?", (inter['client_id'],)).fetchone()
+        if c:
+            client_email = c['email'] or ''
+            if not client_name: client_name = c['name'] or ''
+    conn.close()
+    
+    custom_email = (request.values.get('email','') or '').strip()
+    if custom_email: client_email = custom_email
+    if not client_email:
+        flash(f"⚠️ Aucun email pour {client_name}. Renseignez l'email du client ou utilisez WhatsApp.", "warning")
+        return redirect(f'/interventions/{iid}/fiche')
+    
+    # Construire le contenu du mail
+    user = get_user_by_id(session['user_id'])
+    subject = f"Fiche d'intervention {inter.get('reference','')} — {datetime.now().strftime('%d/%m/%Y')}"
+    body = f"""Bonjour {client_name},
+
+Veuillez trouver ci-joint la fiche d'intervention concernant les travaux réalisés sur votre site.
+
+Référence : {inter.get('reference','-')}
+Type : {inter.get('type','-')}
+Date : {inter.get('scheduled_date','-')}
+Statut : {inter.get('status','-')}
+Description : {inter.get('description','-') or inter.get('title','-')}
+
+Pour toute question, n'hésitez pas à nous contacter.
+
+Cordialement,
+{user.get('full_name','RAMYA Technologie') if user else 'RAMYA Technologie'}
+RAMYA TECHNOLOGIE & INNOVATION
+Abidjan, Côte d'Ivoire"""
+    
+    # Tentative d'envoi via le module email_send existant
+    try:
+        from models import send_email_smtp
+        ok = send_email_smtp(client_email, subject, body)
+        if ok:
+            try:
+                log_activity(session['user_id'], user['full_name'] if user else '?', 'Intervention',
+                            f"Fiche {inter.get('reference')} envoyée par email à {client_email}",
+                            request.remote_addr)
+            except: pass
+            flash(f"✅ Fiche envoyée par email à {client_email}", "success")
+        else:
+            flash(f"⚠️ Échec d'envoi. Vérifiez la config SMTP ou utilisez WhatsApp.", "warning")
+    except Exception as e:
+        # Fallback : ouvrir le client mail local de l'utilisateur via mailto:
+        from urllib.parse import quote
+        mailto_url = f"mailto:{client_email}?subject={quote(subject)}&body={quote(body)}"
+        flash(f"📧 Lien mailto généré (ouvrez votre boîte mail)", "info")
+        return redirect(mailto_url)
+    
+    return redirect(f'/interventions/{iid}/fiche')
+
+
+@app.route('/interventions/<int:iid>/fiche/whatsapp')
+@login_required
+def intervention_fiche_whatsapp(iid):
+    """Génère un lien WhatsApp Click-to-chat pré-rempli pour le client."""
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter:
+        flash("Intervention introuvable", "error")
+        conn.close(); return redirect(url_for('interventions_programme'))
+    inter = dict(inter)
+    
+    client_phone = ''
+    client_name = inter.get('client_name','')
+    if inter.get('client_id'):
+        c = conn.execute("SELECT phone, name FROM clients WHERE id=?", (inter['client_id'],)).fetchone()
+        if c:
+            client_phone = c['phone'] or ''
+            if not client_name: client_name = c['name']
+    conn.close()
+    
+    custom_phone = (request.args.get('phone','') or '').strip()
+    if custom_phone: client_phone = custom_phone
+    if not client_phone:
+        flash(f"⚠️ Aucun numéro WhatsApp pour {client_name}.", "warning")
+        return redirect(f'/interventions/{iid}/fiche')
+    
+    # Nettoyer le numéro (garder chiffres + indicatif)
+    import re
+    phone_clean = re.sub(r'[^\d+]', '', client_phone)
+    if not phone_clean.startswith('+'):
+        # Si format ivoirien sans préfixe, ajouter +225
+        if phone_clean.startswith('00'):
+            phone_clean = '+' + phone_clean[2:]
+        elif len(phone_clean) == 10 and phone_clean[0] in '0':
+            phone_clean = '+225' + phone_clean
+        elif len(phone_clean) == 8:
+            phone_clean = '+225' + phone_clean
+    phone_clean = phone_clean.lstrip('+')
+    
+    base_url = request.host_url.rstrip('/')
+    fiche_url = f"{base_url}/interventions/{iid}/fiche"
+    
+    msg = f"""Bonjour {client_name},
+Voici la fiche d'intervention {inter.get('reference','-')} du {inter.get('scheduled_date','-')}.
+Type : {inter.get('type','-')}
+Statut : {inter.get('status','-')}
+
+Consulter en ligne : {fiche_url}
+
+Cordialement,
+RAMYA TECHNOLOGIE"""
+    
+    from urllib.parse import quote
+    wa_url = f"https://wa.me/{phone_clean}?text={quote(msg)}"
+    
+    user = get_user_by_id(session['user_id'])
+    try:
+        log_activity(session['user_id'], user['full_name'] if user else '?', 'Intervention',
+                    f"Lien WhatsApp généré pour fiche {inter.get('reference')} → {phone_clean}",
+                    request.remote_addr)
+    except: pass
+    return redirect(wa_url)
+
+
 @app.route('/interventions/<int:iid>/daily-report', methods=['POST'])
 @login_required
 def intervention_daily_report(iid):
@@ -7373,21 +7514,48 @@ def intervention_status(iid, status):
         
         if status == 'travaux_termines':
             # ÉTAPE 1 : technicien termine
-            updates['end_work_at'] = datetime.now().isoformat()
-            updates['end_work_by'] = session['user_id']
-            _timeline_add(conn, iid, 'end_work', "🏗️ Travaux terminés par le technicien",
-                f"{actor_name} a déclaré les travaux terminés — en attente de contrôle qualité",
-                session['user_id'], actor_name, actor_role)
-            # Notifier coordinateurs + resp_projet + admin
-            for u in conn.execute(
-                "SELECT id, full_name FROM users WHERE role IN ('admin','dg','resp_projet','coordinateur') AND is_active=1").fetchall():
-                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
-                    VALUES (?,?,?,?,?)""",
-                    (u['id'], 'intervention', f"🔍 Contrôle qualité à réaliser — {inter['reference']}",
-                     f"Le technicien {actor_name} a terminé {inter['title']} chez {inter['client_name']}. Effectuer le CQ.",
-                     f"/gestion-projets/controle-qualite"))
-            _notify_client(conn, iid, f"🏗️ Travaux terminés — {inter['reference']}",
-                f"Les travaux « {inter['title']} » sont terminés. Nos équipes procèdent au contrôle qualité avant la livraison.")
+            inter_type = (inter.get('type') or '').lower().strip()
+            is_projet_neuf = inter_type in ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs')
+            
+            if not is_projet_neuf:
+                # Pour entretien/dépannage : pas de CQ, on passe directement à livré
+                updates['status'] = 'livre'
+                updates['end_work_at'] = datetime.now().isoformat()
+                updates['end_work_by'] = session['user_id']
+                updates['end_date'] = datetime.now().strftime('%Y-%m-%d')
+                updates['delivered_at'] = datetime.now().isoformat()
+                _timeline_add(conn, iid, 'delivered', "✅ Intervention terminée",
+                    f"{actor_name} a clôturé l'intervention {inter_type} — pas de contrôle qualité requis pour ce type",
+                    session['user_id'], actor_name, actor_role)
+                _notify_client(conn, iid, f"✅ Intervention terminée — {inter['reference']}",
+                    f"L'intervention « {inter['title']} » est terminée. Merci pour votre confiance.")
+                # Auto-écriture comptable si facturable
+                if inter.get('is_billable') and (inter.get('total_cost') or 0) > 0:
+                    try:
+                        auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
+                            f"Intervention {inter['reference']} — {inter['client_name']}",
+                            '411', '706', inter['total_cost'] or 0, inter['reference'])
+                    except: pass
+                if inter.get('task_id'):
+                    try: conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
+                    except: pass
+            else:
+                # Projet neuf → flow normal avec CQ
+                updates['end_work_at'] = datetime.now().isoformat()
+                updates['end_work_by'] = session['user_id']
+                _timeline_add(conn, iid, 'end_work', "🏗️ Travaux terminés par le technicien",
+                    f"{actor_name} a déclaré les travaux terminés — en attente de contrôle qualité",
+                    session['user_id'], actor_name, actor_role)
+                # Notifier coordinateurs + resp_projet + admin
+                for u in conn.execute(
+                    "SELECT id, full_name FROM users WHERE role IN ('admin','dg','resp_projet','coordinateur') AND is_active=1").fetchall():
+                    conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                        VALUES (?,?,?,?,?)""",
+                        (u['id'], 'intervention', f"🔍 Contrôle qualité à réaliser — {inter['reference']}",
+                         f"Le technicien {actor_name} a terminé {inter['title']} chez {inter['client_name']}. Effectuer le CQ.",
+                         f"/gestion-projets/controle-qualite"))
+                _notify_client(conn, iid, f"🏗️ Travaux terminés — {inter['reference']}",
+                    f"Les travaux « {inter['title']} » sont terminés. Nos équipes procèdent au contrôle qualité avant la livraison.")
         
         if status == 'livre':
             updates['end_date'] = datetime.now().strftime('%Y-%m-%d')
@@ -7772,26 +7940,31 @@ def prospect_item_delete(pid, table, item_id):
 @app.route('/gestion-projets/controle-qualite')
 @permission_required('controle_qualite')
 def gestion_controle_qualite():
-    """Liste des interventions à contrôler (après fin des travaux)."""
+    """Liste des interventions à contrôler — UNIQUEMENT projets neufs / installations.
+    Les entretiens et dépannages ne passent pas par contrôle qualité (livrables directs)."""
     conn = _gdb()
-    # À contrôler : travaux_termines (+ cq non encore passé)
-    to_check = [dict(r) for r in conn.execute("""
+    PROJET_TYPES = ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs')
+    placeholders = ','.join(['?'] * len(PROJET_TYPES))
+    # À contrôler : projet neuf + travaux_termines + cq pas encore passé
+    to_check = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full, c.client_code,
                u.full_name as tech_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         LEFT JOIN users u ON i.technician_id = u.id
         WHERE i.status = 'travaux_termines' AND COALESCE(i.cq_status,'') = ''
+          AND LOWER(COALESCE(i.type,'')) IN ({placeholders})
         ORDER BY i.end_work_at DESC
-    """).fetchall()]
-    # Validées récemment (historique)
-    done = [dict(r) for r in conn.execute("""
+    """, PROJET_TYPES).fetchall()]
+    # Validées récemment (toujours filtrer projet neuf)
+    done = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         WHERE i.cq_status IN ('passed','failed')
+          AND LOWER(COALESCE(i.type,'')) IN ({placeholders})
         ORDER BY i.cq_at DESC LIMIT 20
-    """).fetchall()]
+    """, PROJET_TYPES).fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='controle_qualite',
                            to_check=to_check, done=done)
@@ -7800,42 +7973,47 @@ def gestion_controle_qualite():
 @app.route('/gestion-projets/livraisons')
 @permission_required('livraison_intervention')
 def gestion_livraisons():
-    """Liste des interventions en cours de livraison (après CQ validé)."""
+    """Liste des interventions en cours de livraison (après CQ validé).
+    UNIQUEMENT projets neufs / installations — entretien et dépannage ne passent pas par ici."""
     conn = _gdb()
-    # Prêts pour proposition date
-    ready = [dict(r) for r in conn.execute("""
+    PROJET_TYPES = ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs')
+    placeholders = ','.join(['?'] * len(PROJET_TYPES))
+    type_filter = f"AND LOWER(COALESCE(i.type,'')) IN ({placeholders})"
+    
+    ready = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full, c.client_code
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         WHERE i.cq_status='passed' AND COALESCE(i.delivery_proposed_date,'')=''
+        {type_filter}
         ORDER BY i.cq_at DESC
-    """).fetchall()]
-    # En attente client (date proposée, pas encore de réponse)
-    waiting = [dict(r) for r in conn.execute("""
+    """, PROJET_TYPES).fetchall()]
+    waiting = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         WHERE COALESCE(i.delivery_proposed_date,'') != ''
           AND COALESCE(i.delivery_client_status,'') IN ('','pending','proposed')
           AND i.status != 'livre'
+        {type_filter}
         ORDER BY i.delivery_proposed_at DESC
-    """).fetchall()]
-    # Prêts pour livraison (client a accepté)
-    ready_deliver = [dict(r) for r in conn.execute("""
+    """, PROJET_TYPES).fetchall()]
+    ready_deliver = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         WHERE i.delivery_client_status='accepted' AND i.status != 'livre'
+        {type_filter}
         ORDER BY i.delivery_client_answered_at DESC
-    """).fetchall()]
-    # Livrés récemment
-    delivered = [dict(r) for r in conn.execute("""
+    """, PROJET_TYPES).fetchall()]
+    delivered = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         WHERE i.status='livre'
+        {type_filter}
         ORDER BY i.delivered_at DESC LIMIT 20
-    """).fetchall()]
+    """, PROJET_TYPES).fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='gestion_livraisons',
                            ready=ready, waiting=waiting, ready_deliver=ready_deliver, delivered=delivered)
@@ -8305,6 +8483,140 @@ def chat_supervision():
     conn.close()
     return render_template('chat_supervision.html', page='chat', stats=stats,
         recent=recent, user_stats=user_stats, tickets=tickets)
+
+
+# ======================== CANAUX CHAT (CRUD) ========================
+
+@app.route('/chat/channel/create', methods=['POST'])
+@permission_required('chat')
+def chat_channel_create():
+    """Créer un canal personnalisé avec les membres sélectionnés."""
+    name = (request.form.get('name','') or '').strip()
+    description = (request.form.get('description','') or '').strip()
+    member_ids = request.form.getlist('members[]')
+    if not name:
+        flash("⚠️ Nom du canal requis", "error")
+        return redirect(url_for('chat_page'))
+    
+    conn = _gdb()
+    try:
+        # Vérifier doublon
+        exists = conn.execute("SELECT id FROM chat_channels WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+        if exists:
+            flash(f"⚠️ Un canal '{name}' existe déjà", "warning")
+            conn.close()
+            return redirect(url_for('chat_page'))
+        
+        conn.execute("""INSERT INTO chat_channels (name, description, type, created_by)
+            VALUES (?, ?, 'group', ?)""", (name, description, session['user_id']))
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        
+        # Ajouter le créateur comme owner
+        conn.execute("INSERT OR IGNORE INTO chat_channel_members (channel_id, user_id, role) VALUES (?, ?, 'owner')",
+                    (cid, session['user_id']))
+        # Ajouter les membres sélectionnés
+        added = 0
+        for uid in member_ids:
+            if uid.isdigit() and int(uid) != session['user_id']:
+                try:
+                    conn.execute("INSERT OR IGNORE INTO chat_channel_members (channel_id, user_id, role) VALUES (?, ?, 'member')",
+                                (cid, int(uid)))
+                    added += 1
+                except: pass
+        conn.commit()
+        
+        # Notifier les membres ajoutés
+        for uid in member_ids:
+            if uid.isdigit() and int(uid) != session['user_id']:
+                try:
+                    conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                        VALUES (?, 'chat_invite', ?, ?, ?)""",
+                        (int(uid), f"💬 Ajouté au canal '{name}'",
+                         f"Vous avez été ajouté au canal '{name}' par {session.get('user_name','un collègue')}.",
+                         f"/chat?channel=ch{cid}"))
+                except: pass
+        conn.commit()
+        flash(f"✅ Canal '{name}' créé avec {added} membre(s)", "success")
+        conn.close()
+        return redirect(f"/chat?channel=ch{cid}")
+    except Exception as e:
+        conn.close()
+        flash(f"❌ Erreur : {e}", "error")
+        return redirect(url_for('chat_page'))
+
+
+@app.route('/chat/channel/<int:cid>/members', methods=['GET', 'POST'])
+@permission_required('chat')
+def chat_channel_members(cid):
+    """Gérer les membres d'un canal."""
+    conn = _gdb()
+    channel = conn.execute("SELECT * FROM chat_channels WHERE id=?", (cid,)).fetchone()
+    if not channel:
+        flash("Canal introuvable", "error")
+        conn.close(); return redirect(url_for('chat_page'))
+    channel = dict(channel)
+    
+    user = get_user_by_id(session['user_id'])
+    is_admin = user and user['role'] == 'admin'
+    is_owner = conn.execute(
+        "SELECT 1 FROM chat_channel_members WHERE channel_id=? AND user_id=? AND role='owner'",
+        (cid, session['user_id'])).fetchone()
+    can_manage = is_admin or is_owner or (channel.get('created_by') == session['user_id'])
+    
+    if request.method == 'POST' and can_manage:
+        action = request.form.get('action','')
+        if action == 'add':
+            uid = request.form.get('user_id')
+            if uid and uid.isdigit():
+                try:
+                    conn.execute("INSERT OR IGNORE INTO chat_channel_members (channel_id, user_id, role) VALUES (?, ?, 'member')",
+                                (cid, int(uid)))
+                    conn.commit()
+                    flash("✅ Membre ajouté", "success")
+                except: pass
+        elif action == 'remove':
+            uid = request.form.get('user_id')
+            if uid and uid.isdigit():
+                conn.execute("DELETE FROM chat_channel_members WHERE channel_id=? AND user_id=? AND role != 'owner'",
+                            (cid, int(uid)))
+                conn.commit()
+                flash("✅ Membre retiré", "success")
+        elif action == 'rename':
+            new_name = request.form.get('name','').strip()
+            new_desc = request.form.get('description','').strip()
+            if new_name:
+                conn.execute("UPDATE chat_channels SET name=?, description=? WHERE id=?",
+                            (new_name, new_desc, cid))
+                conn.commit()
+                flash("✅ Canal modifié", "success")
+        elif action == 'delete' and (is_admin or is_owner):
+            conn.execute("DELETE FROM chat_channel_members WHERE channel_id=?", (cid,))
+            conn.execute("DELETE FROM chat_channels WHERE id=?", (cid,))
+            conn.commit()
+            conn.close()
+            flash("Canal supprimé", "info")
+            return redirect(url_for('chat_page'))
+    
+    members = []
+    try:
+        members = [dict(r) for r in conn.execute("""
+            SELECT u.id, u.full_name, u.role, u.department, m.role as ch_role, m.joined_at
+            FROM chat_channel_members m JOIN users u ON m.user_id=u.id
+            WHERE m.channel_id=? ORDER BY m.role DESC, u.full_name""", (cid,)).fetchall()]
+    except: pass
+    member_ids = [m['id'] for m in members]
+    
+    available = []
+    try:
+        available = [dict(r) for r in conn.execute(
+            "SELECT id, full_name, role FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client' ORDER BY full_name").fetchall()]
+        available = [u for u in available if u['id'] not in member_ids]
+    except: pass
+    
+    conn.close()
+    return render_template('extra_pages.html', page='chat_channel_members',
+                          channel=channel, members=members, available=available,
+                          can_manage=can_manage)
 
 
 # ======================== APPELS AUDIO/VIDEO ========================
@@ -9576,12 +9888,12 @@ def admin_pointage_penalites():
 @app.route('/admin/pointage/rapport/<int:user_id>/<month>')
 @login_required
 def admin_pointage_rapport_pdf(user_id, month):
-    """Génère un PDF mensuel pour un employé. month = 'YYYY-MM'."""
+    """Génère un PDF mensuel pour un employé en utilisant rapport_core (même charte que rapports d'heures)."""
     user = get_user_by_id(session['user_id'])
     perms = get_role_permissions(user['role']) if user else []
     if not ('pointage_admin' in perms or 'admin' in perms or 'pointage_edit' in perms):
         if user_id != session.get('user_id'):
-            flash("⛔ Accès refusé", "error")
+            flash("Accès refusé", "error")
             return redirect(url_for('dashboard'))
     
     target = get_user_by_id(user_id)
@@ -9589,149 +9901,138 @@ def admin_pointage_rapport_pdf(user_id, month):
         flash("Utilisateur introuvable", "error")
         return redirect(url_for('admin_pointage_dashboard'))
     
+    # Construire la liste des records au format attendu par rapport_core
+    from models import get_user_planning
+    planning = get_user_planning(user_id)
+    sched_start = planning.get('heure_arrivee', '08:00')
+    sched_end = planning.get('heure_depart', '17:00')
+    
     conn = _gdb()
     pointages = [dict(r) for r in conn.execute(
         "SELECT * FROM hr_pointages WHERE user_id=? AND date LIKE ? ORDER BY date, time",
         (user_id, f'{month}%')).fetchall()]
-    
-    # Aggrégats par jour
-    days_data = {}
-    for p in pointages:
-        d = p['date']
-        if d not in days_data:
-            days_data[d] = {'arrivee':None,'pause':None,'retour':None,'depart':None,'penalty':0}
-        days_data[d][p['type']] = p
-        days_data[d]['penalty'] += float(p.get('penalty_amount') or 0)
-    
-    total_work_min = 0; total_pause_min = 0; total_retards = 0; total_penalty = 0; nb_jours_present = 0
-    rows_pdf = []
-    for d, dd in sorted(days_data.items()):
-        h_arr = dd['arrivee']['time'] if dd['arrivee'] else '-'
-        h_dep = dd['depart']['time'] if dd['depart'] else '-'
-        h_pause = dd['pause']['time'] if dd['pause'] else '-'
-        h_retour = dd['retour']['time'] if dd['retour'] else '-'
-        # Calcul durée du jour
-        work_min = 0; pause_min = 0
-        try:
-            if dd['arrivee'] and dd['depart']:
-                af = datetime.fromisoformat(dd['arrivee']['datetime_full'])
-                df = datetime.fromisoformat(dd['depart']['datetime_full'])
-                total = int((df - af).total_seconds() / 60)
-                if dd['pause'] and dd['retour']:
-                    pf = datetime.fromisoformat(dd['pause']['datetime_full'])
-                    rf = datetime.fromisoformat(dd['retour']['datetime_full'])
-                    pause_min = int((rf - pf).total_seconds() / 60)
-                    work_min = total - pause_min
-                else:
-                    work_min = total
-        except: pass
-        total_work_min += max(0, work_min)
-        total_pause_min += max(0, pause_min)
-        total_penalty += dd['penalty']
-        if dd['arrivee']: nb_jours_present += 1
-        if dd['arrivee'] and dd['arrivee'].get('status') == 'retard':
-            total_retards += 1
-        rows_pdf.append({
-            'date': d, 'arrivee': h_arr, 'pause': h_pause, 'retour': h_retour, 'depart': h_dep,
-            'work_min': work_min, 'pause_min': pause_min,
-            'status': dd['arrivee']['status'] if dd['arrivee'] else 'absent',
-            'penalty': dd['penalty']
-        })
     conn.close()
     
-    # Génération PDF avec ReportLab
+    # Regrouper par jour
+    by_day = {}
+    for p in pointages:
+        d = p['date']
+        if d not in by_day:
+            by_day[d] = {'arrivee':None,'pause':None,'retour':None,'depart':None,'penalty':0}
+        by_day[d][p['type']] = p
+        by_day[d]['penalty'] += float(p.get('penalty_amount') or 0)
+    
+    # Construire records pour rapport_core
+    records = []
+    total_penalty = 0
+    for d in sorted(by_day.keys()):
+        dd = by_day[d]
+        arrival = dd['arrivee']['time'] if dd['arrivee'] else ''
+        departure = dd['depart']['time'] if dd['depart'] else ''
+        # Durée travaillée
+        dur = ''
+        try:
+            if dd['arrivee'] and dd['depart']:
+                from datetime import datetime as _dt
+                af = _dt.fromisoformat(dd['arrivee']['datetime_full'])
+                df = _dt.fromisoformat(dd['depart']['datetime_full'])
+                total_min = int((df - af).total_seconds() / 60)
+                pause_min = 0
+                if dd['pause'] and dd['retour']:
+                    pf = _dt.fromisoformat(dd['pause']['datetime_full'])
+                    rf = _dt.fromisoformat(dd['retour']['datetime_full'])
+                    pause_min = int((rf - pf).total_seconds() / 60)
+                worked = total_min - pause_min
+                dur = f"{worked//60:02d}:{worked%60:02d}"
+        except: pass
+        records.append({
+            'date': d, 'sched_start': sched_start, 'sched_end': sched_end,
+            'arrival': arrival, 'departure': departure, 'duration': dur,
+        })
+        total_penalty += dd['penalty']
+    
+    # Compléter avec les jours sans pointage du mois (pour stats absences)
     try:
+        from datetime import date as _date, timedelta as _td
+        y, m_int = month.split('-')
+        y, m_int = int(y), int(m_int)
+        first = _date(y, m_int, 1)
+        if m_int == 12: last = _date(y+1, 1, 1) - _td(days=1)
+        else: last = _date(y, m_int+1, 1) - _td(days=1)
+        existing_dates = set(r['date'] for r in records)
+        cur = first
+        while cur <= last:
+            ds = cur.strftime('%Y-%m-%d')
+            if ds not in existing_dates and cur.weekday() < 5:  # exclure week-end
+                records.append({
+                    'date': ds, 'sched_start': sched_start, 'sched_end': sched_end,
+                    'arrival': '', 'departure': '', 'duration': '',
+                })
+            cur += _td(days=1)
+        records.sort(key=lambda r: r['date'])
+    except Exception as e:
+        print(f"date fill: {e}")
+    
+    # Préparer pour rapport_core
+    emp = {'name': target['full_name'], 'ref': target['username'], 'records': records}
+    
+    try:
+        import rapport_core
+        from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import mm
-        from reportlab.lib.colors import HexColor
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image)
         import io
+        
+        # Stats employé via la même fonction que les rapports d'heures
+        enriched, stats = rapport_core.calc_employee_stats(emp, hp=8, hp_weekend=0,
+                                                          hourly_cost=0, rest_days=[5, 6])
+        # Ajouter le coût de pénalité dans les stats (extension custom)
+        stats['total_penalty_cost'] = total_penalty
+        
+        all_stats = [(enriched, stats)]
+        emps = [emp]
+        
+        S = rapport_core.make_styles()
+        
+        period = f"Période : {month}"
+        provider_name = "RAMYA TECHNOLOGIE & INNOVATION"
+        provider_info = "Abidjan, Côte d'Ivoire"
+        client_name = "Rapport interne"
+        client_info = ""
+        
+        from datetime import datetime as _dt
+        now = _dt.now()
+        
         buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm,
-                                topMargin=15*mm, bottomMargin=15*mm)
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm,
+                                topMargin=10*mm, bottomMargin=10*mm)
         story = []
-        styles = getSampleStyleSheet()
-        # En-tête
-        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>", 
-            ParagraphStyle('h', fontSize=14, textColor=HexColor('#1a7a6d'), alignment=TA_CENTER)))
-        story.append(Paragraph(f"Rapport mensuel de présence — {month}",
-            ParagraphStyle('h2', fontSize=12, textColor=HexColor('#1a3a5c'), alignment=TA_CENTER)))
-        story.append(Spacer(1, 6*mm))
         
-        # Info employé
-        info = f"<b>Employé :</b> {target['full_name']}<br/>"
-        info += f"<b>Rôle :</b> {target['role']}<br/>"
-        if target.get('department'): info += f"<b>Département :</b> {target['department']}<br/>"
-        info += f"<b>Période :</b> {month}"
-        story.append(Paragraph(info, ParagraphStyle('info', fontSize=10)))
-        story.append(Spacer(1, 4*mm))
+        # Page individuelle (même format que rapport heures)
+        rapport_core.gen_individual_pages(story, emps, all_stats, S,
+                                          provider_name, provider_info,
+                                          client_name, client_info, period, now)
         
-        # Synthèse
-        h_total = total_work_min // 60; m_total = total_work_min % 60
-        h_pause = total_pause_min // 60; m_pause = total_pause_min % 60
-        synth_data = [
-            ['Jours présents', f'{nb_jours_present}'],
-            ['Heures travaillées', f'{h_total}h {m_total}min'],
-            ['Heures de pause', f'{h_pause}h {m_pause}min'],
-            ['Nombre de retards', f'{total_retards}'],
-            ['Pénalités totales', f'{total_penalty:,.0f} F CFA'],
-        ]
-        synth_t = Table(synth_data, colWidths=[60*mm, 60*mm])
-        synth_t.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(0,-1),HexColor('#1a7a6d')),
-            ('TEXTCOLOR',(0,0),(0,-1),HexColor('#ffffff')),
-            ('FONTNAME',(0,0),(-1,-1),'Helvetica-Bold'),
-            ('FONTSIZE',(0,0),(-1,-1),10),
-            ('PADDING',(0,0),(-1,-1),6),
-            ('BACKGROUND',(1,0),(1,-1),HexColor('#f0f9f7')),
-            ('GRID',(0,0),(-1,-1),0.5,HexColor('#cccccc'))
-        ]))
-        story.append(synth_t)
-        story.append(Spacer(1, 6*mm))
-        
-        # Détail jour par jour
-        story.append(Paragraph("<b>Détail journalier</b>", ParagraphStyle('h3', fontSize=11, textColor=HexColor('#1a3a5c'))))
-        story.append(Spacer(1, 2*mm))
-        detail = [['Date','Arrivée','Pause','Retour','Départ','Travail','Statut','Pénalité']]
-        for r in rows_pdf:
-            wh = r['work_min'] // 60; wm = r['work_min'] % 60
-            detail.append([r['date'], r['arrivee'], r['pause'], r['retour'], r['depart'],
-                          f'{wh}h{wm:02d}', r['status'].upper(),
-                          f'{r["penalty"]:,.0f} F' if r['penalty'] else '-'])
-        dt = Table(detail, colWidths=[22*mm, 18*mm, 18*mm, 18*mm, 18*mm, 18*mm, 22*mm, 22*mm])
-        dt.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,0),HexColor('#1a7a6d')),
-            ('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
-            ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
-            ('FONTSIZE',(0,0),(-1,-1),8),
-            ('ALIGN',(1,0),(-1,-1),'CENTER'),
-            ('GRID',(0,0),(-1,-1),0.3,HexColor('#cccccc')),
-            ('PADDING',(0,0),(-1,-1),3),
-        ]))
-        # Surligner les jours en retard
-        for i, r in enumerate(rows_pdf, 1):
-            if r['status'] == 'retard':
-                dt.setStyle(TableStyle([('BACKGROUND',(0,i),(-1,i), HexColor('#fde8e8'))]))
-            elif r['status'] == 'absent':
-                dt.setStyle(TableStyle([('BACKGROUND',(0,i),(-1,i), HexColor('#fafafa')),
-                                        ('TEXTCOLOR',(0,i),(-1,i), HexColor('#888888'))]))
-        story.append(dt)
-        
-        story.append(Spacer(1, 8*mm))
-        story.append(Paragraph(
-            f"<i>Document généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} par WannyGest</i>",
-            ParagraphStyle('foot', fontSize=8, textColor=HexColor('#888888'), alignment=TA_CENTER)))
+        # Page graphique avec donut + logo RAMYA centré
+        try:
+            logo_path = os.path.join(BASE_DIR, 'logo_ramya.png') if os.path.exists(os.path.join(BASE_DIR, 'logo_ramya.png')) else None
+            rapport_core.gen_graphique(story, emps, all_stats, S,
+                                       provider_name, provider_info,
+                                       client_name, client_info, now, logo_path=logo_path)
+        except Exception as e:
+            print(f"graphique: {e}")
         
         doc.build(story)
         buf.seek(0)
         filename = f"presence-{target['username']}-{month}.pdf"
         return Response(buf.getvalue(), mimetype='application/pdf',
-            headers={'Content-Disposition': f'attachment; filename={filename}'})
+                       headers={'Content-Disposition': f'attachment; filename={filename}'})
     except Exception as e:
-        flash(f"❌ Erreur génération PDF : {e}", "error")
+        import traceback; traceback.print_exc()
+        flash(f"Erreur génération PDF : {e}", "error")
         return redirect(url_for('admin_pointage_dashboard'))
+
+
 
 
 # ============================================================
@@ -10057,6 +10358,61 @@ def admin_pointage_company_user_toggle(cid, uid):
     return redirect(url_for('admin_pointage_company_detail', cid=cid))
 
 
+@app.route('/admin/pointage/companies/<int:cid>/user/<int:uid>/edit', methods=['GET', 'POST'])
+@permission_required_any('admin', 'pointage_edit')
+def admin_pointage_company_user_edit(cid, uid):
+    """Modifier l'identité et les informations d'un employé multi-entreprise."""
+    conn = _gdb()
+    company = conn.execute("SELECT * FROM pointage_companies WHERE id=?", (cid,)).fetchone()
+    user = conn.execute("SELECT * FROM pointage_company_users WHERE id=? AND company_id=?", (uid, cid)).fetchone()
+    if not company or not user:
+        flash("Entreprise ou employé introuvable", "error")
+        conn.close(); return redirect(url_for('admin_pointage_companies_list'))
+    company = dict(company); user = dict(user)
+    
+    if request.method == 'POST':
+        try:
+            new_username = (request.form.get('username','') or '').strip().lower()
+            if not new_username:
+                flash("Identifiant requis", "error")
+            else:
+                # Vérifier doublon
+                if new_username != user['username']:
+                    dup = conn.execute(
+                        "SELECT id FROM pointage_company_users WHERE company_id=? AND username=? AND id != ?",
+                        (cid, new_username, uid)).fetchone()
+                    if dup:
+                        flash(f"⚠️ L'identifiant '{new_username}' est déjà utilisé dans cette entreprise.", "warning")
+                        conn.close()
+                        return redirect(url_for('admin_pointage_company_user_edit', cid=cid, uid=uid))
+                
+                conn.execute("""UPDATE pointage_company_users SET
+                    username=?, full_name=?, email=?, phone=?, poste=?,
+                    heure_arrivee=?, heure_pause=?, heure_retour=?, heure_depart=?,
+                    tolerance_retard_minutes=?
+                    WHERE id=? AND company_id=?""",
+                    (new_username,
+                     (request.form.get('full_name','') or '').strip(),
+                     (request.form.get('email','') or '').strip(),
+                     (request.form.get('phone','') or '').strip(),
+                     (request.form.get('poste','') or '').strip(),
+                     request.form.get('heure_arrivee','08:00') or '08:00',
+                     request.form.get('heure_pause','12:00') or '12:00',
+                     request.form.get('heure_retour','13:00') or '13:00',
+                     request.form.get('heure_depart','17:00') or '17:00',
+                     int(request.form.get('tolerance','10') or 10),
+                     uid, cid))
+                conn.commit()
+                flash("✅ Employé modifié", "success")
+                conn.close()
+                return redirect(url_for('admin_pointage_company_detail', cid=cid))
+        except Exception as e:
+            flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return render_template('extra_pages.html', page='pointage_company_user_edit',
+                          company=company, user=user)
+
+
 # ===== Interface employé multi-entreprise =====
 
 @app.route('/pt/<slug>', methods=['GET', 'POST'])
@@ -10126,19 +10482,21 @@ def pointage_company_dashboard(slug):
             flash("Type invalide", "error")
         else:
             types_done = [p['type'] for p in pointages]
+            labels = {'arrivee':"l'arrivée", 'pause':"le début de pause",
+                      'retour':"le retour de pause", 'depart':"le départ"}
+            error_msg = None
             if action in types_done:
-                flash(f"⚠️ Vous avez déjà pointé '{action}' aujourd'hui.", "warning")
+                error_msg = f"❌ Vous avez déjà pointé {labels[action]} aujourd'hui."
+            elif action != 'arrivee' and 'arrivee' not in types_done:
+                error_msg = f"⛔ Vous devez d'abord pointer votre ARRIVÉE avant de pointer {labels[action]}."
+            elif action == 'retour' and 'pause' not in types_done:
+                error_msg = "⛔ Vous devez d'abord pointer le DÉBUT DE PAUSE avant le retour de pause."
+            elif action == 'depart' and 'pause' in types_done and 'retour' not in types_done:
+                error_msg = "⛔ Vous êtes en pause. Pointez d'abord le RETOUR DE PAUSE avant votre départ."
+            
+            if error_msg:
+                flash(error_msg, "warning")
             else:
-                order = ['arrivee','pause','retour','depart']
-                idx = order.index(action)
-                ok = True
-                for prev in order[:idx]:
-                    if prev in ('pause','retour'): continue
-                    if prev not in types_done: ok = False
-                if action == 'retour' and 'pause' not in types_done: ok = False
-                if not ok:
-                    flash(f"⚠️ Ordre incorrect (vous devez d'abord faire les pointages précédents)", "warning")
-                else:
                     now = datetime.now()
                     time_str = now.strftime('%H:%M')
                     # Calcul statut
@@ -10190,17 +10548,16 @@ def pointage_company_dashboard(slug):
     conn.close()
     types_done = [p['type'] for p in pointages]
     state = {}
-    order = ['arrivee','pause','retour','depart']
-    for t in order:
+    for t in ('arrivee','pause','retour','depart'):
         done = next((p for p in pointages if p['type'] == t), None)
         can = (t not in types_done)
-        # Validation ordre
         if can:
-            idx = order.index(t)
-            for prev in order[:idx]:
-                if prev in ('pause','retour'): continue
-                if prev not in types_done: can = False
+            # Arrivée requise pour tout sauf arrivée elle-même
+            if t != 'arrivee' and 'arrivee' not in types_done: can = False
+            # Retour exige pause
             if t == 'retour' and 'pause' not in types_done: can = False
+            # Départ : si pause sans retour, bloqué
+            if t == 'depart' and 'pause' in types_done and 'retour' not in types_done: can = False
         state[t] = {'done': done, 'can': can}
     
     return render_template('extra_pages.html', page='pt_dashboard',
@@ -11391,6 +11748,238 @@ def stock_redirect():
 
 
 # ======================== MODULE ACHATS ========================
+
+# ============================================================
+# MODULE FOURNISSEURS / ACHATS / PAIEMENTS (acomptes)
+# ============================================================
+
+@app.route('/fournisseurs')
+@permission_required_any('fournisseurs', 'achats', 'admin')
+def fournisseurs_list():
+    """Liste des fournisseurs avec total achats / payé / reste."""
+    from models import get_supplier_summary
+    conn = _gdb()
+    suppliers = []
+    try:
+        suppliers = [dict(r) for r in conn.execute(
+            "SELECT * FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+        for s in suppliers:
+            summary = get_supplier_summary(s['id'])
+            s.update(summary)
+    except: pass
+    
+    # Stats globales
+    grand_total = sum(s.get('total_purchases', 0) for s in suppliers)
+    grand_paid = sum(s.get('total_paid', 0) for s in suppliers)
+    grand_rest = max(0, grand_total - grand_paid)
+    
+    conn.close()
+    return render_template('extra_pages.html', page='fournisseurs_list',
+                          suppliers=suppliers, grand_total=grand_total,
+                          grand_paid=grand_paid, grand_rest=grand_rest)
+
+
+@app.route('/fournisseurs/add', methods=['POST'])
+@permission_required_any('fournisseurs_edit', 'admin')
+def fournisseurs_add():
+    nom = (request.form.get('nom','') or '').strip()
+    if not nom:
+        flash("Nom requis", "error")
+        return redirect(url_for('fournisseurs_list'))
+    conn = _gdb()
+    try:
+        conn.execute("""INSERT INTO suppliers (nom, telephone, email, adresse, contact, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (nom,
+             request.form.get('telephone','').strip(),
+             request.form.get('email','').strip(),
+             request.form.get('adresse','').strip(),
+             request.form.get('contact','').strip(),
+             request.form.get('notes','').strip(),
+             session.get('user_id')))
+        conn.commit()
+        flash(f"✅ Fournisseur '{nom}' créé", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect(url_for('fournisseurs_list'))
+
+
+@app.route('/fournisseurs/<int:sid>', methods=['GET', 'POST'])
+@permission_required_any('fournisseurs', 'achats', 'admin')
+def fournisseur_detail(sid):
+    """Fiche fournisseur avec ses achats."""
+    from models import get_supplier_summary, get_purchase_status
+    conn = _gdb()
+    supplier = conn.execute("SELECT * FROM suppliers WHERE id=?", (sid,)).fetchone()
+    if not supplier:
+        flash("Fournisseur introuvable", "error")
+        conn.close(); return redirect(url_for('fournisseurs_list'))
+    supplier = dict(supplier)
+    
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_edit = ('fournisseurs_edit' in perms or 'admin' in perms)
+    
+    if request.method == 'POST' and can_edit:
+        action = request.form.get('action', '')
+        if action == 'update_supplier':
+            try:
+                conn.execute("""UPDATE suppliers SET nom=?, telephone=?, email=?, adresse=?, contact=?, notes=?, updated_at=?
+                    WHERE id=?""",
+                    (request.form.get('nom','').strip(),
+                     request.form.get('telephone','').strip(),
+                     request.form.get('email','').strip(),
+                     request.form.get('adresse','').strip(),
+                     request.form.get('contact','').strip(),
+                     request.form.get('notes','').strip(),
+                     datetime.now().isoformat(), sid))
+                conn.commit()
+                flash("✅ Fournisseur modifié", "success")
+            except Exception as e:
+                flash(f"❌ Erreur : {e}", "error")
+        elif action == 'add_purchase':
+            try:
+                conn.execute("""INSERT INTO supplier_purchases
+                    (supplier_id, description, categorie, montant_total, date, date_echeance, departement, notes, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (sid,
+                     request.form.get('description','').strip(),
+                     request.form.get('categorie','').strip(),
+                     float(request.form.get('montant_total','0') or 0),
+                     request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+                     request.form.get('date_echeance','').strip(),
+                     request.form.get('departement','').strip(),
+                     request.form.get('notes','').strip(),
+                     session.get('user_id')))
+                conn.commit()
+                flash("✅ Achat ajouté", "success")
+            except Exception as e:
+                flash(f"❌ Erreur : {e}", "error")
+    
+    purchases = []
+    try:
+        purchases = [dict(r) for r in conn.execute(
+            "SELECT * FROM supplier_purchases WHERE supplier_id=? ORDER BY date DESC, id DESC", (sid,)).fetchall()]
+        for p in purchases:
+            status, paid, rest, pct = get_purchase_status(p['id'])
+            p['status'] = status; p['total_paid'] = paid
+            p['reste'] = rest; p['pct_paid'] = pct
+            # Échéance dépassée ?
+            if p.get('date_echeance') and rest > 0:
+                if p['date_echeance'] < datetime.now().strftime('%Y-%m-%d'):
+                    p['overdue'] = True
+    except: pass
+    
+    summary = get_supplier_summary(sid)
+    conn.close()
+    return render_template('extra_pages.html', page='fournisseur_detail',
+                          supplier=supplier, purchases=purchases,
+                          summary=summary, can_edit=can_edit,
+                          today_str=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/fournisseurs/purchase/<int:pid>', methods=['GET', 'POST'])
+@permission_required_any('fournisseurs', 'achats', 'admin')
+def purchase_detail(pid):
+    """Détail d'un achat avec ses paiements."""
+    from models import get_purchase_status
+    conn = _gdb()
+    purchase = conn.execute("""SELECT p.*, s.nom as supplier_nom, s.id as supplier_id
+        FROM supplier_purchases p LEFT JOIN suppliers s ON p.supplier_id=s.id WHERE p.id=?""",
+        (pid,)).fetchone()
+    if not purchase:
+        flash("Achat introuvable", "error")
+        conn.close(); return redirect(url_for('fournisseurs_list'))
+    purchase = dict(purchase)
+    
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_edit = ('fournisseurs_edit' in perms or 'admin' in perms)
+    
+    if request.method == 'POST' and can_edit:
+        action = request.form.get('action', '')
+        if action == 'add_payment':
+            try:
+                montant = float(request.form.get('montant','0') or 0)
+                if montant <= 0:
+                    flash("Montant doit être positif", "error")
+                else:
+                    conn.execute("""INSERT INTO supplier_payments
+                        (purchase_id, montant, date, mode_paiement, reference, notes, created_by)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (pid, montant,
+                         request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+                         request.form.get('mode_paiement','espece'),
+                         request.form.get('reference','').strip(),
+                         request.form.get('notes','').strip(),
+                         session.get('user_id')))
+                    conn.commit()
+                    flash(f"✅ Paiement de {montant:,.0f} F enregistré", "success")
+            except Exception as e:
+                flash(f"❌ Erreur : {e}", "error")
+        elif action == 'delete_payment':
+            try:
+                pay_id = int(request.form.get('payment_id', 0))
+                conn.execute("DELETE FROM supplier_payments WHERE id=? AND purchase_id=?", (pay_id, pid))
+                conn.commit()
+                flash("✅ Paiement supprimé", "success")
+            except: pass
+    
+    payments = []
+    try:
+        payments = [dict(r) for r in conn.execute("""
+            SELECT pay.*, u.full_name as creator
+            FROM supplier_payments pay LEFT JOIN users u ON pay.created_by=u.id
+            WHERE pay.purchase_id=? ORDER BY pay.date DESC, pay.id DESC""", (pid,)).fetchall()]
+    except: pass
+    
+    status, total_paid, reste, pct = get_purchase_status(pid)
+    purchase['status'] = status; purchase['total_paid'] = total_paid
+    purchase['reste'] = reste; purchase['pct_paid'] = pct
+    
+    conn.close()
+    return render_template('extra_pages.html', page='purchase_detail',
+                          purchase=purchase, payments=payments, can_edit=can_edit,
+                          today_str=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/fournisseurs/<int:sid>/delete', methods=['POST'])
+@permission_required_any('fournisseurs_edit', 'admin')
+def fournisseur_delete(sid):
+    """Désactiver un fournisseur (soft delete)."""
+    conn = _gdb()
+    try:
+        conn.execute("UPDATE suppliers SET is_active=0 WHERE id=?", (sid,))
+        conn.commit()
+        flash("Fournisseur archivé", "info")
+    except: pass
+    conn.close()
+    return redirect(url_for('fournisseurs_list'))
+
+
+@app.route('/fournisseurs/export.csv')
+@permission_required_any('fournisseurs', 'admin')
+def fournisseurs_export_csv():
+    from models import get_supplier_summary
+    conn = _gdb()
+    suppliers = [dict(r) for r in conn.execute(
+        "SELECT * FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+    conn.close()
+    import io, csv
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=';')
+    w.writerow(['Fournisseur','Téléphone','Email','Adresse','Total achats','Total payé','Reste','% payé'])
+    for s in suppliers:
+        sum_ = get_supplier_summary(s['id'])
+        w.writerow([s['nom'], s.get('telephone',''), s.get('email',''), s.get('adresse',''),
+                    f"{sum_['total_purchases']:.0f}",
+                    f"{sum_['total_paid']:.0f}",
+                    f"{sum_['reste']:.0f}",
+                    f"{sum_['pct_paid']:.1f}%"])
+    return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename=fournisseurs.csv'})
+
 
 @app.route('/achats')
 @permission_required_any('achats', 'comptabilite')
