@@ -34,6 +34,9 @@
         .nav-section.collapsed .nav-section-items{display:none}
         .nav-section.collapsed .arrow{transform:rotate(-90deg)}
         .nav-section-items a{padding-left:32px;font-size:12px}
+        .compta-subsection-title{padding:10px 18px 4px 22px;color:#f29f2f;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;border-top:1px solid rgba(255,255,255,0.05);margin-top:4px;display:flex;align-items:center;gap:6px}
+        .compta-subsection-title:first-child{border-top:none;margin-top:0}
+        .compta-subsection-title .dot{width:6px;height:6px;border-radius:50%;background:#f29f2f;box-shadow:0 0 0 2px rgba(242,159,47,0.2)}
         .sidebar-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;margin-top:auto}
         .sidebar-footer a{color:rgba(255,255,255,0.5);text-decoration:none}
         .sidebar-footer a:hover{color:#fff}
@@ -315,43 +318,34 @@
             {% endif %}
             
             {% if 'comptabilite' in permissions or 'compta_pro' in permissions or 'admin' in permissions %}
-            <!-- Comptabilité (fusionné : opérationnelle + Compta Pro SYSCOHADA) -->
+            <!-- 💰 COMPTABILITÉ : section unique réorganisée en 4 sous-sections logiques -->
             <div class="nav-section" id="sec-compta">
                 <div class="nav-section-title" onclick="toggleSection('sec-compta')">💰 COMPTABILITÉ <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
+                    
+                    {# 1. OPÉRATIONS — gestion quotidienne #}
                     {% if 'comptabilite' in permissions or 'admin' in permissions %}
-                    <div style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:0.5px;padding:6px 10px 2px;font-weight:700">— Opérationnel —</div>
+                    <div class="compta-subsection-title"><span class="dot"></span>OPÉRATIONS</div>
                     <a href="/comptabilite" class="{% if page == 'comptabilite' %}active{% endif %}">📊 Tableau de bord</a>
                     <a href="/comptabilite/factures" class="{% if page == 'factures' %}active{% endif %}">🧾 Factures</a>
                     <a href="/depenses" class="{% if page == 'depenses' %}active{% endif %}">📉 Dépenses</a>
                     <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
-                    <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">
-                        💵 Caisse
-                        {% if caisse_pending %}<span class="badge">{{ caisse_pending }}</span>{% endif %}
-                    </a>
+                    <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">💵 Caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
                     <a href="/tresorerie" class="{% if page == 'tresorerie' %}active{% endif %}">🏦 Trésorerie & Banque</a>
                     <a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📥 Créances clients</a>
                     <a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>
                     <a href="/comptabilite/validation-paie" class="{% if page == 'compta_paie' %}active{% endif %}">💵 Validation paie</a>
                     <a href="/comptabilite/caisses" class="{% if page == 'caisses' or page == 'caisse_detail' %}active{% endif %}">💰 Multi-caisses</a>
                     <a href="/comptabilite/virements" class="{% if page == 'virements_list' %}active{% endif %}">🏦 Virements banque{% if pending_virements_count and pending_virements_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_virements_count }}</span>{% endif %}</a>
-                    <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
-                    {% if 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
-                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Budgets départements</a>
-                    {% endif %}
                     {% endif %}
                     
+                    {# 2. COMPTABILITÉ GÉNÉRALE — saisie & paramétrage SYSCOHADA #}
                     {% if 'compta_pro' in permissions or 'admin' in permissions %}
-                    <div style="font-size:9px;color:#888;text-transform:uppercase;letter-spacing:0.5px;padding:10px 10px 2px;font-weight:700;border-top:1px solid #eee;margin-top:4px">— Comptabilité Pro (SYSCOHADA) —</div>
-                    <a href="/compta-pro" class="{% if page == 'compta_pro' and section|default('') == 'dashboard' %}active{% endif %}">📚 Tableau de bord Pro</a>
+                    <div class="compta-subsection-title"><span class="dot"></span>COMPTABILITÉ GÉNÉRALE</div>
                     {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
                     <a href="/compta-pro/saisie" class="{% if page == 'compta_pro' and section|default('') == 'saisie' %}active{% endif %}">✏️ Saisie écriture</a>
                     {% endif %}
                     <a href="/compta-pro/ecritures" class="{% if page == 'compta_pro' and section|default('') in ('ecritures','ecriture_detail') %}active{% endif %}">📋 Écritures</a>
-                    <a href="/compta-pro/balance" class="{% if page == 'compta_pro' and section|default('') == 'balance' %}active{% endif %}">⚖️ Balance</a>
-                    <a href="/compta-pro/grand-livre" class="{% if page == 'compta_pro' and section|default('') == 'grand_livre' %}active{% endif %}">📒 Grand Livre</a>
-                    <a href="/compta-pro/bilan" class="{% if page == 'compta_pro' and section|default('') == 'bilan' %}active{% endif %}">🏛️ Bilan</a>
-                    <a href="/compta-pro/resultat" class="{% if page == 'compta_pro' and section|default('') == 'resultat' %}active{% endif %}">💹 Compte de résultat</a>
                     {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
                     <a href="/compta-pro/lettrage" class="{% if page == 'compta_pro' and section|default('') == 'lettrage' %}active{% endif %}">🔗 Lettrage</a>
                     {% endif %}
@@ -361,6 +355,28 @@
                     <a href="/compta-pro/periodes" class="{% if page == 'compta_pro' and section|default('') == 'periodes' %}active{% endif %}">📅 Périodes</a>
                     {% endif %}
                     {% endif %}
+                    
+                    {# 3. ÉTATS COMPTABLES — restitutions normalisées #}
+                    {% if 'compta_pro' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+                    <div class="compta-subsection-title"><span class="dot"></span>ÉTATS COMPTABLES</div>
+                    <a href="/compta-pro" class="{% if page == 'compta_pro' and section|default('') == 'dashboard' %}active{% endif %}">📊 Tableau de bord comptable</a>
+                    <a href="/compta-pro/grand-livre" class="{% if page == 'compta_pro' and section|default('') == 'grand_livre' %}active{% endif %}">📒 Grand Livre</a>
+                    <a href="/compta-pro/balance" class="{% if page == 'compta_pro' and section|default('') == 'balance' %}active{% endif %}">⚖️ Balance comptable</a>
+                    <a href="/compta-pro/bilan" class="{% if page == 'compta_pro' and section|default('') == 'bilan' %}active{% endif %}">🏛️ Bilan SYSCOHADA</a>
+                    <a href="/compta-pro/resultat" class="{% if page == 'compta_pro' and section|default('') == 'resultat' %}active{% endif %}">💹 Compte de résultat</a>
+                    {% endif %}
+                    
+                    {# 4. ANALYSE & CONTRÔLE — pilotage interne #}
+                    {% if 'comptabilite' in permissions or 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
+                    <div class="compta-subsection-title"><span class="dot"></span>ANALYSE & CONTRÔLE</div>
+                    {% if 'comptabilite' in permissions or 'admin' in permissions %}
+                    <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
+                    {% endif %}
+                    {% if 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
+                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Budgets départements</a>
+                    {% endif %}
+                    {% endif %}
+                    
                 </div>
             </div>
             {% endif %}

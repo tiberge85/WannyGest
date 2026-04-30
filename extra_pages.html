@@ -5183,26 +5183,34 @@ table.cp-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0;vertical-align
 table.cp-table tr:hover{background:#fafafa}
 .num-cell{font-family:monospace;text-align:right;font-weight:600}
 .cp-actions-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+.cp-tabs-group{display:flex;align-items:center;border-bottom:2px solid #eee;margin-bottom:14px;padding-bottom:0;flex-wrap:wrap;gap:0}
+.cp-tabs-group .cp-group-label{font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;padding:0 8px 0 12px;border-left:2px solid #ddd}
+.cp-tabs-group .cp-group-label:first-child{border-left:none;padding-left:4px}
 </style>
 
-<!-- Tabs nav -->
-<div class="cp-tabs">
-    <a href="/compta-pro" class="{% if section == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
+<!-- Tabs nav organisés en groupes -->
+<div class="cp-tabs-group">
+    <span class="cp-group-label">États</span>
+    <a class="cp-tabs-link {% if section == 'dashboard' %}active{% endif %}" href="/compta-pro" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'dashboard' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'dashboard' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">📊 Tableau de bord</a>
+    <a href="/compta-pro/grand-livre" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'grand_livre' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'grand_livre' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">📒 Grand Livre</a>
+    <a href="/compta-pro/balance" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'balance' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'balance' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">⚖️ Balance</a>
+    <a href="/compta-pro/bilan" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'bilan' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'bilan' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">🏛️ Bilan</a>
+    <a href="/compta-pro/resultat" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'resultat' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'resultat' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">💹 Résultat</a>
+    
+    <span class="cp-group-label">Saisie</span>
     {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
-    <a href="/compta-pro/saisie" class="{% if section == 'saisie' %}active{% endif %}">✏️ Saisie écriture</a>
+    <a href="/compta-pro/saisie" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'saisie' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'saisie' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">✏️ Nouvelle</a>
     {% endif %}
-    <a href="/compta-pro/ecritures" class="{% if section in ('ecritures','ecriture_detail') %}active{% endif %}">📋 Écritures</a>
-    <a href="/compta-pro/balance" class="{% if section == 'balance' %}active{% endif %}">⚖️ Balance</a>
-    <a href="/compta-pro/grand-livre" class="{% if section == 'grand_livre' %}active{% endif %}">📒 Grand Livre</a>
-    <a href="/compta-pro/bilan" class="{% if section == 'bilan' %}active{% endif %}">🏛️ Bilan</a>
-    <a href="/compta-pro/resultat" class="{% if section == 'resultat' %}active{% endif %}">💹 Résultat</a>
+    <a href="/compta-pro/ecritures" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section in ('ecritures','ecriture_detail') %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section in ('ecritures','ecriture_detail') %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">📋 Écritures</a>
     {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
-    <a href="/compta-pro/lettrage" class="{% if section == 'lettrage' %}active{% endif %}">🔗 Lettrage</a>
+    <a href="/compta-pro/lettrage" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'lettrage' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'lettrage' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">🔗 Lettrage</a>
     {% endif %}
-    <a href="/compta-pro/comptes" class="{% if section == 'comptes' %}active{% endif %}">📚 Plan comptable</a>
-    <a href="/compta-pro/journaux" class="{% if section == 'journaux' %}active{% endif %}">📖 Journaux</a>
+    
+    <span class="cp-group-label">Paramètres</span>
+    <a href="/compta-pro/comptes" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'comptes' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'comptes' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">📚 Plan</a>
+    <a href="/compta-pro/journaux" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'journaux' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'journaux' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">📖 Journaux</a>
     {% if 'compta_pro_cloture' in permissions or 'admin' in permissions %}
-    <a href="/compta-pro/periodes" class="{% if section == 'periodes' %}active{% endif %}">📅 Périodes</a>
+    <a href="/compta-pro/periodes" style="padding:8px 14px;font-size:12px;font-weight:600;color:{% if section == 'periodes' %}#1A7A6D{% else %}#666{% endif %};text-decoration:none;border-bottom:3px solid {% if section == 'periodes' %}#1A7A6D{% else %}transparent{% endif %};margin-bottom:-2px">📅 Périodes</a>
     {% endif %}
 </div>
 
