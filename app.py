@@ -12676,17 +12676,30 @@ def purchase_detail(pid):
                 if montant <= 0:
                     flash("Montant doit être positif", "error")
                 else:
+                    date_pay = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+                    mode_pay = request.form.get('mode_paiement','espece')
                     conn.execute("""INSERT INTO supplier_payments
                         (purchase_id, montant, date, mode_paiement, reference, notes, created_by)
                         VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (pid, montant,
-                         request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
-                         request.form.get('mode_paiement','espece'),
+                        (pid, montant, date_pay, mode_pay,
                          request.form.get('reference','').strip(),
                          request.form.get('notes','').strip(),
                          session.get('user_id')))
+                    payment_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                     conn.commit()
-                    flash(f"✅ Paiement de {montant:,.0f} F enregistré", "success")
+                    
+                    # Intégration auto Compta Pro (écriture en brouillard)
+                    compta_msg = ""
+                    try:
+                        eid_auto, err_auto = _compta_auto_paiement_fournisseur(
+                            purchase['supplier_id'], pid, payment_id,
+                            montant, date_pay, mode_pay)
+                        if eid_auto and not err_auto:
+                            compta_msg = f" — Écriture comptable #{eid_auto} créée en brouillard"
+                    except Exception as ex:
+                        print(f"Compta auto: {ex}")
+                    
+                    flash(f"✅ Paiement de {montant:,.0f} F enregistré{compta_msg}", "success")
             except Exception as e:
                 flash(f"❌ Erreur : {e}", "error")
         elif action == 'delete_payment':
@@ -13109,6 +13122,639 @@ def achats_contrat_add():
         start_date=request.form.get('start_date',''), end_date=request.form.get('end_date',''),
         amount=float(request.form.get('amount',0) or 0), created_by=session['user_id'])
     flash("Contrat ajouté", "success"); return redirect('/achats?tab=contrats')
+
+
+# ============================================================
+# COMPTABILITÉ PRO (SYSCOHADA) - Routes
+# ============================================================
+
+@app.route('/compta-pro')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_dashboard():
+    """Dashboard comptable : KPI principaux."""
+    from models import compta_balance, compta_compte_resultat, compta_bilan
+    from datetime import date as _date
+    today = datetime.now()
+    year = today.year
+    month_start = _date(year, today.month, 1).strftime('%Y-%m-%d')
+    year_start = _date(year, 1, 1).strftime('%Y-%m-%d')
+    today_str = today.strftime('%Y-%m-%d')
+    
+    # KPI
+    res_mois = compta_compte_resultat(month_start, today_str)
+    res_annee = compta_compte_resultat(year_start, today_str)
+    bilan = compta_bilan(today_str)
+    
+    conn = _gdb()
+    nb_brouillard = conn.execute("SELECT COUNT(*) FROM compta_ecritures WHERE statut='brouillard'").fetchone()[0]
+    nb_total = conn.execute("SELECT COUNT(*) FROM compta_ecritures").fetchone()[0]
+    
+    # Créances 411
+    creances = conn.execute("""SELECT COALESCE(SUM(l.debit) - SUM(l.credit),0)
+        FROM compta_lignes l JOIN compta_comptes c ON l.compte_id=c.id
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        WHERE c.numero='411' AND e.statut='valide'""").fetchone()[0] or 0
+    # Dettes 401
+    dettes = conn.execute("""SELECT COALESCE(SUM(l.credit) - SUM(l.debit),0)
+        FROM compta_lignes l JOIN compta_comptes c ON l.compte_id=c.id
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        WHERE c.numero='401' AND e.statut='valide'""").fetchone()[0] or 0
+    # Trésorerie 571 + 512
+    treso = conn.execute("""SELECT COALESCE(SUM(l.debit) - SUM(l.credit),0)
+        FROM compta_lignes l JOIN compta_comptes c ON l.compte_id=c.id
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        WHERE c.numero IN ('571','512','521') AND e.statut='valide'""").fetchone()[0] or 0
+    
+    # Période courante
+    periode = conn.execute("SELECT statut FROM compta_periodes WHERE annee=? AND mois=?", (year, today.month)).fetchone()
+    periode_statut = periode['statut'] if periode else 'ouverte'
+    
+    # Dernières écritures
+    recent = [dict(r) for r in conn.execute("""
+        SELECT e.id, e.date, e.libelle, e.statut, e.numero_piece, e.total_debit, j.code as journal_code
+        FROM compta_ecritures e JOIN compta_journaux j ON e.journal_id=j.id
+        ORDER BY e.created_at DESC LIMIT 15""").fetchall()]
+    conn.close()
+    
+    return render_template('extra_pages.html', page='compta_pro',
+        section='dashboard', res_mois=res_mois, res_annee=res_annee, bilan=bilan,
+        nb_brouillard=nb_brouillard, nb_total=nb_total,
+        creances=float(creances), dettes=float(dettes), treso=float(treso),
+        periode_statut=periode_statut, recent=recent, today=today)
+
+
+@app.route('/compta-pro/saisie', methods=['GET', 'POST'])
+@permission_required_any('compta_pro_edit', 'admin')
+def compta_pro_saisie():
+    """Saisie d'une écriture comptable."""
+    from models import compta_creer_ecriture, compta_valider_ecriture
+    
+    if request.method == 'POST':
+        action = request.form.get('action', 'save')
+        journal = (request.form.get('journal','') or '').strip().upper()
+        date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+        libelle = (request.form.get('libelle','') or '').strip()
+        piece_externe = (request.form.get('piece_externe','') or '').strip()
+        
+        # Récupérer les lignes (compte_numero[], libelle_ligne[], debit[], credit[])
+        comptes = request.form.getlist('compte_numero[]')
+        libelles = request.form.getlist('libelle_ligne[]')
+        debits = request.form.getlist('debit[]')
+        credits = request.form.getlist('credit[]')
+        
+        lignes = []
+        for i in range(len(comptes)):
+            num = (comptes[i] or '').strip()
+            if not num: continue
+            d = float(debits[i] or 0) if i < len(debits) else 0
+            c = float(credits[i] or 0) if i < len(credits) else 0
+            if d == 0 and c == 0: continue
+            lignes.append({
+                'compte_numero': num,
+                'libelle': libelles[i] if i < len(libelles) else libelle,
+                'debit': d, 'credit': c,
+            })
+        
+        validate = (action == 'validate')
+        eid, err = compta_creer_ecriture(journal, date, libelle, lignes,
+                                         user_id=session['user_id'],
+                                         piece_externe=piece_externe, validate=validate)
+        if err:
+            flash(f"❌ {err}", "error")
+        else:
+            if validate:
+                flash(f"✅ Écriture validée et enregistrée", "success")
+            else:
+                flash(f"✅ Écriture #{eid} enregistrée en brouillard", "success")
+            return redirect(url_for('compta_pro_ecritures'))
+    
+    # Préparer le formulaire
+    conn = _gdb()
+    journaux = [dict(r) for r in conn.execute(
+        "SELECT * FROM compta_journaux WHERE COALESCE(is_active,1)=1 ORDER BY code").fetchall()]
+    comptes = [dict(r) for r in conn.execute(
+        "SELECT * FROM compta_comptes WHERE COALESCE(is_active,1)=1 ORDER BY numero").fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='compta_pro', section='saisie',
+                          journaux=journaux, comptes=comptes,
+                          today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/compta-pro/ecritures')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_ecritures():
+    """Liste des écritures avec filtres."""
+    statut_filter = request.args.get('statut', '')
+    journal_filter = request.args.get('journal', '')
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    
+    conn = _gdb()
+    where = ["1=1"]
+    params = []
+    if statut_filter:
+        where.append("e.statut=?"); params.append(statut_filter)
+    if journal_filter:
+        where.append("j.code=?"); params.append(journal_filter)
+    if date_from:
+        where.append("e.date>=?"); params.append(date_from)
+    if date_to:
+        where.append("e.date<=?"); params.append(date_to)
+    where_sql = " AND ".join(where)
+    
+    ecritures = [dict(r) for r in conn.execute(f"""
+        SELECT e.*, j.code as journal_code, j.nom as journal_nom,
+               u.full_name as creator
+        FROM compta_ecritures e
+        LEFT JOIN compta_journaux j ON e.journal_id=j.id
+        LEFT JOIN users u ON e.created_by=u.id
+        WHERE {where_sql}
+        ORDER BY e.date DESC, e.id DESC LIMIT 200""", tuple(params)).fetchall()]
+    
+    journaux = [dict(r) for r in conn.execute(
+        "SELECT * FROM compta_journaux WHERE COALESCE(is_active,1)=1 ORDER BY code").fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='compta_pro', section='ecritures',
+                          ecritures=ecritures, journaux=journaux,
+                          statut_filter=statut_filter, journal_filter=journal_filter,
+                          date_from=date_from, date_to=date_to)
+
+
+@app.route('/compta-pro/ecriture/<int:eid>')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_ecriture_detail(eid):
+    """Détail d'une écriture (lignes)."""
+    conn = _gdb()
+    ecriture = conn.execute("""SELECT e.*, j.code as journal_code, j.nom as journal_nom,
+        u.full_name as creator, uv.full_name as validator
+        FROM compta_ecritures e
+        LEFT JOIN compta_journaux j ON e.journal_id=j.id
+        LEFT JOIN users u ON e.created_by=u.id
+        LEFT JOIN users uv ON e.validated_by=uv.id
+        WHERE e.id=?""", (eid,)).fetchone()
+    if not ecriture:
+        flash("Écriture introuvable", "error")
+        conn.close(); return redirect(url_for('compta_pro_ecritures'))
+    ecriture = dict(ecriture)
+    
+    lignes = [dict(r) for r in conn.execute("""
+        SELECT l.*, c.numero as cpt_numero, c.nom as cpt_nom, c.is_lettrable
+        FROM compta_lignes l JOIN compta_comptes c ON l.compte_id=c.id
+        WHERE l.ecriture_id=? ORDER BY l.ordre, l.id""", (eid,)).fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='compta_pro', section='ecriture_detail',
+                          ecriture=ecriture, lignes=lignes)
+
+
+@app.route('/compta-pro/ecriture/<int:eid>/valider', methods=['POST'])
+@permission_required_any('compta_pro_valide', 'admin')
+def compta_pro_ecriture_valider(eid):
+    """Valider une écriture en brouillard."""
+    from models import compta_valider_ecriture
+    ok, msg = compta_valider_ecriture(eid, session['user_id'])
+    if ok:
+        flash(f"✅ Écriture validée — N° pièce: {msg}", "success")
+    else:
+        flash(f"❌ {msg}", "error")
+    return redirect(url_for('compta_pro_ecriture_detail', eid=eid))
+
+
+@app.route('/compta-pro/ecriture/<int:eid>/supprimer', methods=['POST'])
+@permission_required_any('compta_pro_edit', 'admin')
+def compta_pro_ecriture_supprimer(eid):
+    """Supprimer une écriture (brouillard uniquement)."""
+    conn = _gdb()
+    e = conn.execute("SELECT statut FROM compta_ecritures WHERE id=?", (eid,)).fetchone()
+    if not e:
+        flash("Écriture introuvable", "error")
+        conn.close(); return redirect(url_for('compta_pro_ecritures'))
+    if e['statut'] == 'valide':
+        flash("⛔ Impossible de supprimer une écriture validée", "error")
+        conn.close(); return redirect(url_for('compta_pro_ecriture_detail', eid=eid))
+    try:
+        conn.execute("DELETE FROM compta_lignes WHERE ecriture_id=?", (eid,))
+        conn.execute("DELETE FROM compta_ecritures WHERE id=?", (eid,))
+        conn.commit()
+        flash("✅ Écriture supprimée", "success")
+    except Exception as ex:
+        flash(f"❌ Erreur : {ex}", "error")
+    conn.close()
+    return redirect(url_for('compta_pro_ecritures'))
+
+
+@app.route('/compta-pro/balance')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_balance():
+    """Balance comptable."""
+    from models import compta_balance
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    balance = compta_balance(date_from or None, date_to or None)
+    
+    # Totaux
+    total_d = sum(b['total_debit'] for b in balance)
+    total_c = sum(b['total_credit'] for b in balance)
+    total_sd = sum(b['solde_debiteur'] for b in balance)
+    total_sc = sum(b['solde_crediteur'] for b in balance)
+    
+    return render_template('extra_pages.html', page='compta_pro', section='balance',
+                          balance=balance, total_d=total_d, total_c=total_c,
+                          total_sd=total_sd, total_sc=total_sc,
+                          date_from=date_from, date_to=date_to)
+
+
+@app.route('/compta-pro/grand-livre')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_grand_livre():
+    """Grand livre d'un compte."""
+    from models import compta_grand_livre
+    compte_numero = request.args.get('compte', '')
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    
+    lignes = []
+    compte_info = None
+    if compte_numero:
+        lignes = compta_grand_livre(compte_numero, date_from or None, date_to or None)
+        conn = _gdb()
+        c = conn.execute("SELECT * FROM compta_comptes WHERE numero=?", (compte_numero,)).fetchone()
+        if c: compte_info = dict(c)
+        conn.close()
+    
+    conn = _gdb()
+    comptes = [dict(r) for r in conn.execute(
+        "SELECT numero, nom FROM compta_comptes WHERE COALESCE(is_active,1)=1 ORDER BY numero").fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='compta_pro', section='grand_livre',
+                          lignes=lignes, compte_info=compte_info, compte_numero=compte_numero,
+                          comptes=comptes, date_from=date_from, date_to=date_to)
+
+
+@app.route('/compta-pro/bilan')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_bilan():
+    """Bilan."""
+    from models import compta_bilan
+    date_to = request.args.get('to', datetime.now().strftime('%Y-%m-%d'))
+    bilan = compta_bilan(date_to)
+    return render_template('extra_pages.html', page='compta_pro', section='bilan',
+                          bilan=bilan, date_to=date_to)
+
+
+@app.route('/compta-pro/resultat')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_resultat():
+    """Compte de résultat."""
+    from models import compta_compte_resultat
+    from datetime import date as _date
+    today = datetime.now()
+    date_from = request.args.get('from', _date(today.year, 1, 1).strftime('%Y-%m-%d'))
+    date_to = request.args.get('to', today.strftime('%Y-%m-%d'))
+    res = compta_compte_resultat(date_from or None, date_to or None)
+    return render_template('extra_pages.html', page='compta_pro', section='resultat',
+                          res=res, date_from=date_from, date_to=date_to)
+
+
+@app.route('/compta-pro/lettrage', methods=['GET', 'POST'])
+@permission_required_any('compta_pro_edit', 'admin')
+def compta_pro_lettrage():
+    """Interface de lettrage : sélection des lignes à lettrer."""
+    from models import compta_lettrer
+    
+    if request.method == 'POST':
+        ids = request.form.getlist('ligne_ids[]')
+        try: ids = [int(x) for x in ids if x.isdigit()]
+        except: ids = []
+        if len(ids) < 2:
+            flash("Sélectionnez au moins 2 lignes", "warning")
+        else:
+            code, err = compta_lettrer(ids, session['user_id'])
+            if err:
+                flash(f"❌ {err}", "error")
+            else:
+                flash(f"✅ Lettrage créé : {code}", "success")
+        return redirect(url_for('compta_pro_lettrage') + '?compte=' + (request.form.get('compte','') or ''))
+    
+    compte_numero = request.args.get('compte', '401')
+    only_unlettered = request.args.get('only_unlettered', '1') == '1'
+    
+    conn = _gdb()
+    # Comptes lettrables
+    comptes_lettrables = [dict(r) for r in conn.execute(
+        "SELECT numero, nom FROM compta_comptes WHERE is_lettrable=1 AND COALESCE(is_active,1)=1 ORDER BY numero").fetchall()]
+    
+    # Lignes du compte
+    where = "WHERE c.numero=? AND e.statut='valide'"
+    params = [compte_numero]
+    if only_unlettered:
+        where += " AND (l.lettrage_code IS NULL OR l.lettrage_code='')"
+    lignes = [dict(r) for r in conn.execute(f"""
+        SELECT l.id, l.debit, l.credit, l.lettrage_code, l.libelle as ligne_libelle,
+               e.date, e.numero_piece, e.libelle as ecriture_libelle,
+               j.code as journal_code
+        FROM compta_lignes l
+        JOIN compta_ecritures e ON l.ecriture_id=e.id
+        JOIN compta_comptes c ON l.compte_id=c.id
+        JOIN compta_journaux j ON e.journal_id=j.id
+        {where}
+        ORDER BY e.date, l.id""", tuple(params)).fetchall()]
+    conn.close()
+    
+    return render_template('extra_pages.html', page='compta_pro', section='lettrage',
+                          comptes_lettrables=comptes_lettrables, lignes=lignes,
+                          compte_numero=compte_numero, only_unlettered=only_unlettered)
+
+
+@app.route('/compta-pro/periodes', methods=['GET', 'POST'])
+@permission_required_any('compta_pro_cloture', 'admin')
+def compta_pro_periodes():
+    """Gestion des périodes (clôture)."""
+    from models import compta_cloturer_periode
+    
+    if request.method == 'POST':
+        action = request.form.get('action','')
+        annee = int(request.form.get('annee', 0) or 0)
+        mois = int(request.form.get('mois', 0) or 0)
+        if action == 'cloturer' and annee and mois:
+            ok, msg = compta_cloturer_periode(annee, mois, session['user_id'])
+            if ok: flash(f"✅ {msg}", "success")
+            else: flash(f"❌ {msg}", "error")
+        elif action == 'rouvrir' and annee and mois:
+            conn = _gdb()
+            try:
+                conn.execute("""UPDATE compta_periodes SET statut='ouverte', cloture_at=NULL, cloture_by=NULL
+                    WHERE annee=? AND mois=?""", (annee, mois))
+                conn.commit()
+                flash(f"✅ Période {annee}-{mois:02d} ré-ouverte", "info")
+            except Exception as e: flash(f"❌ {e}", "error")
+            conn.close()
+    
+    conn = _gdb()
+    # Lister les 24 derniers mois
+    from datetime import date as _date
+    today = datetime.now()
+    periodes = []
+    for offset in range(24):
+        m = today.month - offset
+        y = today.year
+        while m <= 0:
+            m += 12; y -= 1
+        row = conn.execute("SELECT * FROM compta_periodes WHERE annee=? AND mois=?", (y, m)).fetchone()
+        # Compter écritures
+        nb_e = conn.execute("SELECT COUNT(*) FROM compta_ecritures WHERE date LIKE ?",
+                           (f'{y}-{m:02d}%',)).fetchone()[0]
+        nb_b = conn.execute("SELECT COUNT(*) FROM compta_ecritures WHERE date LIKE ? AND statut='brouillard'",
+                           (f'{y}-{m:02d}%',)).fetchone()[0]
+        periodes.append({
+            'annee': y, 'mois': m,
+            'statut': row['statut'] if row else 'ouverte',
+            'cloture_at': row['cloture_at'] if row else None,
+            'nb_ecritures': nb_e, 'nb_brouillard': nb_b,
+        })
+    conn.close()
+    return render_template('extra_pages.html', page='compta_pro', section='periodes', periodes=periodes)
+
+
+@app.route('/compta-pro/comptes', methods=['GET', 'POST'])
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_comptes():
+    """Plan comptable : liste + ajout."""
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_edit = 'compta_pro_edit' in perms or 'admin' in perms or user['role'] == 'admin'
+    
+    if request.method == 'POST' and can_edit:
+        action = request.form.get('action','')
+        if action == 'add':
+            num = (request.form.get('numero','') or '').strip()
+            nom = (request.form.get('nom','') or '').strip()
+            typ = (request.form.get('type','') or 'actif').strip()
+            classe = num[:1] if num else ''
+            lettrable = 1 if request.form.get('is_lettrable') == 'on' else 0
+            if not num or not nom:
+                flash("Numéro et nom requis", "error")
+            else:
+                conn = _gdb()
+                try:
+                    conn.execute("""INSERT INTO compta_comptes (numero, nom, type, classe, is_lettrable, is_active)
+                        VALUES (?, ?, ?, ?, ?, 1)""", (num, nom, typ, classe, lettrable))
+                    conn.commit()
+                    flash(f"✅ Compte {num} créé", "success")
+                except Exception as e:
+                    flash(f"❌ {e}", "error")
+                conn.close()
+    
+    conn = _gdb()
+    comptes = [dict(r) for r in conn.execute(
+        "SELECT * FROM compta_comptes WHERE COALESCE(is_active,1)=1 ORDER BY numero").fetchall()]
+    conn.close()
+    # Grouper par classe
+    by_classe = {}
+    for c in comptes:
+        cl = c.get('classe') or 0
+        if cl not in by_classe: by_classe[cl] = []
+        by_classe[cl].append(c)
+    return render_template('extra_pages.html', page='compta_pro', section='comptes',
+                          comptes=comptes, by_classe=by_classe, can_edit=can_edit)
+
+
+@app.route('/compta-pro/journaux', methods=['GET', 'POST'])
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_journaux():
+    """Liste journaux + ajout."""
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_edit = 'compta_pro_edit' in perms or 'admin' in perms or user['role'] == 'admin'
+    
+    if request.method == 'POST' and can_edit:
+        code = (request.form.get('code','') or '').strip().upper()
+        nom = (request.form.get('nom','') or '').strip()
+        typ = (request.form.get('type','') or 'od').strip()
+        contre = (request.form.get('contrepartie','') or '').strip()
+        if not code or not nom:
+            flash("Code et nom requis", "error")
+        else:
+            conn = _gdb()
+            try:
+                conn.execute("""INSERT INTO compta_journaux (code, nom, type, compte_contrepartie)
+                    VALUES (?, ?, ?, ?)""", (code, nom, typ, contre or None))
+                conn.commit()
+                flash(f"✅ Journal {code} créé", "success")
+            except Exception as e:
+                flash(f"❌ {e}", "error")
+            conn.close()
+    
+    conn = _gdb()
+    journaux = [dict(r) for r in conn.execute(
+        "SELECT * FROM compta_journaux ORDER BY code").fetchall()]
+    # Compter écritures par journal
+    for j in journaux:
+        try:
+            j['nb_ecritures'] = conn.execute(
+                "SELECT COUNT(*) FROM compta_ecritures WHERE journal_id=?", (j['id'],)).fetchone()[0]
+        except: j['nb_ecritures'] = 0
+    conn.close()
+    return render_template('extra_pages.html', page='compta_pro', section='journaux',
+                          journaux=journaux, can_edit=can_edit)
+
+
+@app.route('/compta-pro/balance.csv')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_balance_csv():
+    """Export balance en CSV."""
+    from models import compta_balance
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    balance = compta_balance(date_from or None, date_to or None)
+    
+    import io, csv
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=';')
+    w.writerow(['Numéro', 'Nom', 'Type', 'Classe', 'Total Débit', 'Total Crédit', 'Solde Débiteur', 'Solde Créditeur'])
+    for b in balance:
+        w.writerow([b['numero'], b['nom'], b['type'], b['classe'],
+                    f"{b['total_debit']:.0f}", f"{b['total_credit']:.0f}",
+                    f"{b['solde_debiteur']:.0f}", f"{b['solde_crediteur']:.0f}"])
+    return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename=balance-{date_from or "tout"}-{date_to or "tout"}.csv'})
+
+
+@app.route('/compta-pro/balance.pdf')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_balance_pdf():
+    """Export balance en PDF."""
+    from models import compta_balance
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    balance = compta_balance(date_from or None, date_to or None)
+    
+    try:
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        import io
+        
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=10*mm, rightMargin=10*mm,
+                                topMargin=10*mm, bottomMargin=10*mm)
+        story = []
+        TEAL = HexColor('#1A7A6D')
+        
+        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>",
+            ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
+        story.append(Paragraph("BALANCE COMPTABLE",
+            ParagraphStyle('h2', fontSize=12, textColor=HexColor('#1a3a5c'), alignment=TA_CENTER)))
+        period_str = "Toute la période"
+        if date_from or date_to: period_str = f"Du {date_from or '...'} au {date_to or '...'}"
+        story.append(Paragraph(period_str, ParagraphStyle('p', fontSize=9, alignment=TA_CENTER, textColor=HexColor('#666666'))))
+        story.append(Spacer(1, 6*mm))
+        
+        data = [['N°', 'Compte', 'Type', 'Total Débit', 'Total Crédit', 'Solde Débit.', 'Solde Créd.']]
+        for b in balance:
+            data.append([b['numero'], (b['nom'] or '')[:40], b['type'],
+                        f"{b['total_debit']:,.0f}", f"{b['total_credit']:,.0f}",
+                        f"{b['solde_debiteur']:,.0f}" if b['solde_debiteur'] else '-',
+                        f"{b['solde_crediteur']:,.0f}" if b['solde_crediteur'] else '-'])
+        # Totaux
+        td = sum(b['total_debit'] for b in balance)
+        tc = sum(b['total_credit'] for b in balance)
+        tsd = sum(b['solde_debiteur'] for b in balance)
+        tsc = sum(b['solde_crediteur'] for b in balance)
+        data.append(['', 'TOTAUX', '', f"{td:,.0f}", f"{tc:,.0f}", f"{tsd:,.0f}", f"{tsc:,.0f}"])
+        
+        t = Table(data, colWidths=[20*mm, 80*mm, 25*mm, 35*mm, 35*mm, 35*mm, 35*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+            ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+            ('FONTSIZE',(0,0),(-1,-1),8),
+            ('GRID',(0,0),(-1,-1),0.3,HexColor('#cccccc')),
+            ('ALIGN',(3,0),(-1,-1),'RIGHT'),
+            ('PADDING',(0,0),(-1,-1),3),
+            ('BACKGROUND',(0,-1),(-1,-1),HexColor('#fff3e0')),
+            ('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold'),
+        ]))
+        story.append(t)
+        
+        story.append(Spacer(1, 6*mm))
+        story.append(Paragraph(
+            f"<i>Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} — WannyGest / RAMYA</i>",
+            ParagraphStyle('foot', fontSize=8, textColor=HexColor('#888888'), alignment=TA_CENTER)))
+        
+        doc.build(story)
+        buf.seek(0)
+        return Response(buf.getvalue(), mimetype='application/pdf',
+                       headers={'Content-Disposition': f'attachment; filename=balance.pdf'})
+    except Exception as e:
+        flash(f"Erreur PDF: {e}", "error")
+        return redirect(url_for('compta_pro_balance'))
+
+
+# ============================================================
+# INTÉGRATION AUTO COMPTABILITÉ PRO
+# ============================================================
+
+def _compta_auto_paiement_fournisseur(supplier_id, purchase_id, payment_id, montant, date_paiement, mode='espece'):
+    """Génère une écriture comptable lors d'un paiement fournisseur :
+    Débit 401 / Crédit 571 (espèces) ou 512 (banque)
+    Appelé après ajout d'un paiement."""
+    from models import compta_creer_ecriture
+    try:
+        # Compte de contrepartie selon mode
+        cpt_contrepartie = '571'  # caisse par défaut
+        if mode in ('virement', 'cheque'):
+            cpt_contrepartie = '512'
+        elif mode == 'mobile':
+            cpt_contrepartie = '512'
+        
+        conn = _gdb()
+        sup = conn.execute("SELECT nom FROM suppliers WHERE id=?", (supplier_id,)).fetchone()
+        purch = conn.execute("SELECT description FROM supplier_purchases WHERE id=?", (purchase_id,)).fetchone()
+        conn.close()
+        sup_nom = sup['nom'] if sup else f'Fournisseur #{supplier_id}'
+        purch_desc = purch['description'][:40] if purch else ''
+        
+        libelle = f"Paiement {sup_nom} — {purch_desc}"
+        journal = 'CAISSE' if cpt_contrepartie == '571' else 'BANQUE'
+        
+        eid, err = compta_creer_ecriture(journal, date_paiement, libelle, [
+            {'compte_numero': '401', 'libelle': libelle, 'debit': montant, 'credit': 0,
+             'tiers_id': supplier_id, 'tiers_type': 'fournisseur'},
+            {'compte_numero': cpt_contrepartie, 'libelle': libelle, 'debit': 0, 'credit': montant},
+        ], user_id=session.get('user_id', 1), validate=False,
+        piece_externe=f"PAY-{payment_id}")
+        
+        return eid, err
+    except Exception as e:
+        return None, str(e)
+
+
+# Hook le paiement fournisseur pour générer l'écriture auto (déjà appelé dans purchase_detail)
+
+@app.route('/compta-pro/integrate-paiement/<int:payment_id>', methods=['POST'])
+@permission_required_any('compta_pro_edit', 'admin')
+def compta_pro_integrate_paiement(payment_id):
+    """Génère manuellement une écriture comptable pour un paiement fournisseur existant."""
+    conn = _gdb()
+    pay = conn.execute("""SELECT pay.*, p.supplier_id, p.id as purchase_id
+        FROM supplier_payments pay JOIN supplier_purchases p ON pay.purchase_id=p.id
+        WHERE pay.id=?""", (payment_id,)).fetchone()
+    conn.close()
+    if not pay:
+        flash("Paiement introuvable", "error")
+        return redirect(url_for('fournisseurs_list'))
+    pay = dict(pay)
+    eid, err = _compta_auto_paiement_fournisseur(
+        pay['supplier_id'], pay['purchase_id'], pay['id'],
+        pay['montant'], pay['date'], pay.get('mode_paiement','espece'))
+    if err:
+        flash(f"❌ Erreur intégration : {err}", "error")
+    else:
+        flash(f"✅ Écriture comptable #{eid} créée en brouillard", "success")
+    return redirect(url_for('purchase_detail', pid=pay['purchase_id']))
 
 
 if __name__ == '__main__':

@@ -345,6 +345,32 @@
             </div>
             {% endif %}
             
+            {# Section Comptabilité Pro SYSCOHADA #}
+            {% if 'compta_pro' in permissions or 'admin' in permissions %}
+            <div class="nav-section" id="sec-compta-pro">
+                <div class="nav-section-title" onclick="toggleSection('sec-compta-pro')">📚 COMPTA PRO (SYSCOHADA) <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    <a href="/compta-pro" class="{% if page == 'compta_pro' and section|default('') == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
+                    {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
+                    <a href="/compta-pro/saisie" class="{% if page == 'compta_pro' and section|default('') == 'saisie' %}active{% endif %}">✏️ Saisie écriture</a>
+                    {% endif %}
+                    <a href="/compta-pro/ecritures" class="{% if page == 'compta_pro' and section|default('') in ('ecritures','ecriture_detail') %}active{% endif %}">📋 Écritures</a>
+                    <a href="/compta-pro/balance" class="{% if page == 'compta_pro' and section|default('') == 'balance' %}active{% endif %}">⚖️ Balance</a>
+                    <a href="/compta-pro/grand-livre" class="{% if page == 'compta_pro' and section|default('') == 'grand_livre' %}active{% endif %}">📒 Grand Livre</a>
+                    <a href="/compta-pro/bilan" class="{% if page == 'compta_pro' and section|default('') == 'bilan' %}active{% endif %}">🏛️ Bilan</a>
+                    <a href="/compta-pro/resultat" class="{% if page == 'compta_pro' and section|default('') == 'resultat' %}active{% endif %}">💹 Compte de résultat</a>
+                    {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
+                    <a href="/compta-pro/lettrage" class="{% if page == 'compta_pro' and section|default('') == 'lettrage' %}active{% endif %}">🔗 Lettrage</a>
+                    {% endif %}
+                    <a href="/compta-pro/comptes" class="{% if page == 'compta_pro' and section|default('') == 'comptes' %}active{% endif %}">📚 Plan comptable</a>
+                    <a href="/compta-pro/journaux" class="{% if page == 'compta_pro' and section|default('') == 'journaux' %}active{% endif %}">📖 Journaux</a>
+                    {% if 'compta_pro_cloture' in permissions or 'admin' in permissions %}
+                    <a href="/compta-pro/periodes" class="{% if page == 'compta_pro' and section|default('') == 'periodes' %}active{% endif %}">📅 Périodes</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
             {# Section budget standalone : pour les responsables qui ont budget_view_own mais PAS comptabilite #}
             {% if ('budget_view' in permissions or 'budget_view_own' in permissions) and 'comptabilite' not in permissions and 'admin' not in permissions %}
             <div class="nav-section" id="sec-budget">

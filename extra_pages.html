@@ -5148,5 +5148,793 @@ Total créances : <span style="color:#e8672a">{{ '{:,.0f}'.format(total) }} FCFA
     {% endif %}
 </div></div>
 
+{% elif page == 'compta_pro' %}
+<style>
+.cp-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:2px solid #eee;margin-bottom:14px;padding-bottom:0}
+.cp-tabs a{padding:8px 14px;font-size:12px;font-weight:600;color:#666;text-decoration:none;border-bottom:3px solid transparent;margin-bottom:-2px}
+.cp-tabs a.active{color:#1A7A6D;border-bottom-color:#1A7A6D}
+.cp-tabs a:hover{background:#f5f5f5}
+.cp-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px}
+.cp-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.cp-num{font-size:22px;font-weight:800;line-height:1.1}
+.cp-label{font-size:11px;color:#888;margin-top:4px}
+.cp-statut{padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;display:inline-block}
+.cp-statut.brouillard{background:#fff3e0;color:#b8561f}
+.cp-statut.valide{background:#e8f5e9;color:#2e7d32}
+.cp-statut.cloturee{background:#fde8e8;color:#c53030}
+.cp-statut.ouverte{background:#e8f5e9;color:#2e7d32}
+.cp-section-title{font-size:13px;color:#1a3a5c;margin:14px 0 8px;font-weight:700}
+table.cp-table{width:100%;font-size:12px;border-collapse:collapse}
+table.cp-table th{background:#1a7a6d;color:#fff;padding:8px;text-align:left;font-weight:700;font-size:11px}
+table.cp-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+table.cp-table tr:hover{background:#fafafa}
+.num-cell{font-family:monospace;text-align:right;font-weight:600}
+.cp-actions-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}
+</style>
+
+<!-- Tabs nav -->
+<div class="cp-tabs">
+    <a href="/compta-pro" class="{% if section == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
+    {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
+    <a href="/compta-pro/saisie" class="{% if section == 'saisie' %}active{% endif %}">✏️ Saisie écriture</a>
+    {% endif %}
+    <a href="/compta-pro/ecritures" class="{% if section in ('ecritures','ecriture_detail') %}active{% endif %}">📋 Écritures</a>
+    <a href="/compta-pro/balance" class="{% if section == 'balance' %}active{% endif %}">⚖️ Balance</a>
+    <a href="/compta-pro/grand-livre" class="{% if section == 'grand_livre' %}active{% endif %}">📒 Grand Livre</a>
+    <a href="/compta-pro/bilan" class="{% if section == 'bilan' %}active{% endif %}">🏛️ Bilan</a>
+    <a href="/compta-pro/resultat" class="{% if section == 'resultat' %}active{% endif %}">💹 Résultat</a>
+    {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
+    <a href="/compta-pro/lettrage" class="{% if section == 'lettrage' %}active{% endif %}">🔗 Lettrage</a>
+    {% endif %}
+    <a href="/compta-pro/comptes" class="{% if section == 'comptes' %}active{% endif %}">📚 Plan comptable</a>
+    <a href="/compta-pro/journaux" class="{% if section == 'journaux' %}active{% endif %}">📖 Journaux</a>
+    {% if 'compta_pro_cloture' in permissions or 'admin' in permissions %}
+    <a href="/compta-pro/periodes" class="{% if section == 'periodes' %}active{% endif %}">📅 Périodes</a>
+    {% endif %}
+</div>
+
+{# ====================== DASHBOARD ====================== #}
+{% if section == 'dashboard' %}
+<h2 style="margin:0 0 10px;color:#1A7A6D">📊 Comptabilité Pro — Tableau de bord</h2>
+<p style="font-size:11px;color:#666">Vue d'ensemble de la comptabilité SYSCOHADA. Période courante : {{ today.strftime('%B %Y') }}
+{% if periode_statut == 'cloturee' %}<span class="cp-statut cloturee">🔒 CLÔTURÉE</span>{% else %}<span class="cp-statut ouverte">🔓 Ouverte</span>{% endif %}
+</p>
+
+<div class="cp-kpi">
+    <div class="cp-card" style="border-left:4px solid #1A7A6D">
+        <div class="cp-num" style="color:#1A7A6D">{{ "{:,.0f}".format(treso) }} F</div>
+        <div class="cp-label">💰 Trésorerie (Caisse + Banque)</div>
+    </div>
+    <div class="cp-card" style="border-left:4px solid #2e7d32">
+        <div class="cp-num" style="color:#2e7d32">{{ "{:,.0f}".format(creances) }} F</div>
+        <div class="cp-label">📥 Créances clients (411)</div>
+    </div>
+    <div class="cp-card" style="border-left:4px solid #c53030">
+        <div class="cp-num" style="color:#c53030">{{ "{:,.0f}".format(dettes) }} F</div>
+        <div class="cp-label">📤 Dettes fournisseurs (401)</div>
+    </div>
+    <div class="cp-card" style="border-left:4px solid {% if res_mois.beneficiaire %}#2e7d32{% else %}#c53030{% endif %}">
+        <div class="cp-num" style="color:{% if res_mois.beneficiaire %}#2e7d32{% else %}#c53030{% endif %}">{{ "{:,.0f}".format(res_mois.resultat) }} F</div>
+        <div class="cp-label">{% if res_mois.beneficiaire %}📈 Bénéfice{% else %}📉 Perte{% endif %} ce mois</div>
+    </div>
+    <div class="cp-card" style="border-left:4px solid {% if res_annee.beneficiaire %}#2e7d32{% else %}#c53030{% endif %}">
+        <div class="cp-num" style="color:{% if res_annee.beneficiaire %}#2e7d32{% else %}#c53030{% endif %}">{{ "{:,.0f}".format(res_annee.resultat) }} F</div>
+        <div class="cp-label">📊 Résultat annuel</div>
+    </div>
+    <div class="cp-card" style="border-left:4px solid #f29f2f">
+        <div class="cp-num" style="color:#b8561f">{{ nb_brouillard }}</div>
+        <div class="cp-label">📝 Écritures en brouillard</div>
+    </div>
+</div>
+
+{% if not bilan.equilibre %}
+<div class="cp-card" style="background:#fde8e8;border-left:4px solid #c53030;margin-bottom:14px">
+    <strong style="color:#c53030">⚠️ Anomalie : Bilan déséquilibré</strong>
+    <p style="font-size:11px;margin:4px 0 0">Actif: {{ "{:,.0f}".format(bilan.total_actif) }} F vs Passif+Résultat: {{ "{:,.0f}".format(bilan.total_passif + bilan.resultat_exercice) }} F. Vérifiez vos écritures.</p>
+</div>
+{% endif %}
+
+<div class="cp-section-title">📋 Dernières écritures</div>
+<div class="cp-card" style="padding:0;overflow:auto">
+{% if recent %}
+<table class="cp-table">
+<thead><tr><th>Date</th><th>Journal</th><th>N° pièce</th><th>Libellé</th><th>Statut</th><th>Montant</th><th>Action</th></tr></thead>
+<tbody>
+{% for e in recent %}
+<tr>
+    <td style="font-family:monospace">{{ e.date }}</td>
+    <td><strong>{{ e.journal_code }}</strong></td>
+    <td style="font-family:monospace;font-size:10px">{{ e.numero_piece or '—' }}</td>
+    <td>{{ e.libelle[:50] }}</td>
+    <td><span class="cp-statut {{ e.statut }}">{{ '✅ Valide' if e.statut == 'valide' else '📝 Brouillard' }}</span></td>
+    <td class="num-cell">{{ "{:,.0f}".format(e.total_debit) }}</td>
+    <td><a href="/compta-pro/ecriture/{{ e.id }}" class="btn btn-sm btn-outline" style="font-size:10px">Voir</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucune écriture. Commencez par {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}<a href="/compta-pro/saisie">saisir votre première écriture</a>{% else %}saisir une écriture (droits requis){% endif %}.</div>
+{% endif %}
+</div>
+
+{# ====================== SAISIE ====================== #}
+{% elif section == 'saisie' %}
+<h2 style="margin:0 0 10px;color:#1A7A6D">✏️ Nouvelle écriture comptable</h2>
+<p style="font-size:11px;color:#666">Saisissez les lignes débit/crédit. Total débit doit égaler total crédit.</p>
+
+<form method="post" id="saisieForm" class="cp-card">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px">
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Journal *</label>
+        <select name="journal" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            {% for j in journaux %}<option value="{{ j.code }}">{{ j.code }} — {{ j.nom }}</option>{% endfor %}
+        </select>
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Date *</label>
+        <input type="date" name="date" required value="{{ today }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div style="grid-column:span 2">
+        <label style="font-size:11px;color:#888;display:block">Libellé général *</label>
+        <input name="libelle" required placeholder="Ex: Achat fournitures bureau" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div>
+        <label style="font-size:11px;color:#888;display:block">Pièce externe</label>
+        <input name="piece_externe" placeholder="N° facture..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+</div>
+
+<div class="cp-section-title">💰 Lignes d'écriture</div>
+<div style="overflow:auto">
+<table class="cp-table" id="lignesTable">
+<thead><tr><th style="width:120px">Compte</th><th>Libellé ligne</th><th style="width:120px">Débit</th><th style="width:120px">Crédit</th><th style="width:40px"></th></tr></thead>
+<tbody id="lignesBody">
+{% for i in range(2) %}
+<tr class="ligne-row">
+    <td>
+        <input list="comptes_list" name="compte_numero[]" placeholder="ex: 601" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:4px;font-family:monospace" oninput="updateTotals()">
+    </td>
+    <td><input name="libelle_ligne[]" placeholder="Détail (optionnel)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:4px"></td>
+    <td><input type="number" name="debit[]" step="0.01" min="0" placeholder="0" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:4px;text-align:right" oninput="updateTotals()"></td>
+    <td><input type="number" name="credit[]" step="0.01" min="0" placeholder="0" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:4px;text-align:right" oninput="updateTotals()"></td>
+    <td><button type="button" onclick="this.closest('tr').remove();updateTotals()" style="background:#c53030;color:#fff;border:none;border-radius:4px;cursor:pointer;padding:4px 8px;font-size:11px">×</button></td>
+</tr>
+{% endfor %}
+</tbody>
+<tfoot>
+<tr style="background:#f5f5f5;font-weight:700">
+    <td colspan="2" style="text-align:right">TOTAUX</td>
+    <td class="num-cell" id="totalDebit">0</td>
+    <td class="num-cell" id="totalCredit">0</td>
+    <td></td>
+</tr>
+<tr style="background:#fff3e0">
+    <td colspan="2" style="text-align:right">DIFFÉRENCE</td>
+    <td colspan="2" class="num-cell" id="totalDiff" style="color:#c53030">0</td>
+    <td></td>
+</tr>
+</tfoot>
+</table>
+</div>
+
+<datalist id="comptes_list">
+{% for c in comptes %}<option value="{{ c.numero }}">{{ c.numero }} — {{ c.nom }}</option>{% endfor %}
+</datalist>
+
+<div style="margin-top:10px;display:flex;gap:6px;justify-content:space-between;align-items:center">
+    <button type="button" onclick="addLigne()" class="btn btn-outline btn-sm">+ Ajouter ligne</button>
+    <div style="display:flex;gap:6px">
+        <button type="submit" name="action" value="save" class="btn btn-sm" style="background:#f29f2f;color:#fff">💾 Enregistrer en brouillard</button>
+        <button type="submit" name="action" value="validate" class="btn btn-primary btn-sm" id="validateBtn" disabled>✅ Enregistrer + Valider</button>
+    </div>
+</div>
+</form>
+
+<script>
+function updateTotals(){
+    var debits = document.querySelectorAll('input[name="debit[]"]');
+    var credits = document.querySelectorAll('input[name="credit[]"]');
+    var td = 0, tc = 0;
+    debits.forEach(function(i){ td += parseFloat(i.value) || 0; });
+    credits.forEach(function(i){ tc += parseFloat(i.value) || 0; });
+    document.getElementById('totalDebit').textContent = td.toLocaleString('fr-FR');
+    document.getElementById('totalCredit').textContent = tc.toLocaleString('fr-FR');
+    var diff = Math.abs(td - tc);
+    var diffEl = document.getElementById('totalDiff');
+    diffEl.textContent = diff.toLocaleString('fr-FR');
+    diffEl.style.color = diff < 0.01 ? '#2e7d32' : '#c53030';
+    document.getElementById('validateBtn').disabled = (diff >= 0.01 || td <= 0);
+}
+function addLigne(){
+    var tpl = document.querySelector('#lignesBody .ligne-row').cloneNode(true);
+    tpl.querySelectorAll('input').forEach(function(i){ i.value = ''; });
+    document.getElementById('lignesBody').appendChild(tpl);
+    // Réattacher events oninput
+    tpl.querySelectorAll('input').forEach(function(i){
+        i.setAttribute('oninput','updateTotals()');
+    });
+    tpl.querySelector('button').setAttribute('onclick','this.closest("tr").remove();updateTotals()');
+    updateTotals();
+}
+updateTotals();
+</script>
+
+{# ====================== ÉCRITURES (liste) ====================== #}
+{% elif section == 'ecritures' %}
+<div class="cp-actions-bar">
+    <h2 style="margin:0;color:#1A7A6D">📋 Écritures comptables</h2>
+    {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
+    <a href="/compta-pro/saisie" class="btn btn-primary btn-sm">+ Nouvelle écriture</a>
+    {% endif %}
+</div>
+
+<form method="get" class="cp-card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+    <div><label style="font-size:11px;color:#888;display:block">Statut</label>
+        <select name="statut" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Tous</option>
+            <option value="brouillard" {% if statut_filter == 'brouillard' %}selected{% endif %}>📝 Brouillard</option>
+            <option value="valide" {% if statut_filter == 'valide' %}selected{% endif %}>✅ Validé</option>
+        </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Journal</label>
+        <select name="journal" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Tous</option>
+            {% for j in journaux %}<option value="{{ j.code }}" {% if journal_filter == j.code %}selected{% endif %}>{{ j.code }}</option>{% endfor %}
+        </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Du</label>
+        <input type="date" name="from" value="{{ date_from }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Au</label>
+        <input type="date" name="to" value="{{ date_to }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+</form>
+
+<div class="cp-card" style="padding:0;overflow:auto">
+{% if ecritures %}
+<table class="cp-table">
+<thead><tr><th>Date</th><th>Journal</th><th>N° pièce</th><th>Libellé</th><th>Statut</th><th>Débit</th><th>Crédit</th><th>Action</th></tr></thead>
+<tbody>
+{% for e in ecritures %}
+<tr>
+    <td style="font-family:monospace">{{ e.date }}</td>
+    <td><strong>{{ e.journal_code }}</strong></td>
+    <td style="font-family:monospace;font-size:10px">{{ e.numero_piece or '—' }}</td>
+    <td>{{ e.libelle[:60] }}</td>
+    <td><span class="cp-statut {{ e.statut }}">{{ '✅ Valide' if e.statut == 'valide' else '📝 Brouillard' }}</span></td>
+    <td class="num-cell">{{ "{:,.0f}".format(e.total_debit) }}</td>
+    <td class="num-cell">{{ "{:,.0f}".format(e.total_credit) }}</td>
+    <td><a href="/compta-pro/ecriture/{{ e.id }}" class="btn btn-sm btn-outline" style="font-size:10px">📂</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucune écriture trouvée pour ces filtres.</div>
+{% endif %}
+</div>
+
+{# ====================== DÉTAIL ÉCRITURE ====================== #}
+{% elif section == 'ecriture_detail' %}
+<div class="cp-actions-bar">
+    <h2 style="margin:0;color:#1A7A6D">
+        {% if ecriture.numero_piece %}{{ ecriture.numero_piece }}{% else %}Écriture #{{ ecriture.id }}{% endif %}
+    </h2>
+    <a href="/compta-pro/ecritures" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+
+<div class="cp-card" style="margin-bottom:14px">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
+    <div><div style="font-size:11px;color:#888">Journal</div><div style="font-weight:700">{{ ecriture.journal_code }} — {{ ecriture.journal_nom }}</div></div>
+    <div><div style="font-size:11px;color:#888">Date</div><div style="font-weight:700;font-family:monospace">{{ ecriture.date }}</div></div>
+    <div><div style="font-size:11px;color:#888">Statut</div><div><span class="cp-statut {{ ecriture.statut }}">{{ '✅ Valide' if ecriture.statut == 'valide' else '📝 Brouillard' }}</span></div></div>
+    <div><div style="font-size:11px;color:#888">Pièce externe</div><div>{{ ecriture.piece_externe or '—' }}</div></div>
+</div>
+<div style="margin-top:10px"><div style="font-size:11px;color:#888">Libellé</div><div style="font-weight:600">{{ ecriture.libelle }}</div></div>
+{% if ecriture.statut == 'valide' %}
+<div style="margin-top:10px;padding:8px;background:#e8f5e9;border-radius:6px;font-size:11px">
+    ✅ Validée le {{ ecriture.validated_at[:16] }} par {{ ecriture.validator or 'Système' }} — Numéro pièce : <strong>{{ ecriture.numero_piece }}</strong>
+</div>
+{% endif %}
+</div>
+
+<div class="cp-card" style="padding:0;margin-bottom:14px">
+<table class="cp-table">
+<thead><tr><th>N° compte</th><th>Compte</th><th>Libellé ligne</th><th>Débit</th><th>Crédit</th>{% if ecriture.statut == 'valide' %}<th>Lettrage</th>{% endif %}</tr></thead>
+<tbody>
+{% for l in lignes %}
+<tr>
+    <td style="font-family:monospace;font-weight:700">{{ l.cpt_numero }}</td>
+    <td>{{ l.cpt_nom }}</td>
+    <td style="font-size:11px">{{ l.libelle or '—' }}</td>
+    <td class="num-cell" style="color:#c53030">{{ "{:,.0f}".format(l.debit) if l.debit else '—' }}</td>
+    <td class="num-cell" style="color:#2e7d32">{{ "{:,.0f}".format(l.credit) if l.credit else '—' }}</td>
+    {% if ecriture.statut == 'valide' %}
+    <td style="font-size:10px;font-family:monospace;color:#7b1fa2">{{ l.lettrage_code or '—' }}</td>
+    {% endif %}
+</tr>
+{% endfor %}
+</tbody>
+<tfoot>
+<tr style="background:#f5f5f5;font-weight:700">
+    <td colspan="3" style="text-align:right">TOTAUX</td>
+    <td class="num-cell">{{ "{:,.0f}".format(ecriture.total_debit) }}</td>
+    <td class="num-cell">{{ "{:,.0f}".format(ecriture.total_credit) }}</td>
+    {% if ecriture.statut == 'valide' %}<td></td>{% endif %}
+</tr>
+</tfoot>
+</table>
+</div>
+
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+{% if ecriture.statut == 'brouillard' and ('compta_pro_valide' in permissions or 'admin' in permissions) %}
+<form method="post" action="/compta-pro/ecriture/{{ ecriture.id }}/valider" style="display:inline">
+    <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('Valider cette écriture ? Elle ne pourra plus être modifiée.')">✅ Valider l'écriture</button>
+</form>
+{% endif %}
+{% if ecriture.statut == 'brouillard' and ('compta_pro_edit' in permissions or 'admin' in permissions) %}
+<form method="post" action="/compta-pro/ecriture/{{ ecriture.id }}/supprimer" style="display:inline">
+    <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff" onclick="return confirm('Supprimer définitivement cette écriture en brouillard ?')">🗑️ Supprimer</button>
+</form>
+{% endif %}
+</div>
+
+{# ====================== BALANCE ====================== #}
+{% elif section == 'balance' %}
+<div class="cp-actions-bar">
+    <h2 style="margin:0;color:#1A7A6D">⚖️ Balance comptable</h2>
+    <div style="display:flex;gap:6px">
+        <a href="/compta-pro/balance.csv?from={{ date_from }}&to={{ date_to }}" class="btn btn-outline btn-sm">📥 CSV</a>
+        <a href="/compta-pro/balance.pdf?from={{ date_from }}&to={{ date_to }}" class="btn btn-sm" style="background:#7b1fa2;color:#fff" target="_blank">📄 PDF</a>
+    </div>
+</div>
+
+<form method="get" class="cp-card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+    <div><label style="font-size:11px;color:#888;display:block">Du</label>
+        <input type="date" name="from" value="{{ date_from }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Au</label>
+        <input type="date" name="to" value="{{ date_to }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+</form>
+
+<div class="cp-card" style="padding:0;overflow:auto">
+{% if balance %}
+<table class="cp-table">
+<thead><tr><th>N°</th><th>Compte</th><th>Type</th><th>Total Débit</th><th>Total Crédit</th><th>Solde Débit.</th><th>Solde Créd.</th></tr></thead>
+<tbody>
+{% for b in balance %}
+<tr>
+    <td style="font-family:monospace;font-weight:700">{{ b.numero }}</td>
+    <td><a href="/compta-pro/grand-livre?compte={{ b.numero }}" style="color:#1A7A6D">{{ b.nom }}</a></td>
+    <td style="font-size:11px">{{ b.type }}</td>
+    <td class="num-cell">{{ "{:,.0f}".format(b.total_debit) }}</td>
+    <td class="num-cell">{{ "{:,.0f}".format(b.total_credit) }}</td>
+    <td class="num-cell" style="color:#c53030">{{ "{:,.0f}".format(b.solde_debiteur) if b.solde_debiteur else '—' }}</td>
+    <td class="num-cell" style="color:#2e7d32">{{ "{:,.0f}".format(b.solde_crediteur) if b.solde_crediteur else '—' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+<tfoot>
+<tr style="background:#fff3e0;font-weight:700">
+    <td colspan="3" style="text-align:right">TOTAUX</td>
+    <td class="num-cell">{{ "{:,.0f}".format(total_d) }}</td>
+    <td class="num-cell">{{ "{:,.0f}".format(total_c) }}</td>
+    <td class="num-cell">{{ "{:,.0f}".format(total_sd) }}</td>
+    <td class="num-cell">{{ "{:,.0f}".format(total_sc) }}</td>
+</tr>
+</tfoot>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun mouvement comptable validé.</div>
+{% endif %}
+</div>
+
+{# ====================== GRAND LIVRE ====================== #}
+{% elif section == 'grand_livre' %}
+<h2 style="margin:0 0 10px;color:#1A7A6D">📒 Grand Livre</h2>
+
+<form method="get" class="cp-card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+    <div style="flex:1;min-width:200px"><label style="font-size:11px;color:#888;display:block">Compte *</label>
+        <select name="compte" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">-- Choisir un compte --</option>
+            {% for c in comptes %}<option value="{{ c.numero }}" {% if compte_numero == c.numero %}selected{% endif %}>{{ c.numero }} — {{ c.nom }}</option>{% endfor %}
+        </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Du</label>
+        <input type="date" name="from" value="{{ date_from }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Au</label>
+        <input type="date" name="to" value="{{ date_to }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Afficher</button>
+</form>
+
+{% if compte_info %}
+<div class="cp-card" style="margin-bottom:14px;border-left:4px solid #1A7A6D">
+    <div style="font-size:11px;color:#888">Compte</div>
+    <div style="font-size:18px;font-weight:800;color:#1A7A6D">{{ compte_info.numero }} — {{ compte_info.nom }}</div>
+    <div style="font-size:11px;color:#666">Type: <strong>{{ compte_info.type }}</strong> · Classe: <strong>{{ compte_info.classe }}</strong>{% if compte_info.is_lettrable %} · 🔗 Lettrable{% endif %}</div>
+</div>
+{% endif %}
+
+<div class="cp-card" style="padding:0;overflow:auto">
+{% if lignes %}
+<table class="cp-table">
+<thead><tr><th>Date</th><th>Journal</th><th>N° pièce</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Cumul</th><th>Lettrage</th></tr></thead>
+<tbody>
+{% for l in lignes %}
+<tr>
+    <td style="font-family:monospace">{{ l.date }}</td>
+    <td><strong>{{ l.journal_code }}</strong></td>
+    <td style="font-family:monospace;font-size:10px">{{ l.numero_piece or '—' }}</td>
+    <td style="font-size:11px">{{ l.l_libelle or l.e_libelle }}</td>
+    <td class="num-cell" style="color:#c53030">{{ "{:,.0f}".format(l.debit) if l.debit else '—' }}</td>
+    <td class="num-cell" style="color:#2e7d32">{{ "{:,.0f}".format(l.credit) if l.credit else '—' }}</td>
+    <td class="num-cell" style="color:{% if l.cumul >= 0 %}#1a3a5c{% else %}#c53030{% endif %}">{{ "{:+,.0f}".format(l.cumul) }}</td>
+    <td style="font-family:monospace;font-size:10px;color:#7b1fa2">{{ l.lettrage_code or '—' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">{% if compte_numero %}Aucun mouvement sur ce compte pour la période.{% else %}Sélectionnez un compte ci-dessus.{% endif %}</div>
+{% endif %}
+</div>
+
+{# ====================== BILAN ====================== #}
+{% elif section == 'bilan' %}
+<div class="cp-actions-bar">
+    <h2 style="margin:0;color:#1A7A6D">🏛️ Bilan</h2>
+</div>
+
+<form method="get" class="cp-card" style="display:flex;gap:8px;align-items:end;margin-bottom:14px">
+    <div><label style="font-size:11px;color:#888;display:block">Au</label>
+        <input type="date" name="to" value="{{ date_to }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Actualiser</button>
+</form>
+
+{% if not bilan.equilibre %}
+<div class="cp-card" style="background:#fde8e8;border-left:4px solid #c53030;margin-bottom:14px">
+    <strong style="color:#c53030">⚠️ Bilan déséquilibré : Actif {{ "{:,.0f}".format(bilan.total_actif) }} ≠ Passif+Résultat {{ "{:,.0f}".format(bilan.total_passif + bilan.resultat_exercice) }}</strong>
+</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+<!-- ACTIF -->
+<div class="cp-card" style="padding:0">
+    <h3 style="margin:0;background:#1A7A6D;color:#fff;padding:10px;font-size:13px">📥 ACTIF (emplois)</h3>
+    <table class="cp-table" style="border-radius:0">
+    <tbody>
+    {% for a in bilan.actifs %}
+    <tr>
+        <td style="font-family:monospace;font-weight:700;width:60px">{{ a.numero }}</td>
+        <td>{{ a.nom }}</td>
+        <td class="num-cell">{{ "{:,.0f}".format(a.solde) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr style="background:#fff3e0;font-weight:700">
+        <td colspan="2" style="text-align:right">TOTAL ACTIF</td>
+        <td class="num-cell">{{ "{:,.0f}".format(bilan.total_actif) }} F</td>
+    </tr></tfoot>
+    </table>
+</div>
+
+<!-- PASSIF -->
+<div class="cp-card" style="padding:0">
+    <h3 style="margin:0;background:#1a3a5c;color:#fff;padding:10px;font-size:13px">📤 PASSIF (ressources)</h3>
+    <table class="cp-table" style="border-radius:0">
+    <tbody>
+    {% for p in bilan.passifs %}
+    <tr>
+        <td style="font-family:monospace;font-weight:700;width:60px">{{ p.numero }}</td>
+        <td>{{ p.nom }}</td>
+        <td class="num-cell">{{ "{:,.0f}".format(p.solde) }}</td>
+    </tr>
+    {% endfor %}
+    <tr style="background:#f0f9f7">
+        <td></td>
+        <td><strong>{% if bilan.resultat_exercice >= 0 %}Résultat de l'exercice (bénéfice){% else %}Résultat de l'exercice (perte){% endif %}</strong></td>
+        <td class="num-cell" style="color:{% if bilan.resultat_exercice >= 0 %}#2e7d32{% else %}#c53030{% endif %}">{{ "{:+,.0f}".format(bilan.resultat_exercice) }}</td>
+    </tr>
+    </tbody>
+    <tfoot><tr style="background:#fff3e0;font-weight:700">
+        <td colspan="2" style="text-align:right">TOTAL PASSIF + RÉSULTAT</td>
+        <td class="num-cell">{{ "{:,.0f}".format(bilan.total_passif + bilan.resultat_exercice) }} F</td>
+    </tr></tfoot>
+    </table>
+</div>
+</div>
+
+{# ====================== RÉSULTAT ====================== #}
+{% elif section == 'resultat' %}
+<div class="cp-actions-bar">
+    <h2 style="margin:0;color:#1A7A6D">💹 Compte de résultat</h2>
+</div>
+
+<form method="get" class="cp-card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">
+    <div><label style="font-size:11px;color:#888;display:block">Du</label>
+        <input type="date" name="from" value="{{ date_from }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Au</label>
+        <input type="date" name="to" value="{{ date_to }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Calculer</button>
+</form>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+<div class="cp-card" style="padding:0">
+    <h3 style="margin:0;background:#c53030;color:#fff;padding:10px;font-size:13px">📤 CHARGES (classe 6)</h3>
+    <table class="cp-table">
+    <tbody>
+    {% for c in res.charges %}
+    <tr>
+        <td style="font-family:monospace;font-weight:700;width:60px">{{ c.numero }}</td>
+        <td>{{ c.nom }}</td>
+        <td class="num-cell">{{ "{:,.0f}".format(c.solde) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr style="background:#fde8e8;font-weight:700">
+        <td colspan="2" style="text-align:right">TOTAL CHARGES</td>
+        <td class="num-cell" style="color:#c53030">{{ "{:,.0f}".format(res.total_charges) }} F</td>
+    </tr></tfoot>
+    </table>
+</div>
+<div class="cp-card" style="padding:0">
+    <h3 style="margin:0;background:#2e7d32;color:#fff;padding:10px;font-size:13px">📥 PRODUITS (classe 7)</h3>
+    <table class="cp-table">
+    <tbody>
+    {% for p in res.produits %}
+    <tr>
+        <td style="font-family:monospace;font-weight:700;width:60px">{{ p.numero }}</td>
+        <td>{{ p.nom }}</td>
+        <td class="num-cell">{{ "{:,.0f}".format(p.solde) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr style="background:#e8f5e9;font-weight:700">
+        <td colspan="2" style="text-align:right">TOTAL PRODUITS</td>
+        <td class="num-cell" style="color:#2e7d32">{{ "{:,.0f}".format(res.total_produits) }} F</td>
+    </tr></tfoot>
+    </table>
+</div>
+</div>
+
+<div class="cp-card" style="text-align:center;padding:20px;background:{% if res.beneficiaire %}#e8f5e9{% else %}#fde8e8{% endif %}">
+    <div style="font-size:13px;color:#666">RÉSULTAT NET</div>
+    <div style="font-size:32px;font-weight:800;color:{% if res.beneficiaire %}#2e7d32{% else %}#c53030{% endif %};margin-top:6px">
+        {{ "{:+,.0f}".format(res.resultat) }} F CFA
+    </div>
+    <div style="font-size:11px;margin-top:4px;color:{% if res.beneficiaire %}#2e7d32{% else %}#c53030{% endif %}">
+        {% if res.beneficiaire %}📈 BÉNÉFICE{% else %}📉 PERTE{% endif %}
+    </div>
+</div>
+
+{# ====================== LETTRAGE ====================== #}
+{% elif section == 'lettrage' %}
+<h2 style="margin:0 0 10px;color:#1A7A6D">🔗 Lettrage</h2>
+<p style="font-size:11px;color:#666">Reliez les factures et paiements d'un même compte (401, 411, etc). Sélectionnez les lignes et lettrez-les ensemble.</p>
+
+<form method="get" class="cp-card" style="display:flex;gap:8px;align-items:end;margin-bottom:14px">
+    <div style="flex:1"><label style="font-size:11px;color:#888;display:block">Compte lettrable</label>
+        <select name="compte" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px" onchange="this.form.submit()">
+            {% for c in comptes_lettrables %}<option value="{{ c.numero }}" {% if compte_numero == c.numero %}selected{% endif %}>{{ c.numero }} — {{ c.nom }}</option>{% endfor %}
+        </select></div>
+    <div><label style="display:flex;gap:4px;align-items:center;font-size:11px"><input type="checkbox" name="only_unlettered" value="1" {% if only_unlettered %}checked{% endif %} onchange="this.form.submit()"> Non lettrées</label></div>
+</form>
+
+<form method="post">
+<input type="hidden" name="compte" value="{{ compte_numero }}">
+<div class="cp-card" style="padding:0;overflow:auto;margin-bottom:10px">
+{% if lignes %}
+<table class="cp-table">
+<thead><tr><th style="width:30px"><input type="checkbox" id="checkAll" onchange="toggleAll(this)"></th><th>Date</th><th>Journal</th><th>N° pièce</th><th>Libellé</th><th>Débit</th><th>Crédit</th><th>Lettrage</th></tr></thead>
+<tbody>
+{% for l in lignes %}
+<tr>
+    <td>{% if not l.lettrage_code %}<input type="checkbox" name="ligne_ids[]" value="{{ l.id }}" class="ligne-cb" onchange="updateSel()">{% endif %}</td>
+    <td style="font-family:monospace">{{ l.date }}</td>
+    <td><strong>{{ l.journal_code }}</strong></td>
+    <td style="font-family:monospace;font-size:10px">{{ l.numero_piece or '—' }}</td>
+    <td style="font-size:11px">{{ l.ligne_libelle or l.ecriture_libelle }}</td>
+    <td class="num-cell" style="color:#c53030">{{ "{:,.0f}".format(l.debit) if l.debit else '—' }}</td>
+    <td class="num-cell" style="color:#2e7d32">{{ "{:,.0f}".format(l.credit) if l.credit else '—' }}</td>
+    <td style="font-family:monospace;font-size:10px;color:#7b1fa2">{{ l.lettrage_code or '—' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">Aucune ligne {% if only_unlettered %}non lettrée {% endif %}sur ce compte.</div>
+{% endif %}
+</div>
+
+<div class="cp-card" style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+        <span style="font-size:11px;color:#888">Sélection :</span>
+        <span id="selDebit" style="font-weight:700;color:#c53030">D: 0</span>
+        <span id="selCredit" style="font-weight:700;color:#2e7d32">C: 0</span>
+        <span id="selDiff" style="margin-left:10px;font-weight:700">Diff: 0</span>
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">🔗 Lettrer la sélection</button>
+</div>
+</form>
+
+<script>
+function toggleAll(cb){
+    document.querySelectorAll('.ligne-cb').forEach(function(c){ c.checked = cb.checked; });
+    updateSel();
+}
+function updateSel(){
+    var d=0, c=0;
+    document.querySelectorAll('.ligne-cb:checked').forEach(function(cb){
+        var row = cb.closest('tr');
+        var cells = row.querySelectorAll('td');
+        var dt = parseFloat((cells[5].textContent || '').replace(/[^\d.-]/g,'')) || 0;
+        var cr = parseFloat((cells[6].textContent || '').replace(/[^\d.-]/g,'')) || 0;
+        d += dt; c += cr;
+    });
+    document.getElementById('selDebit').textContent = 'D: ' + d.toLocaleString('fr-FR');
+    document.getElementById('selCredit').textContent = 'C: ' + c.toLocaleString('fr-FR');
+    var diff = Math.abs(d - c);
+    var diffEl = document.getElementById('selDiff');
+    diffEl.textContent = 'Diff: ' + diff.toLocaleString('fr-FR') + (diff < 0.01 ? ' ✅ Soldé' : ' ⚠️ Partiel');
+    diffEl.style.color = diff < 0.01 ? '#2e7d32' : '#f29f2f';
+}
+</script>
+
+{# ====================== PÉRIODES ====================== #}
+{% elif section == 'periodes' %}
+<h2 style="margin:0 0 10px;color:#1A7A6D">📅 Gestion des périodes</h2>
+<p style="font-size:11px;color:#666">Une période clôturée bloque les nouvelles écritures. Validez tous les brouillards avant de clôturer.</p>
+
+<div class="cp-card" style="padding:0;overflow:auto">
+<table class="cp-table">
+<thead><tr><th>Année</th><th>Mois</th><th>Statut</th><th>Écritures</th><th>Brouillards</th><th>Clôturée le</th><th>Action</th></tr></thead>
+<tbody>
+{% for p in periodes %}
+<tr>
+    <td>{{ p.annee }}</td>
+    <td><strong>{{ '%02d'|format(p.mois) }}</strong></td>
+    <td><span class="cp-statut {{ p.statut }}">{% if p.statut == 'cloturee' %}🔒 Clôturée{% else %}🔓 Ouverte{% endif %}</span></td>
+    <td>{{ p.nb_ecritures }}</td>
+    <td>{% if p.nb_brouillard %}<span style="color:#c53030;font-weight:700">{{ p.nb_brouillard }}</span>{% else %}—{% endif %}</td>
+    <td style="font-size:10px">{{ p.cloture_at[:16] if p.cloture_at else '—' }}</td>
+    <td>
+    {% if p.statut == 'ouverte' %}
+        <form method="post" style="display:inline" onsubmit="return confirm('Clôturer la période {{ p.annee }}-{{ '%02d'|format(p.mois) }} ? Les écritures ne pourront plus être ajoutées.')">
+            <input type="hidden" name="action" value="cloturer">
+            <input type="hidden" name="annee" value="{{ p.annee }}">
+            <input type="hidden" name="mois" value="{{ p.mois }}">
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px" {% if p.nb_brouillard %}disabled title="Validez les brouillards d'abord"{% endif %}>🔒 Clôturer</button>
+        </form>
+    {% else %}
+        <form method="post" style="display:inline" onsubmit="return confirm('Ré-ouvrir la période {{ p.annee }}-{{ '%02d'|format(p.mois) }} ?')">
+            <input type="hidden" name="action" value="rouvrir">
+            <input type="hidden" name="annee" value="{{ p.annee }}">
+            <input type="hidden" name="mois" value="{{ p.mois }}">
+            <button type="submit" class="btn btn-sm" style="background:#f29f2f;color:#fff;font-size:10px">🔓 Rouvrir</button>
+        </form>
+    {% endif %}
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+{# ====================== PLAN COMPTABLE ====================== #}
+{% elif section == 'comptes' %}
+<div class="cp-actions-bar">
+    <h2 style="margin:0;color:#1A7A6D">📚 Plan comptable</h2>
+    {% if can_edit %}
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('newCompteModal').style.display='flex'">+ Nouveau compte</button>
+    {% endif %}
+</div>
+
+<p style="font-size:11px;color:#666">{{ comptes|length }} comptes actifs (Plan SYSCOHADA)</p>
+
+{% set classe_labels = {1:'1 — Capitaux',2:'2 — Immobilisations',3:'3 — Stocks',4:'4 — Tiers',5:'5 — Trésorerie',6:'6 — Charges',7:'7 — Produits',8:'8 — Autres',9:'9 — Analytique'} %}
+{% for cl in [1,2,3,4,5,6,7,8] %}
+{% if by_classe.get(cl) %}
+<h3 class="cp-section-title">CLASSE {{ classe_labels.get(cl, cl) }}</h3>
+<div class="cp-card" style="padding:0;margin-bottom:14px;overflow:auto">
+<table class="cp-table">
+<thead><tr><th>N°</th><th>Nom</th><th>Type</th><th>Lettrable</th></tr></thead>
+<tbody>
+{% for c in by_classe[cl] %}
+<tr>
+    <td style="font-family:monospace;font-weight:700">{{ c.numero }}</td>
+    <td><a href="/compta-pro/grand-livre?compte={{ c.numero }}" style="color:#1A7A6D">{{ c.nom }}</a></td>
+    <td style="font-size:11px">{{ c.type }}</td>
+    <td>{% if c.is_lettrable %}🔗{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endif %}
+{% endfor %}
+
+{% if can_edit %}
+<div id="newCompteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:480px;width:92%">
+    <h3 style="margin:0 0 12px;color:#1A7A6D">+ Nouveau compte</h3>
+    <form method="post">
+        <input type="hidden" name="action" value="add">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><label style="font-size:11px;color:#888;display:block">Numéro *</label>
+                <input name="numero" required pattern="[0-9]+" placeholder="ex: 4111" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace"></div>
+            <div><label style="font-size:11px;color:#888;display:block">Type *</label>
+                <select name="type" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                    <option value="actif">Actif</option><option value="passif">Passif</option>
+                    <option value="charge">Charge</option><option value="produit">Produit</option>
+                </select></div>
+        </div>
+        <div style="margin:8px 0"><label style="font-size:11px;color:#888;display:block">Nom *</label>
+            <input name="nom" required placeholder="Ex: Clients - Société XYZ" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin:8px 0">
+            <input type="checkbox" name="is_lettrable">
+            🔗 Compte lettrable (factures et paiements peuvent être reliés)
+        </label>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('newCompteModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">+ Créer</button>
+        </div>
+    </form>
+</div></div>
+{% endif %}
+
+{# ====================== JOURNAUX ====================== #}
+{% elif section == 'journaux' %}
+<div class="cp-actions-bar">
+    <h2 style="margin:0;color:#1A7A6D">📖 Journaux comptables</h2>
+    {% if can_edit %}
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('newJournalModal').style.display='flex'">+ Nouveau journal</button>
+    {% endif %}
+</div>
+
+<div class="cp-card" style="padding:0;overflow:auto">
+<table class="cp-table">
+<thead><tr><th>Code</th><th>Nom</th><th>Type</th><th>Contrepartie</th><th>Écritures</th></tr></thead>
+<tbody>
+{% for j in journaux %}
+<tr>
+    <td><strong>{{ j.code }}</strong></td>
+    <td>{{ j.nom }}</td>
+    <td style="font-size:11px">{{ j.type or '—' }}</td>
+    <td style="font-family:monospace">{{ j.compte_contrepartie or '—' }}</td>
+    <td>{{ j.nb_ecritures }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+{% if can_edit %}
+<div id="newJournalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:480px;width:92%">
+    <h3 style="margin:0 0 12px;color:#1A7A6D">+ Nouveau journal</h3>
+    <form method="post">
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
+            <div><label style="font-size:11px;color:#888;display:block">Code *</label>
+                <input name="code" required pattern="[A-Z0-9]+" maxlength="10" placeholder="ex: ACH" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace;text-transform:uppercase"></div>
+            <div><label style="font-size:11px;color:#888;display:block">Nom *</label>
+                <input name="nom" required placeholder="Ex: Journal des achats" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+            <div><label style="font-size:11px;color:#888;display:block">Type</label>
+                <select name="type" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                    <option value="achats">Achats</option><option value="ventes">Ventes</option>
+                    <option value="tresorerie">Trésorerie</option><option value="paie">Paie</option>
+                    <option value="od">Opérations diverses</option><option value="an">À nouveau</option>
+                </select></div>
+            <div><label style="font-size:11px;color:#888;display:block">Contrepartie (optionnel)</label>
+                <input name="contrepartie" placeholder="ex: 401" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace"></div>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('newJournalModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">+ Créer</button>
+        </div>
+    </form>
+</div></div>
+{% endif %}
+
+{% endif %}
+
 {% endif %}
 {% endblock %}
