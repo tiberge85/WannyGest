@@ -355,6 +355,8 @@ from models import migrate_v59
 migrate_v59()
 from models import migrate_v60
 migrate_v60()
+from models import migrate_v61
+migrate_v61()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -427,6 +429,11 @@ PERM_CATEGORIES = {
         ('compta_pro_edit', 'Saisir écritures (brouillard)'),
         ('compta_pro_valide', 'Valider écritures'),
         ('compta_pro_cloture', 'Clôturer périodes'),
+    ],
+    'Trésorerie': [
+        ('tresorerie', 'Module Trésorerie - Lecture'),
+        ('tresorerie_edit', 'Saisir mouvements caisse/banque'),
+        ('tresorerie_rapprochement', 'Rapprochement bancaire'),
     ],
     'Achats / Stock': [
         ('achats', 'Voir les achats / fournisseurs / stock'),
@@ -14054,6 +14061,290 @@ def compta_pro_integrate_paiement(payment_id):
     else:
         flash(f"✅ Écriture comptable #{eid} créée en brouillard", "success")
     return redirect(url_for('purchase_detail', pid=pay['purchase_id']))
+
+
+# ============================================================
+# 💵 TRÉSORERIE — Module séparé (caisse + banque + rapprochement)
+# ============================================================
+
+@app.route('/tresorerie/dashboard')
+@permission_required_any('tresorerie', 'admin')
+def tresorerie_dashboard():
+    """Dashboard Trésorerie : KPI caisse + banque, mouvements récents."""
+    from models import tresorerie_solde_caisse, tresorerie_solde_banque
+    from datetime import date as _date
+    today = datetime.now()
+    today_str = today.strftime('%Y-%m-%d')
+    month_start = _date(today.year, today.month, 1).strftime('%Y-%m-%d')
+    
+    solde_caisse = tresorerie_solde_caisse()
+    solde_banque = tresorerie_solde_banque()
+    
+    conn = _gdb()
+    # Mouvements du mois
+    try:
+        entrees_mois = conn.execute("""SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements
+            WHERE sens='entree' AND date >= ?""", (month_start,)).fetchone()[0] or 0
+        sorties_mois = conn.execute("""SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements
+            WHERE sens='sortie' AND date >= ?""", (month_start,)).fetchone()[0] or 0
+    except: entrees_mois = sorties_mois = 0
+    
+    # Derniers mouvements (15)
+    try:
+        recent = [dict(r) for r in conn.execute("""
+            SELECT * FROM tresorerie_mouvements
+            ORDER BY date DESC, id DESC LIMIT 15""").fetchall()]
+    except: recent = []
+    
+    # Comptes bancaires
+    try:
+        banques = [dict(r) for r in conn.execute(
+            "SELECT * FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+        for b in banques:
+            b['solde'] = tresorerie_solde_banque(b['id'])
+    except: banques = []
+    
+    conn.close()
+    return render_template('extra_pages.html', page='tresorerie_dashboard',
+                          solde_caisse=float(solde_caisse), solde_banque=float(solde_banque),
+                          entrees_mois=float(entrees_mois), sorties_mois=float(sorties_mois),
+                          recent=recent, banques=banques, today=today)
+
+
+@app.route('/tresorerie/caisse', methods=['GET', 'POST'])
+@permission_required_any('tresorerie', 'admin')
+def tresorerie_caisse():
+    """Journal de caisse : liste + saisie entrée/sortie."""
+    from models import tresorerie_enregistrer_mouvement, tresorerie_solde_caisse, get_role_permissions
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_edit = 'tresorerie_edit' in perms or 'admin' in perms or user['role'] == 'admin'
+    
+    if request.method == 'POST' and can_edit:
+        sens = (request.form.get('sens','') or '').strip()
+        date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+        try: montant = float(request.form.get('montant', 0) or 0)
+        except: montant = 0
+        libelle = (request.form.get('libelle','') or '').strip()
+        cpt = (request.form.get('cpt_contrepartie','') or '').strip()
+        ref = (request.form.get('reference','') or '').strip()
+        
+        if not libelle or montant <= 0 or sens not in ('entree','sortie'):
+            flash("❌ Saisie invalide (libellé, montant > 0, sens entrée/sortie requis)", "error")
+        else:
+            mvt_id, eid, err = tresorerie_enregistrer_mouvement(
+                'caisse', sens, 'manuel', date, montant, libelle,
+                user_id=session['user_id'], reference=ref,
+                cpt_contrepartie=cpt or None)
+            if err:
+                flash(f"❌ {err}", "error")
+            else:
+                msg = f"✅ Mouvement caisse #{mvt_id} enregistré ({montant:,.0f} F)"
+                if eid: msg += f" — Écriture comptable #{eid} créée en brouillard"
+                flash(msg, "success")
+        return redirect(url_for('tresorerie_caisse'))
+    
+    # Filtres
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    sens_filter = request.args.get('sens', '')
+    
+    conn = _gdb()
+    where = ["type='caisse'"]
+    params = []
+    if date_from: where.append("date>=?"); params.append(date_from)
+    if date_to: where.append("date<=?"); params.append(date_to)
+    if sens_filter: where.append("sens=?"); params.append(sens_filter)
+    where_sql = " AND ".join(where)
+    
+    try:
+        mouvements = [dict(r) for r in conn.execute(f"""
+            SELECT * FROM tresorerie_mouvements WHERE {where_sql}
+            ORDER BY date DESC, id DESC LIMIT 200""", tuple(params)).fetchall()]
+    except: mouvements = []
+    conn.close()
+    
+    solde = tresorerie_solde_caisse()
+    return render_template('extra_pages.html', page='tresorerie_caisse',
+                          mouvements=mouvements, solde=solde, can_edit=can_edit,
+                          date_from=date_from, date_to=date_to, sens_filter=sens_filter,
+                          today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/tresorerie/banque', methods=['GET', 'POST'])
+@permission_required_any('tresorerie', 'admin')
+def tresorerie_banque():
+    """Comptes bancaires + saisie mouvements."""
+    from models import tresorerie_enregistrer_mouvement, tresorerie_solde_banque, get_role_permissions
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_edit = 'tresorerie_edit' in perms or 'admin' in perms or user['role'] == 'admin'
+    
+    if request.method == 'POST' and can_edit:
+        action = request.form.get('action', '')
+        if action == 'add_compte':
+            nom = (request.form.get('nom','') or '').strip()
+            banque = (request.form.get('banque','') or '').strip()
+            num = (request.form.get('numero_compte','') or '').strip()
+            try: solde_init = float(request.form.get('solde_initial', 0) or 0)
+            except: solde_init = 0
+            if not nom:
+                flash("Nom du compte requis", "error")
+            else:
+                conn = _gdb()
+                try:
+                    conn.execute("""INSERT INTO tresorerie_comptes_bancaires
+                        (nom, banque, numero_compte, solde_initial, is_active)
+                        VALUES (?,?,?,?,1)""", (nom, banque, num, solde_init))
+                    conn.commit()
+                    flash(f"✅ Compte bancaire '{nom}' créé", "success")
+                except Exception as e:
+                    flash(f"❌ {e}", "error")
+                conn.close()
+        elif action == 'add_mvt':
+            try: bid = int(request.form.get('banque_id', 0) or 0)
+            except: bid = 0
+            sens = (request.form.get('sens','') or '').strip()
+            date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+            try: montant = float(request.form.get('montant', 0) or 0)
+            except: montant = 0
+            libelle = (request.form.get('libelle','') or '').strip()
+            mode = (request.form.get('mode_paiement','virement') or 'virement').strip()
+            ref = (request.form.get('reference','') or '').strip()
+            cpt = (request.form.get('cpt_contrepartie','') or '').strip()
+            
+            if not bid or not libelle or montant <= 0 or sens not in ('entree','sortie'):
+                flash("❌ Saisie invalide", "error")
+            else:
+                mvt_id, eid, err = tresorerie_enregistrer_mouvement(
+                    'banque', sens, 'manuel', date, montant, libelle,
+                    mode_paiement=mode, user_id=session['user_id'],
+                    banque_id=bid, reference=ref, cpt_contrepartie=cpt or None)
+                if err:
+                    flash(f"❌ {err}", "error")
+                else:
+                    msg = f"✅ Mouvement bancaire #{mvt_id} enregistré"
+                    if eid: msg += f" — Écriture #{eid} en brouillard"
+                    flash(msg, "success")
+        return redirect(url_for('tresorerie_banque'))
+    
+    conn = _gdb()
+    try:
+        comptes = [dict(r) for r in conn.execute(
+            "SELECT * FROM tresorerie_comptes_bancaires ORDER BY nom").fetchall()]
+        for c in comptes:
+            c['solde'] = tresorerie_solde_banque(c['id'])
+    except: comptes = []
+    
+    # Filtres mvts
+    banque_filter = request.args.get('banque_id', '')
+    where = ["type='banque'"]
+    params = []
+    if banque_filter and banque_filter.isdigit():
+        where.append("banque_id=?"); params.append(int(banque_filter))
+    where_sql = " AND ".join(where)
+    
+    try:
+        mouvements = [dict(r) for r in conn.execute(f"""
+            SELECT m.*, b.nom as banque_nom FROM tresorerie_mouvements m
+            LEFT JOIN tresorerie_comptes_bancaires b ON m.banque_id=b.id
+            WHERE {where_sql}
+            ORDER BY m.date DESC, m.id DESC LIMIT 100""", tuple(params)).fetchall()]
+    except: mouvements = []
+    conn.close()
+    
+    return render_template('extra_pages.html', page='tresorerie_banque',
+                          comptes=comptes, mouvements=mouvements, can_edit=can_edit,
+                          banque_filter=banque_filter,
+                          today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/tresorerie/rapprochement', methods=['GET', 'POST'])
+@permission_required_any('tresorerie_rapprochement', 'admin')
+def tresorerie_rapprochement():
+    """Rapprochement bancaire : marquer les mouvements comme rapprochés."""
+    from models import tresorerie_solde_banque
+    
+    if request.method == 'POST':
+        action = request.form.get('action','')
+        ids = request.form.getlist('mvt_ids[]')
+        try: ids = [int(x) for x in ids if x.isdigit()]
+        except: ids = []
+        if action == 'rapprocher' and ids:
+            conn = _gdb()
+            now_iso = datetime.now().isoformat()
+            placeholders = ','.join('?' * len(ids))
+            try:
+                conn.execute(f"""UPDATE tresorerie_mouvements SET statut='rapproche',
+                    rapproche_at=? WHERE id IN ({placeholders})""", tuple([now_iso] + ids))
+                conn.commit()
+                flash(f"✅ {len(ids)} mouvement(s) rapproché(s)", "success")
+            except Exception as e:
+                flash(f"❌ {e}", "error")
+            conn.close()
+        elif action == 'derapprocher' and ids:
+            conn = _gdb()
+            placeholders = ','.join('?' * len(ids))
+            try:
+                conn.execute(f"""UPDATE tresorerie_mouvements SET statut='enregistre',
+                    rapproche_at=NULL WHERE id IN ({placeholders})""", tuple(ids))
+                conn.commit()
+                flash(f"↩️ {len(ids)} mouvement(s) dé-rapproché(s)", "info")
+            except Exception as e:
+                flash(f"❌ {e}", "error")
+            conn.close()
+        return redirect(url_for('tresorerie_rapprochement') + '?banque_id=' + (request.form.get('banque_id','') or ''))
+    
+    banque_filter = request.args.get('banque_id', '')
+    show_rapproche = request.args.get('show_rapproche', '0') == '1'
+    
+    conn = _gdb()
+    try:
+        comptes = [dict(r) for r in conn.execute(
+            "SELECT * FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+    except: comptes = []
+    
+    where = ["m.type='banque'"]
+    params = []
+    if banque_filter and banque_filter.isdigit():
+        where.append("m.banque_id=?"); params.append(int(banque_filter))
+    if not show_rapproche:
+        where.append("(m.statut IS NULL OR m.statut != 'rapproche')")
+    where_sql = " AND ".join(where)
+    
+    try:
+        mouvements = [dict(r) for r in conn.execute(f"""
+            SELECT m.*, b.nom as banque_nom FROM tresorerie_mouvements m
+            LEFT JOIN tresorerie_comptes_bancaires b ON m.banque_id=b.id
+            WHERE {where_sql}
+            ORDER BY m.date DESC, m.id DESC""", tuple(params)).fetchall()]
+    except: mouvements = []
+    
+    # Solde livre vs solde théorique rapproché
+    solde_livre = 0
+    solde_rapproche = 0
+    try:
+        if banque_filter and banque_filter.isdigit():
+            bid = int(banque_filter)
+            solde_livre = tresorerie_solde_banque(bid)
+            # Solde rapproché : SI + mouvements rapprochés
+            si = conn.execute("SELECT solde_initial FROM tresorerie_comptes_bancaires WHERE id=?", (bid,)).fetchone()
+            si = float(si[0]) if si else 0
+            ent_r = conn.execute("""SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements
+                WHERE type='banque' AND banque_id=? AND sens='entree' AND statut='rapproche'""",
+                (bid,)).fetchone()[0] or 0
+            sor_r = conn.execute("""SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements
+                WHERE type='banque' AND banque_id=? AND sens='sortie' AND statut='rapproche'""",
+                (bid,)).fetchone()[0] or 0
+            solde_rapproche = si + float(ent_r) - float(sor_r)
+    except: pass
+    conn.close()
+    
+    return render_template('extra_pages.html', page='tresorerie_rapprochement',
+                          comptes=comptes, mouvements=mouvements,
+                          banque_filter=banque_filter, show_rapproche=show_rapproche,
+                          solde_livre=solde_livre, solde_rapproche=solde_rapproche,
+                          ecart=solde_livre - solde_rapproche)
 
 
 if __name__ == '__main__':

@@ -3265,6 +3265,355 @@ body{background:linear-gradient(135deg, #1a7a6d 0%, #1a3a5c 100%);min-height:100
     </form>
 </div>
 
+{% elif page == 'tresorerie_dashboard' %}
+<style>
+.tr-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px}
+.tr-card{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.tr-num{font-size:24px;font-weight:800;line-height:1.1}
+.tr-lbl{font-size:11px;color:#888;margin-top:4px}
+table.tr-table{width:100%;font-size:12px;border-collapse:collapse}
+table.tr-table th{background:#1a3a5c;color:#fff;padding:8px;text-align:left;font-weight:700;font-size:11px}
+table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+.num-cell{font-family:monospace;text-align:right;font-weight:600}
+</style>
+<div class="page-header">
+    <h1>💵 Trésorerie — Tableau de bord</h1>
+    <div style="display:flex;gap:6px">
+        <a href="/tresorerie/caisse" class="btn btn-sm" style="background:#2e7d32;color:#fff">💰 Caisse</a>
+        <a href="/tresorerie/banque" class="btn btn-sm" style="background:#1976d2;color:#fff">🏦 Banque</a>
+    </div>
+</div>
+
+<div class="tr-kpi">
+    <div class="tr-card" style="border-left:4px solid #2e7d32">
+        <div class="tr-num" style="color:#2e7d32">{{ "{:,.0f}".format(solde_caisse) }} F</div>
+        <div class="tr-lbl">💰 Solde caisse total</div>
+    </div>
+    <div class="tr-card" style="border-left:4px solid #1976d2">
+        <div class="tr-num" style="color:#1976d2">{{ "{:,.0f}".format(solde_banque) }} F</div>
+        <div class="tr-lbl">🏦 Solde banque total</div>
+    </div>
+    <div class="tr-card" style="border-left:4px solid #1A7A6D">
+        <div class="tr-num" style="color:#1A7A6D">{{ "{:,.0f}".format(solde_caisse + solde_banque) }} F</div>
+        <div class="tr-lbl">💵 Trésorerie globale</div>
+    </div>
+    <div class="tr-card" style="border-left:4px solid #2e7d32">
+        <div class="tr-num" style="color:#2e7d32">+{{ "{:,.0f}".format(entrees_mois) }} F</div>
+        <div class="tr-lbl">📥 Entrées du mois</div>
+    </div>
+    <div class="tr-card" style="border-left:4px solid #c53030">
+        <div class="tr-num" style="color:#c53030">−{{ "{:,.0f}".format(sorties_mois) }} F</div>
+        <div class="tr-lbl">📤 Sorties du mois</div>
+    </div>
+</div>
+
+{% if banques %}
+<h3 style="font-size:14px;color:#1a3a5c;margin:14px 0 8px">🏦 Comptes bancaires</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:14px">
+{% for b in banques %}
+<div class="tr-card" style="border-left:4px solid #1976d2">
+    <div style="font-size:13px;font-weight:700">{{ b.nom }}</div>
+    <div style="font-size:11px;color:#888">{{ b.banque or '' }}{% if b.numero_compte %} · {{ b.numero_compte }}{% endif %}</div>
+    <div class="tr-num" style="color:#1976d2;font-size:18px;margin-top:6px">{{ "{:,.0f}".format(b.solde) }} F</div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+<h3 style="font-size:14px;color:#1a3a5c;margin:14px 0 8px">📋 Derniers mouvements</h3>
+<div class="tr-card" style="padding:0">
+{% if recent %}
+<table class="tr-table">
+<thead><tr><th>Date</th><th>Type</th><th>Sens</th><th>Libellé</th><th>Tiers</th><th>Mode</th><th>Montant</th><th>Compta</th></tr></thead>
+<tbody>
+{% for m in recent %}
+<tr>
+    <td style="font-family:monospace">{{ m.date }}</td>
+    <td><span style="padding:2px 6px;border-radius:6px;font-size:10px;background:{% if m.type == 'caisse' %}#e8f5e9;color:#2e7d32{% else %}#e3f2fd;color:#1976d2{% endif %}">{% if m.type == 'caisse' %}💰{% else %}🏦{% endif %} {{ m.type }}</span></td>
+    <td>{% if m.sens == 'entree' %}<span style="color:#2e7d32;font-weight:700">↗ Entrée</span>{% else %}<span style="color:#c53030;font-weight:700">↘ Sortie</span>{% endif %}</td>
+    <td>{{ m.libelle[:40] if m.libelle else '—' }}</td>
+    <td style="font-size:11px">{{ m.tiers_nom or '—' }}</td>
+    <td style="font-size:11px">{{ m.mode_paiement or '—' }}</td>
+    <td class="num-cell" style="color:{% if m.sens == 'entree' %}#2e7d32{% else %}#c53030{% endif %}">{% if m.sens == 'entree' %}+{% else %}−{% endif %}{{ "{:,.0f}".format(m.montant) }}</td>
+    <td>{% if m.ecriture_id %}<a href="/compta-pro/ecriture/{{ m.ecriture_id }}" style="font-size:10px;color:#7b1fa2">📋 #{{ m.ecriture_id }}</a>{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun mouvement enregistré.</div>
+{% endif %}
+</div>
+
+{% elif page == 'tresorerie_caisse' %}
+<style>
+.tr-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:14px}
+table.tr-table{width:100%;font-size:12px;border-collapse:collapse}
+table.tr-table th{background:#2e7d32;color:#fff;padding:8px;text-align:left;font-weight:700;font-size:11px}
+table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+.num-cell{font-family:monospace;text-align:right;font-weight:600}
+</style>
+<div class="page-header">
+    <h1>💰 Journal de caisse</h1>
+    <a href="/tresorerie/dashboard" class="btn btn-outline btn-sm">← Trésorerie</a>
+</div>
+
+<div class="tr-card" style="border-left:4px solid #2e7d32;text-align:center">
+    <div style="font-size:11px;color:#888">SOLDE ACTUEL</div>
+    <div style="font-size:32px;font-weight:800;color:#2e7d32">{{ "{:,.0f}".format(solde) }} F CFA</div>
+</div>
+
+{% if can_edit %}
+<div class="tr-card">
+    <h3 style="margin:0 0 10px;color:#2e7d32">+ Nouveau mouvement de caisse</h3>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
+        <div><label style="font-size:11px;color:#888;display:block">Sens *</label>
+            <select name="sens" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">--</option>
+                <option value="entree">↗ Entrée</option>
+                <option value="sortie">↘ Sortie</option>
+            </select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Date *</label>
+            <input type="date" name="date" required value="{{ today }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Montant (F CFA) *</label>
+            <input type="number" name="montant" required step="100" min="1" placeholder="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+        <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Libellé *</label>
+            <input name="libelle" required placeholder="Ex: Encaissement client X / Achat fournitures" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Compte contrepartie (SYSCOHADA)</label>
+            <input name="cpt_contrepartie" placeholder="ex: 605, 411..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Référence</label>
+            <input name="reference" placeholder="N° pièce/facture" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <button type="submit" class="btn btn-primary" style="height:38px">💾 Enregistrer</button>
+    </form>
+    <p style="font-size:10px;color:#888;margin-top:8px">💡 Une écriture comptable est automatiquement créée en brouillard dans le journal CAISSE.</p>
+</div>
+{% endif %}
+
+<form method="get" class="tr-card" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+    <div><label style="font-size:11px;color:#888;display:block">Du</label><input type="date" name="from" value="{{ date_from }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Au</label><input type="date" name="to" value="{{ date_to }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Sens</label>
+        <select name="sens" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Tous</option>
+            <option value="entree" {% if sens_filter=='entree' %}selected{% endif %}>Entrée</option>
+            <option value="sortie" {% if sens_filter=='sortie' %}selected{% endif %}>Sortie</option>
+        </select></div>
+    <button type="submit" class="btn btn-sm btn-primary">🔍 Filtrer</button>
+</form>
+
+<div class="tr-card" style="padding:0;overflow:auto">
+{% if mouvements %}
+<table class="tr-table">
+<thead><tr><th>Date</th><th>Sens</th><th>Libellé</th><th>Référence</th><th>Source</th><th>Montant</th><th>Compta</th></tr></thead>
+<tbody>
+{% for m in mouvements %}
+<tr>
+    <td style="font-family:monospace">{{ m.date }}</td>
+    <td>{% if m.sens == 'entree' %}<span style="color:#2e7d32;font-weight:700">↗</span>{% else %}<span style="color:#c53030;font-weight:700">↘</span>{% endif %}</td>
+    <td>{{ m.libelle[:50] if m.libelle else '—' }}</td>
+    <td style="font-size:11px;color:#666">{{ m.reference or '—' }}</td>
+    <td style="font-size:10px;color:#888">{{ m.source }}</td>
+    <td class="num-cell" style="color:{% if m.sens == 'entree' %}#2e7d32{% else %}#c53030{% endif %}">{% if m.sens == 'entree' %}+{% else %}−{% endif %}{{ "{:,.0f}".format(m.montant) }}</td>
+    <td>{% if m.ecriture_id %}<a href="/compta-pro/ecriture/{{ m.ecriture_id }}" style="font-size:10px;color:#7b1fa2">#{{ m.ecriture_id }}</a>{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun mouvement.</div>
+{% endif %}
+</div>
+
+{% elif page == 'tresorerie_banque' %}
+<style>
+.tr-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:14px}
+table.tr-table{width:100%;font-size:12px;border-collapse:collapse}
+table.tr-table th{background:#1976d2;color:#fff;padding:8px;text-align:left;font-weight:700;font-size:11px}
+table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+.num-cell{font-family:monospace;text-align:right;font-weight:600}
+</style>
+<div class="page-header">
+    <h1>🏦 Comptes bancaires</h1>
+    <div style="display:flex;gap:6px">
+        {% if can_edit %}<button class="btn btn-primary btn-sm" onclick="document.getElementById('newCpt').style.display='flex'">+ Nouveau compte</button>{% endif %}
+        <a href="/tresorerie/dashboard" class="btn btn-outline btn-sm">← Trésorerie</a>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:14px">
+{% for c in comptes %}
+<div class="tr-card" style="border-left:4px solid #1976d2;{% if not c.is_active %}opacity:0.5{% endif %}">
+    <div style="font-size:13px;font-weight:700">{{ c.nom }}</div>
+    <div style="font-size:11px;color:#888">{{ c.banque or '' }}</div>
+    {% if c.numero_compte %}<div style="font-family:monospace;font-size:10px;color:#666">N° {{ c.numero_compte }}</div>{% endif %}
+    <div style="font-size:18px;font-weight:800;color:#1976d2;margin-top:6px">{{ "{:,.0f}".format(c.solde) }} F</div>
+    <div style="font-size:9px;color:#aaa">Solde init: {{ "{:,.0f}".format(c.solde_initial or 0) }}</div>
+</div>
+{% else %}
+<div class="tr-card" style="text-align:center;color:#888;padding:40px">Aucun compte bancaire. {% if can_edit %}Créez-en un.{% endif %}</div>
+{% endfor %}
+</div>
+
+{% if can_edit and comptes %}
+<div class="tr-card">
+    <h3 style="margin:0 0 10px;color:#1976d2">+ Nouveau mouvement bancaire</h3>
+    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
+        <input type="hidden" name="action" value="add_mvt">
+        <div><label style="font-size:11px;color:#888;display:block">Banque *</label>
+            <select name="banque_id" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                {% for c in comptes %}{% if c.is_active %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endif %}{% endfor %}
+            </select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Sens *</label>
+            <select name="sens" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">--</option>
+                <option value="entree">↗ Encaissement</option>
+                <option value="sortie">↘ Décaissement</option>
+            </select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Mode *</label>
+            <select name="mode_paiement" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="virement">Virement</option>
+                <option value="cheque">Chèque</option>
+                <option value="mobile">Mobile money</option>
+                <option value="carte">Carte</option>
+            </select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Date</label>
+            <input type="date" name="date" required value="{{ today }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Montant *</label>
+            <input type="number" name="montant" required step="100" min="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+        <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Libellé *</label>
+            <input name="libelle" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Compte contrepartie</label>
+            <input name="cpt_contrepartie" placeholder="ex: 411, 401, 605..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Référence</label>
+            <input name="reference" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <button type="submit" class="btn btn-primary" style="height:38px">💾 Enregistrer</button>
+    </form>
+    <p style="font-size:10px;color:#888;margin-top:8px">💡 Une écriture comptable est créée automatiquement en brouillard dans le journal BANQUE.</p>
+</div>
+{% endif %}
+
+<h3 style="font-size:13px;color:#1a3a5c;margin:14px 0 8px">📋 Mouvements bancaires</h3>
+<div class="tr-card" style="padding:0;overflow:auto">
+{% if mouvements %}
+<table class="tr-table">
+<thead><tr><th>Date</th><th>Banque</th><th>Sens</th><th>Mode</th><th>Libellé</th><th>Réf.</th><th>Montant</th><th>Statut</th><th>Compta</th></tr></thead>
+<tbody>
+{% for m in mouvements %}
+<tr>
+    <td style="font-family:monospace">{{ m.date }}</td>
+    <td>{{ m.banque_nom or '—' }}</td>
+    <td>{% if m.sens == 'entree' %}<span style="color:#2e7d32;font-weight:700">↗ Entrée</span>{% else %}<span style="color:#c53030;font-weight:700">↘ Sortie</span>{% endif %}</td>
+    <td style="font-size:11px">{{ m.mode_paiement or '—' }}</td>
+    <td>{{ m.libelle[:40] if m.libelle else '—' }}</td>
+    <td style="font-size:11px;color:#666">{{ m.reference or '—' }}</td>
+    <td class="num-cell" style="color:{% if m.sens == 'entree' %}#2e7d32{% else %}#c53030{% endif %}">{% if m.sens == 'entree' %}+{% else %}−{% endif %}{{ "{:,.0f}".format(m.montant) }}</td>
+    <td>{% if m.statut == 'rapproche' %}<span style="color:#2e7d32;font-size:10px">✅ Rapproché</span>{% else %}<span style="color:#888;font-size:10px">📋 À rapprocher</span>{% endif %}</td>
+    <td>{% if m.ecriture_id %}<a href="/compta-pro/ecriture/{{ m.ecriture_id }}" style="font-size:10px;color:#7b1fa2">#{{ m.ecriture_id }}</a>{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun mouvement bancaire.</div>
+{% endif %}
+</div>
+
+<!-- Modal nouveau compte -->
+<div id="newCpt" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:500px;width:92%">
+    <h3 style="margin:0 0 12px;color:#1976d2">+ Nouveau compte bancaire</h3>
+    <form method="post">
+        <input type="hidden" name="action" value="add_compte">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div><label style="font-size:11px;color:#888">Nom *</label>
+                <input name="nom" required placeholder="Ex: Compte SGBCI" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            <div><label style="font-size:11px;color:#888">Banque</label>
+                <input name="banque" placeholder="SGBCI, Ecobank..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+            <div><label style="font-size:11px;color:#888">N° de compte</label>
+                <input name="numero_compte" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace"></div>
+            <div><label style="font-size:11px;color:#888">Solde initial (F)</label>
+                <input type="number" name="solde_initial" step="100" value="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('newCpt').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-primary btn-sm">+ Créer</button>
+        </div>
+    </form>
+</div></div>
+
+{% elif page == 'tresorerie_rapprochement' %}
+<style>
+.tr-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:14px}
+table.tr-table{width:100%;font-size:12px;border-collapse:collapse}
+table.tr-table th{background:#7b1fa2;color:#fff;padding:8px;text-align:left;font-weight:700;font-size:11px}
+table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+.num-cell{font-family:monospace;text-align:right;font-weight:600}
+</style>
+<div class="page-header">
+    <h1>🔍 Rapprochement bancaire</h1>
+    <a href="/tresorerie/dashboard" class="btn btn-outline btn-sm">← Trésorerie</a>
+</div>
+
+<form method="get" class="tr-card" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+    <div><label style="font-size:11px;color:#888;display:block">Banque</label>
+        <select name="banque_id" onchange="this.form.submit()" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">-- Toutes --</option>
+            {% for c in comptes %}<option value="{{ c.id }}" {% if banque_filter == c.id|string %}selected{% endif %}>{{ c.nom }}</option>{% endfor %}
+        </select></div>
+    <div><label style="display:flex;gap:4px;align-items:center;font-size:11px"><input type="checkbox" name="show_rapproche" value="1" {% if show_rapproche %}checked{% endif %} onchange="this.form.submit()"> Voir mouvements déjà rapprochés</label></div>
+</form>
+
+{% if banque_filter %}
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+    <div class="tr-card" style="border-left:4px solid #1976d2">
+        <div style="font-size:11px;color:#888">Solde livre</div>
+        <div style="font-size:20px;font-weight:800;color:#1976d2">{{ "{:,.0f}".format(solde_livre) }} F</div>
+    </div>
+    <div class="tr-card" style="border-left:4px solid #2e7d32">
+        <div style="font-size:11px;color:#888">Solde rapproché</div>
+        <div style="font-size:20px;font-weight:800;color:#2e7d32">{{ "{:,.0f}".format(solde_rapproche) }} F</div>
+    </div>
+    <div class="tr-card" style="border-left:4px solid {% if ecart == 0 %}#2e7d32{% else %}#c53030{% endif %}">
+        <div style="font-size:11px;color:#888">Écart</div>
+        <div style="font-size:20px;font-weight:800;color:{% if ecart == 0 %}#2e7d32{% else %}#c53030{% endif %}">{{ "{:+,.0f}".format(ecart) }} F</div>
+    </div>
+</div>
+{% endif %}
+
+<form method="post">
+<input type="hidden" name="banque_id" value="{{ banque_filter }}">
+<div class="tr-card" style="padding:0;overflow:auto">
+{% if mouvements %}
+<table class="tr-table">
+<thead><tr><th><input type="checkbox" id="ckAll" onchange="document.querySelectorAll('.mvt-cb').forEach(c=>c.checked=this.checked)"></th><th>Date</th><th>Banque</th><th>Libellé</th><th>Réf.</th><th>Sens</th><th>Montant</th><th>Statut</th></tr></thead>
+<tbody>
+{% for m in mouvements %}
+<tr>
+    <td><input type="checkbox" class="mvt-cb" name="mvt_ids[]" value="{{ m.id }}"></td>
+    <td style="font-family:monospace">{{ m.date }}</td>
+    <td>{{ m.banque_nom or '—' }}</td>
+    <td>{{ m.libelle[:40] if m.libelle else '—' }}</td>
+    <td style="font-size:10px">{{ m.reference or '—' }}</td>
+    <td>{% if m.sens == 'entree' %}<span style="color:#2e7d32">↗</span>{% else %}<span style="color:#c53030">↘</span>{% endif %}</td>
+    <td class="num-cell" style="color:{% if m.sens == 'entree' %}#2e7d32{% else %}#c53030{% endif %}">{% if m.sens == 'entree' %}+{% else %}−{% endif %}{{ "{:,.0f}".format(m.montant) }}</td>
+    <td>{% if m.statut == 'rapproche' %}<span style="color:#2e7d32;font-size:10px">✅ {{ m.rapproche_at[:10] if m.rapproche_at else '' }}</span>{% else %}<span style="color:#888;font-size:10px">À rapprocher</span>{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">Aucun mouvement à afficher.</div>
+{% endif %}
+</div>
+
+<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px">
+    <button type="submit" name="action" value="rapprocher" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅ Marquer rapprochés</button>
+    {% if show_rapproche %}<button type="submit" name="action" value="derapprocher" class="btn btn-sm" style="background:#f29f2f;color:#fff">↩️ Dé-rapprocher</button>{% endif %}
+</div>
+</form>
+
 {% elif page == 'pt_login' %}
 <style>
 body{background:linear-gradient(135deg,{{ company.primary_color or '#1a7a6d' }} 0%, #1a3a5c 100%) !important; min-height:100vh}

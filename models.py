@@ -3941,6 +3941,77 @@ def migrate_v60():
     conn.commit(); conn.close()
 
 
+def migrate_v61():
+    """v61 : Module Trésorerie séparé. Tables : tresorerie_mouvements, tresorerie_comptes_bancaires.
+    Crée le rôle 'caissier' et distribue les permissions par défaut."""
+    conn = get_db()
+    
+    # Comptes bancaires (registre des comptes en banque de l'entreprise)
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS tresorerie_comptes_bancaires (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            banque TEXT,
+            numero_compte TEXT,
+            iban TEXT,
+            swift TEXT,
+            devise TEXT DEFAULT 'XOF',
+            solde_initial REAL DEFAULT 0,
+            compta_compte_numero TEXT DEFAULT '512',
+            is_active INTEGER DEFAULT 1,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except: pass
+    
+    # Mouvements de trésorerie (caisse + banque) — log de chaque mouvement
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS tresorerie_mouvements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            sens TEXT NOT NULL,
+            source TEXT NOT NULL,
+            source_id INTEGER,
+            date TEXT NOT NULL,
+            montant REAL NOT NULL,
+            libelle TEXT,
+            tiers_type TEXT,
+            tiers_id INTEGER,
+            tiers_nom TEXT,
+            mode_paiement TEXT,
+            reference TEXT,
+            caisse_id INTEGER,
+            banque_id INTEGER,
+            ecriture_id INTEGER,
+            statut TEXT DEFAULT 'enregistre',
+            rapproche_at TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_treso_date ON tresorerie_mouvements(date)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_treso_type ON tresorerie_mouvements(type)")
+    except: pass
+    try: conn.execute("CREATE INDEX IF NOT EXISTS idx_treso_sens ON tresorerie_mouvements(sens)")
+    except: pass
+    
+    # Permissions par défaut
+    default_treso_perms = {
+        'admin':       ['tresorerie', 'tresorerie_edit', 'tresorerie_rapprochement'],
+        'dg':          ['tresorerie', 'tresorerie_edit', 'tresorerie_rapprochement'],
+        'comptable':   ['tresorerie', 'tresorerie_edit', 'tresorerie_rapprochement'],
+        'caissier':    ['tresorerie', 'tresorerie_edit', 'caisse_sortie', 'dashboard'],
+        'proprietaire': ['tresorerie'],
+    }
+    for role, perms in default_treso_perms.items():
+        for perm in perms:
+            try: conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    conn.commit(); conn.close()
+
+
 # ======================== SERVICES COMPTABLES ========================
 
 def compta_periode_est_ouverte(annee, mois):
@@ -4343,6 +4414,153 @@ def compta_lettrer(ligne_ids, user_id):
     except Exception as e:
         conn.close()
         return None, f"Erreur: {e}"
+
+
+# ======================== SERVICES TRÉSORERIE ========================
+
+def tresorerie_enregistrer_mouvement(type_mvt, sens, source, date, montant, libelle,
+                                     mode_paiement='espece', user_id=None,
+                                     tiers_type=None, tiers_id=None, tiers_nom='',
+                                     reference='', source_id=None,
+                                     caisse_id=None, banque_id=None,
+                                     cpt_contrepartie=None,
+                                     auto_compta=True):
+    """Enregistre un mouvement de trésorerie ET génère automatiquement
+    l'écriture comptable correspondante (en brouillard).
+    
+    Args:
+        type_mvt : 'caisse' | 'banque'
+        sens : 'entree' | 'sortie'
+        source : 'manuel' | 'caisse_sortie' | 'paiement_fournisseur' | 'encaissement_client' | 'virement' | ...
+        montant : montant positif (toujours)
+        cpt_contrepartie : numéro de compte SYSCOHADA (ex: '601' pour achat, '411' pour client...)
+                           Si None : on déduit selon source/sens.
+    
+    Retourne (mouvement_id, ecriture_id, error).
+    """
+    from datetime import datetime as _dt
+    if montant <= 0:
+        return None, None, "Montant doit être positif"
+    if sens not in ('entree', 'sortie'):
+        return None, None, "Sens invalide (entree/sortie)"
+    if type_mvt not in ('caisse', 'banque'):
+        return None, None, "Type invalide (caisse/banque)"
+    
+    # Compte trésorerie selon type
+    cpt_treso = '571' if type_mvt == 'caisse' else '512'
+    journal = 'CAISSE' if type_mvt == 'caisse' else 'BANQUE'
+    
+    # Déduire le compte de contrepartie si non fourni
+    if not cpt_contrepartie:
+        if source == 'paiement_fournisseur':
+            cpt_contrepartie = '401'
+        elif source == 'encaissement_client':
+            cpt_contrepartie = '411'
+        elif sens == 'sortie':
+            cpt_contrepartie = '605'  # autres achats par défaut
+        elif sens == 'entree':
+            cpt_contrepartie = '707'  # produits annexes par défaut
+        else:
+            cpt_contrepartie = '467'  # divers
+    
+    conn = get_db()
+    try:
+        # 1. Créer le mouvement
+        conn.execute("""INSERT INTO tresorerie_mouvements
+            (type, sens, source, source_id, date, montant, libelle,
+             tiers_type, tiers_id, tiers_nom, mode_paiement, reference,
+             caisse_id, banque_id, statut, created_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (type_mvt, sens, source, source_id, date, montant, libelle,
+             tiers_type, tiers_id, tiers_nom or '', mode_paiement, reference or '',
+             caisse_id, banque_id, 'enregistre', user_id))
+        mvt_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        return None, None, f"Erreur DB mouvement: {e}"
+    
+    # 2. Générer l'écriture comptable (en brouillard)
+    eid = None
+    if auto_compta:
+        try:
+            # Sens entrée → débit trésorerie / crédit contrepartie
+            # Sens sortie → débit contrepartie / crédit trésorerie
+            if sens == 'entree':
+                lignes = [
+                    {'compte_numero': cpt_treso, 'libelle': libelle, 'debit': montant, 'credit': 0,
+                     'tiers_id': tiers_id, 'tiers_type': tiers_type},
+                    {'compte_numero': cpt_contrepartie, 'libelle': libelle, 'debit': 0, 'credit': montant,
+                     'tiers_id': tiers_id, 'tiers_type': tiers_type},
+                ]
+            else:
+                lignes = [
+                    {'compte_numero': cpt_contrepartie, 'libelle': libelle, 'debit': montant, 'credit': 0,
+                     'tiers_id': tiers_id, 'tiers_type': tiers_type},
+                    {'compte_numero': cpt_treso, 'libelle': libelle, 'debit': 0, 'credit': montant,
+                     'tiers_id': tiers_id, 'tiers_type': tiers_type},
+                ]
+            
+            piece_externe = f"{source.upper()}-{mvt_id}"
+            eid, err = compta_creer_ecriture(journal, date, libelle, lignes,
+                                            user_id=user_id or 1, validate=False,
+                                            piece_externe=piece_externe)
+            if eid:
+                # Lier l'écriture au mouvement
+                conn = get_db()
+                conn.execute("UPDATE tresorerie_mouvements SET ecriture_id=? WHERE id=?",
+                            (eid, mvt_id))
+                conn.commit()
+                conn.close()
+        except Exception as e:
+            print(f"compta auto: {e}")
+    
+    return mvt_id, eid, None
+
+
+def tresorerie_solde_caisse(caisse_id=None, date_to=None):
+    """Calcule le solde caisse : entrées - sorties depuis le début (ou jusqu'à date_to)."""
+    conn = get_db()
+    where = "WHERE type='caisse'"
+    params = []
+    if caisse_id:
+        where += " AND caisse_id=?"; params.append(caisse_id)
+    if date_to:
+        where += " AND date<=?"; params.append(date_to)
+    
+    try:
+        entrees = conn.execute(f"SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements {where} AND sens='entree'", tuple(params)).fetchone()[0] or 0
+        sorties = conn.execute(f"SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements {where} AND sens='sortie'", tuple(params)).fetchone()[0] or 0
+    except: entrees = sorties = 0
+    conn.close()
+    return float(entrees) - float(sorties)
+
+
+def tresorerie_solde_banque(banque_id=None, date_to=None):
+    """Calcule le solde banque (intégrant solde initial)."""
+    conn = get_db()
+    where = "WHERE type='banque'"
+    params = []
+    if banque_id:
+        where += " AND banque_id=?"; params.append(banque_id)
+    if date_to:
+        where += " AND date<=?"; params.append(date_to)
+    
+    try:
+        entrees = conn.execute(f"SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements {where} AND sens='entree'", tuple(params)).fetchone()[0] or 0
+        sorties = conn.execute(f"SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements {where} AND sens='sortie'", tuple(params)).fetchone()[0] or 0
+        # Soldes initiaux
+        if banque_id:
+            si = conn.execute("SELECT COALESCE(solde_initial,0) FROM tresorerie_comptes_bancaires WHERE id=?", (banque_id,)).fetchone()
+            si = float(si[0]) if si else 0
+        else:
+            si = conn.execute("SELECT COALESCE(SUM(solde_initial),0) FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1").fetchone()[0] or 0
+            si = float(si)
+    except: entrees = sorties = si = 0
+    conn.close()
+    return si + float(entrees) - float(sorties)
 
 
 def get_purchase_status(purchase_id):

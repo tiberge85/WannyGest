@@ -317,31 +317,17 @@
             </div>
             {% endif %}
             
-            {% if 'comptabilite' in permissions or 'compta_pro' in permissions or 'admin' in permissions %}
-            <!-- 💰 COMPTABILITÉ : section unique réorganisée en 4 sous-sections logiques -->
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {# 💰 COMPTABILITÉ : normes comptables, états, lettrage, écritures   #}
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {% if 'compta_pro' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
             <div class="nav-section" id="sec-compta">
                 <div class="nav-section-title" onclick="toggleSection('sec-compta')">💰 COMPTABILITÉ <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     
-                    {# 1. OPÉRATIONS — gestion quotidienne #}
-                    {% if 'comptabilite' in permissions or 'admin' in permissions %}
-                    <div class="compta-subsection-title"><span class="dot"></span>OPÉRATIONS</div>
-                    <a href="/comptabilite" class="{% if page == 'comptabilite' %}active{% endif %}">📊 Tableau de bord</a>
-                    <a href="/comptabilite/factures" class="{% if page == 'factures' %}active{% endif %}">🧾 Factures</a>
-                    <a href="/depenses" class="{% if page == 'depenses' %}active{% endif %}">📉 Dépenses</a>
-                    <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
-                    <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">💵 Caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
-                    <a href="/tresorerie" class="{% if page == 'tresorerie' %}active{% endif %}">🏦 Trésorerie & Banque</a>
-                    <a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📥 Créances clients</a>
-                    <a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>
-                    <a href="/comptabilite/validation-paie" class="{% if page == 'compta_paie' %}active{% endif %}">💵 Validation paie</a>
-                    <a href="/comptabilite/caisses" class="{% if page == 'caisses' or page == 'caisse_detail' %}active{% endif %}">💰 Multi-caisses</a>
-                    <a href="/comptabilite/virements" class="{% if page == 'virements_list' %}active{% endif %}">🏦 Virements banque{% if pending_virements_count and pending_virements_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_virements_count }}</span>{% endif %}</a>
-                    {% endif %}
-                    
-                    {# 2. COMPTABILITÉ GÉNÉRALE — saisie & paramétrage SYSCOHADA #}
+                    {# SAISIE & TRAITEMENT #}
                     {% if 'compta_pro' in permissions or 'admin' in permissions %}
-                    <div class="compta-subsection-title"><span class="dot"></span>COMPTABILITÉ GÉNÉRALE</div>
+                    <div class="compta-subsection-title"><span class="dot"></span>SAISIE & TRAITEMENT</div>
                     {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
                     <a href="/compta-pro/saisie" class="{% if page == 'compta_pro' and section|default('') == 'saisie' %}active{% endif %}">✏️ Saisie écriture</a>
                     {% endif %}
@@ -349,6 +335,11 @@
                     {% if 'compta_pro_edit' in permissions or 'admin' in permissions %}
                     <a href="/compta-pro/lettrage" class="{% if page == 'compta_pro' and section|default('') == 'lettrage' %}active{% endif %}">🔗 Lettrage</a>
                     {% endif %}
+                    {% endif %}
+                    
+                    {# PARAMÉTRAGE #}
+                    {% if 'compta_pro' in permissions or 'admin' in permissions %}
+                    <div class="compta-subsection-title"><span class="dot"></span>PARAMÉTRAGE</div>
                     <a href="/compta-pro/comptes" class="{% if page == 'compta_pro' and section|default('') == 'comptes' %}active{% endif %}">📚 Plan comptable</a>
                     <a href="/compta-pro/journaux" class="{% if page == 'compta_pro' and section|default('') == 'journaux' %}active{% endif %}">📖 Journaux</a>
                     {% if 'compta_pro_cloture' in permissions or 'admin' in permissions %}
@@ -356,27 +347,71 @@
                     {% endif %}
                     {% endif %}
                     
-                    {# 3. ÉTATS COMPTABLES — restitutions normalisées #}
+                    {# ÉTATS COMPTABLES #}
                     {% if 'compta_pro' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
                     <div class="compta-subsection-title"><span class="dot"></span>ÉTATS COMPTABLES</div>
-                    <a href="/compta-pro" class="{% if page == 'compta_pro' and section|default('') == 'dashboard' %}active{% endif %}">📊 Tableau de bord comptable</a>
+                    <a href="/compta-pro" class="{% if page == 'compta_pro' and section|default('') == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
                     <a href="/compta-pro/grand-livre" class="{% if page == 'compta_pro' and section|default('') == 'grand_livre' %}active{% endif %}">📒 Grand Livre</a>
-                    <a href="/compta-pro/balance" class="{% if page == 'compta_pro' and section|default('') == 'balance' %}active{% endif %}">⚖️ Balance comptable</a>
+                    <a href="/compta-pro/balance" class="{% if page == 'compta_pro' and section|default('') == 'balance' %}active{% endif %}">⚖️ Balance</a>
                     <a href="/compta-pro/bilan" class="{% if page == 'compta_pro' and section|default('') == 'bilan' %}active{% endif %}">🏛️ Bilan SYSCOHADA</a>
                     <a href="/compta-pro/resultat" class="{% if page == 'compta_pro' and section|default('') == 'resultat' %}active{% endif %}">💹 Compte de résultat</a>
                     {% endif %}
                     
-                    {# 4. ANALYSE & CONTRÔLE — pilotage interne #}
-                    {% if 'comptabilite' in permissions or 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
-                    <div class="compta-subsection-title"><span class="dot"></span>ANALYSE & CONTRÔLE</div>
+                    {# SUIVI TIERS #}
                     {% if 'comptabilite' in permissions or 'admin' in permissions %}
-                    <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
-                    {% endif %}
-                    {% if 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
-                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Budgets départements</a>
-                    {% endif %}
+                    <div class="compta-subsection-title"><span class="dot"></span>SUIVI TIERS</div>
+                    <a href="/comptabilite/factures" class="{% if page == 'factures' %}active{% endif %}">🧾 Factures</a>
+                    <a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📥 Créances clients</a>
+                    <a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>
+                    <a href="/comptabilite/validation-paie" class="{% if page == 'compta_paie' %}active{% endif %}">💵 Validation paie</a>
                     {% endif %}
                     
+                </div>
+            </div>
+            {% endif %}
+            
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {# 💵 TRÉSORERIE : caisse, banque, virements, rapprochement         #}
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {% if 'tresorerie' in permissions or 'comptabilite' in permissions or 'caisse_sortie' in permissions or 'admin' in permissions %}
+            <div class="nav-section" id="sec-tresorerie">
+                <div class="nav-section-title" onclick="toggleSection('sec-tresorerie')">💵 TRÉSORERIE <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    
+                    <a href="/tresorerie/dashboard" class="{% if page == 'tresorerie_dashboard' %}active{% endif %}">📊 Tableau de bord</a>
+                    
+                    {# CAISSE #}
+                    <div class="compta-subsection-title"><span class="dot"></span>CAISSE</div>
+                    <a href="/tresorerie/caisse" class="{% if page == 'tresorerie_caisse' %}active{% endif %}">💰 Journal de caisse</a>
+                    {% if 'caisse_sortie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+                    <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">📤 Sorties caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
+                    {% endif %}
+                    <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
+                    {% if 'caisse_multi' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+                    <a href="/comptabilite/caisses" class="{% if page == 'caisses' or page == 'caisse_detail' %}active{% endif %}">🏪 Multi-caisses</a>
+                    {% endif %}
+                    <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
+                    
+                    {# BANQUE #}
+                    <div class="compta-subsection-title"><span class="dot"></span>BANQUE</div>
+                    <a href="/tresorerie/banque" class="{% if page == 'tresorerie_banque' %}active{% endif %}">🏦 Comptes bancaires</a>
+                    <a href="/comptabilite/virements" class="{% if page == 'virements_list' %}active{% endif %}">💸 Virements banque{% if pending_virements_count and pending_virements_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_virements_count }}</span>{% endif %}</a>
+                    
+                    {# CONTRÔLE #}
+                    <div class="compta-subsection-title"><span class="dot"></span>CONTRÔLE</div>
+                    <a href="/tresorerie/rapprochement" class="{% if page == 'tresorerie_rapprochement' %}active{% endif %}">🔍 Rapprochement bancaire</a>
+                    <a href="/depenses" class="{% if page == 'depenses' %}active{% endif %}">📉 Suivi dépenses</a>
+                    
+                </div>
+            </div>
+            {% endif %}
+            
+            {# Section Budgets départements (séparée) #}
+            {% if 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
+            <div class="nav-section" id="sec-budget">
+                <div class="nav-section-title" onclick="toggleSection('sec-budget')">💼 BUDGETS <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Budgets départements</a>
                 </div>
             </div>
             {% endif %}
