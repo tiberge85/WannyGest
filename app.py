@@ -11482,6 +11482,10 @@ def pointage_company_login(slug):
                     return redirect(url_for('pointage_company_scan', slug=slug) + f'?type={pt_type}')
                 if next_action == 'session_start' and planning_id:
                     return redirect(url_for('pointage_company_session_start', slug=slug, planning_id=int(planning_id)))
+                if next_action == 'session_next':
+                    return redirect(url_for('pointage_company_session_next', slug=slug))
+                if next_action == 'session_current':
+                    return redirect(url_for('pointage_company_session_current', slug=slug))
                 return redirect(url_for('pointage_company_dashboard', slug=slug))
         conn.close()
         flash("❌ Identifiants incorrects", "error")
@@ -11820,40 +11824,94 @@ def pointage_company_scan(slug):
 @app.route('/admin/pointage/companies/<int:cid>/qr')
 @permission_required_any('admin', 'pointage_edit')
 def admin_pointage_company_qr(cid):
-    """Génère les QR codes spécifiques à une entreprise pointage.
-    Chaque QR pointe vers /pt/<slug>/scan?type=... (URL absolue avec host_url)."""
+    """Génère les QR codes adaptés au mode de pointage de l'entreprise.
+    - Mode CONTINU : 4 QR (Arrivée/Pause/Retour/Départ) → /pt/<slug>/scan?type=...
+    - Mode SESSION : 2 QR génériques (Démarrer prochaine / Terminer en cours)
+                     + plannings du jour avec QR individuels."""
     conn = _gdb()
     company = conn.execute("SELECT * FROM pointage_companies WHERE id=?", (cid,)).fetchone()
     if not company:
         flash("Entreprise introuvable", "error")
         conn.close(); return redirect(url_for('admin_pointage_companies_list'))
     company = dict(company)
-    conn.close()
     
     base_url = request.host_url.rstrip('/')
-    types = [
-        ('arrivee', '🟢 Arrivée', '#2e7d32'),
-        ('pause', '🟡 Pause', '#f29f2f'),
-        ('retour', '🔵 Retour', '#1a7a6d'),
-        ('depart', '🔴 Départ', '#c53030'),
-    ]
-    qrs = []
-    for t, label, color in types:
-        url = f"{base_url}/pt/{company['slug']}/scan?type={t}"
-        qr_data_uri = ''
+    type_pointage = company.get('type_pointage', 'continu') or 'continu'
+    
+    def _gen_qr(url, color):
         try:
             import qrcode, io, base64
             qr = qrcode.QRCode(version=1, box_size=10, border=2)
             qr.add_data(url); qr.make(fit=True)
             img = qr.make_image(fill_color=color, back_color="white")
             buf = io.BytesIO(); img.save(buf, format='PNG')
-            qr_data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+            return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
         except Exception as e:
             print(f"QR err: {e}")
-        qrs.append({'type': t, 'label': label, 'url': url, 'qr': qr_data_uri, 'color': color})
+            return ''
     
+    qrs = []
+    plannings_qrs = []
+    
+    if type_pointage == 'session':
+        # === Mode SESSION ===
+        # 2 QR génériques
+        types = [
+            ('next', '▶ Démarrer ma prochaine session', '#2e7d32',
+             "Scannez à votre arrivée sur le lieu d'intervention pour démarrer la session planifiée."),
+            ('current', '🛑 Terminer ma session en cours', '#c53030',
+             "Scannez à la fin de votre intervention pour terminer la session en cours."),
+        ]
+        for t, label, color, instr in types:
+            url = f"{base_url}/pt/{company['slug']}/session/{t}"
+            qrs.append({
+                'type': t, 'label': label, 'url': url,
+                'qr': _gen_qr(url, color), 'color': color, 'instr': instr,
+            })
+        
+        # QR individuels par session planifiée du jour (optionnel - à imprimer pour chaque mission)
+        date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+        plannings = [dict(r) for r in conn.execute("""
+            SELECT pps.*, pcu.full_name as user_name, pee.nom as externe_nom
+            FROM pointage_planning_sessions pps
+            LEFT JOIN pointage_company_users pcu ON pps.company_user_id = pcu.id
+            LEFT JOIN pointage_entreprises_externes pee ON pps.entreprise_externe_id = pee.id
+            WHERE pps.company_id=? AND pps.date=? AND COALESCE(pps.is_active,1)=1
+              AND pps.statut IN ('prevue', 'en_cours')
+            ORDER BY pps.heure_prevue""", (cid, date_filter)).fetchall()]
+        
+        for p in plannings:
+            url = f"{base_url}/pt/{company['slug']}/session/start/{p['id']}?via=qr"
+            plannings_qrs.append({
+                'planning': p,
+                'url': url,
+                'qr': _gen_qr(url, '#7b1fa2'),
+            })
+        
+        conn.close()
+        return render_template('extra_pages.html', page='pt_company_qr',
+                              company=company, qrs=qrs,
+                              plannings_qrs=plannings_qrs, date_filter=date_filter,
+                              type_pointage='session', base_url=base_url)
+    
+    # === Mode CONTINU (par défaut) ===
+    types = [
+        ('arrivee', '🟢 Arrivée', '#2e7d32'),
+        ('pause', '🟡 Pause', '#f29f2f'),
+        ('retour', '🔵 Retour', '#1a7a6d'),
+        ('depart', '🔴 Départ', '#c53030'),
+    ]
+    for t, label, color in types:
+        url = f"{base_url}/pt/{company['slug']}/scan?type={t}"
+        qrs.append({
+            'type': t, 'label': label, 'url': url,
+            'qr': _gen_qr(url, color), 'color': color,
+        })
+    
+    conn.close()
     return render_template('extra_pages.html', page='pt_company_qr',
-                          company=company, qrs=qrs, base_url=base_url)
+                          company=company, qrs=qrs,
+                          type_pointage='continu', base_url=base_url)
 
 
 # ============================================================
@@ -12243,6 +12301,89 @@ def pointage_company_session_finish(slug, session_id):
             msg += " — ✅ OK"
         flash(msg, 'warning' if info.get('statut') == 'retard' else 'success')
     return redirect(url_for('pointage_company_dashboard', slug=slug))
+
+
+@app.route('/pt/<slug>/session/next')
+def pointage_company_session_next(slug):
+    """QR générique 'Démarrer ma prochaine session'.
+    Trouve la prochaine session planifiée non démarrée pour l'employé connecté
+    et la démarre. Si pas connecté, redirige login."""
+    if session.get('pt_company_slug') != slug or not session.get('pt_user_id'):
+        return redirect(url_for('pointage_company_login', slug=slug)
+                       + f'?next=session_next')
+    
+    user_id = session['pt_user_id']
+    today = datetime.now().strftime('%Y-%m-%d')
+    now_time = datetime.now().strftime('%H:%M')
+    
+    conn = _gdb()
+    # 1. Vérifier qu'il n'a pas déjà une session en cours
+    en_cours = conn.execute(
+        "SELECT id FROM pointage_sessions WHERE company_user_id=? AND date=? AND statut='en_cours'",
+        (user_id, today)).fetchone()
+    if en_cours:
+        conn.close()
+        flash("⚠️ Vous avez déjà une session en cours. Scannez le QR « Terminer » d'abord.", "warning")
+        return redirect(url_for('pointage_company_dashboard', slug=slug))
+    
+    # 2. Chercher la prochaine session planifiée non démarrée pour aujourd'hui
+    # Priorité : session dont l'heure est la plus proche maintenant (passée ou actuelle)
+    plans = [dict(r) for r in conn.execute("""
+        SELECT pps.* FROM pointage_planning_sessions pps
+        WHERE pps.company_user_id=? AND pps.date=? AND COALESCE(pps.is_active,1)=1
+          AND pps.statut IN ('prevue', 'en_cours')
+          AND NOT EXISTS (
+              SELECT 1 FROM pointage_sessions ps
+              WHERE ps.planning_id=pps.id AND ps.statut != 'en_cours'
+          )
+        ORDER BY pps.heure_prevue""", (user_id, today)).fetchall()]
+    conn.close()
+    
+    if not plans:
+        flash("❌ Aucune session planifiée pour vous aujourd'hui (ou toutes terminées).", "error")
+        return redirect(url_for('pointage_company_dashboard', slug=slug))
+    
+    # Choisir la session : celle dont l'heure est la plus proche de maintenant
+    # Stratégie : prendre celle qui n'est pas encore démarrée et dont l'heure prévue est la plus proche
+    # En pratique : la première qui est passée ou actuelle, sinon la prochaine future
+    target = None
+    for p in plans:
+        if p['heure_prevue'] <= now_time:
+            target = p  # Passée ou actuelle : on prend celle-ci (la plus récente)
+        else:
+            if target is None:
+                target = p  # Pas de passée → on prend la première future
+            break
+    if target is None:
+        target = plans[0]
+    
+    return redirect(url_for('pointage_company_session_start', slug=slug,
+                          planning_id=target['id']) + '?via=qr')
+
+
+@app.route('/pt/<slug>/session/current')
+def pointage_company_session_current(slug):
+    """QR générique 'Terminer ma session en cours'.
+    Trouve la session en cours de l'employé connecté et la termine."""
+    if session.get('pt_company_slug') != slug or not session.get('pt_user_id'):
+        return redirect(url_for('pointage_company_login', slug=slug)
+                       + f'?next=session_current')
+    
+    user_id = session['pt_user_id']
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    conn = _gdb()
+    en_cours = conn.execute(
+        "SELECT * FROM pointage_sessions WHERE company_user_id=? AND date=? AND statut='en_cours' ORDER BY id DESC LIMIT 1",
+        (user_id, today)).fetchone()
+    conn.close()
+    
+    if not en_cours:
+        flash("ℹ️ Aucune session en cours. Scannez le QR « Démarrer » pour en commencer une.", "info")
+        return redirect(url_for('pointage_company_dashboard', slug=slug))
+    
+    return redirect(url_for('pointage_company_session_finish', slug=slug,
+                          session_id=en_cours['id']))
 
 
 DEPARTMENTS = ['Administration', 'Direction Générale', 'Ressources Humaines',

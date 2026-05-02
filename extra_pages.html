@@ -3599,26 +3599,108 @@ function getMyPos(){
 .qr-card h3{margin:0 0 10px;font-size:18px;color:var(--c)}
 .qr-card img{width:240px;height:240px;display:block;margin:0 auto 10px;border:1px solid #f0f0f0;border-radius:8px}
 .qr-card .qr-link{font-size:10px;color:#888;word-break:break-all;font-family:monospace;background:#f5f5f5;padding:6px 8px;border-radius:6px}
-.qr-card .qr-instr{font-size:11px;color:#666;margin-top:8px}
+.qr-card .qr-instr{font-size:11px;color:#666;margin-top:8px;line-height:1.4}
+.qr-mode-badge{display:inline-block;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:700;margin-left:8px}
+.qr-session-card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);text-align:center;border-left:4px solid #7b1fa2}
+.qr-session-card img{width:160px;height:160px;display:block;margin:6px auto;border:1px solid #f0f0f0;border-radius:6px}
+.qr-session-card h4{margin:0;font-size:13px;color:#7b1fa2}
+.qr-session-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}
 @media print {
     .no-print{display:none}
     body{background:#fff}
     .main{margin:0!important;padding:10px!important}
     .qr-grid{grid-template-columns:1fr 1fr;gap:8px}
-    .qr-card{box-shadow:none;border:1px solid #ccc;page-break-inside:avoid}
+    .qr-session-grid{grid-template-columns:1fr 1fr;gap:8px}
+    .qr-card,.qr-session-card{box-shadow:none;border:1px solid #ccc;page-break-inside:avoid}
     .qr-card img{width:200px;height:200px}
+    .qr-session-card img{width:140px;height:140px}
 }
 </style>
 <div class="page-header no-print">
-    <h1>📱 QR codes — {{ company.name }}</h1>
-    <div style="display:flex;gap:6px">
+    <h1>📱 QR codes — {{ company.name }}
+        {% if type_pointage == 'session' %}
+        <span class="qr-mode-badge" style="background:#f3e5f5;color:#7b1fa2">📅 Mode session</span>
+        {% else %}
+        <span class="qr-mode-badge" style="background:#e0f5f1;color:#1A7A6D">🔵 Mode continu</span>
+        {% endif %}
+    </h1>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-sm" style="background:#1a3a5c;color:#fff" onclick="window.print()">🖨️ Imprimer</button>
         <a href="/admin/pointage/companies/{{ company.id }}" class="btn btn-outline btn-sm">← Retour</a>
     </div>
 </div>
 
+{% if type_pointage == 'session' %}
+{# ============= MODE SESSION ============= #}
+<div class="card no-print" style="background:#f3e5f5;border-left:4px solid #7b1fa2;margin-bottom:14px"><div class="card-body">
+    <strong style="color:#7b1fa2">📋 Mode Pointage par session — Comment ça fonctionne ?</strong>
+    <p style="font-size:12px;margin:6px 0 0;color:#555">
+    Les techniciens itinérants utilisent <strong>2 QR codes universels</strong> qu'ils peuvent garder sur eux (ou affichés à leur poste de départ) :<br>
+    1. <strong>« Démarrer »</strong> : scanné à l'arrivée sur le lieu d'intervention. Le système trouve automatiquement la prochaine session planifiée pour eux et la démarre.<br>
+    2. <strong>« Terminer »</strong> : scanné à la fin de l'intervention. Le système termine la session en cours.<br><br>
+    💡 Les QR <strong>spécifiques par mission</strong> (un par planning) sont aussi disponibles plus bas — utiles si vous voulez les afficher chez chaque client/site d'intervention.<br>
+    Domaine : <code>{{ base_url }}</code>
+    </p>
+</div></div>
+
+<div style="text-align:center;margin:14px 0">
+    <h2 style="color:#1a3a5c;margin:0">🏢 {{ company.name }}</h2>
+    <p style="color:#666;font-size:13px;margin:4px 0 0">QR universels session</p>
+</div>
+
+<div class="qr-grid">
+{% for q in qrs %}
+<div class="qr-card" style="--c:{{ q.color }}">
+    <h3>{{ q.label }}</h3>
+    {% if q.qr %}
+    <img src="{{ q.qr }}" alt="QR">
+    {% else %}
+    <div style="padding:60px;color:#c53030">QR non disponible</div>
+    {% endif %}
+    <div class="qr-link">{{ q.url }}</div>
+    <div class="qr-instr">{{ q.instr }}</div>
+</div>
+{% endfor %}
+</div>
+
+{# QR individuels par session planifiée du jour #}
+{% if plannings_qrs %}
+<div style="margin-top:30px;text-align:center" class="no-print">
+    <h2 style="color:#1a3a5c;margin:0">📅 QR codes des sessions du {{ date_filter }}</h2>
+    <p style="color:#666;font-size:13px;margin:4px 0 12px">Un QR par mission planifiée — pour affichage chez le client (optionnel)</p>
+    <form method="get" style="display:inline-flex;gap:8px;align-items:end;margin-bottom:14px">
+        <div><label style="font-size:11px;color:#888;display:block">Date</label>
+            <input type="date" name="date" value="{{ date_filter }}" onchange="this.form.submit()" style="padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    </form>
+</div>
+
+<div class="qr-session-grid">
+{% for pq in plannings_qrs %}
+<div class="qr-session-card">
+    <h4>🕒 {{ pq.planning.heure_prevue }} — {{ pq.planning.duree_minutes }}min</h4>
+    <div style="font-size:11px;color:#666;margin:2px 0 4px">{{ pq.planning.libelle or 'Mission' }}</div>
+    <div style="font-size:10px;color:#888">👤 {{ pq.planning.user_name or '—' }}</div>
+    {% if pq.planning.externe_nom %}
+    <div style="font-size:10px;color:#7b1fa2;font-weight:600">🏢 {{ pq.planning.externe_nom }}</div>
+    {% elif pq.planning.client_nom %}
+    <div style="font-size:10px;color:#666">{{ pq.planning.client_nom }}</div>
+    {% endif %}
+    {% if pq.planning.lieu %}<div style="font-size:10px;color:#888">📍 {{ pq.planning.lieu }}</div>{% endif %}
+    {% if pq.qr %}
+    <img src="{{ pq.qr }}" alt="QR session">
+    {% endif %}
+    <div style="font-size:9px;color:#aaa;font-family:monospace;word-break:break-all;margin-top:4px">…/session/start/{{ pq.planning.id }}</div>
+</div>
+{% else %}
+<div style="grid-column:1/-1;text-align:center;padding:30px;color:#888">Aucune session planifiée pour cette date.</div>
+{% endfor %}
+</div>
+{% endif %}
+
+{% else %}
+{# ============= MODE CONTINU ============= #}
 <div class="card no-print" style="background:#e0f5f1;border-left:4px solid #1A7A6D;margin-bottom:14px"><div class="card-body">
-    <strong style="color:#1A7A6D">📋 Instructions</strong>
+    <strong style="color:#1A7A6D">📋 Mode Présence continue — Instructions</strong>
     <p style="font-size:12px;margin:6px 0 0;color:#555">
     1. Imprimez cette page et affichez les QR codes dans les zones de pointage.<br>
     2. Les employés scannent avec leur téléphone (appareil photo).<br>
@@ -3647,9 +3729,15 @@ function getMyPos(){
 </div>
 {% endfor %}
 </div>
+{% endif %}
 
 <div style="text-align:center;margin-top:20px;font-size:11px;color:#888" class="no-print">
-    💡 Astuce : pensez à coller chaque QR code à l'endroit approprié (entrée, salle de pause, sortie...).
+    💡 Astuce : 
+    {% if type_pointage == 'session' %}
+    affichez les 2 QR universels au bureau (départ matinal). Les employés en intervention itinérante les scannent depuis leur téléphone à l'arrivée et au départ de chaque mission.
+    {% else %}
+    pensez à coller chaque QR code à l'endroit approprié (entrée, salle de pause, sortie...).
+    {% endif %}
 </div>
 
 {% elif page == 'pt_password_change' %}
