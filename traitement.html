@@ -170,6 +170,41 @@
                 <div class="hint">Le dimanche est coché par défaut. Les jours de repos sont déduits du nombre de jours prévus. Personnalisez si certains employés ont un jour différent.</div>
             </div>
             
+            <!-- Step 7bis: Jours obligatoires (NOUVEAU v46) -->
+            <div class="step" style="background:linear-gradient(135deg,#fff8e0 0%,#ffeacc 100%);padding:14px;border-radius:10px;border-left:5px solid #f29f2f;margin-bottom:14px">
+                <div class="step-label">
+                    <span class="step-num" style="background:#f29f2f">⭐</span>
+                    <span class="step-title" style="color:#b8561f">Nombre de jours obligatoires (pour TOUS les employés)</span>
+                </div>
+                
+                <div class="g2">
+                    <div class="form-group">
+                        <label style="font-size:12px;font-weight:600;color:#b8561f">📅 Saisie manuelle directe (priorité maximum)</label>
+                        <input type="number" name="days_required" id="daysRequiredInput" min="0" max="31" placeholder="Ex: 22 (vide = calcul automatique)" style="width:100%;font-weight:600;border:2px solid #f29f2f">
+                        <p class="hint" style="margin:4px 0 0">Si renseigné, ce nombre s'applique à TOUS les employés. Sinon, le calcul auto basé sur le calendrier ci-dessous est utilisé.</p>
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size:12px;font-weight:600;color:#b8561f">🤖 Auto-calculé depuis le calendrier</label>
+                        <div id="autoCalcDisplay" style="padding:10px;background:#fff;border:2px dashed #f29f2f;border-radius:6px;font-weight:700;color:#b8561f;text-align:center">
+                            <span id="autoCalcValue">— jours</span>
+                            <p style="font-size:11px;color:#666;margin:4px 0 0;font-weight:400">Sélectionnez d'abord un fichier puis cochez les jours non ouvrables</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top:12px">
+                    <label style="font-size:12px;font-weight:600;color:#b8561f">🗓️ Calendrier des jours non ouvrables (cliquez pour cocher fériés / jours non travaillés)</label>
+                    <p class="hint" style="margin:4px 0 8px">💡 Le système calculera automatiquement : <strong>Nb jours obligatoires = Jours uniques dans le fichier - Jours non ouvrables cochés</strong></p>
+                    <div id="calendarContainer" style="background:#fff;padding:14px;border-radius:8px;border:1.5px solid #f29f2f">
+                        <div style="text-align:center;color:#999;font-style:italic;font-size:13px" id="calendarPlaceholder">
+                            📂 Importez d'abord un fichier Excel pour afficher le calendrier de la période
+                        </div>
+                        <div id="calendarGrid"></div>
+                    </div>
+                    <input type="hidden" name="non_working_days" id="nonWorkingDaysInput" value="">
+                </div>
+            </div>
+            
             <!-- Step 8: Logo -->
             <div class="step" style="border-bottom:none">
                 <div class="step-label">
@@ -318,7 +353,149 @@ function handleFile(file) {
             previewBox.classList.add('visible');
             buildCostInputs(data.employees);
             buildRestDayInputs(data.employees);
+            buildCalendar(data.all_dates || []);
         }).catch(()=>{});
+}
+
+// === CALENDRIER DES JOURS NON OUVRABLES ===
+var _allDates = [];
+var _nonWorkingDays = new Set();
+
+function buildCalendar(allDates) {
+    _allDates = allDates;
+    _nonWorkingDays = new Set();
+    var ph = document.getElementById('calendarPlaceholder');
+    var grid = document.getElementById('calendarGrid');
+    if (!allDates || allDates.length === 0) {
+        ph.style.display = 'block';
+        grid.innerHTML = '';
+        updateAutoCalc();
+        return;
+    }
+    ph.style.display = 'none';
+    
+    // Grouper par mois (YYYY-MM)
+    var byMonth = {};
+    allDates.forEach(function(d) {
+        var ym = d.substring(0, 7);
+        if (!byMonth[ym]) byMonth[ym] = [];
+        byMonth[ym].push(d);
+    });
+    
+    var html = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">' +
+        '<button type="button" onclick="toggleAllWeekends()" class="btn btn-sm btn-outline" style="font-size:10px">📅 Cocher tous les week-ends</button>' +
+        '<button type="button" onclick="addCIHolidays()" class="btn btn-sm btn-outline" style="font-size:10px">🇨🇮 Cocher les fériés CI</button>' +
+        '<button type="button" onclick="clearAllNonWorking()" class="btn btn-sm btn-outline" style="font-size:10px;color:#c53030">❌ Tout décocher</button>' +
+        '</div>';
+    
+    var moisNoms = ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    var dowLabels = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+    
+    Object.keys(byMonth).sort().forEach(function(ym) {
+        var parts = ym.split('-');
+        var year = parseInt(parts[0]);
+        var month = parseInt(parts[1]);
+        html += '<div style="margin-bottom:14px">';
+        html += '<h4 style="margin:0 0 6px;color:#b8561f;font-size:13px">📅 ' + moisNoms[month] + ' ' + year + '</h4>';
+        
+        // Header DOW
+        html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px">';
+        dowLabels.forEach(function(d) {
+            html += '<div style="text-align:center;font-size:10px;font-weight:700;color:#888;padding:3px">' + d + '</div>';
+        });
+        html += '</div>';
+        
+        // Calendrier du mois
+        var firstDay = new Date(year, month - 1, 1);
+        var lastDay = new Date(year, month, 0);
+        var daysInMonth = lastDay.getDate();
+        // weekday Monday=0
+        var startDow = (firstDay.getDay() + 6) % 7;
+        
+        html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">';
+        // Cellules vides avant le 1er
+        for (var i = 0; i < startDow; i++) html += '<div></div>';
+        // Jours
+        for (var d = 1; d <= daysInMonth; d++) {
+            var dStr = year + '-' + String(month).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+            var inFile = byMonth[ym].indexOf(dStr) !== -1;
+            var dow = (new Date(year, month - 1, d).getDay() + 6) % 7;  // 0=Lun, 6=Dim
+            var isWeekend = (dow >= 5);
+            
+            html += '<div onclick="toggleNonWorking(\'' + dStr + '\')" data-date="' + dStr + '" ' +
+                'class="cal-day' + (isWeekend ? ' weekend' : '') + (inFile ? ' in-file' : ' not-in-file') + '" ' +
+                'style="text-align:center;padding:6px 2px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;border:1.5px solid ' +
+                (isWeekend ? '#fdd' : '#e0e0e0') + ';background:' + (inFile ? '#fff' : '#f5f5f5') + ';color:' + (inFile ? '#333' : '#aaa') + '">' +
+                d + '</div>';
+        }
+        html += '</div></div>';
+    });
+    
+    grid.innerHTML = html;
+    
+    // Style CSS injecté
+    if (!document.getElementById('calStyle')) {
+        var style = document.createElement('style');
+        style.id = 'calStyle';
+        style.textContent = '.cal-day.checked{background:#f29f2f !important;color:#fff !important;border-color:#b8561f !important}' +
+            '.cal-day:hover{transform:scale(1.05)}';
+        document.head.appendChild(style);
+    }
+    updateAutoCalc();
+}
+
+function toggleNonWorking(dateStr) {
+    var el = document.querySelector('.cal-day[data-date="' + dateStr + '"]');
+    if (_nonWorkingDays.has(dateStr)) {
+        _nonWorkingDays.delete(dateStr);
+        if (el) el.classList.remove('checked');
+    } else {
+        _nonWorkingDays.add(dateStr);
+        if (el) el.classList.add('checked');
+    }
+    updateAutoCalc();
+}
+
+function toggleAllWeekends() {
+    _allDates.forEach(function(d) {
+        var dt = new Date(d + 'T00:00:00');
+        var dow = (dt.getDay() + 6) % 7;
+        if (dow >= 5) {
+            _nonWorkingDays.add(d);
+            var el = document.querySelector('.cal-day[data-date="' + d + '"]');
+            if (el) el.classList.add('checked');
+        }
+    });
+    updateAutoCalc();
+}
+
+function addCIHolidays() {
+    var feriesCI = ['01-01','05-01','08-07','11-15','12-25','12-31'];
+    _allDates.forEach(function(d) {
+        var mmdd = d.substring(5);
+        if (feriesCI.indexOf(mmdd) !== -1) {
+            _nonWorkingDays.add(d);
+            var el = document.querySelector('.cal-day[data-date="' + d + '"]');
+            if (el) el.classList.add('checked');
+        }
+    });
+    updateAutoCalc();
+}
+
+function clearAllNonWorking() {
+    _nonWorkingDays.clear();
+    document.querySelectorAll('.cal-day.checked').forEach(function(el) {
+        el.classList.remove('checked');
+    });
+    updateAutoCalc();
+}
+
+function updateAutoCalc() {
+    var totalUniqueDates = _allDates.length;
+    var nonWorking = _nonWorkingDays.size;
+    var auto = Math.max(totalUniqueDates - nonWorking, 0);
+    document.getElementById('autoCalcValue').textContent = auto + ' jours';
+    document.getElementById('nonWorkingDaysInput').value = Array.from(_nonWorkingDays).join(',');
 }
 
 var _employees = [];

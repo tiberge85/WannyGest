@@ -3977,6 +3977,41 @@ function getMyPos(){
             <div><label style="font-size:11px;color:#888">Date *</label>
                 <input type="date" name="date" required value="{{ date_filter }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         </div>
+        
+        <!-- NOUVEAU v46 : Mode période longue -->
+        <div style="margin-bottom:10px;padding:10px;background:#e3f2fd;border-radius:6px;border-left:4px solid #1976d2">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;font-weight:700;color:#1976d2">
+                <input type="checkbox" id="planPeriodMode" onchange="onPeriodModeChange()">
+                <span>📆 Étendre sur une période longue (récurrence)</span>
+            </label>
+            <div id="planPeriodOptions" style="display:none;margin-top:10px">
+                <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">
+                    <div><label style="font-size:11px;color:#888">Date de fin de la période</label>
+                        <input type="date" name="date_end" id="planDateEnd" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                        <p style="font-size:10px;color:#666;margin:3px 0 0">Une session sera créée pour chaque jour entre la date de début et cette date.</p>
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:11px;color:#888;display:block;margin-bottom:4px">Jours actifs (cocher ceux où la session doit avoir lieu)</label>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+                        <button type="button" onclick="setPlanJours('1,2,3,4,5')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">Lun-Ven</button>
+                        <button type="button" onclick="setPlanJours('1,2,3,4,5,6')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">Lun-Sam</button>
+                        <button type="button" onclick="setPlanJours('1,2,3,4,5,6,7')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">Tous les jours</button>
+                        <button type="button" onclick="setPlanJours('1')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">Lundis seul.</button>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+                        {% for j_num, j_short in [('1','L'),('2','M'),('3','M'),('4','J'),('5','V'),('6','S'),('7','D')] %}
+                        <label class="plan-jour-cb" data-jour="{{ j_num }}" style="display:flex;flex-direction:column;align-items:center;padding:5px 2px;border:1.5px solid #ddd;border-radius:6px;cursor:pointer;background:#fff;font-size:11px;font-weight:700">
+                            <input type="checkbox" class="plan-jour-input" value="{{ j_num }}" {% if j_num in ['1','2','3','4','5'] %}checked{% endif %} style="margin-bottom:2px" onchange="updatePlanJours()">
+                            {{ j_short }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <input type="hidden" name="jours_recurrents" id="planJoursHidden" value="1,2,3,4,5">
+                    <p id="planEstimate" style="font-size:11px;color:#1976d2;margin:6px 0 0;font-weight:600"></p>
+                </div>
+            </div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
             <div><label style="font-size:11px;color:#888">Heure prévue *</label>
                 <input type="time" name="heure_prevue" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
@@ -4029,7 +4064,86 @@ function getMyPos(){
             lbl.style.borderColor = checked ? '#7b1fa2' : '#ddd';
             lbl.style.background = checked ? '#f3e5f5' : '#fff';
         });
+        updatePlanEstimate();
     }
+    function onPeriodModeChange(){
+        var on = document.getElementById('planPeriodMode').checked;
+        document.getElementById('planPeriodOptions').style.display = on ? 'block' : 'none';
+        if (!on) document.getElementById('planDateEnd').value = '';
+        updatePlanEstimate();
+    }
+    function setPlanJours(csv){
+        var vals = csv ? csv.split(',') : [];
+        document.querySelectorAll('.plan-jour-input').forEach(function(cb){
+            cb.checked = vals.indexOf(cb.value) !== -1;
+        });
+        updatePlanJours();
+    }
+    function updatePlanJours(){
+        var checked = Array.from(document.querySelectorAll('.plan-jour-input:checked')).map(c => c.value).sort();
+        document.getElementById('planJoursHidden').value = checked.join(',');
+        document.querySelectorAll('.plan-jour-cb').forEach(function(lbl){
+            var cb = lbl.querySelector('input');
+            lbl.style.background = cb.checked ? '#1976d2' : '#fff';
+            lbl.style.color = cb.checked ? '#fff' : '#333';
+            lbl.style.borderColor = cb.checked ? '#1976d2' : '#ddd';
+        });
+        updatePlanEstimate();
+    }
+    function updatePlanEstimate(){
+        var on = document.getElementById('planPeriodMode') && document.getElementById('planPeriodMode').checked;
+        if (!on) {
+            document.getElementById('planEstimate').textContent = '';
+            return;
+        }
+        var dStart = document.querySelector('input[name="date"]').value;
+        var dEnd = document.getElementById('planDateEnd').value;
+        if (!dStart || !dEnd || dEnd < dStart) {
+            document.getElementById('planEstimate').textContent = '';
+            return;
+        }
+        var allowed = (document.getElementById('planJoursHidden').value || '').split(',').filter(Boolean);
+        if (allowed.length === 0) {
+            document.getElementById('planEstimate').textContent = '⚠️ Aucun jour sélectionné';
+            return;
+        }
+        var s = new Date(dStart + 'T00:00:00');
+        var e = new Date(dEnd + 'T00:00:00');
+        var nb = 0;
+        var cur = new Date(s);
+        while (cur <= e) {
+            var dow = ((cur.getDay() + 6) % 7) + 1; // Mon=1..Sun=7
+            if (allowed.indexOf(String(dow)) !== -1) nb++;
+            cur.setDate(cur.getDate() + 1);
+        }
+        // Compter employés cibles
+        var scope = document.querySelector('input[name="scope"]:checked').value;
+        var nbEmp = 1;
+        if (scope === 'groupe') {
+            var sel = document.getElementById('planGrpSelect');
+            var opt = sel.options[sel.selectedIndex];
+            if (opt && opt.text) {
+                var m = opt.text.match(/\((\d+)\s+membre/);
+                if (m) nbEmp = parseInt(m[1]);
+            }
+        } else if (scope === 'entreprise') {
+            nbEmp = {{ nb_employees_total }};
+        }
+        var total = nb * nbEmp;
+        document.getElementById('planEstimate').textContent =
+            '📊 Estimation : ' + nb + ' jour(s) × ' + nbEmp + ' employé(s) = ' + total + ' session(s) à créer';
+    }
+    // Listen on date and groupe changes
+    document.addEventListener('DOMContentLoaded', function(){
+        var dateInp = document.querySelector('input[name="date"]');
+        if (dateInp) dateInp.addEventListener('change', updatePlanEstimate);
+        var dateEndInp = document.getElementById('planDateEnd');
+        if (dateEndInp) dateEndInp.addEventListener('change', updatePlanEstimate);
+        var grpSel = document.getElementById('planGrpSelect');
+        if (grpSel) grpSel.addEventListener('change', updatePlanEstimate);
+        // Init visual
+        updatePlanJours();
+    });
     </script>
 </div></div>
 

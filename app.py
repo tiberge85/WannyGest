@@ -1448,8 +1448,13 @@ def traitement_preview():
         emps, client = extract_from_excel(path)
         from models import save_known_employees
         save_known_employees([e['name'] for e in emps])
+        # Collecter les dates uniques pour le calendrier
+        all_dates = sorted(set(rec['date'] for emp in emps for rec in emp['records'] if rec.get('date')))
         return jsonify({"client": client, "count": len(emps),
-            "employees": [{"name": e['name'], "ref": e['ref'], "days": len(e['records'])} for e in emps]})
+            "employees": [{"name": e['name'], "ref": e['ref'], "days": len(e['records'])} for e in emps],
+            "all_dates": all_dates,
+            "period_start": all_dates[0] if all_dates else None,
+            "period_end": all_dates[-1] if all_dates else None})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -1569,6 +1574,22 @@ def traitement_generate():
     except:
         employee_rest_days = {}
     
+    # NOUVEAU v46 : jours obligatoires (saisie manuelle, applique à TOUS) + jours non ouvrables du calendrier
+    days_required_raw = (request.form.get('days_required', '') or '').strip()
+    days_required_default = None
+    if days_required_raw and days_required_raw.isdigit():
+        v = int(days_required_raw)
+        if 0 < v <= 31:
+            days_required_default = v
+    # Liste de jours non ouvrables sélectionnés sur calendrier (CSV "2026-04-15,2026-04-16")
+    non_working_days_raw = (request.form.get('non_working_days', '') or '').strip()
+    non_working_days_set = set()
+    if non_working_days_raw:
+        for d in non_working_days_raw.split(','):
+            d = d.strip()
+            if d and len(d) == 10:
+                non_working_days_set.add(d)
+    
     job_id = str(uuid.uuid4())[:8]
     job_dir = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
     os.makedirs(job_dir, exist_ok=True)
@@ -1621,6 +1642,13 @@ def traitement_generate():
         all_dates.sort()
         period = f"Période du {all_dates[0]} au {all_dates[-1]}" if all_dates else "Rapport"
         
+        # Si days_required pas saisi mais jours non ouvrables sélectionnés sur calendrier
+        # → calculer auto = nb jours uniques de la période - jours non ouvrables
+        if days_required_default is None and non_working_days_set and all_dates:
+            unique_dates = set(all_dates)
+            ouvrables = unique_dates - non_working_days_set
+            days_required_default = len(ouvrables)
+        
         base = os.path.splitext(filename)[0]
         pdf_name = f"{base}_RAPPORT_DE_PRESENCE.pdf"
         output_path = os.path.join(job_dir, pdf_name)
@@ -1629,7 +1657,8 @@ def traitement_generate():
                          client_name, period, logo_path, hp=hp, client_info=client_info,
                          work_dir=job_dir, hp_weekend=hp_weekend, hourly_cost=hourly_cost,
                          employee_costs=employee_costs, rest_days=rest_days,
-                         employee_rest_days=employee_rest_days)
+                         employee_rest_days=employee_rest_days,
+                         days_required_default=days_required_default)
         
         if not os.path.exists(output_path):
             flash("Erreur génération PDF", "error")
@@ -12514,27 +12543,61 @@ def admin_pointage_company_planning(cid):
                             conn.close()
                             return redirect(url_for('admin_pointage_company_planning', cid=cid))
                     
-                    # Insérer une session pour chaque employé cible
-                    nb_inserted = 0
-                    for uid in target_user_ids:
+                    # NOUVEAU v46 : période longue
+                    # Si date_end fourni, génère sessions pour chaque jour de la période
+                    # selon les jours_recurrents (CSV "1,2,3,4,5") ; sinon 1 seule date
+                    date_end = (request.form.get('date_end', '') or '').strip()
+                    jours_recurrents_csv = (request.form.get('jours_recurrents', '') or '').strip()
+                    
+                    # Liste de dates à planifier
+                    dates_to_plan = [date]
+                    if date_end and date_end >= date:
+                        from datetime import date as _date, timedelta as _td
                         try:
-                            conn.execute("""INSERT INTO pointage_planning_sessions
-                                (company_id, company_user_id, date, heure_prevue, duree_minutes,
-                                 libelle, lieu, client_nom, tolerance_minutes, penalty_per_minute,
-                                 entreprise_externe_id, statut, created_by)
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?, 'prevue', ?)""",
-                                (cid, uid, date, heure, duree, libelle, lieu, client_nom,
-                                 tol, ppm, ext_id, session.get('user_id')))
-                            nb_inserted += 1
-                        except: pass
+                            d_start = _date.fromisoformat(date)
+                            d_end = _date.fromisoformat(date_end)
+                            allowed_dows = set()
+                            if jours_recurrents_csv:
+                                for j in jours_recurrents_csv.split(','):
+                                    j = j.strip()
+                                    if j.isdigit():
+                                        allowed_dows.add(int(j))  # 1=Lun..7=Dim
+                            
+                            dates_to_plan = []
+                            cur = d_start
+                            while cur <= d_end:
+                                dow = cur.weekday() + 1  # Mon=1..Sun=7
+                                if not allowed_dows or dow in allowed_dows:
+                                    dates_to_plan.append(cur.isoformat())
+                                cur += _td(days=1)
+                        except Exception as e:
+                            dates_to_plan = [date]
+                    
+                    # Insérer une session pour chaque (date, employé)
+                    nb_inserted = 0
+                    nb_dates = len(dates_to_plan)
+                    for plan_date in dates_to_plan:
+                        for uid in target_user_ids:
+                            try:
+                                conn.execute("""INSERT INTO pointage_planning_sessions
+                                    (company_id, company_user_id, date, heure_prevue, duree_minutes,
+                                     libelle, lieu, client_nom, tolerance_minutes, penalty_per_minute,
+                                     entreprise_externe_id, statut, created_by)
+                                    VALUES (?,?,?,?,?,?,?,?,?,?,?, 'prevue', ?)""",
+                                    (cid, uid, plan_date, heure, duree, libelle, lieu, client_nom,
+                                     tol, ppm, ext_id, session.get('user_id')))
+                                nb_inserted += 1
+                            except: pass
                     conn.commit()
                     
+                    # Message selon contexte
+                    period_label = f"le {date}" if nb_dates == 1 else f"sur {nb_dates} jour(s) du {date} au {date_end}"
                     if scope == 'employe':
-                        flash(f"✅ Session planifiée le {date} à {heure}", "success")
+                        flash(f"✅ {nb_inserted} session(s) planifiée(s) {period_label} à {heure}", "success")
                     elif scope == 'groupe':
-                        flash(f"✅ {nb_inserted} session(s) planifiée(s) pour le groupe le {date} à {heure}", "success")
+                        flash(f"✅ {nb_inserted} session(s) planifiée(s) pour le groupe {period_label} à {heure} ({len(target_user_ids)} membre(s) × {nb_dates} jour(s))", "success")
                     else:
-                        flash(f"✅ {nb_inserted} session(s) planifiée(s) pour toute l'entreprise le {date} à {heure}", "success")
+                        flash(f"✅ {nb_inserted} session(s) planifiée(s) pour l'entreprise {period_label} à {heure} ({len(target_user_ids)} employé(s) × {nb_dates} jour(s))", "success")
             except Exception as e:
                 flash(f"❌ Erreur : {e}", "error")
         elif action == 'delete':
