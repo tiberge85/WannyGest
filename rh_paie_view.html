@@ -40,13 +40,11 @@ th{text-align:left;font-weight:600}
 <form method="post" action="/rh/paie/{{ p.id }}/edit">
     <div style="font-size:12px;font-weight:600;color:#1A7A6D;margin-bottom:6px;border-bottom:1px solid #eee;padding-bottom:4px">💰 Gains</div>
     <div class="form-row"><div class="form-group"><label>Salaire de base</label><input type="number" name="base_salary" value="{{ p.base_salary or 0 }}" step="500"></div>
-    <div class="form-group"><label>Prime d'astreinte</label><input type="number" name="prime_astreinte" value="{{ p.prime_astreinte or 0 }}" step="500"></div>
-    <div class="form-group"><label>Prime transport</label><input type="number" name="prime_transport" value="{{ p.prime_transport or 0 }}" step="500"></div></div>
-    <div class="form-row"><div class="form-group"><label>Prime ancienneté</label><input type="number" name="prime_anciennete" value="{{ p.prime_anciennete or 0 }}" step="500"></div>
-    <div class="form-group"><label></div>
+    <div class="form-group"><label>Prime transport</label><input type="number" name="prime_transport" value="{{ p.prime_transport or 0 }}" step="500"></div>
+    <div class="form-group"><label>Prime ancienneté</label><input type="number" name="prime_anciennete" value="{{ p.prime_anciennete or 0 }}" step="500"></div></div>
+    <div class="form-row"><div class="form-group"><label>Prime d'astreinte</label><input type="number" name="prime_astreinte" value="{{ p.prime_astreinte or 0 }}" step="500"></div>
+    <div class="form-group"><label>Prime d'assiduité</label><input type="number" name="prime_assiduite" value="{{ p.prime_assiduite or 0 }}" step="500"></div>
     <div class="form-group"><label>Prime rendement</label><input type="number" name="prime_rendement" value="{{ p.prime_rendement or 0 }}" step="500"></div></div>
-    <div class="form-row">
-    <div class="form-group"><label></div></div>
     
     <div style="font-size:12px;font-weight:600;color:#e8672a;margin:8px 0 6px;border-bottom:1px solid #eee;padding-bottom:4px">🏷️ Autres primes (hors brut)</div>
     <div class="form-row"><div class="form-group"><label>Prime de mission</label><input type="number" name="prime_mission" value="{{ p.prime_mission or 0 }}" step="500"></div>

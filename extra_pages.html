@@ -3450,10 +3450,19 @@ function getMyPos(){
             <input type="time" name="heure_debut" value="08:00" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888">Heure fin *</label>
             <input type="time" name="heure_fin" value="17:00" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        <div><label style="font-size:11px;color:#888">Pause début</label>
-            <input type="time" name="pause_debut" value="12:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        <div><label style="font-size:11px;color:#888">Pause fin</label>
-            <input type="time" name="pause_fin" value="13:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div style="grid-column:1/-1;background:#f8faf9;padding:10px;border-radius:6px;border-left:3px solid #1976d2">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;font-weight:600;color:#1976d2">
+                <input type="checkbox" name="has_pause" id="edtHasPause" value="1" checked onchange="onEdtHasPauseChange()">
+                <span>☕ Cet horaire inclut une pause</span>
+            </label>
+            <p style="font-size:10px;color:#666;margin:3px 0 0">Décochez pour les horaires continus sans pause (ex: équipes terrain, agents de sécurité 8h consécutives)</p>
+        </div>
+        <div id="edtPauseFields" style="display:contents">
+            <div><label style="font-size:11px;color:#888">Pause début</label>
+                <input type="time" name="pause_debut" value="12:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            <div><label style="font-size:11px;color:#888">Pause fin</label>
+                <input type="time" name="pause_fin" value="13:00" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        </div>
         <div><label style="font-size:11px;color:#888">Tolérance retard (min)</label>
             <input type="number" name="tolerance_minutes" value="10" min="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888">Pénalité F/min</label>
@@ -3523,6 +3532,20 @@ function getMyPos(){
     document.addEventListener('DOMContentLoaded', updateJoursActifs);
     // Also init now in case DOMContentLoaded already fired
     setTimeout(updateJoursActifs, 50);
+    
+    // Toggle pause fields based on checkbox
+    function onEdtHasPauseChange(){
+        var on = document.getElementById('edtHasPause').checked;
+        var pf = document.getElementById('edtPauseFields');
+        if (pf) {
+            // Hide both pause inputs
+            pf.querySelectorAll('input').forEach(function(inp){
+                inp.disabled = !on;
+                inp.style.opacity = on ? '1' : '0.4';
+            });
+        }
+    }
+    setTimeout(onEdtHasPauseChange, 60);
     </script>
     <select id="usersOpts" style="display:none">
         <option value="">-- Choisir un employé --</option>
@@ -5007,10 +5030,7 @@ body{background:#f5f7f9 !important}
     <input type="hidden" name="latitude" id="ptCLat">
     <input type="hidden" name="longitude" id="ptCLng">
     
-    {% if company.type_pointage == 'session' %}
-    {# ============================================================ #}
-    {# MODE SESSION : Liste des interventions du jour                #}
-    {# ============================================================ #}
+    {% if user_mode == 'session' or (user_mode is not defined and company.type_pointage == 'session') %}
     <div style="background:#fff;border-radius:14px;padding:14px;margin-bottom:14px">
         <h2 style="margin:0 0 4px;font-size:16px;color:#7b1fa2">📅 Mes interventions du jour</h2>
         <p style="font-size:11px;color:#888;margin:0 0 14px">{{ today }}</p>

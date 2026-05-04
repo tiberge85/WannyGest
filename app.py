@@ -369,6 +369,8 @@ from models import migrate_v66
 migrate_v66()
 from models import migrate_v67
 migrate_v67()
+from models import migrate_v68
+migrate_v68()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -4934,7 +4936,7 @@ def rh_paie():
 def rh_paie_add():
     f = lambda k: float(request.form.get(k, 0) or 0)
     base = f('base_salary')
-    primes = f('prime_transport') + f('prime_anciennete') + f('prime_astreinte') + f('prime_rendement')
+    primes = f('prime_transport') + f('prime_anciennete') + f('prime_astreinte') + f('prime_rendement') + f('prime_assiduite')
     brut = base + primes
     total_autres = f('prime_mission') + f('commission')
     retenues = f('cnps_employee') + f('insurance_amount') + f('its') + f('deductions') + f('autres_retenues') + f('avances')
@@ -4947,6 +4949,7 @@ def rh_paie_add():
         insurance_amount=f('insurance_amount'), tax_amount=f('its'), net_salary=net,
         prime_transport=f('prime_transport'), prime_anciennete=f('prime_anciennete'),
         prime_astreinte=f('prime_astreinte'), prime_rendement=f('prime_rendement'),
+        prime_assiduite=f('prime_assiduite'),
         cnps_employee=f('cnps_employee'),
         its=f('its'), autres_retenues=f('autres_retenues'), avances=f('avances'),
         jours_travailles=int(request.form.get('jours_travailles', 26) or 26),
@@ -4969,7 +4972,7 @@ def rh_paie_edit(pid):
     if request.method == 'POST':
         f = lambda k: float(request.form.get(k, 0) or 0)
         base = f('base_salary')
-        primes = f('prime_transport') + f('prime_anciennete') + f('prime_astreinte') + f('prime_rendement')
+        primes = f('prime_transport') + f('prime_anciennete') + f('prime_astreinte') + f('prime_rendement') + f('prime_assiduite')
         brut = base + primes
         total_autres = f('prime_mission') + f('commission')
         retenues = f('cnps_employee') + f('insurance_amount') + f('its') + f('deductions') + f('autres_retenues') + f('avances')
@@ -4979,6 +4982,7 @@ def rh_paie_edit(pid):
             insurance_amount=f('insurance_amount'), tax_amount=f('its'), net_salary=net,
             prime_transport=f('prime_transport'), prime_anciennete=f('prime_anciennete'),
             prime_astreinte=f('prime_astreinte'), prime_rendement=f('prime_rendement'),
+            prime_assiduite=f('prime_assiduite'),
             cnps_employee=f('cnps_employee'),
             its=f('its'), autres_retenues=f('autres_retenues'), avances=f('avances'),
             jours_travailles=int(request.form.get('jours_travailles', 26) or 26),
@@ -5104,7 +5108,7 @@ def _generate_bulletin_pdf(pid):
     
     cw = [pw*0.45, pw*0.18, pw*0.12, pw*0.25]
     base = g('base_salary')
-    brut = base + g('prime_transport') + g('prime_anciennete') + g('prime_astreinte') + g('prime_rendement')
+    brut = base + g('prime_transport') + g('prime_anciennete') + g('prime_astreinte') + g('prime_rendement') + g('prime_assiduite')
     
     # === GAINS ===
     gains = [
@@ -5113,6 +5117,7 @@ def _generate_bulletin_pdf(pid):
         [Paragraph('Prime de transport', sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_transport')), sr)],
         [Paragraph("Prime d'ancienneté", sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_anciennete')), sr)],
         [Paragraph("Prime d'astreinte", sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_astreinte')), sr)],
+        [Paragraph("Prime d'assiduité", sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_assiduite')), sr)],
         [Paragraph('Prime de rendement', sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_rendement')), sr)],
     ]
     gt = Table(gains, colWidths=cw)
@@ -11775,10 +11780,13 @@ def pointage_company_dashboard(slug):
         state[t] = {'done': done, 'can': can}
     
     # === Mode session : récupérer planning + sessions du jour ===
+    # NOUVEAU v48 : utiliser le mode INDIVIDUEL de l'employé (override possible)
+    from models import get_user_pointage_mode
+    user_mode, _ = get_user_pointage_mode(user['id'])
     plannings_today = []
     sessions_today = []
     session_en_cours = None
-    if company.get('type_pointage') == 'session':
+    if user_mode == 'session':
         conn2 = _gdb()
         plannings_today = [dict(r) for r in conn2.execute("""
             SELECT * FROM pointage_planning_sessions
@@ -11803,7 +11811,8 @@ def pointage_company_dashboard(slug):
                           state=state, today=today,
                           plannings_today=plannings_today,
                           sessions_today=sessions_today,
-                          session_en_cours=session_en_cours)
+                          session_en_cours=session_en_cours,
+                          user_mode=user_mode)
 
 
 @app.route('/pt/<slug>/password', methods=['GET', 'POST'])
@@ -11927,6 +11936,17 @@ def pointage_company_scan(slug):
         session['pt_pending_scan_slug'] = slug
         flash(f"🔐 Connectez-vous pour pointer ({pt_type})", "info")
         return redirect(url_for('pointage_company_login', slug=slug) + f'?next=scan&type={pt_type}')
+    
+    # NOUVEAU v48 : vérifier le mode individuel de l'employé
+    # Si l'employé est en mode 'session' (override individuel ou défaut entreprise),
+    # il ne devrait pas pointer en continu → redirection vers session_next
+    user_id = session['pt_user_id']
+    from models import get_user_pointage_mode
+    user_mode, mode_src = get_user_pointage_mode(user_id)
+    if user_mode == 'session':
+        conn.close()
+        flash("ℹ️ Vous êtes en mode pointage par session. Utilisez les QR « Démarrer prochaine session » et « Terminer session en cours ».", "info")
+        return redirect(url_for('pointage_company_dashboard', slug=slug))
     
     # Déjà connecté → enregistrer directement
     user_id = session['pt_user_id']
@@ -12195,8 +12215,13 @@ def admin_pointage_company_edt(cid):
             nom = (request.form.get('nom','') or '').strip()
             heure_debut = (request.form.get('heure_debut','08:00') or '08:00').strip()
             heure_fin = (request.form.get('heure_fin','17:00') or '17:00').strip()
-            pause_debut = (request.form.get('pause_debut','') or '').strip() or None
-            pause_fin = (request.form.get('pause_fin','') or '').strip() or None
+            has_pause = request.form.get('has_pause') == '1'
+            if has_pause:
+                pause_debut = (request.form.get('pause_debut','') or '').strip() or None
+                pause_fin = (request.form.get('pause_fin','') or '').strip() or None
+            else:
+                pause_debut = None
+                pause_fin = None
             jours = (request.form.get('jours_actifs','1,2,3,4,5') or '1,2,3,4,5').strip()
             tol = int(request.form.get('tolerance_minutes', 10) or 10)
             ppm = float(request.form.get('penalty_per_minute', 0) or 0)
@@ -12863,12 +12888,23 @@ def pointage_company_session_finish(slug, session_id):
 def pointage_company_session_next(slug):
     """QR générique 'Démarrer ma prochaine session'.
     Trouve la prochaine session planifiée non démarrée pour l'employé connecté
-    et la démarre. Si pas connecté, redirige login."""
+    et la démarre. Si pas connecté, redirige login.
+    
+    NOUVEAU v48 : si l'employé est en mode 'continu' (override individuel),
+    rediriger vers le scan continu au lieu d'afficher 'pas de session disponible'."""
     if session.get('pt_company_slug') != slug or not session.get('pt_user_id'):
         return redirect(url_for('pointage_company_login', slug=slug)
                        + f'?next=session_next')
     
     user_id = session['pt_user_id']
+    
+    # NOUVEAU v48 : vérifier le mode individuel de l'employé
+    from models import get_user_pointage_mode
+    user_mode, mode_src = get_user_pointage_mode(user_id)
+    if user_mode == 'continu':
+        flash("ℹ️ Vous êtes en mode pointage continu. Utilisez les QR Arrivée / Pause / Retour / Départ.", "info")
+        return redirect(url_for('pointage_company_dashboard', slug=slug))
+    
     today = datetime.now().strftime('%Y-%m-%d')
     now_time = datetime.now().strftime('%H:%M')
     
@@ -12920,12 +12956,21 @@ def pointage_company_session_next(slug):
 @app.route('/pt/<slug>/session/current')
 def pointage_company_session_current(slug):
     """QR générique 'Terminer ma session en cours'.
-    Trouve la session en cours de l'employé connecté et la termine."""
+    Trouve la session en cours de l'employé connecté et la termine.
+    NOUVEAU v48 : redirige les employés en mode 'continu' vers leur dashboard."""
     if session.get('pt_company_slug') != slug or not session.get('pt_user_id'):
         return redirect(url_for('pointage_company_login', slug=slug)
                        + f'?next=session_current')
     
     user_id = session['pt_user_id']
+    
+    # NOUVEAU v48 : vérifier le mode individuel
+    from models import get_user_pointage_mode
+    user_mode, mode_src = get_user_pointage_mode(user_id)
+    if user_mode == 'continu':
+        flash("ℹ️ Vous êtes en mode pointage continu. Utilisez les QR Arrivée / Pause / Retour / Départ.", "info")
+        return redirect(url_for('pointage_company_dashboard', slug=slug))
+    
     today = datetime.now().strftime('%Y-%m-%d')
     
     conn = _gdb()

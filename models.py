@@ -4263,6 +4263,21 @@ def migrate_v67():
     conn.commit(); conn.close()
 
 
+def migrate_v68():
+    """v68 : Ajouter colonnes prime_astreinte et prime_assiduite à payslips.
+    Ces primes étaient déjà saisies dans le formulaire mais n'avaient pas de colonne dédiée
+    (sauvegardées implicitement dans 'autres' ou perdues)."""
+    conn = get_db()
+    new_cols = [
+        ('prime_astreinte', 'REAL DEFAULT 0'),
+        ('prime_assiduite', 'REAL DEFAULT 0'),
+    ]
+    for col, typ in new_cols:
+        try: conn.execute(f"ALTER TABLE payslips ADD COLUMN {col} {typ}")
+        except: pass
+    conn.commit(); conn.close()
+
+
 # ======================== SERVICES JOURS DE REPOS ========================
 
 def get_user_pointage_mode(company_user_id):
