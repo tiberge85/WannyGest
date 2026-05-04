@@ -10391,14 +10391,29 @@ def admin_pointage_dashboard():
             "SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client' ORDER BY full_name").fetchall()]
     except: pass
     
-    # Liste des entreprises pointage pour le sélecteur de rapport
+    # Liste des entreprises pointage pour le sélecteur de rapport (avec nb jours obligatoires)
     pointage_companies_list = []
     try:
         pointage_companies_list = [dict(r) for r in conn.execute("""
-            SELECT c.id, c.name, c.slug,
+            SELECT c.id, c.name, c.slug, c.days_required_default,
                    (SELECT COUNT(*) FROM pointage_company_users WHERE company_id=c.id AND COALESCE(is_active,1)=1) as nb_users
             FROM pointage_companies c WHERE COALESCE(c.is_active,1)=1 ORDER BY c.name
         """).fetchall()]
+    except: pass
+    
+    # Défaut RAMYA + nombre d'employés RAMYA + nombre d'overrides
+    ramya_days_default = ''
+    ramya_nb_employees = 0
+    ramya_nb_overrides = 0
+    try:
+        rr = conn.execute("SELECT value FROM app_settings WHERE key='ramya_days_required_default'").fetchone()
+        if rr and rr[0]: ramya_days_default = rr[0]
+    except: pass
+    try:
+        ramya_nb_employees = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client'").fetchone()[0]
+        ramya_nb_overrides = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE COALESCE(is_active,1)=1 AND role != 'client' AND days_required_override IS NOT NULL AND days_required_override > 0").fetchone()[0]
     except: pass
     
     conn.close()
@@ -10409,6 +10424,9 @@ def admin_pointage_dashboard():
                           users=users, departments=DEPARTMENTS,
                           POINTAGE_LABELS=POINTAGE_LABELS,
                           pointage_companies_list=pointage_companies_list,
+                          ramya_days_default=ramya_days_default,
+                          ramya_nb_employees=ramya_nb_employees,
+                          ramya_nb_overrides=ramya_nb_overrides,
                           can_edit_pointage='pointage_edit' in perms or 'admin' in perms)
 
 

@@ -1734,11 +1734,36 @@ function submitPointage(type) {
     </div>
 </div>
 
+<!-- ========== ENCART JOURS OBLIGATOIRES ========== -->
+<div class="card" style="margin-bottom:14px;background:linear-gradient(135deg,#fff8e0 0%,#ffeacc 100%);border-left:5px solid #f29f2f"><div class="card-body" style="padding:14px 18px">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:space-between">
+        <div>
+            <div style="font-size:11px;color:#b8561f;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">📅 Jours obligatoires — Configuration RAMYA</div>
+            <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+                {% if ramya_days_default %}
+                <span style="font-size:32px;font-weight:800;color:#b8561f;line-height:1">{{ ramya_days_default }} jours/mois</span>
+                <span style="font-size:11px;color:#666;background:#fff;padding:3px 8px;border-radius:6px;border:1px solid #f29f2f">⚙️ Défaut RAMYA appliqué</span>
+                {% else %}
+                <span style="font-size:24px;font-weight:800;color:#666;line-height:1">🤖 Calcul automatique</span>
+                <span style="font-size:11px;color:#666;background:#fff;padding:3px 8px;border-radius:6px;border:1px solid #ddd">jours du mois - jours de repos</span>
+                {% endif %}
+            </div>
+            <div style="font-size:11px;color:#666;margin-top:6px">
+                {{ ramya_nb_employees }} employé{% if ramya_nb_employees > 1 %}s{% endif %} RAMYA
+                {% if ramya_nb_overrides > 0 %}
+                · <strong style="color:#7b1fa2">{{ ramya_nb_overrides }}</strong> avec override individuel
+                {% endif %}
+            </div>
+        </div>
+        <a href="/admin?section=settings" class="btn btn-sm" style="background:#f29f2f;color:#fff;font-weight:600">⚙️ Configurer</a>
+    </div>
+</div></div>
+
 <!-- Modal sélection entreprise pour rapport -->
 <div id="rapportEntModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
-<div style="background:#fff;border-radius:10px;padding:20px;max-width:540px;width:92%">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:580px;width:92%;max-height:90vh;overflow:auto">
     <h3 style="margin:0 0 8px;color:#7b1fa2">📊 Rapport entreprise complet</h3>
-    <p style="font-size:12px;color:#666;margin-bottom:14px">Cliquez sur l'entreprise pour générer son rapport PDF.</p>
+    <p style="font-size:12px;color:#666;margin-bottom:14px">Cliquez sur l'entreprise pour générer son rapport PDF.<br><span style="font-size:11px;color:#888">💡 Le badge orange indique le nombre de jours obligatoires utilisés pour les calculs.</span></p>
     
     <div style="margin-bottom:14px">
         <label style="font-size:11px;color:#888;display:block">Mois</label>
@@ -1747,14 +1772,37 @@ function submitPointage(type) {
     
     <div style="margin-bottom:8px;font-size:11px;color:#888;font-weight:700">Choisissez :</div>
     <div style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto">
-        <button type="button" class="rapport-ent-btn" data-cid="" style="text-align:left;padding:10px 12px;border:1.5px solid #1a7a6d;border-radius:8px;background:#e0f5f1;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-            <span><strong>🏢 RAMYA TECHNOLOGIE</strong><br><span style="font-size:11px;color:#666">Personnel interne (employés RAMYA)</span></span>
-            <span style="background:#1a7a6d;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px">📊 Générer</span>
+        <button type="button" class="rapport-ent-btn" data-cid="" style="text-align:left;padding:10px 12px;border:1.5px solid #1a7a6d;border-radius:8px;background:#e0f5f1;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div style="flex:1">
+                <strong>🏢 RAMYA TECHNOLOGIE</strong><br>
+                <span style="font-size:11px;color:#666">Personnel interne ({{ ramya_nb_employees }} employé{% if ramya_nb_employees > 1 %}s{% endif %})</span>
+                <div style="margin-top:4px">
+                    {% if ramya_days_default %}
+                    <span style="background:#fff8e0;color:#b8561f;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;border:1px solid #f29f2f">📅 {{ ramya_days_default }} j obligatoires/mois</span>
+                    {% else %}
+                    <span style="background:#f0f0f0;color:#555;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">🤖 Calcul automatique</span>
+                    {% endif %}
+                    {% if ramya_nb_overrides %}
+                    <span style="background:#f3e5f5;color:#7b1fa2;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;margin-left:3px">⭐ {{ ramya_nb_overrides }} override</span>
+                    {% endif %}
+                </div>
+            </div>
+            <span style="background:#1a7a6d;color:#fff;padding:6px 12px;border-radius:6px;font-size:11px;white-space:nowrap">📊 Générer</span>
         </button>
         {% for c in pointage_companies_list or [] %}
-        <button type="button" class="rapport-ent-btn" data-cid="{{ c.id }}" style="text-align:left;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
-            <span><strong>🏭 {{ c.name }}</strong><br><span style="font-size:11px;color:#666">{{ c.nb_users or 0 }} employés · slug: {{ c.slug }}</span></span>
-            <span style="background:#7b1fa2;color:#fff;padding:4px 10px;border-radius:6px;font-size:11px">📊 Générer</span>
+        <button type="button" class="rapport-ent-btn" data-cid="{{ c.id }}" style="text-align:left;padding:10px 12px;border:1.5px solid #ddd;border-radius:8px;background:#fff;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div style="flex:1">
+                <strong>🏭 {{ c.name }}</strong><br>
+                <span style="font-size:11px;color:#666">{{ c.nb_users or 0 }} employés · slug: {{ c.slug }}</span>
+                <div style="margin-top:4px">
+                    {% if c.days_required_default %}
+                    <span style="background:#fff8e0;color:#b8561f;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;border:1px solid #f29f2f">📅 {{ c.days_required_default }} j obligatoires/mois</span>
+                    {% else %}
+                    <span style="background:#f0f0f0;color:#555;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">🤖 Calcul automatique</span>
+                    {% endif %}
+                </div>
+            </div>
+            <span style="background:#7b1fa2;color:#fff;padding:6px 12px;border-radius:6px;font-size:11px;white-space:nowrap">📊 Générer</span>
         </button>
         {% endfor %}
     </div>
