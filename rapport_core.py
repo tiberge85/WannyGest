@@ -435,11 +435,16 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         story.append(oblig_t)
         story.append(Spacer(1, 3*mm))
         
-        # Résumé compact
-        sum_hdrs = ["Jours<br/>prévus","Présent","Retard","Absent","Err.<br/>badge",
+        # Résumé compact (nouvelle ligne avec Jours obligatoires + Jours effectués + autres)
+        # Calcul Jours effectués = Jours obligatoires - Jours d'absence (les repos sont déjà exclus)
+        days_obligatoires = stats['days_required']
+        days_effectues = max(days_obligatoires - stats['days_absent'], 0)
+        
+        sum_hdrs = ["Jours<br/>obligat.","Jours<br/>effectués","Présent","Retard","Absent","Err.<br/>badge",
                     "","H. obligat.","H. travail.","H. retard","H. absent"]
         sum_vals = [
-            f"{stats['days_required']}j", f"{stats['days_present']}j",
+            f"{days_obligatoires}j", f"{days_effectues}j",
+            f"{stats['days_present']}j",
             f"{stats['days_late']}j", f"{stats['days_absent']}j", f"{stats['days_badge_error']}j",
             "",
             m2h(stats['total_required']), m2h(stats['total_worked']),
@@ -448,11 +453,13 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         ]
         sh = [Paragraph(x, S['sh']) for x in sum_hdrs]
         sv = [Paragraph(x, S['sv']) for x in sum_vals]
-        sw = [17*mm,15*mm,14*mm,14*mm,13*mm, 4*mm, 18*mm,18*mm,16*mm,16*mm]
+        sw = [15*mm,15*mm,13*mm,13*mm,13*mm,12*mm, 4*mm, 16*mm,16*mm,15*mm,15*mm]
         stbl = Table([sh, sv], colWidths=sw)
         stbl.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(4,0),TEAL),('BACKGROUND',(6,0),(9,0),TEAL),
-            ('GRID',(0,0),(4,-1),0.4,colors.grey),('GRID',(6,0),(9,-1),0.4,colors.grey),
+            ('BACKGROUND',(0,0),(5,0),TEAL),('BACKGROUND',(7,0),(10,0),TEAL),
+            # Mettre les 2 premières colonnes (obligatoires/effectués) en orange pour les distinguer
+            ('BACKGROUND',(0,0),(1,0),HexColor('#e8672a')),
+            ('GRID',(0,0),(5,-1),0.4,colors.grey),('GRID',(7,0),(10,-1),0.4,colors.grey),
             ('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
             ('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1),
             ('LEFTPADDING',(0,0),(-1,-1),1),('RIGHTPADDING',(0,0),(-1,-1),1),

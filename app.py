@@ -10791,7 +10791,15 @@ def admin_pointage_rapport_entreprise(month):
     company_name = "RAMYA TECHNOLOGIE & INNOVATION"
     company_subtitle = "Abidjan, Côte d'Ivoire"
     
-    print(f"[rapport_entreprise] month={month}, company_id_param='{company_id}'")
+    # NOUVEAU v45 : nombre de jours obligatoires saisi pour cette période (s'applique à TOUS)
+    period_days_required_raw = (request.args.get('days_required', '') or '').strip()
+    period_days_required = None
+    if period_days_required_raw and period_days_required_raw.isdigit():
+        v = int(period_days_required_raw)
+        if 0 < v <= 31:
+            period_days_required = v
+    
+    print(f"[rapport_entreprise] month={month}, company_id_param='{company_id}', days_required={period_days_required}")
     
     conn = _gdb()
     
@@ -11011,12 +11019,16 @@ def admin_pointage_rapport_entreprise(month):
         # Calculer stats pour tous les employés (avec override jours obligatoires)
         all_stats = []
         for emp in emps:
-            # Priorité : override individuel > défaut entreprise/RAMYA > calcul auto (None)
-            override = employee_overrides.get(emp['name'])
-            if override is None and company_default:
-                override = company_default
-            if override is None and ramya_default:
-                override = ramya_default
+            # Priorité MAXIMUM v45 : si saisi pour la période → s'applique à tous
+            if period_days_required is not None:
+                override = period_days_required
+            else:
+                # Sinon : override individuel > défaut entreprise/RAMYA > calcul auto (None)
+                override = employee_overrides.get(emp['name'])
+                if override is None and company_default:
+                    override = company_default
+                if override is None and ramya_default:
+                    override = ramya_default
             enriched, stats = rapport_core.calc_employee_stats(emp, hp=8, hp_weekend=0,
                                                               hourly_cost=0, rest_days=[5, 6],
                                                               days_required_override=override)
@@ -12227,8 +12239,7 @@ def admin_pointage_company_jours_repos(cid):
         if action == 'add':
             try:
                 libelle = (request.form.get('libelle','') or '').strip()
-                date = (request.form.get('date','') or '').strip()
-                date_fin = (request.form.get('date_fin','') or '').strip() or None
+                mode = (request.form.get('mode','single') or 'single').strip()
                 type_jour = (request.form.get('type','ferie') or 'ferie').strip()
                 scope = (request.form.get('scope','entreprise') or 'entreprise').strip()
                 recurrent = 1 if request.form.get('recurrent_annuel') == '1' else 0
@@ -12247,17 +12258,58 @@ def admin_pointage_company_jours_repos(cid):
                         flash("Sélectionnez un groupe", "error")
                         return redirect(url_for('admin_pointage_company_jours_repos', cid=cid))
                 
-                if not libelle or not date:
-                    flash("Libellé et date requis", "error")
+                if not libelle:
+                    flash("Libellé requis", "error")
+                elif mode == 'multi':
+                    # Mode multi : liste de dates séparées par virgules
+                    dates_csv = (request.form.get('dates_multiple','') or '').strip()
+                    dates_list = [d.strip() for d in dates_csv.split(',') if d.strip()]
+                    if not dates_list:
+                        flash("Sélectionnez au moins une date", "error")
+                    else:
+                        # Recurrent désactivé en mode multi
+                        for d in dates_list:
+                            try:
+                                conn.execute("""INSERT INTO pointage_jours_repos
+                                    (company_id, date, date_fin, libelle, type, scope,
+                                     company_user_id, groupe_id, recurrent_annuel, created_by)
+                                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                                    (cid, d, None, libelle, type_jour, scope,
+                                     user_id, groupe_id, 0, session.get('user_id')))
+                            except: pass
+                        conn.commit()
+                        flash(f"✅ {len(dates_list)} jour(s) de repos '{libelle}' ajouté(s)", "success")
+                elif mode == 'range':
+                    date_start = (request.form.get('date_range_start','') or '').strip()
+                    date_end = (request.form.get('date_fin','') or '').strip()
+                    if not date_start or not date_end:
+                        flash("Date début et date fin requises pour le mode plage", "error")
+                    elif date_start > date_end:
+                        flash("La date de fin doit être après la date de début", "error")
+                    else:
+                        # Recurrent désactivé en mode range (utilise date_fin)
+                        conn.execute("""INSERT INTO pointage_jours_repos
+                            (company_id, date, date_fin, libelle, type, scope,
+                             company_user_id, groupe_id, recurrent_annuel, created_by)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                            (cid, date_start, date_end, libelle, type_jour, scope,
+                             user_id, groupe_id, 0, session.get('user_id')))
+                        conn.commit()
+                        flash(f"✅ Jour de repos '{libelle}' ajouté ({date_start} → {date_end})", "success")
                 else:
-                    conn.execute("""INSERT INTO pointage_jours_repos
-                        (company_id, date, date_fin, libelle, type, scope,
-                         company_user_id, groupe_id, recurrent_annuel, created_by)
-                        VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                        (cid, date, date_fin, libelle, type_jour, scope,
-                         user_id, groupe_id, recurrent, session.get('user_id')))
-                    conn.commit()
-                    flash(f"✅ Jour de repos '{libelle}' ajouté", "success")
+                    # Mode single
+                    date = (request.form.get('date','') or '').strip()
+                    if not date:
+                        flash("Date requise", "error")
+                    else:
+                        conn.execute("""INSERT INTO pointage_jours_repos
+                            (company_id, date, date_fin, libelle, type, scope,
+                             company_user_id, groupe_id, recurrent_annuel, created_by)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                            (cid, date, None, libelle, type_jour, scope,
+                             user_id, groupe_id, recurrent, session.get('user_id')))
+                        conn.commit()
+                        flash(f"✅ Jour de repos '{libelle}' ajouté", "success")
             except Exception as e:
                 flash(f"❌ {e}", "error")
         elif action == 'delete':
@@ -12401,7 +12453,9 @@ def admin_pointage_company_planning(cid):
         action = request.form.get('action', '')
         if action == 'add':
             try:
-                user_id = int(request.form.get('company_user_id', 0))
+                scope = (request.form.get('scope', 'employe') or 'employe').strip()
+                if scope not in ('employe', 'groupe', 'entreprise'):
+                    scope = 'employe'
                 date = request.form.get('date', '').strip()
                 heure = request.form.get('heure_prevue', '').strip()
                 duree = int(request.form.get('duree_minutes', 60) or 60)
@@ -12421,18 +12475,66 @@ def admin_pointage_company_planning(cid):
                         if not lieu and ext['adresse']:
                             lieu = ext['adresse']
                 
-                if not date or not heure or not user_id:
-                    flash("❌ Date, heure et employé requis", "error")
+                if not date or not heure:
+                    flash("❌ Date et heure requises", "error")
                 else:
-                    conn.execute("""INSERT INTO pointage_planning_sessions
-                        (company_id, company_user_id, date, heure_prevue, duree_minutes,
-                         libelle, lieu, client_nom, tolerance_minutes, penalty_per_minute,
-                         entreprise_externe_id, statut, created_by)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?, 'prevue', ?)""",
-                        (cid, user_id, date, heure, duree, libelle, lieu, client_nom,
-                         tol, ppm, ext_id, session.get('user_id')))
+                    # Déterminer la liste des employés cibles selon scope
+                    target_user_ids = []
+                    if scope == 'employe':
+                        try: uid = int(request.form.get('company_user_id', 0))
+                        except: uid = 0
+                        if not uid:
+                            flash("❌ Sélectionnez un employé", "error")
+                            conn.close()
+                            return redirect(url_for('admin_pointage_company_planning', cid=cid))
+                        target_user_ids = [uid]
+                    elif scope == 'groupe':
+                        try: gid = int(request.form.get('groupe_id', 0))
+                        except: gid = 0
+                        if not gid:
+                            flash("❌ Sélectionnez un groupe", "error")
+                            conn.close()
+                            return redirect(url_for('admin_pointage_company_planning', cid=cid))
+                        # Tous les membres du groupe
+                        target_user_ids = [r[0] for r in conn.execute("""
+                            SELECT pgm.company_user_id FROM pointage_groupe_membres pgm
+                            JOIN pointage_company_users pcu ON pgm.company_user_id = pcu.id
+                            WHERE pgm.groupe_id=? AND COALESCE(pcu.is_active,1)=1""", (gid,)).fetchall()]
+                        if not target_user_ids:
+                            flash("⚠️ Aucun membre actif dans ce groupe", "warning")
+                            conn.close()
+                            return redirect(url_for('admin_pointage_company_planning', cid=cid))
+                    elif scope == 'entreprise':
+                        # Tous les employés actifs de l'entreprise
+                        target_user_ids = [r[0] for r in conn.execute(
+                            "SELECT id FROM pointage_company_users WHERE company_id=? AND COALESCE(is_active,1)=1",
+                            (cid,)).fetchall()]
+                        if not target_user_ids:
+                            flash("⚠️ Aucun employé actif dans cette entreprise", "warning")
+                            conn.close()
+                            return redirect(url_for('admin_pointage_company_planning', cid=cid))
+                    
+                    # Insérer une session pour chaque employé cible
+                    nb_inserted = 0
+                    for uid in target_user_ids:
+                        try:
+                            conn.execute("""INSERT INTO pointage_planning_sessions
+                                (company_id, company_user_id, date, heure_prevue, duree_minutes,
+                                 libelle, lieu, client_nom, tolerance_minutes, penalty_per_minute,
+                                 entreprise_externe_id, statut, created_by)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?, 'prevue', ?)""",
+                                (cid, uid, date, heure, duree, libelle, lieu, client_nom,
+                                 tol, ppm, ext_id, session.get('user_id')))
+                            nb_inserted += 1
+                        except: pass
                     conn.commit()
-                    flash(f"✅ Session planifiée le {date} à {heure}", "success")
+                    
+                    if scope == 'employe':
+                        flash(f"✅ Session planifiée le {date} à {heure}", "success")
+                    elif scope == 'groupe':
+                        flash(f"✅ {nb_inserted} session(s) planifiée(s) pour le groupe le {date} à {heure}", "success")
+                    else:
+                        flash(f"✅ {nb_inserted} session(s) planifiée(s) pour toute l'entreprise le {date} à {heure}", "success")
             except Exception as e:
                 flash(f"❌ Erreur : {e}", "error")
         elif action == 'delete':
@@ -12464,6 +12566,18 @@ def admin_pointage_company_planning(cid):
     externes = [dict(r) for r in conn.execute(
         "SELECT * FROM pointage_entreprises_externes WHERE company_id=? AND COALESCE(is_active,1)=1 ORDER BY nom",
         (cid,)).fetchall()]
+    
+    # Groupes pour planification multi-employés
+    groupes = [dict(r) for r in conn.execute("""
+        SELECT g.*, (SELECT COUNT(*) FROM pointage_groupe_membres pgm
+                     JOIN pointage_company_users pcu ON pgm.company_user_id = pcu.id
+                     WHERE pgm.groupe_id=g.id AND COALESCE(pcu.is_active,1)=1) as nb_membres
+        FROM pointage_groupes g
+        WHERE g.company_id=? AND COALESCE(g.is_active,1)=1 ORDER BY g.nom""", (cid,)).fetchall()]
+    
+    nb_employees_total = conn.execute(
+        "SELECT COUNT(*) FROM pointage_company_users WHERE company_id=? AND COALESCE(is_active,1)=1",
+        (cid,)).fetchone()[0]
     
     # Calcul plage de dates selon view
     try:
@@ -12500,7 +12614,8 @@ def admin_pointage_company_planning(cid):
                           company=company, users=users, plannings=plannings,
                           sessions_real=sessions_real, date_filter=date_filter,
                           view=view, range_start=start.isoformat(), range_end=end.isoformat(),
-                          externes=externes)
+                          externes=externes, groupes=groupes,
+                          nb_employees_total=nb_employees_total)
 
 
 @app.route('/pt/<slug>/session/start/<int:planning_id>', methods=['GET', 'POST'])

@@ -1770,6 +1770,12 @@ function submitPointage(type) {
         <input type="month" id="rapportMonth" value="{{ date_filter[:7] }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
     </div>
     
+    <div style="margin-bottom:14px;background:#fff8e0;border-left:4px solid #f29f2f;padding:10px;border-radius:6px">
+        <label style="font-size:11px;color:#b8561f;display:block;font-weight:700">📅 Nombre de jours obligatoires pour cette période (optionnel)</label>
+        <input type="number" id="rapportDaysRequired" min="0" max="31" placeholder="Ex: 22 (laisser vide = config par défaut)" style="width:100%;padding:8px;border:1.5px solid #f29f2f;border-radius:6px;font-weight:600">
+        <p style="font-size:10px;color:#666;margin:4px 0 0">⚠️ Si renseigné, cette valeur s'applique à <strong>TOUS les employés</strong> du rapport (priorité sur les overrides individuels et le défaut système).</p>
+    </div>
+    
     <div style="margin-bottom:8px;font-size:11px;color:#888;font-weight:700">Choisissez :</div>
     <div style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto">
         <button type="button" class="rapport-ent-btn" data-cid="" style="text-align:left;padding:10px 12px;border:1.5px solid #1a7a6d;border-radius:8px;background:#e0f5f1;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -1817,8 +1823,14 @@ document.querySelectorAll('.rapport-ent-btn').forEach(function(btn){
         var month = document.getElementById('rapportMonth').value;
         if (!month) { alert('Choisissez un mois'); return; }
         var cid = btn.getAttribute('data-cid') || '';
+        var daysRequired = (document.getElementById('rapportDaysRequired').value || '').trim();
         var url = '/admin/pointage/rapport-entreprise/' + month;
-        if (cid) { url += '?company_id=' + encodeURIComponent(cid); }
+        var params = [];
+        if (cid) params.push('company_id=' + encodeURIComponent(cid));
+        if (daysRequired && /^\d+$/.test(daysRequired) && parseInt(daysRequired) > 0 && parseInt(daysRequired) <= 31) {
+            params.push('days_required=' + encodeURIComponent(daysRequired));
+        }
+        if (params.length) url += '?' + params.join('&');
         window.open(url, '_blank');
     });
 });
@@ -3581,16 +3593,32 @@ function getMyPos(){
 </div>
 
 <div class="card" style="margin-bottom:14px"><div class="card-body">
-    <h3 style="margin-top:0">+ Nouveau jour de repos</h3>
+    <h3 style="margin-top:0">+ Nouveau(x) jour(s) de repos</h3>
+    
+    <!-- Mode selector -->
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+        <button type="button" onclick="setJrMode('single')" id="jrModeBtnSingle" class="btn btn-sm btn-primary" style="font-size:11px">📅 Date unique</button>
+        <button type="button" onclick="setJrMode('range')" id="jrModeBtnRange" class="btn btn-sm btn-outline" style="font-size:11px">📆 Plage (du... au...)</button>
+        <button type="button" onclick="setJrMode('multi')" id="jrModeBtnMulti" class="btn btn-sm btn-outline" style="font-size:11px">🗓️ Plusieurs dates</button>
+    </div>
+    
     <form method="post" id="jrForm">
         <input type="hidden" name="action" value="add">
+        <input type="hidden" name="mode" id="jrModeInput" value="single">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
             <div style="grid-column:span 2"><label style="font-size:11px;color:#888">Libellé *</label>
                 <input name="libelle" required placeholder="Ex: Fête du Travail, Pont du 1er mai, Congé maladie..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-            <div><label style="font-size:11px;color:#888">Date *</label>
-                <input type="date" name="date" required value="{{ today }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-            <div><label style="font-size:11px;color:#888">Date fin (optionnel, pour plage)</label>
-                <input type="date" name="date_fin" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            
+            <!-- Mode single : 1 date -->
+            <div id="jrSingleDiv"><label style="font-size:11px;color:#888">Date *</label>
+                <input type="date" name="date" id="jrDateSingle" value="{{ today }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            
+            <!-- Mode range : 2 dates -->
+            <div id="jrRangeStartDiv" style="display:none"><label style="font-size:11px;color:#888">Date début *</label>
+                <input type="date" name="date_range_start" id="jrDateRangeStart" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            <div id="jrRangeEndDiv" style="display:none"><label style="font-size:11px;color:#888">Date fin *</label>
+                <input type="date" name="date_fin" id="jrDateRangeEnd" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            
             <div><label style="font-size:11px;color:#888">Type</label>
                 <select name="type" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
                     <option value="ferie">🇨🇮 Jour férié</option>
@@ -3604,6 +3632,20 @@ function getMyPos(){
                     <option value="employe" {% if preselect_scope == 'employe' %}selected{% endif %}>👤 Employé spécifique</option>
                 </select></div>
         </div>
+        
+        <!-- Mode multi : zone de saisie multi-dates -->
+        <div id="jrMultiDiv" style="display:none;margin-top:8px;padding:10px;background:#f8faf9;border-radius:6px;border:1.5px dashed #1A7A6D">
+            <label style="font-size:11px;color:#888;font-weight:700;display:block;margin-bottom:6px">📆 Sélectionnez plusieurs dates (cliquez pour ajouter, puis cliquez à nouveau pour retirer)</label>
+            <div style="display:flex;gap:6px;align-items:end;margin-bottom:8px">
+                <input type="date" id="jrDateAdd" style="flex:1;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <button type="button" onclick="addMultiDate()" class="btn btn-sm btn-primary">+ Ajouter date</button>
+            </div>
+            <div id="jrMultiDatesList" style="display:flex;flex-wrap:wrap;gap:4px;min-height:30px;padding:4px;background:#fff;border-radius:4px;border:1px solid #eee">
+                <span id="jrMultiPlaceholder" style="font-size:11px;color:#999;font-style:italic">Aucune date sélectionnée</span>
+            </div>
+            <input type="hidden" name="dates_multiple" id="jrMultiDatesInput" value="">
+        </div>
+        
         <div id="jrEmpDiv" style="display:{% if preselect_scope == 'employe' %}block{% else %}none{% endif %};margin-top:8px">
             <label style="font-size:11px;color:#888">Employé *</label>
             <select name="company_user_id" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
@@ -3619,13 +3661,69 @@ function getMyPos(){
             </select>
         </div>
         <div style="margin-top:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer" id="jrRecurrentLabel">
                 <input type="checkbox" name="recurrent_annuel" value="1">
                 <span>🔁 <strong>Récurrent annuel</strong> (se répète chaque année à la même date)</span>
             </label>
             <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
         </div>
     </form>
+    <script>
+    function setJrMode(mode){
+        document.getElementById('jrModeInput').value = mode;
+        // Visibilité divs
+        document.getElementById('jrSingleDiv').style.display = mode==='single' ? '' : 'none';
+        document.getElementById('jrRangeStartDiv').style.display = mode==='range' ? '' : 'none';
+        document.getElementById('jrRangeEndDiv').style.display = mode==='range' ? '' : 'none';
+        document.getElementById('jrMultiDiv').style.display = mode==='multi' ? 'block' : 'none';
+        // Required attrs
+        document.getElementById('jrDateSingle').required = (mode==='single');
+        document.getElementById('jrDateRangeStart').required = (mode==='range');
+        document.getElementById('jrDateRangeEnd').required = (mode==='range');
+        // Récurrent ne marche que sur date unique
+        document.getElementById('jrRecurrentLabel').style.display = (mode==='single') ? '' : 'none';
+        // Boutons mode
+        ['single','range','multi'].forEach(function(m){
+            var b = document.getElementById('jrModeBtn' + m.charAt(0).toUpperCase() + m.slice(1));
+            if (b) {
+                b.classList.toggle('btn-primary', m===mode);
+                b.classList.toggle('btn-outline', m!==mode);
+            }
+        });
+    }
+    var multiDates = [];
+    function refreshMultiDates(){
+        var list = document.getElementById('jrMultiDatesList');
+        var placeholder = document.getElementById('jrMultiPlaceholder');
+        list.innerHTML = '';
+        if (multiDates.length === 0) {
+            list.appendChild(placeholder);
+        } else {
+            multiDates.sort();
+            multiDates.forEach(function(d, idx){
+                var span = document.createElement('span');
+                span.style.cssText = 'background:#1A7A6D;color:#fff;padding:3px 8px;border-radius:6px;font-size:11px;font-family:monospace;display:inline-flex;align-items:center;gap:4px;cursor:pointer';
+                span.textContent = d;
+                var x = document.createElement('span');
+                x.textContent = ' ✕';
+                x.style.fontWeight = 'bold';
+                span.appendChild(x);
+                span.onclick = function(){ multiDates.splice(idx, 1); refreshMultiDates(); };
+                list.appendChild(span);
+            });
+        }
+        document.getElementById('jrMultiDatesInput').value = multiDates.join(',');
+    }
+    function addMultiDate(){
+        var input = document.getElementById('jrDateAdd');
+        var d = input.value;
+        if (!d) { alert('Sélectionnez une date'); return; }
+        if (multiDates.indexOf(d) !== -1) { alert('Cette date est déjà sélectionnée'); return; }
+        multiDates.push(d);
+        refreshMultiDates();
+        input.value = '';
+    }
+    </script>
     <script>
     function onScopeChange(){
         var v = document.getElementById('jrScope').value;
@@ -3838,16 +3936,44 @@ function getMyPos(){
 
 <!-- Modal nouvelle session -->
 <div id="newPlanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
-<div style="background:#fff;border-radius:10px;padding:20px;max-width:540px;width:92%">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:600px;width:92%;max-height:92vh;overflow:auto">
     <h3 style="margin:0 0 12px;color:#7b1fa2">📅 Planifier une session</h3>
     <form method="post">
         <input type="hidden" name="action" value="add">
+        
+        <!-- Sélecteur de portée -->
+        <div style="margin-bottom:12px;padding:10px;background:#f8faf9;border-radius:6px;border-left:4px solid #7b1fa2">
+            <label style="font-size:11px;color:#7b1fa2;font-weight:700;display:block;margin-bottom:6px">📌 Pour qui ?</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+                <label style="display:flex;align-items:center;gap:6px;padding:8px;border:2px solid #7b1fa2;background:#f3e5f5;border-radius:6px;cursor:pointer" id="scopeLblEmpl">
+                    <input type="radio" name="scope" value="employe" checked onchange="onPlanScopeChange()">
+                    <span style="font-size:11px;font-weight:600">👤 Un employé</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;padding:8px;border:2px solid #ddd;background:#fff;border-radius:6px;cursor:pointer" id="scopeLblGrp">
+                    <input type="radio" name="scope" value="groupe" onchange="onPlanScopeChange()">
+                    <span style="font-size:11px;font-weight:600">👥 Un groupe</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;padding:8px;border:2px solid #ddd;background:#fff;border-radius:6px;cursor:pointer" id="scopeLblEnt">
+                    <input type="radio" name="scope" value="entreprise" onchange="onPlanScopeChange()">
+                    <span style="font-size:11px;font-weight:600">🏢 Toute l'entreprise ({{ nb_employees_total }})</span>
+                </label>
+            </div>
+        </div>
+        
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-            <div><label style="font-size:11px;color:#888">Employé *</label>
-                <select name="company_user_id" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            <div id="planScopeEmpDiv"><label style="font-size:11px;color:#888">Employé *</label>
+                <select name="company_user_id" id="planEmpSelect" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
                     <option value="">-- Choisir --</option>
                     {% for u in users %}<option value="{{ u.id }}">{{ u.full_name }} ({{ u.username }})</option>{% endfor %}
                 </select></div>
+            <div id="planScopeGrpDiv" style="display:none"><label style="font-size:11px;color:#888">Groupe *</label>
+                <select name="groupe_id" id="planGrpSelect" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                    <option value="">-- Choisir --</option>
+                    {% for g in groupes %}<option value="{{ g.id }}">👥 {{ g.nom }} ({{ g.nb_membres }} membre{% if g.nb_membres > 1 %}s{% endif %})</option>{% endfor %}
+                </select></div>
+            <div id="planScopeEntDiv" style="display:none">
+                <div style="background:#e8f5e9;color:#2e7d32;padding:8px;border-radius:6px;font-size:11px;font-weight:600">🏢 Sera planifié pour les <strong>{{ nb_employees_total }}</strong> employés actifs</div>
+            </div>
             <div><label style="font-size:11px;color:#888">Date *</label>
                 <input type="date" name="date" required value="{{ date_filter }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         </div>
@@ -3888,6 +4014,23 @@ function getMyPos(){
             <button type="submit" class="btn btn-primary btn-sm">+ Créer</button>
         </div>
     </form>
+    <script>
+    function onPlanScopeChange(){
+        var v = document.querySelector('input[name="scope"]:checked').value;
+        document.getElementById('planScopeEmpDiv').style.display = v=='employe' ? '' : 'none';
+        document.getElementById('planScopeGrpDiv').style.display = v=='groupe' ? '' : 'none';
+        document.getElementById('planScopeEntDiv').style.display = v=='entreprise' ? '' : 'none';
+        document.getElementById('planEmpSelect').required = (v=='employe');
+        document.getElementById('planGrpSelect').required = (v=='groupe');
+        // Visual feedback
+        ['Empl','Grp','Ent'].forEach(function(s){
+            var lbl = document.getElementById('scopeLbl' + s);
+            var checked = lbl.querySelector('input').checked;
+            lbl.style.borderColor = checked ? '#7b1fa2' : '#ddd';
+            lbl.style.background = checked ? '#f3e5f5' : '#fff';
+        });
+    }
+    </script>
 </div></div>
 
 {% elif page == 'pt_company_qr' %}
