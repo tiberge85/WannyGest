@@ -332,7 +332,8 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
     # Pour ne pas changer la logique de calcul historique, on garde days_absent tel quel
     # (calculé jour par jour depuis records). days_required sert juste de référence pour le taux.
     
-    presence_rate = (days_present / days_required * 100) if days_required > 0 else 0
+    # NOUVEAU v53 : cap à 100% (cas où days_present > days_required)
+    presence_rate = min((days_present / days_required * 100) if days_required > 0 else 0, 100.0)
     if presence_rate >= 95:
         observation = "Assidu"
     elif presence_rate >= 80:
@@ -348,7 +349,9 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
     days_absent_real = max(days_required - days_effectues_real, 0)
     
     # Recalcul du taux de présence avec les absences réelles
-    presence_rate_real = (days_present / days_required * 100) if days_required > 0 else 0
+    # NOUVEAU v53 : capper à 100% (cas où days_present > days_required, ex: heures sup ou
+    # jours travaillés au-delà de l'obligation)
+    presence_rate_real = min((days_present / days_required * 100) if days_required > 0 else 0, 100.0)
     
     stats = {
         'days_required': days_required,
@@ -387,14 +390,14 @@ def make_styles():
         'st': ParagraphStyle('st', fontName='Helvetica', fontSize=9, alignment=TA_CENTER, spaceAfter=8),
         'ei': ParagraphStyle('ei', fontName='Helvetica-Bold', fontSize=9, spaceAfter=2),
         'eb': ParagraphStyle('eb', fontName='Helvetica-Bold', fontSize=9, textColor=BLUE, spaceAfter=2),
-        'c': ParagraphStyle('c', fontName='Helvetica', fontSize=5.8, alignment=TA_CENTER, leading=7),
-        'cb': ParagraphStyle('cb', fontName='Helvetica-Bold', fontSize=5.8, alignment=TA_CENTER, leading=7),
-        'h': ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=5.8, textColor=white, alignment=TA_CENTER, leading=7),
-        'g': ParagraphStyle('g', fontName='Helvetica-Bold', fontSize=5.8, textColor=GREEN, alignment=TA_CENTER, leading=7),
-        'r': ParagraphStyle('r', fontName='Helvetica-Bold', fontSize=5.8, textColor=RED, alignment=TA_CENTER, leading=7),
-        'b': ParagraphStyle('b', fontName='Helvetica-Bold', fontSize=5.8, textColor=BLUE, alignment=TA_CENTER, leading=7),
-        'sh': ParagraphStyle('sh', fontName='Helvetica-Bold', fontSize=6, textColor=white, alignment=TA_CENTER, leading=7),
-        'sv': ParagraphStyle('sv', fontName='Helvetica', fontSize=6.5, alignment=TA_CENTER, leading=8),
+        'c': ParagraphStyle('c', fontName='Helvetica', fontSize=7.5, alignment=TA_CENTER, leading=9),
+        'cb': ParagraphStyle('cb', fontName='Helvetica-Bold', fontSize=7.5, alignment=TA_CENTER, leading=9),
+        'h': ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=7.5, textColor=white, alignment=TA_CENTER, leading=9),
+        'g': ParagraphStyle('g', fontName='Helvetica-Bold', fontSize=7.5, textColor=GREEN, alignment=TA_CENTER, leading=9),
+        'r': ParagraphStyle('r', fontName='Helvetica-Bold', fontSize=7.5, textColor=RED, alignment=TA_CENTER, leading=9),
+        'b': ParagraphStyle('b', fontName='Helvetica-Bold', fontSize=7.5, textColor=BLUE, alignment=TA_CENTER, leading=9),
+        'sh': ParagraphStyle('sh', fontName='Helvetica-Bold', fontSize=7, textColor=white, alignment=TA_CENTER, leading=8),
+        'sv': ParagraphStyle('sv', fontName='Helvetica', fontSize=7.5, alignment=TA_CENTER, leading=9),
         'ft': ParagraphStyle('ft', fontName='Helvetica', fontSize=6, alignment=TA_RIGHT, textColor=HexColor("#888")),
         # Styles pour les pages résumé
         'big_ti': ParagraphStyle('big_ti', fontName='Helvetica-Bold', fontSize=16, textColor=TEAL, alignment=TA_CENTER, spaceAfter=12),
@@ -504,7 +507,7 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         hdrs = ["N°","Date","Planning","État","Arrivée",
                 "Départ","H.<br/>travail.","Retard",
                 "H.<br/>obligat.","H.<br/>Respectée","H. sup."]
-        cw = [7*mm,16*mm,18*mm,16*mm,13*mm,13*mm,14*mm,13*mm,14*mm,18*mm,14*mm]
+        cw = [8*mm,18*mm,22*mm,18*mm,15*mm,15*mm,16*mm,15*mm,16*mm,22*mm,16*mm]
         
         td = [[Paragraph(x, S['h']) for x in hdrs]]
         
@@ -748,6 +751,14 @@ def _generate_chart_image(pct_presence, pct_absence, logo_path=None, work_dir=No
     Logo au centre, labels de % flottants au-dessus de chaque secteur, légende en bas.
     Total minutes optionnels pour afficher 'XXXh' dans la légende.
     Image générée en 2400x2100 pixels (3x) pour rendu net dans le PDF (300dpi)."""
+    # NOUVEAU v53 : sécurité - cap les pourcentages à [0, 100] et ajuste pour qu'ils somment à 100
+    pct_presence = max(0.0, min(float(pct_presence), 100.0))
+    pct_absence = max(0.0, min(float(pct_absence), 100.0))
+    # Si la somme dépasse 100, redimensionner pour que ça matche
+    total_pct = pct_presence + pct_absence
+    if total_pct > 100.01:  # marge pour erreurs flottantes
+        pct_presence = (pct_presence / total_pct) * 100
+        pct_absence = (pct_absence / total_pct) * 100
     try:
         from PIL import Image, ImageDraw, ImageFont, ImageFilter
         import math
@@ -946,8 +957,9 @@ def gen_graphique(story, emps, all_stats, S, provider_name, provider_info, clien
     total_absence = max(0, total_required - total_presence)
     
     if total_required > 0:
-        pct_presence = (total_presence / total_required) * 100
-        pct_absence = 100 - pct_presence
+        # NOUVEAU v53 : cap à 100% (cas où des heures sup font dépasser le total obligatoire)
+        pct_presence = min((total_presence / total_required) * 100, 100.0)
+        pct_absence = max(0.0, 100.0 - pct_presence)
     else:
         pct_presence = 100
         pct_absence = 0
@@ -1549,18 +1561,24 @@ def merge_files(enr_path, trans_path):
             enr_day = enr_emp.get('dates', {}).get(date_str, {}) if enr_emp else {}
             times = trans_dates.get(date_str, [])
             
-            # --- Planning : toujours garder les heures exactes du fichier Excel ---
-            sched_start = enr_day.get('sched_start') if enr_day else None
-            sched_end = enr_day.get('sched_end') if enr_day else None
-            # Fallback au typical SEULEMENT si aucune donnée Excel
-            if not sched_start:
+            # --- Planning : toujours garder les heures EXACTES du fichier Excel ---
+            # NOUVEAU v53 : si le jour est dans l'Enregistrement, on garde STRICTEMENT
+            # les valeurs du fichier (même si vides). On NE remplace PAS par le typical
+            # car cela changeait l'EDT après fusion.
+            # Le fallback au typical n'est appliqué QUE si la date n'existe pas du tout
+            # dans l'Enregistrement (cas d'un badge transaction sans EDT prévu).
+            if enr_day:
+                sched_start = enr_day.get('sched_start') or ''
+                sched_end = enr_day.get('sched_end') or ''
+            else:
+                # Jour absent de l'Enregistrement → utiliser le typical (rare)
                 sched_start = typical_start
-            if not sched_end:
                 sched_end = typical_end
             
             ss_m = time_to_minutes(sched_start)
             se_m = time_to_minutes(sched_end)
-            is_night = ss_m > se_m  # ex: 19:00 > 07:00
+            # Si pas d'horaire planifié, considéré comme jour normal (pas nuit)
+            is_night = (ss_m is not None and se_m is not None) and ss_m > se_m
             
             # --- Arrivée & Départ depuis Transactions ---
             arrival = None

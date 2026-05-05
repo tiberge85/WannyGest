@@ -1603,6 +1603,17 @@ def traitement_generate():
     except:
         employee_days_required = {}
     
+    # NOUVEAU v54 : override des emplois du temps (par personne, groupe, ou tous)
+    # Format : {"all": {start, end, has_pause, pause_start, pause_end} ou null,
+    #          "groups": [{name, members[], start, end, has_pause, pause_start, pause_end}],
+    #          "persons": {name: {start, end, has_pause, pause_start, pause_end}}}
+    try:
+        schedule_override = json.loads(request.form.get('schedule_override_json', '{}'))
+        if not isinstance(schedule_override, dict):
+            schedule_override = {}
+    except:
+        schedule_override = {}
+    
     job_id = str(uuid.uuid4())[:8]
     job_dir = os.path.join(app.config['UPLOAD_FOLDER'], job_id)
     os.makedirs(job_dir, exist_ok=True)
@@ -1661,6 +1672,48 @@ def traitement_generate():
             unique_dates = set(all_dates)
             ouvrables = unique_dates - non_working_days_set
             days_required_default = len(ouvrables)
+        
+        # NOUVEAU v54 : appliquer schedule_override aux records des employés
+        # Priorité : Personne > Groupe > Tous > Original (gardé inchangé)
+        if schedule_override:
+            sched_all = schedule_override.get('all')
+            sched_groups = schedule_override.get('groups') or []
+            sched_persons = schedule_override.get('persons') or {}
+            
+            # Index name -> override (priorité personne > groupe > tous)
+            name_to_sched = {}
+            
+            # 1. Tous (plus faible priorité)
+            if sched_all and isinstance(sched_all, dict) and sched_all.get('start') and sched_all.get('end'):
+                for emp in emps:
+                    name_to_sched[emp['name']] = sched_all
+            
+            # 2. Groupes (priorité moyenne)
+            for grp in sched_groups:
+                if not isinstance(grp, dict): continue
+                members = grp.get('members') or []
+                if not members or not grp.get('start') or not grp.get('end'): continue
+                for member_name in members:
+                    name_to_sched[member_name] = grp
+            
+            # 3. Personnes (priorité maximale)
+            for pname, psched in sched_persons.items():
+                if isinstance(psched, dict) and psched.get('start') and psched.get('end'):
+                    name_to_sched[pname] = psched
+            
+            # Appliquer aux records
+            for emp in emps:
+                sch = name_to_sched.get(emp['name'])
+                if not sch: continue
+                new_start = sch.get('start')
+                new_end = sch.get('end')
+                if not new_start or not new_end: continue
+                # Forcer sched_start et sched_end pour TOUS les records de cet employé
+                for rec in emp['records']:
+                    rec['sched_start'] = new_start
+                    rec['sched_end'] = new_end
+                    # Note : on ne stocke pas la pause dans rec car le calcul ne l'utilise pas directement
+                    # (le calcul de durée se fait via duration calculée dans le fichier source)
         
         base = os.path.splitext(filename)[0]
         pdf_name = f"{base}_RAPPORT_DE_PRESENCE.pdf"
@@ -5128,14 +5181,19 @@ def _generate_bulletin_pdf(pid):
     brut = base + g('prime_transport') + g('prime_anciennete') + g('prime_astreinte') + g('prime_rendement') + g('prime_assiduite')
     
     # === GAINS ===
+    # NOUVEAU v54 : mettre en gras les primes > 0 pour qu'elles soient bien visibles
+    def _gain_row(label, value):
+        style = srb if value > 0 else sr
+        return [Paragraph(label, sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(value), style)]
+    
     gains = [
         [Paragraph('<b>GAINS</b>', swb), Paragraph('<b>Base</b>', swb), Paragraph('<b>Taux</b>', swb), Paragraph('<b>Montant</b>', swb)],
         [Paragraph('Salaire de base', sc), Paragraph(fmt(base), sr), Paragraph('', sr), Paragraph(fmt(base), srb)],
-        [Paragraph('Prime de transport', sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_transport')), sr)],
-        [Paragraph("Prime d'ancienneté", sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_anciennete')), sr)],
-        [Paragraph("Prime d'astreinte", sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_astreinte')), sr)],
-        [Paragraph("Prime d'assiduité", sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_assiduite')), sr)],
-        [Paragraph('Prime de rendement', sc), Paragraph('', sr), Paragraph('', sr), Paragraph(fmt(g('prime_rendement')), sr)],
+        _gain_row('Prime de transport', g('prime_transport')),
+        _gain_row("Prime d'ancienneté", g('prime_anciennete')),
+        _gain_row("Prime d'astreinte", g('prime_astreinte')),
+        _gain_row("Prime d'assiduité", g('prime_assiduite')),
+        _gain_row('Prime de rendement', g('prime_rendement')),
     ]
     gt = Table(gains, colWidths=cw)
     gt.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),VERT),('GRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
