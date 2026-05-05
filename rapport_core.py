@@ -340,13 +340,25 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
     else:
         observation = "Non assidu"
     
+    # NOUVEAU v52 : days_absent_real = obligatoires - effectués
+    # Les "Absent(e)" détectés via records (ligne dans le fichier sans pointage) sont conservés
+    # dans days_absent (compatibilité), mais le calcul réel d'absences manquantes est :
+    # absences réelles = nb jours obligatoires - nb jours où l'employé a été VU dans le fichier
+    days_effectues_real = days_present + days_badge_error  # days_present inclut days_late
+    days_absent_real = max(days_required - days_effectues_real, 0)
+    
+    # Recalcul du taux de présence avec les absences réelles
+    presence_rate_real = (days_present / days_required * 100) if days_required > 0 else 0
+    
     stats = {
         'days_required': days_required,
         'days_required_source': days_required_source,
         'days_present': days_present,
         'days_late': days_late,
         'days_punctual': days_punctual,
-        'days_absent': days_absent,
+        'days_absent': days_absent_real,  # v52 : on remplace par les absences réelles
+        'days_absent_records': days_absent,  # ancien comptage (pour debug si besoin)
+        'days_effectues': days_effectues_real,  # v52 : nouveau champ explicite
         'days_badge_error': days_badge_error,
         'days_rest': days_rest,
         'total_required': total_required,
@@ -354,12 +366,12 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
         'total_overtime': total_overtime,
         'total_deficit': total_deficit,
         'total_late_mins': total_late_mins,
-        'presence_rate': round(presence_rate, 1),
+        'presence_rate': round(presence_rate_real, 1),
         'observation': observation,
         'hourly_cost': hourly_cost,
         'cost_late': round(total_late_mins / 60 * hourly_cost) if hourly_cost > 0 else 0,
         'cost_deficit': round(total_deficit / 60 * hourly_cost) if hourly_cost > 0 else 0,
-        'cost_absent': round(days_absent * (total_required / max(len(records), 1)) / 60 * hourly_cost) if hourly_cost > 0 else 0,
+        'cost_absent': round(days_absent_real * (total_required / max(len(records), 1)) / 60 * hourly_cost) if hourly_cost > 0 and len(records) > 0 else 0,
         'cost_overtime': round(total_overtime / 60 * hourly_cost) if hourly_cost > 0 else 0,
     }
     
@@ -456,11 +468,11 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         story.append(oblig_t)
         story.append(Spacer(1, 3*mm))
         
-        # Résumé compact (nouvelle ligne avec Jours obligatoires + Jours effectués + autres)
-        # Calcul Jours effectués = Jours présents + Jours d'absence + Jours d'erreur badge
-        # (= total des jours réellement comptabilisés sur la période, hors repos)
+        # Résumé compact
+        # v52 : stats['days_absent'] contient déjà les absences réelles (= obligatoires - effectués)
+        # v52 : stats['days_effectues'] est nouveau (= present + erreur badge)
         days_obligatoires = stats['days_required']
-        days_effectues = stats['days_present'] + stats['days_absent'] + stats['days_badge_error']
+        days_effectues = stats.get('days_effectues', stats['days_present'] + stats['days_badge_error'])
         
         sum_hdrs = ["Jours<br/>obligat.","Jours<br/>effectués","Présent","Retard","Absent","Err.<br/>badge",
                     "","H. obligat.","H. travail.","H. retard","H. absent"]
@@ -830,25 +842,32 @@ def _generate_chart_image(pct_presence, pct_absence, logo_path=None, work_dir=No
             font_pct = font_pct_red = font_legend = font_legend_b = font_title = ImageFont.load_default()
         
         if pct_presence > 0 and pct_absence > 0:
+            # NOUVEAU v52 : labels parfaitement centrés dans l'épaisseur du donut
+            # et taille de police adaptée si le secteur est petit
             angle_p = 360 * pct_presence / 100
             mid_p = -90 + angle_p / 2
             mid_p_rad = math.radians(mid_p)
-            label_r = (outer_r + inner_r) / 2 + 15*SCALE
+            # Centre exact entre rayon interne et externe (pas de débordement)
+            label_r = (outer_r + inner_r) / 2
             lpx = cx + int(label_r * math.cos(mid_p_rad))
             lpy = cy + int(label_r * math.sin(mid_p_rad))
             text_p = f"{pct_presence:.1f}%"
-            bbox = draw.textbbox((0, 0), text_p, font=font_pct)
+            # Adapter la taille selon la portion (si petit secteur, font plus petite)
+            font_p_used = font_pct if pct_presence >= 15 else font_pct_red
+            bbox = draw.textbbox((0, 0), text_p, font=font_p_used)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            draw.text((lpx - tw // 2, lpy - th // 2), text_p, fill=(255, 255, 255), font=font_pct)
+            draw.text((lpx - tw // 2, lpy - th // 2), text_p, fill=(255, 255, 255), font=font_p_used)
             
-            mid_a = -90 + angle_p + (360 - angle_p) / 2
+            angle_a = 360 - angle_p
+            mid_a = -90 + angle_p + angle_a / 2
             mid_a_rad = math.radians(mid_a)
             lax = cx + int(label_r * math.cos(mid_a_rad))
             lay = cy + int(label_r * math.sin(mid_a_rad))
             text_a = f"{pct_absence:.1f}%"
-            bbox = draw.textbbox((0, 0), text_a, font=font_pct_red)
+            font_a_used = font_pct if pct_absence >= 15 else font_pct_red
+            bbox = draw.textbbox((0, 0), text_a, font=font_a_used)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            draw.text((lax - tw // 2, lay - th // 2), text_a, fill=(255, 255, 255), font=font_pct_red)
+            draw.text((lax - tw // 2, lay - th // 2), text_a, fill=(255, 255, 255), font=font_a_used)
         elif pct_presence > 0:
             text_p = f"{pct_presence:.1f}%"
             bbox = draw.textbbox((0, 0), text_p, font=font_pct)
