@@ -2493,8 +2493,15 @@ def alertes_page():
         try:
             emps, _ = extract_from_excel(xlsx_path)
             from rapport_core import calc_employee_stats
+            # period_total_days = jours uniques de TOUS les employés (pas par employé)
+            all_dates_set = set()
+            for e in emps:
+                for r in e.get('records', []):
+                    d = r.get('date')
+                    if d: all_dates_set.add(d)
+            ptd = len(all_dates_set) if all_dates_set else None
             for emp in emps:
-                enriched, stats = calc_employee_stats(emp)
+                enriched, stats = calc_employee_stats(emp, period_total_days=ptd)
                 # Alertes retards excessifs (>5 jours)
                 if stats['days_late'] >= 5:
                     alerts.append({
@@ -10768,8 +10775,16 @@ def admin_pointage_rapport_pdf(user_id, month):
         import io
         
         # Stats employé via la même fonction que les rapports d'heures
+        # NOUVEAU v49 : period_total_days = nb de jours du mois (28-31 selon le mois)
+        from calendar import monthrange
+        try:
+            year_m, mon_m = month.split('-')
+            period_total_days = monthrange(int(year_m), int(mon_m))[1]
+        except:
+            period_total_days = len(records) if records else 30
         enriched, stats = rapport_core.calc_employee_stats(emp, hp=8, hp_weekend=0,
-                                                          hourly_cost=0, rest_days=[5, 6])
+                                                          hourly_cost=0, rest_days=[5, 6],
+                                                          period_total_days=period_total_days)
         # Ajouter le coût de pénalité dans les stats (extension custom)
         stats['total_penalty_cost'] = total_penalty
         
@@ -11052,6 +11067,14 @@ def admin_pointage_rapport_entreprise(month):
             except: pass
         conn2.close()
         
+        # NOUVEAU v49 : nombre total de jours du mois — IDENTIQUE pour tous les employés
+        from calendar import monthrange
+        try:
+            year_m, mon_m = month.split('-')
+            period_total_days = monthrange(int(year_m), int(mon_m))[1]
+        except:
+            period_total_days = 30
+        
         # Calculer stats pour tous les employés (avec override jours obligatoires)
         all_stats = []
         for emp in emps:
@@ -11067,7 +11090,8 @@ def admin_pointage_rapport_entreprise(month):
                     override = ramya_default
             enriched, stats = rapport_core.calc_employee_stats(emp, hp=8, hp_weekend=0,
                                                               hourly_cost=0, rest_days=[5, 6],
-                                                              days_required_override=override)
+                                                              days_required_override=override,
+                                                              period_total_days=period_total_days)
             all_stats.append((enriched, stats))
         
         S = rapport_core.make_styles()
@@ -12024,7 +12048,13 @@ def admin_pointage_company_qr(cid):
     """Génère les QR codes adaptés au mode de pointage de l'entreprise.
     - Mode CONTINU : 4 QR (Arrivée/Pause/Retour/Départ) → /pt/<slug>/scan?type=...
     - Mode SESSION : 2 QR génériques (Démarrer prochaine / Terminer en cours)
-                     + plannings du jour avec QR individuels."""
+                     + plannings du jour avec QR individuels.
+    
+    NOUVEAU v49 : Mode MIXTE détecté automatiquement. Si l'entreprise a au moins
+    un employé avec un mode override différent du mode global → on génère LES DEUX
+    jeux de QR (les 4 continus + les 2 session), pour que les employés des 2 modes
+    puissent scanner le bon QR selon leur mode individuel.
+    """
     conn = _gdb()
     company = conn.execute("SELECT * FROM pointage_companies WHERE id=?", (cid,)).fetchone()
     if not company:
@@ -12034,6 +12064,32 @@ def admin_pointage_company_qr(cid):
     
     base_url = request.host_url.rstrip('/')
     type_pointage = company.get('type_pointage', 'continu') or 'continu'
+    
+    # === DÉTECTION MODE MIXTE ===
+    # Vérifier si au moins un employé a un override différent du mode entreprise
+    other_mode = 'session' if type_pointage == 'continu' else 'continu'
+    has_mixed = False
+    try:
+        nb_overrides = conn.execute("""
+            SELECT COUNT(*) FROM pointage_company_users
+            WHERE company_id=? AND COALESCE(is_active,1)=1
+            AND type_pointage = ?""", (cid, other_mode)).fetchone()[0]
+        has_mixed = nb_overrides > 0
+    except: pass
+    
+    # Compteurs par mode pour info admin
+    nb_users_continu = 0
+    nb_users_session = 0
+    try:
+        nb_users_continu = conn.execute("""
+            SELECT COUNT(*) FROM pointage_company_users WHERE company_id=? AND COALESCE(is_active,1)=1
+            AND (type_pointage='continu' OR (type_pointage IS NULL AND ?='continu'))""",
+            (cid, type_pointage)).fetchone()[0]
+        nb_users_session = conn.execute("""
+            SELECT COUNT(*) FROM pointage_company_users WHERE company_id=? AND COALESCE(is_active,1)=1
+            AND (type_pointage='session' OR (type_pointage IS NULL AND ?='session'))""",
+            (cid, type_pointage)).fetchone()[0]
+    except: pass
     
     def _gen_qr(url, color):
         try:
@@ -12047,26 +12103,49 @@ def admin_pointage_company_qr(cid):
             print(f"QR err: {e}")
             return ''
     
-    qrs = []
+    # === Génération des QR : LES 2 JEUX si mode mixte, sinon le mode actuel uniquement ===
+    show_continu = (type_pointage == 'continu') or has_mixed
+    show_session = (type_pointage == 'session') or has_mixed
+    
+    qrs_continu = []
+    qrs_session = []
     plannings_qrs = []
     
-    if type_pointage == 'session':
-        # === Mode SESSION ===
-        # 2 QR génériques
-        types = [
+    # QR continu (toujours si mode==continu OU si mixte)
+    if show_continu:
+        types_continu = [
+            ('arrivee', '🟢 Arrivée', '#2e7d32',
+             "Scannez à votre arrivée au bureau pour enregistrer votre heure d'arrivée."),
+            ('pause', '🟡 Pause', '#f29f2f',
+             "Scannez avant votre pause déjeuner pour enregistrer le début de pause."),
+            ('retour', '🔵 Retour', '#1a7a6d',
+             "Scannez à votre retour de pause pour reprendre le travail."),
+            ('depart', '🔴 Départ', '#c53030',
+             "Scannez en partant le soir pour enregistrer votre heure de départ."),
+        ]
+        for t, label, color, instr in types_continu:
+            url = f"{base_url}/pt/{company['slug']}/scan?type={t}"
+            qrs_continu.append({
+                'type': t, 'label': label, 'url': url,
+                'qr': _gen_qr(url, color), 'color': color, 'instr': instr,
+            })
+    
+    # QR session (toujours si mode==session OU si mixte)
+    if show_session:
+        types_session = [
             ('next', '▶ Démarrer ma prochaine session', '#2e7d32',
              "Scannez à votre arrivée sur le lieu d'intervention pour démarrer la session planifiée."),
             ('current', '🛑 Terminer ma session en cours', '#c53030',
              "Scannez à la fin de votre intervention pour terminer la session en cours."),
         ]
-        for t, label, color, instr in types:
+        for t, label, color, instr in types_session:
             url = f"{base_url}/pt/{company['slug']}/session/{t}"
-            qrs.append({
+            qrs_session.append({
                 'type': t, 'label': label, 'url': url,
                 'qr': _gen_qr(url, color), 'color': color, 'instr': instr,
             })
         
-        # QR individuels par session planifiée du jour (optionnel - à imprimer pour chaque mission)
+        # QR individuels par session planifiée du jour (uniquement pour mode session)
         date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
         plannings = [dict(r) for r in conn.execute("""
             SELECT pps.*, pcu.full_name as user_name, pee.nom as externe_nom
@@ -12084,31 +12163,19 @@ def admin_pointage_company_qr(cid):
                 'url': url,
                 'qr': _gen_qr(url, '#7b1fa2'),
             })
-        
-        conn.close()
-        return render_template('extra_pages.html', page='pt_company_qr',
-                              company=company, qrs=qrs,
-                              plannings_qrs=plannings_qrs, date_filter=date_filter,
-                              type_pointage='session', base_url=base_url)
-    
-    # === Mode CONTINU (par défaut) ===
-    types = [
-        ('arrivee', '🟢 Arrivée', '#2e7d32'),
-        ('pause', '🟡 Pause', '#f29f2f'),
-        ('retour', '🔵 Retour', '#1a7a6d'),
-        ('depart', '🔴 Départ', '#c53030'),
-    ]
-    for t, label, color in types:
-        url = f"{base_url}/pt/{company['slug']}/scan?type={t}"
-        qrs.append({
-            'type': t, 'label': label, 'url': url,
-            'qr': _gen_qr(url, color), 'color': color,
-        })
+    else:
+        date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
     
     conn.close()
     return render_template('extra_pages.html', page='pt_company_qr',
-                          company=company, qrs=qrs,
-                          type_pointage='continu', base_url=base_url)
+                          company=company,
+                          qrs_continu=qrs_continu, qrs_session=qrs_session,
+                          plannings_qrs=plannings_qrs, date_filter=date_filter,
+                          type_pointage=type_pointage, base_url=base_url,
+                          has_mixed=has_mixed,
+                          nb_users_continu=nb_users_continu,
+                          nb_users_session=nb_users_session,
+                          show_continu=show_continu, show_session=show_session)
 
 
 # ============================================================

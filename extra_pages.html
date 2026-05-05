@@ -4445,7 +4445,9 @@ function openEditPlan(p){
 </style>
 <div class="page-header no-print">
     <h1>📱 QR codes — {{ company.name }}
-        {% if type_pointage == 'session' %}
+        {% if has_mixed %}
+        <span class="qr-mode-badge" style="background:#fff3e0;color:#b8561f">🔀 Mode MIXTE</span>
+        {% elif type_pointage == 'session' %}
         <span class="qr-mode-badge" style="background:#f3e5f5;color:#7b1fa2">📅 Mode session</span>
         {% else %}
         <span class="qr-mode-badge" style="background:#e0f5f1;color:#1A7A6D">🔵 Mode continu</span>
@@ -4457,26 +4459,57 @@ function openEditPlan(p){
     </div>
 </div>
 
-{% if type_pointage == 'session' %}
-{# ============= MODE SESSION ============= #}
-<div class="card no-print" style="background:#f3e5f5;border-left:4px solid #7b1fa2;margin-bottom:14px"><div class="card-body">
-    <strong style="color:#7b1fa2">📋 Mode Pointage par session — Comment ça fonctionne ?</strong>
+{% if has_mixed %}
+{# ============================================================ #}
+{# MODE MIXTE : afficher LES DEUX jeux de QR avec un séparateur #}
+{# ============================================================ #}
+<div class="card no-print" style="background:#fff3e0;border-left:4px solid #f29f2f;margin-bottom:14px"><div class="card-body">
+    <strong style="color:#b8561f">🔀 Mode mixte détecté</strong>
     <p style="font-size:12px;margin:6px 0 0;color:#555">
-    Les techniciens itinérants utilisent <strong>2 QR codes universels</strong> qu'ils peuvent garder sur eux (ou affichés à leur poste de départ) :<br>
-    1. <strong>« Démarrer »</strong> : scanné à l'arrivée sur le lieu d'intervention. Le système trouve automatiquement la prochaine session planifiée pour eux et la démarre.<br>
-    2. <strong>« Terminer »</strong> : scanné à la fin de l'intervention. Le système termine la session en cours.<br><br>
-    💡 Les QR <strong>spécifiques par mission</strong> (un par planning) sont aussi disponibles plus bas — utiles si vous voulez les afficher chez chaque client/site d'intervention.<br>
+    Cette entreprise compte des employés en <strong>2 modes de pointage différents</strong> :<br>
+    • <strong style="color:#1A7A6D">{{ nb_users_continu }} employé(s)</strong> en pointage continu (Arrivée / Pause / Retour / Départ)<br>
+    • <strong style="color:#7b1fa2">{{ nb_users_session }} employé(s)</strong> en pointage par session (mission par mission)<br><br>
+    Les <strong>deux jeux de QR</strong> ci-dessous sont à afficher pour que chaque employé puisse scanner le QR correspondant à <em>son propre mode</em>. Le système redirige automatiquement les utilisateurs qui scanneraient le mauvais QR.<br>
     Domaine : <code>{{ base_url }}</code>
     </p>
 </div></div>
+{% endif %}
 
-<div style="text-align:center;margin:14px 0">
-    <h2 style="color:#1a3a5c;margin:0">🏢 {{ company.name }}</h2>
-    <p style="color:#666;font-size:13px;margin:4px 0 0">QR universels session</p>
+{% if show_continu %}
+{# ============= QR CONTINU ============= #}
+<div style="background:#e0f5f1;border-radius:10px;padding:14px 18px;margin:18px 0 6px" class="no-print">
+    <h2 style="margin:0;color:#1A7A6D;font-size:16px">🔵 Pointage continu — Arrivée / Pause / Retour / Départ</h2>
+    <p style="font-size:11px;color:#555;margin:6px 0 0">
+    Pour les employés en mode <strong>continu</strong> ({{ nb_users_continu }} actuellement). À afficher à l'entrée du bureau, salle de pause, etc.
+    </p>
 </div>
-
 <div class="qr-grid">
-{% for q in qrs %}
+{% for q in qrs_continu %}
+<div class="qr-card" style="--c:{{ q.color }}">
+    <h3>{{ q.label }}</h3>
+    {% if q.qr %}
+    <img src="{{ q.qr }}" alt="QR {{ q.type }}">
+    {% else %}
+    <div style="padding:60px;color:#c53030">QR non disponible</div>
+    {% endif %}
+    <div class="qr-link">{{ q.url }}</div>
+    <div class="qr-instr">{{ q.instr }}</div>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+{% if show_session %}
+{# ============= QR SESSION ============= #}
+{% if show_continu %}<div style="border-top:2px dashed #ddd;margin:30px 0 0" class="no-print"></div>{% endif %}
+<div style="background:#f3e5f5;border-radius:10px;padding:14px 18px;margin:18px 0 6px" class="no-print">
+    <h2 style="margin:0;color:#7b1fa2;font-size:16px">📅 Pointage par session — Démarrer / Terminer</h2>
+    <p style="font-size:11px;color:#555;margin:6px 0 0">
+    Pour les employés en mode <strong>session</strong> ({{ nb_users_session }} actuellement). À afficher au bureau (départ matinal) ou à conserver sur le téléphone des techniciens itinérants.
+    </p>
+</div>
+<div class="qr-grid">
+{% for q in qrs_session %}
 <div class="qr-card" style="--c:{{ q.color }}">
     <h3>{{ q.label }}</h3>
     {% if q.qr %}
@@ -4491,10 +4524,9 @@ function openEditPlan(p){
 </div>
 
 {# QR individuels par session planifiée du jour #}
-{% if plannings_qrs %}
 <div style="margin-top:30px;text-align:center" class="no-print">
-    <h2 style="color:#1a3a5c;margin:0">📅 QR codes des sessions du {{ date_filter }}</h2>
-    <p style="color:#666;font-size:13px;margin:4px 0 12px">Un QR par mission planifiée — pour affichage chez le client (optionnel)</p>
+    <h2 style="color:#1a3a5c;margin:0;font-size:15px">📅 QR codes des sessions du {{ date_filter }}</h2>
+    <p style="color:#666;font-size:12px;margin:4px 0 12px">Un QR par mission planifiée — pour affichage chez le client (optionnel)</p>
     <form method="get" style="display:inline-flex;gap:8px;align-items:end;margin-bottom:14px">
         <div><label style="font-size:11px;color:#888;display:block">Date</label>
             <input type="date" name="date" value="{{ date_filter }}" onchange="this.form.submit()" style="padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
@@ -4524,43 +4556,11 @@ function openEditPlan(p){
 </div>
 {% endif %}
 
-{% else %}
-{# ============= MODE CONTINU ============= #}
-<div class="card no-print" style="background:#e0f5f1;border-left:4px solid #1A7A6D;margin-bottom:14px"><div class="card-body">
-    <strong style="color:#1A7A6D">📋 Mode Présence continue — Instructions</strong>
-    <p style="font-size:12px;margin:6px 0 0;color:#555">
-    1. Imprimez cette page et affichez les QR codes dans les zones de pointage.<br>
-    2. Les employés scannent avec leur téléphone (appareil photo).<br>
-    3. <strong>S'ils ne sont pas connectés</strong> à leur compte, ils sont invités à se connecter, puis le pointage est validé automatiquement.<br>
-    4. <strong>S'ils sont déjà connectés</strong>, le pointage est enregistré immédiatement sans re-saisie.<br>
-    5. Domaine actif : <code>{{ base_url }}</code>
-    </p>
-</div></div>
-
-<div style="text-align:center;margin:20px 0">
-    <h2 style="color:#1a3a5c;margin:0">🏢 {{ company.name }}</h2>
-    <p style="color:#666;font-size:13px;margin:4px 0 0">Slug : <code>{{ company.slug }}</code></p>
-</div>
-
-<div class="qr-grid">
-{% for q in qrs %}
-<div class="qr-card" style="--c:{{ q.color }}">
-    <h3>{{ q.label }}</h3>
-    {% if q.qr %}
-    <img src="{{ q.qr }}" alt="QR {{ q.type }}">
-    {% else %}
-    <div style="padding:60px;color:#c53030">QR non disponible</div>
-    {% endif %}
-    <div class="qr-link">{{ q.url }}</div>
-    <div class="qr-instr">Scannez pour pointer : <strong>{{ q.label }}</strong></div>
-</div>
-{% endfor %}
-</div>
-{% endif %}
-
 <div style="text-align:center;margin-top:20px;font-size:11px;color:#888" class="no-print">
     💡 Astuce : 
-    {% if type_pointage == 'session' %}
+    {% if has_mixed %}
+    affichez les 4 QR continus à l'entrée/poste fixe, et conservez les 2 QR session avec les techniciens itinérants. Les employés sont automatiquement redirigés s'ils scannent le mauvais QR.
+    {% elif type_pointage == 'session' %}
     affichez les 2 QR universels au bureau (départ matinal). Les employés en intervention itinérante les scannent depuis leur téléphone à l'arrivée et au départ de chaque mission.
     {% else %}
     pensez à coller chaque QR code à l'endroit approprié (entrée, salle de pause, sortie...).

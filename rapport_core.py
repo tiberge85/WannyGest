@@ -168,10 +168,13 @@ def extract_from_excel(xlsx_path):
 # ======================== CALCULS ========================
 
 def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
-                         days_required_override=None):
+                         days_required_override=None, period_total_days=None):
     """Calcule les statistiques complètes d'un employé. 
     rest_days=liste des jours de repos (0=lundi..6=dimanche).
-    days_required_override : si fourni, force le nombre de jours obligatoires (sinon calcul auto)."""
+    days_required_override : si fourni, force le nombre de jours obligatoires (sinon calcul auto).
+    period_total_days : si fourni, utilise ce total commun à TOUS les employés au lieu
+    de len(records) qui varie par employé (cas où l'Excel a des dates manquantes pour
+    certains employés)."""
     if rest_days is None: rest_days = []
     records = emp['records']
     total_required = 0
@@ -298,12 +301,19 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
         })
     
     # === ASSIDUITÉ (basée sur le taux de présence) ===
-    # Détermination des jours obligatoires : override prioritaire, sinon calcul auto
+    # Détermination des jours obligatoires : override prioritaire, sinon calcul auto basé sur la période
     if days_required_override is not None and days_required_override > 0:
         days_required = int(days_required_override)
         days_required_source = 'manuel'
     else:
-        days_required = len(records) - days_rest
+        # NOUVEAU v49 : utiliser le total de la période (commun à tous) au lieu de len(records)
+        # qui varie par employé. Cela garantit que TOUS les employés du même mois ont
+        # le même nombre de jours obligatoires.
+        if period_total_days is not None and period_total_days > 0:
+            days_required = period_total_days - days_rest
+        else:
+            # Fallback ancien comportement (si period_total_days non fourni)
+            days_required = len(records) - days_rest
         days_required_source = 'auto'
     
     # Recalcul absences en fonction de days_required (si override > calcul auto, on a plus d'absences)
@@ -1149,6 +1159,15 @@ def generate_full_pdf(emps, output_path, provider_name, provider_info, client_na
     now = datetime.now().strftime("%d/%m/%Y à %H:%M")
     
     # Pré-calculer toutes les stats avec coût par employé, jours de repos et jours obligatoires
+    # NOUVEAU v49 : period_total_days = jours uniques entre la date min et max de TOUTE la période
+    # → garantit le même nombre de jours obligatoires pour tous les employés
+    all_dates_set = set()
+    for e in emps:
+        for r in e.get('records', []):
+            d = r.get('date')
+            if d: all_dates_set.add(d)
+    period_total_days = len(all_dates_set) if all_dates_set else 30
+    
     all_stats = []
     for emp in emps:
         emp_cost = employee_costs.get(emp['name'], hourly_cost)
@@ -1158,7 +1177,8 @@ def generate_full_pdf(emps, output_path, provider_name, provider_info, client_na
         if emp_days_req is None and days_required_default is not None and days_required_default > 0:
             emp_days_req = days_required_default
         all_stats.append(calc_employee_stats(emp, hp, hp_weekend, emp_cost, rest_days=emp_rest,
-                                             days_required_override=emp_days_req))
+                                             days_required_override=emp_days_req,
+                                             period_total_days=period_total_days))
     
     # 1. Rapports individuels
     gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, period, now)
