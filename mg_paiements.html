@@ -1,0 +1,104 @@
+{% extends "base.html" %}{% block title %}WannyGest - Paiements{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>💵 Paiements fournisseurs</h1>
+    <a href="/mg" class="btn btn-outline btn-sm">← Retour MG</a>
+</div>
+
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addPAY').classList.add('active')" style="margin-bottom:14px">+ Enregistrer un paiement</button>
+
+<div class="card"><div class="card-body">
+{% if paiements %}<div class="table-wrap"><table>
+<thead><tr><th>Réf</th><th>Date</th><th>Fournisseur</th><th>Commande</th><th>Type</th><th>Mode</th><th>Montant</th><th>Réf externe</th></tr></thead>
+<tbody>{% for p in paiements %}<tr>
+<td><strong>{{ p.reference }}</strong></td>
+<td>{{ p.date_paiement }}</td>
+<td>{{ p.fournisseur_name or '-' }}</td>
+<td>{{ p.commande_ref or '<span style=color:#999>—</span>' | safe }}</td>
+<td>
+    {% if p.type_paiement == 'acompte' %}<span style="color:#1976d2">💰 Acompte</span>
+    {% elif p.type_paiement == 'partiel' %}<span style="color:#e65100">⚖️ Partiel</span>
+    {% else %}<span style="color:#2e7d32">✅ Solde</span>{% endif %}
+</td>
+<td>{{ p.mode }}</td>
+<td style="text-align:right;font-weight:700;color:#2e7d32">{{ '{:,.0f}'.format(p.montant) }} F</td>
+<td style="font-size:11px;color:#666">{{ p.reference_externe or '-' }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun paiement enregistré</p>{% endif %}
+</div></div>
+
+<!-- Modal -->
+<div class="modal-bg" id="addPAY"><div class="modal"><h3>💵 Enregistrer un paiement</h3>
+<form method="post" action="/mg/paiements/add">
+<div class="form-row">
+    <div class="form-group">
+        <label>Fournisseur *</label>
+        <select name="fournisseur_id" required id="payFournisseur">
+            <option value="">— Choisir —</option>
+            {% for f in fournisseurs %}
+            <option value="{{ f.id }}">{{ f.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>Commande (optionnel)</label>
+        <select name="commande_id" id="payCommande">
+            <option value="">— Aucune (paiement libre) —</option>
+            {% for c in commandes %}
+            <option value="{{ c.id }}" data-fournisseur="{{ c.fournisseur_id }}" data-reste="{{ c.reste }}">
+                {{ c.reference }} — {{ c.fournisseur_name }} (Reste : {{ '{:,.0f}'.format(c.reste) }} F)
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+<div class="form-row">
+    <div class="form-group"><label>Date *</label><input type="date" name="date_paiement" required value="{{ now }}"></div>
+    <div class="form-group">
+        <label>Type *</label>
+        <select name="type_paiement" required>
+            <option value="acompte">💰 Acompte</option>
+            <option value="partiel">⚖️ Partiel</option>
+            <option value="solde" selected>✅ Solde</option>
+        </select>
+    </div>
+</div>
+<div class="form-row">
+    <div class="form-group">
+        <label>Mode *</label>
+        <select name="mode" required>
+            <option value="virement">🏦 Virement</option>
+            <option value="cheque">📄 Chèque</option>
+            <option value="especes">💴 Espèces</option>
+            <option value="mobile_money">📱 Mobile Money</option>
+        </select>
+    </div>
+    <div class="form-group"><label>Montant (FCFA) *</label><input type="number" name="montant" required step="1" id="payMontant"></div>
+</div>
+<div class="form-group">
+    <label>Référence externe (n° chèque, n° virement, etc.)</label>
+    <input type="text" name="reference_externe" placeholder="Ex: VIR-2026-0123">
+</div>
+<div class="form-group">
+    <label>Commentaire</label>
+    <input type="text" name="commentaire">
+</div>
+<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+    <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+    <button type="submit" class="btn btn-primary">💵 Enregistrer</button>
+</div>
+</form></div></div>
+
+<script>
+// Auto-update fournisseur quand on choisit une commande
+document.getElementById('payCommande').addEventListener('change', function() {
+    var opt = this.options[this.selectedIndex];
+    var fid = opt.dataset.fournisseur;
+    var reste = opt.dataset.reste;
+    if (fid) {
+        document.getElementById('payFournisseur').value = fid;
+        if (reste && parseFloat(reste) > 0) document.getElementById('payMontant').value = reste;
+    }
+});
+</script>
+
+{% endblock %}

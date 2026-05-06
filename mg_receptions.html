@@ -1,0 +1,64 @@
+{% extends "base.html" %}{% block title %}WannyGest - Réceptions{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>📦 Réceptions de marchandises</h1>
+    <a href="/mg" class="btn btn-outline btn-sm">← Retour MG</a>
+</div>
+
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addREC').classList.add('active')" style="margin-bottom:14px">+ Enregistrer une réception</button>
+
+<div class="card"><div class="card-body">
+{% if receptions %}<div class="table-wrap"><table>
+<thead><tr><th>Réf</th><th>Date</th><th>Commande</th><th>Fournisseur</th><th>Montant</th><th>Statut</th><th>Commentaire</th></tr></thead>
+<tbody>{% for r in receptions %}<tr>
+<td><strong>{{ r.reference }}</strong></td>
+<td>{{ r.date_reception }}</td>
+<td>{{ r.commande_ref or '-' }}</td>
+<td>{{ r.fournisseur_name or '-' }}</td>
+<td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(r.commande_total or 0) }} F</td>
+<td>
+    {% if r.statut == 'totale' %}<span style="color:#2e7d32;font-weight:700">✅ Totale</span>
+    {% elif r.statut == 'partielle' %}<span style="color:#e65100;font-weight:700">⚠️ Partielle</span>
+    {% else %}<span style="color:#c53030;font-weight:700">❌ Non conforme</span>{% endif %}
+</td>
+<td style="font-size:11px;color:#666;max-width:250px">{{ r.commentaire or '' }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune réception enregistrée</p>{% endif %}
+</div></div>
+
+<!-- Modal -->
+<div class="modal-bg" id="addREC"><div class="modal"><h3>📦 Enregistrer une réception</h3>
+<form method="post" action="/mg/receptions/add">
+<div class="form-group">
+    <label>Commande * (en cours uniquement)</label>
+    <select name="commande_id" required>
+        <option value="">— Choisir une commande —</option>
+        {% for c in commandes %}
+        <option value="{{ c.id }}">{{ c.reference }} — {{ c.fournisseur_name or '-' }} ({{ '{:,.0f}'.format(c.total or 0) }} F)</option>
+        {% endfor %}
+    </select>
+</div>
+<div class="form-row">
+    <div class="form-group"><label>Date de réception *</label><input type="date" name="date_reception" required value="{{ now }}"></div>
+    <div class="form-group">
+        <label>Statut *</label>
+        <select name="statut" required>
+            <option value="totale">✅ Totale (tout reçu)</option>
+            <option value="partielle">⚠️ Partielle</option>
+            <option value="non_conforme">❌ Non conforme</option>
+        </select>
+    </div>
+</div>
+<div class="form-group">
+    <label>Commentaire / Observations</label>
+    <textarea name="commentaire" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px" placeholder="Articles manquants, dégâts, etc."></textarea>
+</div>
+<div class="hint" style="background:#fff3e0;padding:8px;border-radius:5px;font-size:12px">
+    ℹ️ Une réception <strong>totale</strong> marquera automatiquement la commande comme <strong>livrée</strong>.
+</div>
+<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+    <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+    <button type="submit" class="btn btn-primary">📦 Enregistrer</button>
+</div>
+</form></div></div>
+
+{% endblock %}

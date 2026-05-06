@@ -6,7 +6,7 @@ Application Web v3 — Gestion des Rapports de Pointage
 Auth + Rôles + Dashboard + Clients + Fichiers RH
 """
 
-import os, uuid, shutil, functools, smtplib, json, time
+import os, uuid, shutil, functools, smtplib, json, time, secrets
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -371,6 +371,8 @@ from models import migrate_v67
 migrate_v67()
 from models import migrate_v68
 migrate_v68()
+from models import migrate_v69
+migrate_v69()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -4994,7 +4996,7 @@ def rh_absences_delete(aid):
     return redirect(url_for('rh_absences'))
 
 @app.route('/rh/paie')
-@permission_required('fichiers')
+@permission_required_any('fichiers', 'comptabilite', 'comptabilite_view', 'comptabilite_edit', 'compta_pro', 'admin')
 def rh_paie():
     period = request.args.get('period', '')
     payslips = get_payslips(period if period else None)
@@ -5363,7 +5365,7 @@ def _generate_bulletin_pdf(pid):
     return output
 
 @app.route('/rh/paie/<int:pid>/pdf')
-@permission_required('fichiers')
+@permission_required_any('fichiers', 'comptabilite', 'comptabilite_view', 'comptabilite_edit', 'compta_pro', 'admin')
 def rh_paie_pdf(pid):
     output = _generate_bulletin_pdf(pid)
     if not output:
@@ -5377,11 +5379,14 @@ def rh_paie_pdf(pid):
 def rh_paie_view(pid):
     p = get_payslip_detail_v2(pid)
     if not p: flash("Non trouvé","error"); return redirect('/dashboard')
-    # Check access: RH/admin or own payslip
+    # Check access: RH/comptable/admin OR own payslip
     user = get_user_by_id(session['user_id'])
     perms = get_role_permissions(user['role']) if user else []
-    is_rh = 'fichiers' in perms or 'admin' in perms
-    if not is_rh:
+    # NOUVEAU v56 : la comptable doit pouvoir consulter les bulletins envoyés par RH
+    is_authorized = ('fichiers' in perms or 'admin' in perms or
+                     'comptabilite' in perms or 'comptabilite_view' in perms or
+                     'comptabilite_edit' in perms or 'compta_pro' in perms)
+    if not is_authorized:
         # Check if this is the employee's own payslip
         conn = _gdb()
         emp = conn.execute("SELECT id FROM employees WHERE email=? OR LOWER(first_name||' '||last_name)=LOWER(?)",
@@ -10871,9 +10876,8 @@ def admin_pointage_rapport_pdf(user_id, month):
         now = _dt.now()
         
         buf = io.BytesIO()
-        # NOUVEAU v55 : paysage A4
-        from reportlab.lib.pagesizes import landscape
-        doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=10*mm, rightMargin=10*mm,
+        # v56 : retour en portrait
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm,
                                 topMargin=10*mm, bottomMargin=10*mm)
         story = []
         
@@ -10948,10 +10952,12 @@ def admin_pointage_rapport_entreprise(month):
             conn.close()
             return redirect(url_for('admin_pointage_dashboard'))
         
-        # Construire emps depuis pointage_company_records (continu) ET pointage_sessions (session)
+        # Construire emps (continu) ET emps_sessions (session)
+        # NOUVEAU v56 : rapport SESSION dédié pour mode session
         from datetime import datetime as _dt, date as _date, timedelta as _td
         from models import get_user_pointage_mode
-        emps = []
+        emps = []  # mode continu : 1 record par jour
+        emps_sessions = []  # mode session : liste détaillée des sessions
         for u in users:
             sched_start = u.get('heure_arrivee', '08:00')
             sched_end = u.get('heure_depart', '17:00')
@@ -10997,11 +11003,10 @@ def admin_pointage_rapport_entreprise(month):
                         'arrival': arrival, 'departure': departure, 'duration': dur,
                     })
             else:
-                # === NOUVEAU v55 : Mode SESSION : lire pointage_sessions ===
-                # On agrège toutes les sessions de la journée pour calculer 
-                # arrivée=1ère session debut, départ=dernière session fin, durée=somme
-                sessions = [dict(r) for r in conn.execute("""
-                    SELECT pps.date, pps.heure_prevue, pps.duree_minutes,
+                # === Mode SESSION : collecter les sessions individuelles pour rapport dédié ===
+                sessions_raw = [dict(r) for r in conn.execute("""
+                    SELECT pps.id as planning_id, pps.date, pps.heure_prevue, pps.duree_minutes,
+                           pps.libelle, pps.statut as planning_statut,
                            ps.heure_debut, ps.heure_fin, ps.duree_reelle_minutes,
                            ps.statut as session_statut
                     FROM pointage_planning_sessions pps
@@ -11010,47 +11015,64 @@ def admin_pointage_rapport_entreprise(month):
                     ORDER BY pps.date, pps.heure_prevue
                 """, (u['id'], f'{month}%')).fetchall()]
                 
-                # Grouper par jour
-                by_day = {}
-                for s in sessions:
-                    d = s['date']
-                    if d not in by_day:
-                        by_day[d] = {'sessions':[], 'first_arr':None, 'last_dep':None,
-                                    'total_dur':0, 'planned_start':None, 'planned_end_min':0}
-                    by_day[d]['sessions'].append(s)
-                    if s['heure_debut']:
-                        if not by_day[d]['first_arr'] or s['heure_debut'] < by_day[d]['first_arr']:
-                            by_day[d]['first_arr'] = s['heure_debut']
-                    if s['heure_fin']:
-                        if not by_day[d]['last_dep'] or s['heure_fin'] > by_day[d]['last_dep']:
-                            by_day[d]['last_dep'] = s['heure_fin']
-                    if s['duree_reelle_minutes']:
-                        by_day[d]['total_dur'] += s['duree_reelle_minutes']
-                    # Première heure prévue de la journée
-                    if not by_day[d]['planned_start'] or s['heure_prevue'] < by_day[d]['planned_start']:
-                        by_day[d]['planned_start'] = s['heure_prevue']
-                    by_day[d]['planned_end_min'] += s['duree_minutes'] or 0
+                # Construire la liste détaillée + statistiques
+                sessions_list = []
+                ok_count = 0
+                retard_count = 0
+                non_eff_count = 0
+                total_dur_prev = 0
+                total_dur_reel = 0
                 
-                for d in sorted(by_day.keys()):
-                    dd = by_day[d]
-                    arrival = dd['first_arr'] or ''
-                    departure = dd['last_dep'] or ''
-                    total_min = dd['total_dur']
-                    dur = f"{total_min//60:02d}:{total_min%60:02d}" if total_min > 0 else ''
-                    # sched_start/end basés sur la 1ère session prévue + cumul durée
-                    rec_sched_start = dd['planned_start'] or sched_start
-                    # Calcul fin prévue = début prévu + cumul durée
-                    rec_sched_end = sched_end
-                    try:
-                        if dd['planned_start'] and dd['planned_end_min']:
-                            ps_h, ps_m = map(int, dd['planned_start'].split(':'))
-                            tot_min = ps_h*60 + ps_m + dd['planned_end_min']
-                            rec_sched_end = f"{(tot_min//60)%24:02d}:{tot_min%60:02d}"
-                    except: pass
-                    records.append({
-                        'date': d, 'sched_start': rec_sched_start, 'sched_end': rec_sched_end,
-                        'arrival': arrival, 'departure': departure, 'duration': dur,
+                for s in sessions_raw:
+                    duree_prev = s['duree_minutes'] or 0
+                    duree_reel = s['duree_reelle_minutes'] or 0
+                    total_dur_prev += duree_prev
+                    total_dur_reel += duree_reel
+                    
+                    # Détection du statut
+                    if not s['heure_debut']:
+                        statut = 'non_effectuee'
+                        non_eff_count += 1
+                    else:
+                        # Calcul retard sur démarrage
+                        try:
+                            h1, m1 = map(int, s['heure_prevue'].split(':'))
+                            h2, m2 = map(int, s['heure_debut'].split(':'))
+                            ecart = (h2-h1)*60 + (m2-m1)
+                            if ecart > 5:  # Plus de 5 min de retard
+                                statut = 'retard'
+                                retard_count += 1
+                            else:
+                                statut = 'ok'
+                                ok_count += 1
+                        except:
+                            statut = 'ok'
+                            ok_count += 1
+                    
+                    sessions_list.append({
+                        'date': s['date'],
+                        'libelle': s['libelle'] or '-',
+                        'heure_prevue': s['heure_prevue'],
+                        'duree_minutes': duree_prev,
+                        'heure_debut': s['heure_debut'],
+                        'heure_fin': s['heure_fin'],
+                        'duree_reelle': duree_reel,
+                        'statut': statut,
                     })
+                
+                emps_sessions.append({
+                    'name': u['full_name'],
+                    'ref': u['username'],
+                    'sessions': sessions_list,
+                    'total_sessions': len(sessions_list),
+                    'sessions_ok': ok_count,
+                    'sessions_retard': retard_count,
+                    'sessions_non_effectuee': non_eff_count,
+                    'total_duree_prevue': total_dur_prev,
+                    'total_duree_reelle': total_dur_reel,
+                })
+                # Skip the legacy by_day records build below for sessions
+                continue
             
             # Compléter avec jours sans pointage
             try:
@@ -11088,6 +11110,8 @@ def admin_pointage_rapport_entreprise(month):
             conn.close()
             return redirect(url_for('admin_pointage_dashboard'))
         
+        # NOUVEAU v56 : initialiser emps_sessions vide pour le mode RAMYA (pas de session)
+        emps_sessions = []
         from models import get_user_planning
         
         emps = []
@@ -11241,17 +11265,24 @@ def admin_pointage_rapport_entreprise(month):
         now = datetime.now()
         
         buf = io.BytesIO()
-        # NOUVEAU v55 : paysage A4 pour faire tenir le rapport individuel sur 1 page par employé
-        from reportlab.lib.pagesizes import landscape
-        doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=10*mm, rightMargin=10*mm,
+        # v56 : retour en portrait
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=10*mm, rightMargin=10*mm,
                                 topMargin=10*mm, bottomMargin=10*mm)
         story = []
         
-        # Section 1 : Rapports individuels (un par employé)
-        rapport_core.gen_individual_pages(story, emps, all_stats, S,
-                                          provider_name, provider_info,
-                                          client_name, client_info, period, now)
-        story.append(PageBreak())
+        # Section 1 : Rapports individuels (un par employé en mode CONTINU)
+        if emps:
+            rapport_core.gen_individual_pages(story, emps, all_stats, S,
+                                              provider_name, provider_info,
+                                              client_name, client_info, period, now)
+            story.append(PageBreak())
+        
+        # NOUVEAU v56 — Section 1bis : Rapports de SESSIONS (un par employé en mode SESSION)
+        if emps_sessions:
+            rapport_core.gen_session_pages(story, emps_sessions, S,
+                                           provider_name, provider_info,
+                                           client_name, client_info, period, now)
+            story.append(PageBreak())
         
         # Section 2 : Rapport de présence global
         try:
@@ -15017,6 +15048,382 @@ def achats_contrat_add():
         start_date=request.form.get('start_date',''), end_date=request.form.get('end_date',''),
         amount=float(request.form.get('amount',0) or 0), created_by=session['user_id'])
     flash("Contrat ajouté", "success"); return redirect('/achats?tab=contrats')
+
+
+# ============================================================
+# MOYENS GÉNÉRAUX - Module complet (v56)
+# Workflow : Demande → Validation → Devis → Commande → Réception → Paiement → Équipement
+# ============================================================
+
+@app.route('/mg')
+@permission_required_any('mg_view', 'admin')
+def mg_dashboard():
+    """Dashboard Moyens Généraux : KPIs et accès aux modules."""
+    conn = _gdb()
+    
+    # KPIs
+    nb_demandes_attente = conn.execute(
+        "SELECT COUNT(*) FROM achats_demandes WHERE status='en_attente'").fetchone()[0]
+    nb_commandes_cours = conn.execute(
+        "SELECT COUNT(*) FROM achats_commandes WHERE status='en_cours'").fetchone()[0]
+    nb_equipements = conn.execute(
+        "SELECT COUNT(*) FROM mg_equipements WHERE statut='actif'").fetchone()[0]
+    nb_equipements_panne = conn.execute(
+        "SELECT COUNT(*) FROM mg_equipements WHERE statut IN ('panne','maintenance')").fetchone()[0]
+    
+    # Total commandes mois en cours + total payé
+    today = datetime.now()
+    mois_str = today.strftime('%Y-%m')
+    total_commandes_mois = conn.execute(
+        "SELECT COALESCE(SUM(total),0) FROM achats_commandes WHERE date LIKE ? AND status != 'annulee'",
+        (f'{mois_str}%',)).fetchone()[0]
+    total_paye_mois = conn.execute(
+        "SELECT COALESCE(SUM(montant),0) FROM mg_paiements WHERE date_paiement LIKE ?",
+        (f'{mois_str}%',)).fetchone()[0]
+    
+    # 5 dernières demandes
+    recent_demandes = [dict(r) for r in conn.execute("""
+        SELECT d.*, u.username as requester_name
+        FROM achats_demandes d
+        LEFT JOIN users u ON d.requested_by = u.id
+        ORDER BY d.created_at DESC LIMIT 5
+    """).fetchall()]
+    
+    # 5 dernières alertes équipements (panne ou maintenance proche)
+    alertes_equip = [dict(r) for r in conn.execute("""
+        SELECT * FROM mg_equipements
+        WHERE statut IN ('panne','maintenance')
+           OR (date_prochaine_maintenance IS NOT NULL AND date_prochaine_maintenance <= date('now', '+30 days'))
+        ORDER BY date_prochaine_maintenance LIMIT 5
+    """).fetchall()]
+    
+    conn.close()
+    return render_template('mg_dashboard.html',
+        nb_demandes_attente=nb_demandes_attente,
+        nb_commandes_cours=nb_commandes_cours,
+        nb_equipements=nb_equipements,
+        nb_equipements_panne=nb_equipements_panne,
+        total_commandes_mois=total_commandes_mois,
+        total_paye_mois=total_paye_mois,
+        recent_demandes=recent_demandes,
+        alertes_equip=alertes_equip)
+
+
+# === DEMANDES INTERNES ===
+
+@app.route('/mg/demandes')
+@permission_required_any('mg_view', 'admin')
+def mg_demandes():
+    conn = _gdb()
+    statut = request.args.get('statut', '').strip()
+    if statut:
+        rows = conn.execute("""
+            SELECT d.*, u.username as requester_name,
+                COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
+            FROM achats_demandes d
+            LEFT JOIN users u ON d.requested_by = u.id
+            WHERE d.status=? ORDER BY d.created_at DESC""", (statut,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT d.*, u.username as requester_name,
+                COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
+            FROM achats_demandes d
+            LEFT JOIN users u ON d.requested_by = u.id
+            ORDER BY d.created_at DESC""").fetchall()
+    demandes = [dict(r) for r in rows]
+    conn.close()
+    return render_template('mg_demandes.html', demandes=demandes, current_statut=statut)
+
+
+@app.route('/mg/demandes/add', methods=['POST'])
+@permission_required_any('mg_demande', 'admin')
+def mg_demandes_add():
+    ref = f"DM-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
+    _dbi('achats_demandes', reference=ref,
+         date=request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+         department=request.form.get('department', ''),
+         requested_by=session['user_id'],
+         description=request.form.get('description', ''),
+         urgency=request.form.get('urgency', 'normale'),
+         status='en_attente',
+         notes=request.form.get('notes', ''))
+    flash(f"Demande {ref} créée — En attente de validation", "success")
+    return redirect('/mg/demandes')
+
+
+@app.route('/mg/demandes/<int:did>/valider/<action>')
+@permission_required_any('mg_valider', 'admin')
+def mg_demandes_valider(did, action):
+    """Valider ou refuser une demande. action ∈ {validee, refusee}."""
+    if action not in ('validee', 'refusee', 'en_attente'):
+        flash("Action invalide", "error")
+        return redirect('/mg/demandes')
+    conn = _gdb()
+    conn.execute("""UPDATE achats_demandes SET status=?, approved_by=?, approved_at=?
+                    WHERE id=?""",
+                 (action, session['user_id'], datetime.now().isoformat(), did))
+    conn.commit(); conn.close()
+    flash(f"Demande {action}", "success")
+    return redirect('/mg/demandes')
+
+
+@app.route('/mg/demandes/<int:did>/delete')
+@permission_required_any('mg_gestion', 'admin')
+def mg_demandes_delete(did):
+    conn = _gdb()
+    conn.execute("DELETE FROM achats_demande_items WHERE demande_id=?", (did,))
+    conn.execute("DELETE FROM achats_demandes WHERE id=?", (did,))
+    conn.commit(); conn.close()
+    flash("Demande supprimée", "success")
+    return redirect('/mg/demandes')
+
+
+# === RÉCEPTIONS ===
+
+@app.route('/mg/receptions')
+@permission_required_any('mg_view', 'admin')
+def mg_receptions():
+    conn = _gdb()
+    rows = conn.execute("""
+        SELECT r.*, c.reference as commande_ref, c.total as commande_total,
+               f.name as fournisseur_name
+        FROM mg_receptions r
+        LEFT JOIN achats_commandes c ON r.commande_id = c.id
+        LEFT JOIN achats_fournisseurs f ON c.fournisseur_id = f.id
+        ORDER BY r.date_reception DESC
+    """).fetchall()
+    receptions = [dict(r) for r in rows]
+    
+    # Liste des commandes en cours pour formulaire
+    commandes = [dict(r) for r in conn.execute("""
+        SELECT c.*, f.name as fournisseur_name
+        FROM achats_commandes c
+        LEFT JOIN achats_fournisseurs f ON c.fournisseur_id = f.id
+        WHERE c.status NOT IN ('annulee', 'livree')
+        ORDER BY c.date DESC
+    """).fetchall()]
+    conn.close()
+    return render_template('mg_receptions.html', receptions=receptions, commandes=commandes)
+
+
+@app.route('/mg/receptions/add', methods=['POST'])
+@permission_required_any('mg_gestion', 'admin')
+def mg_receptions_add():
+    cmd_id = int(request.form.get('commande_id', 0) or 0)
+    statut = request.form.get('statut', 'totale')
+    if statut not in ('totale', 'partielle', 'non_conforme'):
+        statut = 'totale'
+    
+    ref = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
+    _dbi('mg_receptions', reference=ref, commande_id=cmd_id,
+         date_reception=request.form.get('date_reception', datetime.now().strftime('%Y-%m-%d')),
+         statut=statut,
+         commentaire=request.form.get('commentaire', ''),
+         received_by=session['user_id'])
+    
+    # Si réception totale → mettre commande en livrée
+    if statut == 'totale':
+        conn = _gdb()
+        conn.execute("UPDATE achats_commandes SET status='livree' WHERE id=?", (cmd_id,))
+        conn.commit(); conn.close()
+    
+    flash(f"Réception {ref} enregistrée ({statut})", "success")
+    return redirect('/mg/receptions')
+
+
+# === PAIEMENTS ===
+
+@app.route('/mg/paiements')
+@permission_required_any('mg_view', 'admin')
+def mg_paiements():
+    conn = _gdb()
+    rows = conn.execute("""
+        SELECT p.*, f.name as fournisseur_name, c.reference as commande_ref
+        FROM mg_paiements p
+        LEFT JOIN achats_fournisseurs f ON p.fournisseur_id = f.id
+        LEFT JOIN achats_commandes c ON p.commande_id = c.id
+        ORDER BY p.date_paiement DESC
+    """).fetchall()
+    paiements = [dict(r) for r in rows]
+    
+    # Liste des commandes pour le formulaire avec reste à payer
+    commandes_data = [dict(r) for r in conn.execute("""
+        SELECT c.id, c.reference, c.total, f.name as fournisseur_name, c.fournisseur_id,
+               COALESCE((SELECT SUM(montant) FROM mg_paiements WHERE commande_id=c.id),0) as paye
+        FROM achats_commandes c
+        LEFT JOIN achats_fournisseurs f ON c.fournisseur_id = f.id
+        WHERE c.status != 'annulee'
+        ORDER BY c.date DESC
+    """).fetchall()]
+    for c in commandes_data:
+        c['reste'] = (c['total'] or 0) - (c['paye'] or 0)
+    
+    fournisseurs = [dict(r) for r in conn.execute(
+        "SELECT * FROM achats_fournisseurs WHERE status='actif' OR status IS NULL ORDER BY name"
+    ).fetchall()]
+    conn.close()
+    return render_template('mg_paiements.html', paiements=paiements,
+                          commandes=commandes_data, fournisseurs=fournisseurs)
+
+
+@app.route('/mg/paiements/add', methods=['POST'])
+@permission_required_any('mg_gestion', 'admin')
+def mg_paiements_add():
+    fid = int(request.form.get('fournisseur_id', 0) or 0)
+    cmd_id_raw = request.form.get('commande_id', '')
+    cmd_id = int(cmd_id_raw) if cmd_id_raw and cmd_id_raw.isdigit() else None
+    
+    montant = float(request.form.get('montant', 0) or 0)
+    if montant <= 0:
+        flash("Montant invalide", "error")
+        return redirect('/mg/paiements')
+    
+    type_p = request.form.get('type_paiement', 'solde')
+    if type_p not in ('acompte', 'solde', 'partiel'):
+        type_p = 'solde'
+    
+    ref = f"PAY-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
+    _dbi('mg_paiements', reference=ref, fournisseur_id=fid, commande_id=cmd_id,
+         montant=montant, type_paiement=type_p,
+         mode=request.form.get('mode', 'virement'),
+         date_paiement=request.form.get('date_paiement', datetime.now().strftime('%Y-%m-%d')),
+         reference_externe=request.form.get('reference_externe', ''),
+         commentaire=request.form.get('commentaire', ''),
+         paid_by=session['user_id'])
+    
+    flash(f"Paiement {ref} de {montant:,.0f} F enregistré", "success")
+    return redirect('/mg/paiements')
+
+
+# === ÉQUIPEMENTS ===
+
+@app.route('/mg/equipements')
+@permission_required_any('mg_view', 'admin')
+def mg_equipements():
+    conn = _gdb()
+    statut = request.args.get('statut', '').strip()
+    if statut:
+        rows = conn.execute("""
+            SELECT e.*, u.username as affectation_user_name
+            FROM mg_equipements e
+            LEFT JOIN users u ON e.affectation_user_id = u.id
+            WHERE e.statut=? ORDER BY e.created_at DESC
+        """, (statut,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT e.*, u.username as affectation_user_name
+            FROM mg_equipements e
+            LEFT JOIN users u ON e.affectation_user_id = u.id
+            ORDER BY e.created_at DESC
+        """).fetchall()
+    equipements = [dict(r) for r in rows]
+    
+    users = [dict(r) for r in conn.execute(
+        "SELECT id, username, full_name FROM users WHERE COALESCE(is_active,1)=1 ORDER BY username"
+    ).fetchall()]
+    
+    # Statistiques
+    stats = {}
+    for s in ['actif', 'panne', 'maintenance', 'reforme']:
+        stats[s] = conn.execute("SELECT COUNT(*) FROM mg_equipements WHERE statut=?", (s,)).fetchone()[0]
+    conn.close()
+    
+    return render_template('mg_equipements.html', equipements=equipements,
+                          users=users, stats=stats, current_statut=statut)
+
+
+@app.route('/mg/equipements/add', methods=['POST'])
+@permission_required_any('mg_gestion', 'admin')
+def mg_equipements_add():
+    ref = f"EQ-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
+    aff_user = request.form.get('affectation_user_id', '')
+    aff_user_id = int(aff_user) if aff_user and aff_user.isdigit() else None
+    
+    _dbi('mg_equipements', reference=ref,
+         nom=request.form.get('nom', ''),
+         description=request.form.get('description', ''),
+         categorie=request.form.get('categorie', 'autre'),
+         numero_serie=request.form.get('numero_serie', ''),
+         marque=request.form.get('marque', ''),
+         modele=request.form.get('modele', ''),
+         prix_acquisition=float(request.form.get('prix_acquisition', 0) or 0),
+         date_acquisition=request.form.get('date_acquisition', datetime.now().strftime('%Y-%m-%d')),
+         statut=request.form.get('statut', 'actif'),
+         affectation_user_id=aff_user_id,
+         affectation_lieu=request.form.get('affectation_lieu', ''),
+         date_prochaine_maintenance=request.form.get('date_prochaine_maintenance', ''),
+         commentaire=request.form.get('commentaire', ''),
+         created_by=session['user_id'])
+    flash(f"Équipement {ref} ajouté", "success")
+    return redirect('/mg/equipements')
+
+
+@app.route('/mg/equipements/<int:eid>/statut/<statut>')
+@permission_required_any('mg_gestion', 'admin')
+def mg_equipements_statut(eid, statut):
+    if statut not in ('actif', 'panne', 'maintenance', 'reforme'):
+        flash("Statut invalide", "error")
+        return redirect('/mg/equipements')
+    conn = _gdb()
+    conn.execute("UPDATE mg_equipements SET statut=? WHERE id=?", (statut, eid))
+    conn.commit(); conn.close()
+    flash(f"Statut équipement → {statut}", "success")
+    return redirect('/mg/equipements')
+
+
+# === TABLEAU DE BORD FOURNISSEURS ===
+
+@app.route('/mg/fournisseurs-dashboard')
+@permission_required_any('mg_view', 'admin')
+def mg_fournisseurs_dashboard():
+    """Tableau de bord financier par fournisseur :
+    total_commandes / total_paye / reste_a_payer."""
+    from models import mg_get_fournisseur_dashboard
+    fournisseurs = mg_get_fournisseur_dashboard()
+    
+    # Totaux globaux
+    total_global_commandes = sum(f['total_commandes'] or 0 for f in fournisseurs)
+    total_global_paye = sum(f['total_paye'] or 0 for f in fournisseurs)
+    total_global_reste = total_global_commandes - total_global_paye
+    
+    return render_template('mg_fournisseurs_dashboard.html',
+                          fournisseurs=fournisseurs,
+                          total_commandes=total_global_commandes,
+                          total_paye=total_global_paye,
+                          total_reste=total_global_reste)
+
+
+@app.route('/mg/fournisseurs/<int:fid>/details')
+@permission_required_any('mg_view', 'admin')
+def mg_fournisseur_details(fid):
+    """Page détaillée d'un fournisseur : historique commandes + paiements."""
+    from models import mg_get_fournisseur_dashboard
+    f_data = mg_get_fournisseur_dashboard(fid)
+    if not f_data:
+        flash("Fournisseur introuvable", "error")
+        return redirect('/mg/fournisseurs-dashboard')
+    
+    conn = _gdb()
+    commandes = [dict(r) for r in conn.execute("""
+        SELECT c.*,
+            COALESCE((SELECT SUM(montant) FROM mg_paiements WHERE commande_id=c.id),0) as paye
+        FROM achats_commandes c
+        WHERE c.fournisseur_id=? ORDER BY c.date DESC
+    """, (fid,)).fetchall()]
+    for c in commandes:
+        c['reste'] = (c['total'] or 0) - (c['paye'] or 0)
+    
+    paiements = [dict(r) for r in conn.execute("""
+        SELECT p.*, c.reference as commande_ref
+        FROM mg_paiements p
+        LEFT JOIN achats_commandes c ON p.commande_id = c.id
+        WHERE p.fournisseur_id=? ORDER BY p.date_paiement DESC
+    """, (fid,)).fetchall()]
+    conn.close()
+    
+    return render_template('mg_fournisseur_details.html',
+                          fournisseur=f_data,
+                          commandes=commandes, paiements=paiements)
 
 
 # ============================================================

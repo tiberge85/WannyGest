@@ -1,0 +1,112 @@
+{% extends "base.html" %}{% block title %}WannyGest - Moyens Généraux{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>📦 Moyens Généraux</h1>
+    <p style="color:#666;font-size:13px">Workflow : Demande → Validation → Devis → Commande → Réception → Paiement → Équipement</p>
+</div>
+
+<!-- Cards de navigation -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px">
+    <a href="/mg/demandes" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #f29f2f">
+        <div style="font-size:24px">📋</div>
+        <div style="font-weight:700;margin-top:4px">Demandes internes</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">{{ nb_demandes_attente }} en attente de validation</div>
+    </a>
+    <a href="/achats?tab=fournisseurs" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #1976d2">
+        <div style="font-size:24px">🏢</div>
+        <div style="font-weight:700;margin-top:4px">Fournisseurs</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">Annuaire fournisseurs</div>
+    </a>
+    <a href="/achats?tab=devis" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #7b1fa2">
+        <div style="font-size:24px">📄</div>
+        <div style="font-weight:700;margin-top:4px">Devis</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">Devis fournisseurs</div>
+    </a>
+    <a href="/achats?tab=commandes" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #2fa85b">
+        <div style="font-size:24px">🚚</div>
+        <div style="font-weight:700;margin-top:4px">Commandes</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">{{ nb_commandes_cours }} en cours</div>
+    </a>
+    <a href="/mg/receptions" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #f29f2f">
+        <div style="font-size:24px">📦</div>
+        <div style="font-weight:700;margin-top:4px">Réceptions</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">Suivi des livraisons</div>
+    </a>
+    <a href="/mg/paiements" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #c53030">
+        <div style="font-size:24px">💵</div>
+        <div style="font-weight:700;margin-top:4px">Paiements</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">{{ '{:,.0f}'.format(total_paye_mois) }} F payés ce mois</div>
+    </a>
+    <a href="/mg/equipements" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #1A7A6D">
+        <div style="font-size:24px">🖥️</div>
+        <div style="font-weight:700;margin-top:4px">Équipements</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">{{ nb_equipements }} actifs · {{ nb_equipements_panne }} en panne</div>
+    </a>
+    <a href="/mg/fournisseurs-dashboard" class="card" style="text-decoration:none;color:inherit;padding:14px;border-left:4px solid #1976d2">
+        <div style="font-size:24px">📊</div>
+        <div style="font-weight:700;margin-top:4px">Tableau fournisseurs</div>
+        <div style="font-size:11px;color:#666;margin-top:4px">Total payé / Reste à payer</div>
+    </a>
+</div>
+
+<!-- KPIs financiers -->
+<div class="stats-grid" style="margin-bottom:16px">
+    <div class="stat-card">
+        <div class="stat-icon orange">💰</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ '{:,.0f}'.format(total_commandes_mois) }} F</div>
+            <div class="stat-label">Total commandes ce mois</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon green">💸</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ '{:,.0f}'.format(total_paye_mois) }} F</div>
+            <div class="stat-label">Total payé ce mois</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background:#fff3e0;color:#e65100">⚠️</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ '{:,.0f}'.format(total_commandes_mois - total_paye_mois) }} F</div>
+            <div class="stat-label">Reste à payer ce mois</div>
+        </div>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <!-- Dernières demandes -->
+    <div class="card"><div class="card-header"><h3>📋 Demandes récentes</h3></div><div class="card-body">
+    {% if recent_demandes %}
+        <table style="width:100%;font-size:13px">
+        <thead><tr><th style="text-align:left">Réf</th><th>Demandeur</th><th>Statut</th></tr></thead>
+        <tbody>
+        {% for d in recent_demandes %}
+        <tr>
+            <td><strong>{{ d.reference }}</strong></td>
+            <td>{{ d.requester_name or '-' }}</td>
+            <td><span class="badge-status {% if d.status=='validee' %}sent{% elif d.status=='refusee' %}{% else %}pending{% endif %}">{{ d.status }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune demande récente</p>{% endif %}
+    </div></div>
+    
+    <!-- Alertes équipements -->
+    <div class="card"><div class="card-header"><h3>⚠️ Alertes équipements</h3></div><div class="card-body">
+    {% if alertes_equip %}
+        <table style="width:100%;font-size:13px">
+        <thead><tr><th style="text-align:left">Équipement</th><th>Statut</th><th>Maintenance</th></tr></thead>
+        <tbody>
+        {% for e in alertes_equip %}
+        <tr>
+            <td><strong>{{ e.nom }}</strong></td>
+            <td>{{ e.statut }}</td>
+            <td>{{ e.date_prochaine_maintenance or '-' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune alerte 🎉</p>{% endif %}
+    </div></div>
+</div>
+
+{% endblock %}

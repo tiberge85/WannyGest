@@ -1,0 +1,59 @@
+{% extends "base.html" %}{% block title %}WannyGest - Tableau fournisseurs{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>📊 Tableau de bord fournisseurs</h1>
+    <a href="/mg" class="btn btn-outline btn-sm">← Retour MG</a>
+</div>
+
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card">
+        <div class="stat-icon orange">💰</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ '{:,.0f}'.format(total_commandes) }} F</div>
+            <div class="stat-label">Total commandes (tous fournisseurs)</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon green">💸</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ '{:,.0f}'.format(total_paye) }} F</div>
+            <div class="stat-label">Total payé</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background:#fde8e8;color:#c53030">⚠️</div>
+        <div class="stat-info">
+            <div class="stat-num" style="color:#c53030">{{ '{:,.0f}'.format(total_reste) }} F</div>
+            <div class="stat-label">Reste à payer (dette globale)</div>
+        </div>
+    </div>
+</div>
+
+<div class="card"><div class="card-body">
+{% if fournisseurs %}<div class="table-wrap"><table>
+<thead><tr><th>Fournisseur</th><th>Téléphone</th><th>Email</th><th style="text-align:right">Nb commandes</th><th style="text-align:right">Total commandes</th><th style="text-align:right">Total payé</th><th style="text-align:right">Reste à payer</th><th>Actions</th></tr></thead>
+<tbody>{% for f in fournisseurs %}<tr>
+<td><strong>{{ f.name }}</strong></td>
+<td>{{ f.tel or '-' }}</td>
+<td style="font-size:12px">{{ f.email or '-' }}</td>
+<td style="text-align:right">{{ f.nb_commandes }}</td>
+<td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(f.total_commandes) }} F</td>
+<td style="text-align:right;color:#2e7d32;font-weight:700">{{ '{:,.0f}'.format(f.total_paye) }} F</td>
+<td style="text-align:right;font-weight:700;{% if f.reste_a_payer > 0 %}color:#c53030{% else %}color:#666{% endif %}">
+    {% if f.reste_a_payer > 0 %}⚠️ {% endif %}{{ '{:,.0f}'.format(f.reste_a_payer) }} F
+</td>
+<td><a href="/mg/fournisseurs/{{ f.id }}/details" class="btn btn-sm" style="background:#1976d2;color:#fff">📊 Détails</a></td>
+</tr>{% endfor %}</tbody>
+<tfoot>
+<tr style="background:#f8faf9;font-weight:700">
+    <td colspan="4" style="text-align:right;padding-top:10px">TOTAL</td>
+    <td style="text-align:right">{{ '{:,.0f}'.format(total_commandes) }} F</td>
+    <td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(total_paye) }} F</td>
+    <td style="text-align:right;color:#c53030">{{ '{:,.0f}'.format(total_reste) }} F</td>
+    <td></td>
+</tr>
+</tfoot>
+</table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun fournisseur</p>{% endif %}
+</div></div>
+
+{% endblock %}

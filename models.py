@@ -4278,6 +4278,208 @@ def migrate_v68():
     conn.commit(); conn.close()
 
 
+def migrate_v69():
+    """v69 : Module Moyens Généraux complet (workflow demande → validation → devis →
+    commande → réception → paiement → équipement).
+    
+    Tables créées :
+    - mg_receptions : suivi des livraisons (totale, partielle, non conforme)
+    - mg_paiements  : suivi des paiements fournisseurs (acompte, solde)
+    - mg_equipements : équipements créés à la réception (actif, panne, réformé)
+    
+    Tables existantes utilisées (alias depuis tables 'achats_*') :
+    - achats_demandes      → demandes internes
+    - achats_fournisseurs  → fournisseurs
+    - achats_devis         → devis
+    - achats_commandes     → bons de commande
+    """
+    conn = get_db()
+    
+    # Réceptions des commandes
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mg_receptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT UNIQUE,
+            commande_id INTEGER NOT NULL,
+            date_reception TEXT NOT NULL,
+            statut TEXT DEFAULT 'totale',
+            -- 'totale' = tout reçu, 'partielle' = reçu en partie,
+            -- 'non_conforme' = livraison à refuser
+            commentaire TEXT,
+            bon_livraison_path TEXT,
+            received_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (commande_id) REFERENCES achats_commandes(id),
+            FOREIGN KEY (received_by) REFERENCES users(id)
+        )
+    """)
+    
+    # Paiements aux fournisseurs
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mg_paiements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT UNIQUE,
+            fournisseur_id INTEGER NOT NULL,
+            commande_id INTEGER,
+            montant REAL NOT NULL,
+            type_paiement TEXT DEFAULT 'solde',
+            -- 'acompte', 'solde', 'partiel'
+            mode TEXT DEFAULT 'virement',
+            -- 'virement', 'especes', 'cheque', 'mobile_money'
+            date_paiement TEXT NOT NULL,
+            reference_externe TEXT,
+            commentaire TEXT,
+            tresorerie_lien_id INTEGER,
+            paid_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (fournisseur_id) REFERENCES achats_fournisseurs(id),
+            FOREIGN KEY (commande_id) REFERENCES achats_commandes(id),
+            FOREIGN KEY (paid_by) REFERENCES users(id)
+        )
+    """)
+    
+    # Équipements créés/réceptionnés
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mg_equipements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT UNIQUE,
+            nom TEXT NOT NULL,
+            description TEXT,
+            categorie TEXT,
+            -- 'informatique', 'mobilier', 'véhicule', 'matériel', 'autre'
+            numero_serie TEXT,
+            marque TEXT,
+            modele TEXT,
+            prix_acquisition REAL DEFAULT 0,
+            date_acquisition TEXT,
+            commande_id INTEGER,
+            reception_id INTEGER,
+            statut TEXT DEFAULT 'actif',
+            -- 'actif', 'panne', 'maintenance', 'reforme'
+            affectation_user_id INTEGER,
+            affectation_lieu TEXT,
+            date_affectation TEXT,
+            date_derniere_maintenance TEXT,
+            date_prochaine_maintenance TEXT,
+            commentaire TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (commande_id) REFERENCES achats_commandes(id),
+            FOREIGN KEY (reception_id) REFERENCES mg_receptions(id),
+            FOREIGN KEY (affectation_user_id) REFERENCES users(id)
+        )
+    """)
+    
+    # Permissions Moyens Généraux (insertion directe : role + permission)
+    role_perms = {
+        'admin':       ['mg_view', 'mg_demande', 'mg_valider', 'mg_gestion'],
+        'directeur':   ['mg_view', 'mg_demande', 'mg_valider', 'mg_gestion'],
+        'comptable':   ['mg_view', 'mg_gestion'],
+        'rh':          ['mg_view', 'mg_demande'],
+        'employee':    ['mg_view', 'mg_demande'],
+    }
+    for role, codes in role_perms.items():
+        for code in codes:
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO permissions (role, permission) VALUES (?,?)",
+                    (role, code))
+            except: pass
+    
+    conn.commit(); conn.close()
+
+
+def mg_get_fournisseur_dashboard(fournisseur_id=None):
+    """Tableau de bord fournisseur :
+    - total_commandes : somme des commandes du fournisseur
+    - total_paye : somme des paiements
+    - reste_a_payer : différence
+    
+    Si fournisseur_id None → retourne tous les fournisseurs avec leur situation.
+    """
+    conn = get_db()
+    if fournisseur_id:
+        query = """
+            SELECT f.id, f.name, f.tel, f.email,
+                COALESCE((SELECT SUM(total) FROM achats_commandes
+                          WHERE fournisseur_id=f.id AND status != 'annulee'), 0) as total_commandes,
+                COALESCE((SELECT SUM(montant) FROM mg_paiements
+                          WHERE fournisseur_id=f.id), 0) as total_paye
+            FROM achats_fournisseurs f WHERE f.id=?
+        """
+        r = conn.execute(query, (fournisseur_id,)).fetchone()
+        conn.close()
+        if not r: return None
+        d = dict(r)
+        d['reste_a_payer'] = (d['total_commandes'] or 0) - (d['total_paye'] or 0)
+        return d
+    else:
+        query = """
+            SELECT f.id, f.name, f.tel, f.email, f.status,
+                COALESCE((SELECT SUM(total) FROM achats_commandes
+                          WHERE fournisseur_id=f.id AND status != 'annulee'), 0) as total_commandes,
+                COALESCE((SELECT SUM(montant) FROM mg_paiements
+                          WHERE fournisseur_id=f.id), 0) as total_paye,
+                COALESCE((SELECT COUNT(*) FROM achats_commandes
+                          WHERE fournisseur_id=f.id), 0) as nb_commandes
+            FROM achats_fournisseurs f
+            WHERE f.status='actif' OR f.status IS NULL
+            ORDER BY f.name
+        """
+        rows = conn.execute(query).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d['reste_a_payer'] = (d['total_commandes'] or 0) - (d['total_paye'] or 0)
+            result.append(d)
+        return result
+
+
+def mg_compute_commande_status(commande_id):
+    """Calcule le statut financier d'une commande spécifique :
+    - total_commande
+    - total_paye
+    - reste_a_payer
+    - nb_receptions
+    - statut_livraison ('non_recue' | 'partielle' | 'recue' | 'non_conforme')
+    """
+    conn = get_db()
+    try:
+        cmd = conn.execute("SELECT * FROM achats_commandes WHERE id=?", (commande_id,)).fetchone()
+        if not cmd:
+            conn.close()
+            return None
+        cmd = dict(cmd)
+        
+        total_paye = conn.execute(
+            "SELECT COALESCE(SUM(montant), 0) FROM mg_paiements WHERE commande_id=?",
+            (commande_id,)).fetchone()[0]
+        
+        receptions = [dict(r) for r in conn.execute(
+            "SELECT * FROM mg_receptions WHERE commande_id=? ORDER BY date_reception",
+            (commande_id,)).fetchall()]
+        
+        statut_livraison = 'non_recue'
+        if receptions:
+            latest = receptions[-1]
+            statut_livraison = latest.get('statut', 'non_recue')
+        
+        conn.close()
+        return {
+            'commande': cmd,
+            'total_commande': cmd['total'] or 0,
+            'total_paye': total_paye,
+            'reste_a_payer': (cmd['total'] or 0) - total_paye,
+            'nb_receptions': len(receptions),
+            'receptions': receptions,
+            'statut_livraison': statut_livraison,
+        }
+    except Exception as e:
+        conn.close()
+        raise
+
+
 # ======================== SERVICES JOURS DE REPOS ========================
 
 def get_user_pointage_mode(company_user_id):

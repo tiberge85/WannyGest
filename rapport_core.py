@@ -30,23 +30,19 @@ from reportlab.platypus.flowables import Flowable
 
 class SmartPageBreak(Flowable):
     """PageBreak conditionnel : ne saute QUE si la frame courante a du contenu déjà rempli.
-    Évite les pages vierges. Utilise availHeight pour détecter si on est en haut de page.
-    NOUVEAU v55 : seuil adapté au paysage (A4 paysage frame ≈ 549pt)."""
+    Évite les pages vierges. v56 : adaptation auto selon orientation."""
     def __init__(self):
         Flowable.__init__(self)
         self.width = 0
         self.height = 0
     
     def wrap(self, availWidth, availHeight):
-        # Détecter si on est en haut de page (peu de contenu déjà rempli)
-        # En portrait : frame ≈ 760pt → seuil 700
-        # En paysage : frame ≈ 549pt → seuil 500
-        # On adapte selon la largeur disponible (paysage = plus large que haut)
+        # Détecte orientation : portrait si largeur < hauteur, sinon paysage
+        # Portrait A4 ≈ 595x842 → frame ≈ 760pt → seuil 700
+        # Paysage A4 ≈ 842x595 → frame ≈ 549pt → seuil 500
         threshold = 500 if availWidth > 700 else 700
         if availHeight >= threshold:
             return (0, 0)  # En haut de page → pas de break
-        # Sinon retourne 0 hauteur pour ne pas erreur, mais on demande quand même un saut
-        # via une astuce : on retourne availHeight pour forcer le passage à la page suivante
         return (availWidth, availHeight)
     
     def draw(self):
@@ -395,22 +391,22 @@ def make_styles():
         'st': ParagraphStyle('st', fontName='Helvetica', fontSize=9, alignment=TA_CENTER, spaceAfter=8),
         'ei': ParagraphStyle('ei', fontName='Helvetica-Bold', fontSize=9, spaceAfter=2),
         'eb': ParagraphStyle('eb', fontName='Helvetica-Bold', fontSize=9, textColor=BLUE, spaceAfter=2),
-        'c': ParagraphStyle('c', fontName='Helvetica', fontSize=9, alignment=TA_CENTER, leading=10),
-        'cb': ParagraphStyle('cb', fontName='Helvetica-Bold', fontSize=9, alignment=TA_CENTER, leading=10),
-        'h': ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=9, textColor=white, alignment=TA_CENTER, leading=10),
-        'g': ParagraphStyle('g', fontName='Helvetica-Bold', fontSize=9, textColor=GREEN, alignment=TA_CENTER, leading=10),
-        'r': ParagraphStyle('r', fontName='Helvetica-Bold', fontSize=9, textColor=RED, alignment=TA_CENTER, leading=10),
-        'b': ParagraphStyle('b', fontName='Helvetica-Bold', fontSize=9, textColor=BLUE, alignment=TA_CENTER, leading=10),
-        'sh': ParagraphStyle('sh', fontName='Helvetica-Bold', fontSize=8, textColor=white, alignment=TA_CENTER, leading=10),
-        'sv': ParagraphStyle('sv', fontName='Helvetica', fontSize=9, alignment=TA_CENTER, leading=11),
-        'ft': ParagraphStyle('ft', fontName='Helvetica', fontSize=7, alignment=TA_RIGHT, textColor=HexColor("#888")),
+        'c': ParagraphStyle('c', fontName='Helvetica', fontSize=7, alignment=TA_CENTER, leading=8),
+        'cb': ParagraphStyle('cb', fontName='Helvetica-Bold', fontSize=7, alignment=TA_CENTER, leading=8),
+        'h': ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=7, textColor=white, alignment=TA_CENTER, leading=8),
+        'g': ParagraphStyle('g', fontName='Helvetica-Bold', fontSize=7, textColor=GREEN, alignment=TA_CENTER, leading=8),
+        'r': ParagraphStyle('r', fontName='Helvetica-Bold', fontSize=7, textColor=RED, alignment=TA_CENTER, leading=8),
+        'b': ParagraphStyle('b', fontName='Helvetica-Bold', fontSize=7, textColor=BLUE, alignment=TA_CENTER, leading=8),
+        'sh': ParagraphStyle('sh', fontName='Helvetica-Bold', fontSize=6.5, textColor=white, alignment=TA_CENTER, leading=8),
+        'sv': ParagraphStyle('sv', fontName='Helvetica', fontSize=7, alignment=TA_CENTER, leading=8),
+        'ft': ParagraphStyle('ft', fontName='Helvetica', fontSize=6, alignment=TA_RIGHT, textColor=HexColor("#888")),
         # Styles pour les pages résumé
-        'big_ti': ParagraphStyle('big_ti', fontName='Helvetica-Bold', fontSize=18, textColor=TEAL, alignment=TA_CENTER, spaceAfter=12),
-        'med_ti': ParagraphStyle('med_ti', fontName='Helvetica-Bold', fontSize=13, textColor=TEAL, alignment=TA_LEFT, spaceAfter=6),
-        'rh': ParagraphStyle('rh', fontName='Helvetica-Bold', fontSize=9, textColor=white, alignment=TA_CENTER, leading=11),
-        'rv': ParagraphStyle('rv', fontName='Helvetica', fontSize=9, alignment=TA_CENTER, leading=11),
-        'rvb': ParagraphStyle('rvb', fontName='Helvetica-Bold', fontSize=9, alignment=TA_CENTER, leading=11),
-        'rvo': ParagraphStyle('rvo', fontName='Helvetica-Bold', fontSize=9, textColor=ORANGE, alignment=TA_CENTER, leading=11),
+        'big_ti': ParagraphStyle('big_ti', fontName='Helvetica-Bold', fontSize=14, textColor=TEAL, alignment=TA_CENTER, spaceAfter=8),
+        'med_ti': ParagraphStyle('med_ti', fontName='Helvetica-Bold', fontSize=11, textColor=TEAL, alignment=TA_LEFT, spaceAfter=4),
+        'rh': ParagraphStyle('rh', fontName='Helvetica-Bold', fontSize=7, textColor=white, alignment=TA_CENTER, leading=9),
+        'rv': ParagraphStyle('rv', fontName='Helvetica', fontSize=7, alignment=TA_CENTER, leading=9),
+        'rvb': ParagraphStyle('rvb', fontName='Helvetica-Bold', fontSize=7, alignment=TA_CENTER, leading=9),
+        'rvo': ParagraphStyle('rvo', fontName='Helvetica-Bold', fontSize=7, textColor=ORANGE, alignment=TA_CENTER, leading=9),
     }
 
 # ======================== HEADER COMMUN ========================
@@ -421,9 +417,9 @@ def make_header(S, provider_name, provider_info, client_name, client_info=""):
     if client_info:
         right_text += f"<br/><font size=6>{safe(client_info)}</font>"
     h = Table([
-        [Paragraph(f"{safe(provider_name)}<br/><font size=7>{safe(provider_info)}</font>", S['co']),
+        [Paragraph(f"{safe(provider_name)}<br/><font size=6>{safe(provider_info)}</font>", S['co']),
          Paragraph(right_text, S['cl'])]
-    ], colWidths=[160*mm, 120*mm])
+    ], colWidths=[110*mm, 80*mm])
     h.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),
                            ('LINEBELOW',(0,0),(-1,0),1,TEAL)]))
     return h
@@ -511,7 +507,7 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         hdrs = ["N°","Date","Planning","État","Arrivée",
                 "Départ","H.<br/>travail.","Retard",
                 "H.<br/>obligat.","H.<br/>Respectée","H. sup."]
-        cw = [10*mm,28*mm,32*mm,28*mm,22*mm,22*mm,24*mm,22*mm,24*mm,32*mm,22*mm]
+        cw = [7*mm,16*mm,20*mm,17*mm,13*mm,13*mm,15*mm,13*mm,15*mm,18*mm,15*mm]
         
         td = [[Paragraph(x, S['h']) for x in hdrs]]
         
@@ -1199,10 +1195,8 @@ def generate_full_pdf(emps, output_path, provider_name, provider_info, client_na
     if employee_days_required is None: employee_days_required = {}
     if not work_dir:
         work_dir = os.path.dirname(os.path.abspath(output_path))
-    # NOUVEAU v55 : passage en paysage A4 pour avoir plus d'espace pour le rapport individuel
-    # → permet une police 12pt et 30 jours sur 1 seule page par employé
-    from reportlab.lib.pagesizes import landscape
-    doc = SimpleDocTemplate(output_path, pagesize=landscape(A4),
+    # NOUVEAU v56 : retour en portrait A4 — 1 page par employé garanti via layout compact
+    doc = SimpleDocTemplate(output_path, pagesize=A4,
         leftMargin=8*mm, rightMargin=8*mm, topMargin=6*mm, bottomMargin=6*mm)
     S = make_styles()
     story = []
@@ -2950,3 +2944,168 @@ def generate_attestation_pdf(inter_data, output_path, logo_path=None):
         canv.restoreState()
     doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return output_path
+
+
+# ======================== RAPPORT SESSION (NOUVEAU v56) ========================
+
+def gen_session_pages(story, emps_sessions, S, provider_name, provider_info, client_name, client_info, period, now):
+    """
+    Génère un rapport adapté pour le mode pointage SESSION.
+    Pour chaque employé, affiche le détail de chaque session (heure prévue, début, fin, durée, statut).
+    
+    emps_sessions : liste de dicts par employé contenant :
+        {
+            'name': 'Alice MARTIN',
+            'ref': 'alice',
+            'sessions': [
+                {'date': '2026-04-01', 'libelle': 'Mission matin',
+                 'heure_prevue': '08:00', 'duree_minutes': 240,
+                 'heure_debut': '08:05', 'heure_fin': '12:00',
+                 'duree_reelle': 235, 'statut': 'ok' / 'retard' / 'non_effectuee'}
+            ],
+            'total_sessions': 12,
+            'sessions_ok': 10, 'sessions_retard': 1, 'sessions_non_effectuee': 1,
+            'total_duree_prevue': 2880, 'total_duree_reelle': 2750,
+        }
+    """
+    total_emps = len(emps_sessions)
+    
+    for idx, emp in enumerate(emps_sessions):
+        if idx > 0:
+            story.append(SmartPageBreak())
+        
+        emp_num = idx + 1
+        sessions = emp.get('sessions', [])
+        
+        story.append(make_header(S, provider_name, provider_info, client_name, client_info))
+        story.append(Spacer(1, 1*mm))
+        story.append(Paragraph(
+            f"RAPPORT SESSIONS — {emp['name']} (Réf: {emp['ref']}) — Fiche {emp_num}/{total_emps} — {period}",
+            ParagraphStyle('ti2', fontName='Helvetica-Bold', fontSize=11, textColor=TEAL,
+                           alignment=TA_CENTER, spaceAfter=2)))
+        story.append(Spacer(1, 1*mm))
+        
+        # === BANDEAU RÉSUMÉ ===
+        total = emp.get('total_sessions', 0)
+        ok = emp.get('sessions_ok', 0)
+        retard = emp.get('sessions_retard', 0)
+        non_eff = emp.get('sessions_non_effectuee', 0)
+        durée_prev = emp.get('total_duree_prevue', 0)
+        durée_reel = emp.get('total_duree_reelle', 0)
+        
+        def m2h(m):
+            if not m: return '00:00'
+            return f"{int(m)//60:02d}:{int(m)%60:02d}"
+        
+        sum_data = [[
+            Paragraph("<b>Total sessions</b>", S['h']),
+            Paragraph("<b>Effectuées<br/>à l'heure</b>", S['h']),
+            Paragraph("<b>Effectuées<br/>en retard</b>", S['h']),
+            Paragraph("<b>Non effectuées</b>", S['h']),
+            Paragraph("<b>Durée prévue</b>", S['h']),
+            Paragraph("<b>Durée réelle</b>", S['h']),
+            Paragraph("<b>Taux<br/>d'efficacité</b>", S['h']),
+        ], [
+            Paragraph(f"{total}", S['cb']),
+            Paragraph(f"{ok}", S['g']),
+            Paragraph(f"{retard}", ParagraphStyle('ret', fontName='Helvetica-Bold', fontSize=9,
+                                                   textColor=ORANGE, alignment=TA_CENTER, leading=11)),
+            Paragraph(f"{non_eff}", S['r']),
+            Paragraph(f"{m2h(durée_prev)}", S['cb']),
+            Paragraph(f"{m2h(durée_reel)}", S['cb']),
+            Paragraph(f"{(ok/total*100 if total else 0):.0f}%",
+                     S['g'] if (ok/total if total else 0) >= 0.8 else S['r']),
+        ]]
+        sum_t = Table(sum_data, colWidths=[28*mm]*7)
+        sum_t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), TEAL),
+            ('GRID', (0,0), (-1,-1), 0.4, colors.grey),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(sum_t)
+        story.append(Spacer(1, 4*mm))
+        
+        # === TABLEAU DE DÉTAIL DES SESSIONS ===
+        if sessions:
+            td = [[
+                Paragraph("<b>N°</b>", S['h']),
+                Paragraph("<b>Date</b>", S['h']),
+                Paragraph("<b>Mission / Libellé</b>", S['h']),
+                Paragraph("<b>Heure<br/>prévue</b>", S['h']),
+                Paragraph("<b>Durée<br/>prévue</b>", S['h']),
+                Paragraph("<b>Début<br/>réel</b>", S['h']),
+                Paragraph("<b>Fin<br/>réelle</b>", S['h']),
+                Paragraph("<b>Durée<br/>réelle</b>", S['h']),
+                Paragraph("<b>Écart<br/>début</b>", S['h']),
+                Paragraph("<b>Statut</b>", S['h']),
+            ]]
+            
+            for i, s in enumerate(sessions, 1):
+                # Calculer écart début (si retard)
+                ecart = ''
+                try:
+                    if s.get('heure_debut') and s.get('heure_prevue'):
+                        h1, m1 = map(int, s['heure_prevue'].split(':'))
+                        h2, m2 = map(int, s['heure_debut'].split(':'))
+                        diff = (h2 - h1) * 60 + (m2 - m1)
+                        if diff > 0:
+                            ecart = f"+{diff}m"
+                        elif diff < 0:
+                            ecart = f"{diff}m"
+                        else:
+                            ecart = '0m'
+                except: pass
+                
+                statut = s.get('statut', '')
+                if statut == 'ok':
+                    statut_text = '✓ OK'
+                    statut_style = S['g']
+                elif statut == 'retard':
+                    statut_text = '⚠ Retard'
+                    statut_style = ParagraphStyle('rt', fontName='Helvetica-Bold', fontSize=7,
+                                                   textColor=ORANGE, alignment=TA_CENTER, leading=8)
+                elif statut == 'non_effectuee':
+                    statut_text = '✗ Non eff.'
+                    statut_style = S['r']
+                else:
+                    statut_text = statut or '-'
+                    statut_style = S['c']
+                
+                td.append([
+                    Paragraph(str(i), S['c']),
+                    Paragraph(s.get('date', ''), S['c']),
+                    Paragraph(s.get('libelle', '-'), S['c']),
+                    Paragraph(s.get('heure_prevue', '-'), S['c']),
+                    Paragraph(m2h(s.get('duree_minutes', 0)), S['c']),
+                    Paragraph(s.get('heure_debut', '') or '-', S['c']),
+                    Paragraph(s.get('heure_fin', '') or '-', S['c']),
+                    Paragraph(m2h(s.get('duree_reelle', 0)), S['c']),
+                    Paragraph(ecart, S['c']),
+                    Paragraph(statut_text, statut_style),
+                ])
+            
+            cw_s = [8*mm, 18*mm, 36*mm, 17*mm, 16*mm, 17*mm, 16*mm, 16*mm, 14*mm, 24*mm]
+            dt = Table(td, colWidths=cw_s, repeatRows=1)
+            sc = [('BACKGROUND', (0,0), (-1,0), TEAL),
+                  ('GRID', (0,0), (-1,-1), 0.3, colors.grey),
+                  ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                  ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                  ('TOPPADDING', (0,0), (-1,-1), 1),
+                  ('BOTTOMPADDING', (0,0), (-1,-1), 1)]
+            for i in range(2, len(td), 2):
+                sc.append(('BACKGROUND', (0,i), (-1,i), LGRAY))
+            dt.setStyle(TableStyle(sc))
+            story.append(dt)
+        else:
+            story.append(Paragraph("<i>Aucune session enregistrée pour cette période</i>",
+                                   ParagraphStyle('none', fontSize=10, textColor=colors.grey,
+                                                  alignment=TA_CENTER)))
+        
+        story.append(Spacer(1, 4*mm))
+        
+        # Footer line
+        story.append(Paragraph(
+            f"Généré le {now.strftime('%d/%m/%Y à %H:%M')} | {client_name} - Rapport sessions {emp['name']} {emp_num}/{total_emps}",
+            S['ft']))

@@ -1,0 +1,67 @@
+{% extends "base.html" %}{% block title %}WannyGest - Fiche {{ fournisseur.name }}{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>📊 {{ fournisseur.name }}</h1>
+    <a href="/mg/fournisseurs-dashboard" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+
+<!-- KPIs -->
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card">
+        <div class="stat-icon orange">💰</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ '{:,.0f}'.format(fournisseur.total_commandes) }} F</div>
+            <div class="stat-label">Total commandes</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon green">💸</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ '{:,.0f}'.format(fournisseur.total_paye) }} F</div>
+            <div class="stat-label">Total payé</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background:#fde8e8;color:#c53030">⚠️</div>
+        <div class="stat-info">
+            <div class="stat-num" style="color:#c53030">{{ '{:,.0f}'.format(fournisseur.reste_a_payer) }} F</div>
+            <div class="stat-label">Reste à payer</div>
+        </div>
+    </div>
+</div>
+
+<!-- Coordonnées -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <strong>Contact :</strong> {{ fournisseur.tel or '-' }} · {{ fournisseur.email or '-' }}
+</div></div>
+
+<!-- Commandes -->
+<div class="card" style="margin-bottom:14px"><div class="card-header"><h3>🚚 Historique des commandes</h3></div><div class="card-body">
+{% if commandes %}<div class="table-wrap"><table>
+<thead><tr><th>Réf</th><th>Date</th><th>Total</th><th>Payé</th><th>Reste</th><th>Statut</th></tr></thead>
+<tbody>{% for c in commandes %}<tr>
+<td><strong>{{ c.reference }}</strong></td>
+<td>{{ c.date or '-' }}</td>
+<td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(c.total or 0) }} F</td>
+<td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(c.paye or 0) }} F</td>
+<td style="text-align:right;font-weight:700;{% if c.reste > 0 %}color:#c53030{% else %}color:#666{% endif %}">{{ '{:,.0f}'.format(c.reste) }} F</td>
+<td><span class="badge-status {% if c.status=='livree' %}sent{% else %}pending{% endif %}">{{ c.status }}</span></td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:20px">Aucune commande</p>{% endif %}
+</div></div>
+
+<!-- Paiements -->
+<div class="card"><div class="card-header"><h3>💵 Historique des paiements</h3></div><div class="card-body">
+{% if paiements %}<div class="table-wrap"><table>
+<thead><tr><th>Réf</th><th>Date</th><th>Commande</th><th>Type</th><th>Mode</th><th>Montant</th></tr></thead>
+<tbody>{% for p in paiements %}<tr>
+<td><strong>{{ p.reference }}</strong></td>
+<td>{{ p.date_paiement }}</td>
+<td>{{ p.commande_ref or '-' }}</td>
+<td>{{ p.type_paiement }}</td>
+<td>{{ p.mode }}</td>
+<td style="text-align:right;color:#2e7d32;font-weight:700">{{ '{:,.0f}'.format(p.montant) }} F</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:20px">Aucun paiement</p>{% endif %}
+</div></div>
+
+{% endblock %}
