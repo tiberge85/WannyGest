@@ -52,6 +52,43 @@
     {% if inv.description %}<div style="margin-top:12px;padding:10px;background:#f8faf9;border-radius:8px;font-size:12px"><strong>Notes :</strong> {{ inv.description }}</div>{% endif %}
     {% if inv.notes and inv.notes != inv.description %}<div style="margin-top:8px;padding:10px;background:#fff3e0;border-radius:8px;font-size:12px">{{ inv.notes }}</div>{% endif %}
     
+    <!-- v74 : Signature électronique -->
+    <div class="no-print" style="margin-top:20px;padding:16px;background:#f8faf9;border-radius:10px;border:1.5px solid #e0e0e0">
+        <h3 style="margin:0 0 12px;font-size:15px;color:#1A7A6D">✍️ Signature électronique</h3>
+        {% if inv.signature_data %}
+        <div style="padding:12px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2e7d32">
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                <img src="{{ inv.signature_data }}" alt="Signature" style="max-height:70px;max-width:220px;background:#fff;border:1px solid #ccc;border-radius:4px;padding:4px">
+                <div style="font-size:13px">
+                    <div><strong style="color:#2e7d32">✓ Document signé</strong></div>
+                    <div>Par : <strong>{{ inv.signed_by }}</strong>{% if inv.signed_role %} ({{ inv.signed_role }}){% endif %}</div>
+                    <div style="color:#666;font-size:11px">Signé le {{ inv.signed_at }}</div>
+                </div>
+                <form method="post" action="/comptabilite/facture/{{ inv.id }}/unsign" style="margin-left:auto" onsubmit="return confirm('Retirer la signature ?')">
+                    <button type="submit" class="btn btn-sm btn-outline" style="color:#c53030;border-color:#c53030">🗑️ Retirer</button>
+                </form>
+            </div>
+        </div>
+        {% else %}
+        <p style="font-size:12px;color:#666;margin:0 0 10px">Dessinez la signature ci-dessous puis enregistrez-la. Elle apparaîtra sur le PDF de la facture.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;max-width:480px">
+            <div>
+                <label style="font-size:11px;font-weight:600;color:#888">Nom du signataire</label>
+                <input type="text" id="sigBy" placeholder="Nom complet" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:5px;font-size:13px">
+            </div>
+            <div>
+                <label style="font-size:11px;font-weight:600;color:#888">Qualité / Fonction</label>
+                <input type="text" id="sigRole" placeholder="Ex: Directeur Général" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:5px;font-size:13px">
+            </div>
+        </div>
+        <canvas id="sigCanvas" width="460" height="160" style="border:2px dashed #1A7A6D;border-radius:8px;background:#fff;touch-action:none;cursor:crosshair;max-width:100%"></canvas>
+        <div style="display:flex;gap:8px;margin-top:10px">
+            <button type="button" class="btn btn-sm btn-outline" onclick="clearSig()">🧹 Effacer</button>
+            <button type="button" class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="saveSig()">💾 Enregistrer la signature</button>
+        </div>
+        {% endif %}
+    </div>
+    
     <!-- Pied de page officiel -->
     <div style="margin-top:30px;padding-top:12px;border-top:2px solid #1A7A6D;font-size:9px;color:#1A7A6D;text-align:center;line-height:1.6">
         <div><strong>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY</strong> / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B</div>
@@ -59,4 +96,58 @@
         <div>Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com</div>
     </div>
 </div></div></div>
+{% if not inv.signature_data %}
+<script>
+(function() {
+    var canvas = document.getElementById('sigCanvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    ctx.strokeStyle = '#1a3a5c';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    var drawing = false, hasDrawn = false;
+    
+    function pos(e) {
+        var rect = canvas.getBoundingClientRect();
+        var sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+        var cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        var cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+        return { x: cx * sx, y: cy * sy };
+    }
+    function start(e) { e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+    function move(e) { if (!drawing) return; e.preventDefault(); var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasDrawn = true; }
+    function end(e) { drawing = false; }
+    
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    canvas.addEventListener('mouseup', end);
+    canvas.addEventListener('mouseleave', end);
+    canvas.addEventListener('touchstart', start);
+    canvas.addEventListener('touchmove', move);
+    canvas.addEventListener('touchend', end);
+    
+    window.clearSig = function() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasDrawn = false;
+    };
+    
+    window.saveSig = function() {
+        if (!hasDrawn) { alert('Veuillez dessiner une signature.'); return; }
+        var dataUrl = canvas.toDataURL('image/png');
+        var fd = new FormData();
+        fd.append('signature_data', dataUrl);
+        fd.append('signed_by', document.getElementById('sigBy').value || '');
+        fd.append('signed_role', document.getElementById('sigRole').value || '');
+        fetch('/comptabilite/facture/{{ inv.id }}/sign', { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.ok) { alert('✓ Signature enregistrée'); location.reload(); }
+                else { alert('❌ ' + (d.error || 'Erreur')); }
+            })
+            .catch(function(e) { alert('❌ Erreur réseau: ' + e); });
+    };
+})();
+</script>
+{% endif %}
 {% endblock %}

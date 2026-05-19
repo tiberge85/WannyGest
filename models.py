@@ -4623,6 +4623,28 @@ def migrate_v71():
     conn.commit(); conn.close()
 
 
+def migrate_v72():
+    """v72/v74 : Signature électronique sur devis et factures.
+    
+    Colonnes ajoutées à invoices et devis :
+    - signature_data : image base64 de la signature (canvas dataURL)
+    - signed_at : horodatage de la signature
+    - signed_by : nom du signataire
+    - signed_role : rôle/qualité du signataire (ex: 'Directeur Général')
+    """
+    conn = get_db()
+    for table in ('invoices', 'devis'):
+        for col, typ in [('signature_data', 'TEXT'),
+                         ('signed_at', 'TEXT'),
+                         ('signed_by', 'TEXT'),
+                         ('signed_role', 'TEXT')]:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+            except Exception:
+                pass  # colonne déjà existante
+    conn.commit(); conn.close()
+
+
 def mg_get_fournisseur_dashboard(fournisseur_id=None):
     """Tableau de bord fournisseur :
     - total_commandes : somme des commandes du fournisseur

@@ -377,6 +377,8 @@ from models import migrate_v70
 migrate_v70()
 from models import migrate_v71
 migrate_v71()
+from models import migrate_v72
+migrate_v72()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -413,6 +415,12 @@ try:
         update_role_permissions('secretaire', ['dashboard', 'clients', 'clients_edit', 'proforma', 'rapports_j', 'chat', 'concierge', 'concierge_edit', 'visites', 'contrats'])
     if not _grp('client'):
         update_role_permissions('client', ['dashboard'])
+    # v74 : permissions par défaut RH si aucune définie (inclut rapports_j)
+    if not _grp('rh'):
+        update_role_permissions('rh', ['dashboard', 'dashboard_general', 'employees', 'payslips',
+                   'leaves', 'absences', 'rh_contracts', 'rh_trainings', 'rh_announcements',
+                   'traitement', 'fichiers', 'clients', 'rapports_j', 'chat', 'logs',
+                   'alertes', 'comparaison'])
     if 'informatique' not in _grp('technicien'):
         # Conserver toute permission déjà accordée + ajouter les défauts
         existing = _grp('technicien')
@@ -3647,6 +3655,53 @@ def invoice_view(fid):
     return render_template('invoice_view.html', page='comptabilite', inv=inv, inv_items=inv['items'])
 
 
+@app.route('/comptabilite/facture/<int:fid>/sign', methods=['POST'])
+@permission_required('comptabilite')
+def invoice_sign(fid):
+    """Signature électronique d'une facture (canvas dataURL)."""
+    conn = _gdb()
+    inv = conn.execute("SELECT id, reference FROM invoices WHERE id=?", (fid,)).fetchone()
+    if not inv:
+        conn.close()
+        return jsonify({"error": "Facture introuvable"}), 404
+    
+    sig_data = request.form.get('signature_data', '').strip()
+    if not sig_data or not sig_data.startswith('data:image'):
+        conn.close()
+        return jsonify({"error": "Signature invalide"}), 400
+    
+    user = get_user_by_id(session['user_id'])
+    signed_by = (request.form.get('signed_by') or '').strip() or (user['full_name'] if user else 'Signataire')
+    signed_role = (request.form.get('signed_role') or '').strip() or (user.get('role','') if user else '')
+    from datetime import datetime as _dt
+    signed_at = _dt.now().strftime('%d/%m/%Y à %H:%M')
+    
+    conn.execute("""UPDATE invoices SET signature_data=?, signed_at=?, signed_by=?, signed_role=?
+                    WHERE id=?""", (sig_data, signed_at, signed_by, signed_role, fid))
+    conn.commit()
+    conn.close()
+    
+    try:
+        log_activity(session.get('user_id'), signed_by, 'Signature',
+                    f"Facture {inv['reference']} signée électroniquement", request.remote_addr)
+    except: pass
+    
+    return jsonify({"ok": True, "signed_at": signed_at, "signed_by": signed_by})
+
+
+@app.route('/comptabilite/facture/<int:fid>/unsign', methods=['POST'])
+@permission_required('comptabilite')
+def invoice_unsign(fid):
+    """Retire la signature d'une facture."""
+    conn = _gdb()
+    conn.execute("""UPDATE invoices SET signature_data=NULL, signed_at=NULL,
+                    signed_by=NULL, signed_role=NULL WHERE id=?""", (fid,))
+    conn.commit()
+    conn.close()
+    flash("Signature retirée", "success")
+    return redirect(url_for('invoice_view', fid=fid))
+
+
 def _build_invoice_pdf_data(inv_row, conn):
     """Construit le dict attendu par generate_devis_pdf à partir d'une ligne invoices."""
     inv = dict(inv_row)
@@ -3704,6 +3759,11 @@ def _build_invoice_pdf_data(inv_row, conn):
         'notes': inv.get('notes', ''),
         'redacteur': redacteur,
         'redacteur_date': redacteur_date,
+        # v74 : signature électronique
+        'signature_data': inv.get('signature_data', ''),
+        'signed_at': inv.get('signed_at', ''),
+        'signed_by': inv.get('signed_by', ''),
+        'signed_role': inv.get('signed_role', ''),
     }
 
 
@@ -4617,6 +4677,51 @@ def devis_pdf(did):
     generate_devis_pdf(devis, output, logo_path=logo_r)
     
     return send_file(output, as_attachment=True, download_name=f"{devis['reference']}.pdf")
+
+
+@app.route('/devis/<int:did>/sign', methods=['POST'])
+@permission_required('proforma')
+def devis_sign(did):
+    """Signature électronique d'un devis (canvas dataURL)."""
+    devis = get_devis_by_id(did)
+    if not devis:
+        return jsonify({"error": "Devis introuvable"}), 404
+    
+    sig_data = request.form.get('signature_data', '').strip()
+    if not sig_data or not sig_data.startswith('data:image'):
+        return jsonify({"error": "Signature invalide"}), 400
+    
+    user = get_user_by_id(session['user_id'])
+    signed_by = (request.form.get('signed_by') or '').strip() or (user['full_name'] if user else 'Signataire')
+    signed_role = (request.form.get('signed_role') or '').strip() or (user.get('role','') if user else '')
+    from datetime import datetime as _dt
+    signed_at = _dt.now().strftime('%d/%m/%Y à %H:%M')
+    
+    conn = _gdb()
+    conn.execute("""UPDATE devis SET signature_data=?, signed_at=?, signed_by=?, signed_role=?
+                    WHERE id=?""", (sig_data, signed_at, signed_by, signed_role, did))
+    conn.commit()
+    conn.close()
+    
+    try:
+        log_activity(session.get('user_id'), signed_by, 'Signature',
+                    f"Devis {devis.get('reference','')} signé électroniquement", request.remote_addr)
+    except: pass
+    
+    return jsonify({"ok": True, "signed_at": signed_at, "signed_by": signed_by})
+
+
+@app.route('/devis/<int:did>/unsign', methods=['POST'])
+@permission_required('proforma')
+def devis_unsign(did):
+    """Retire la signature d'un devis."""
+    conn = _gdb()
+    conn.execute("""UPDATE devis SET signature_data=NULL, signed_at=NULL,
+                    signed_by=NULL, signed_role=NULL WHERE id=?""", (did,))
+    conn.commit()
+    conn.close()
+    flash("Signature retirée", "success")
+    return redirect(url_for('devis_edit', did=did))
 
 @app.route('/devis/status/<int:did>/<status>')
 @permission_required('proforma_edit')
@@ -14253,7 +14358,8 @@ from models import get_db as _gdb, db_insert as _dbi
 def rapports_journaliers():
     u = dict(get_user_by_id(session['user_id']))
     conn = _gdb()
-    if u['role'] in ('admin', 'dg'):
+    # v74 : RH voit tous les rapports journaliers (comme admin/dg)
+    if u['role'] in ('admin', 'dg', 'rh'):
         rapports = [dict(r) for r in conn.execute("""SELECT rj.*, u.full_name FROM rapports_journaliers rj 
             LEFT JOIN users u ON rj.user_id=u.id ORDER BY rj.date DESC, rj.created_at DESC LIMIT 100""").fetchall()]
     else:
@@ -14292,7 +14398,8 @@ def rapports_journaliers_add():
 @login_required
 def rapports_journaliers_validate(rid):
     u = dict(get_user_by_id(session['user_id']))
-    if u['role'] not in ('admin', 'dg'):
+    # v74 : RH peut aussi valider les rapports journaliers
+    if u['role'] not in ('admin', 'dg', 'rh'):
         flash("Seuls les responsables peuvent valider", "error")
         return redirect('/rapports-journaliers')
     conn = _gdb()

@@ -2802,10 +2802,61 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     ))
     story.append(Spacer(1, 5*mm))
     
-    # Signature gauche, Visa droite
+    # Signature gauche (avec signature électronique si présente), Visa droite
+    # v74 : afficher la signature électronique si elle existe
+    sig_data = devis_data.get('signature_data', '') or ''
+    signed_by = devis_data.get('signed_by', '') or ''
+    signed_at = devis_data.get('signed_at', '') or ''
+    signed_role = devis_data.get('signed_role', '') or ''
+    
+    left_sig_elems = [Paragraph("<i>Signature autorisée</i>",
+            ParagraphStyle('sigL', fontSize=10, fontName='Helvetica-Oblique'))]
+    
+    if sig_data and sig_data.startswith('data:image'):
+        sig_img_ok = False
+        try:
+            import base64 as _b64, io as _io2, tempfile as _tmp2
+            from PIL import Image as _PILImg
+            b64part = sig_data.split(',', 1)[1] if ',' in sig_data else sig_data
+            raw = _b64.b64decode(b64part)
+            pil = _PILImg.open(_io2.BytesIO(raw))
+            if pil.mode == 'RGBA':
+                bg = _PILImg.new('RGB', pil.size, (255, 255, 255))
+                bg.paste(pil, mask=pil.split()[3])
+                pil = bg
+            elif pil.mode != 'RGB':
+                pil = pil.convert('RGB')
+            # Garder le ratio, largeur cible 48mm
+            w0, h0 = pil.size
+            target_w = 48.0  # mm
+            ratio = (h0 / w0) if w0 else 0.4
+            target_h = max(8.0, min(28.0, target_w * ratio))
+            _sf = _tmp2.NamedTemporaryFile(suffix='.jpg', delete=False)
+            _sf.close()
+            pil.save(_sf.name, 'JPEG', quality=92)
+            left_sig_elems.append(Spacer(1, 2*mm))
+            left_sig_elems.append(Image(_sf.name, width=target_w*mm, height=target_h*mm))
+            sig_img_ok = True
+        except Exception:
+            sig_img_ok = False
+        
+        # Toujours afficher le nom/qualité/date du signataire (même si l'image échoue)
+        sig_caption = []
+        if not sig_img_ok:
+            sig_caption.append("<font size='8' color='#2e7d32'>✓ Signé électroniquement</font>")
+        if signed_by:
+            sig_caption.append(f"<b>{signed_by}</b>")
+        if signed_role:
+            sig_caption.append(f"<font size='8'>{signed_role}</font>")
+        if signed_at:
+            sig_caption.append(f"<font size='8' color='#666'>Signé le {signed_at}</font>")
+        if sig_caption:
+            left_sig_elems.append(Spacer(1, 1*mm))
+            left_sig_elems.append(Paragraph("<br/>".join(sig_caption),
+                ParagraphStyle('sigcap', fontSize=9, leading=11)))
+    
     sig_row = [[
-        Paragraph("<i>Signature autorisée</i>",
-            ParagraphStyle('sigL', fontSize=10, fontName='Helvetica-Oblique')),
+        left_sig_elems,
         Paragraph("<b>Visa Client</b>",
             ParagraphStyle('visa', fontSize=10, fontName='Helvetica-Bold', alignment=TA_RIGHT))
     ]]
