@@ -2835,9 +2835,13 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
             _sf.close()
             pil.save(_sf.name, 'JPEG', quality=92)
             left_sig_elems.append(Spacer(1, 2*mm))
-            left_sig_elems.append(Image(_sf.name, width=target_w*mm, height=target_h*mm))
+            # v75 : utiliser RLImage (Image est importé comme RLImage dans ce module)
+            left_sig_elems.append(RLImage(_sf.name, width=target_w*mm, height=target_h*mm))
             sig_img_ok = True
-        except Exception:
+        except Exception as _sig_err:
+            import traceback as _tb
+            print(f"[generate_devis_pdf] Signature image error: {type(_sig_err).__name__}: {_sig_err}", flush=True)
+            _tb.print_exc()
             sig_img_ok = False
         
         # Toujours afficher le nom/qualité/date du signataire (même si l'image échoue)
