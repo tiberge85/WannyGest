@@ -4,7 +4,7 @@
 <a href="/rapports-journaliers/assiduite" class="btn btn-sm" style="background:#B8860B;color:#fff">🏆 Assiduité</a>
 <button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Mon rapport</button></div></div>
 
-{% if user.role in ('admin','dg') %}
+{% if user.role in ('admin','dg','rh') %}
 <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
     <div class="card" style="flex:1;min-width:150px;text-align:center;padding:14px"><div style="font-size:24px;font-weight:800;color:#1a7a6d">{{ rapports|length }}</div><div style="font-size:11px;color:#888">Rapports</div></div>
     <div class="card" style="flex:1;min-width:150px;text-align:center;padding:14px"><div style="font-size:24px;font-weight:800;color:#e8672a">{{ rapports|selectattr('completion_pct')|map(attribute='completion_pct')|list|sum // (rapports|length or 1) }}%</div><div style="font-size:11px;color:#888">Réalisation moyenne</div></div>
@@ -50,7 +50,7 @@
     </div>
     {% if r.comments %}<div style="margin-top:6px;font-size:11px;color:#555;background:#f8faf9;padding:6px 10px;border-radius:6px">💬 {{ r.comments }}</div>{% endif %}
     
-    {% if user.role in ('admin','dg') and r.status == 'soumis' %}
+    {% if user.role in ('admin','dg','rh') and r.status == 'soumis' %}
     <div style="margin-top:8px;display:flex;gap:6px">
         <form method="post" action="/rapports-journaliers/{{ r.id }}/validate" style="display:flex;gap:4px">
             <input type="hidden" name="status" value="valide">

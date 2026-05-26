@@ -1798,6 +1798,11 @@ def traitement_generate():
                         chosen = sched_all
                     
                     if chosen:
+                        # v76 : Préserver l'EDT d'origine (affiché dans le rapport)
+                        # avant d'appliquer l'override (utilisé pour les calculs)
+                        if 'sched_start_original' not in rec:
+                            rec['sched_start_original'] = rec.get('sched_start', '')
+                            rec['sched_end_original'] = rec.get('sched_end', '')
                         rec['sched_start'] = chosen['start']
                         rec['sched_end'] = chosen['end']
                         applied_for_this_emp = True
@@ -5044,6 +5049,258 @@ def rh_calendrier_delete(eid):
 def rh_personnel():
     employees = get_all_employees(status=None)
     return render_template('rh_personnel.html', page='personnel', employees=employees)
+
+
+# v77 : Export base personnel (Excel)
+@app.route('/rh/personnel/export')
+@permission_required('fichiers')
+def rh_personnel_export():
+    """Exporte la base personnel au format Excel."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from flask import Response
+    import io as _io
+    
+    employees = get_all_employees(status=None)
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Personnel"
+    
+    headers = [
+        'Matricule', 'Prénom', 'Nom', 'Email', 'Téléphone',
+        'Poste', 'Département', "Date d'embauche", 'Type contrat',
+        'Salaire (FCFA)', 'Assurance', 'N° Assurance',
+        'Contact urgence', 'Tél. urgence',
+        'Statut', 'Notes', 'Date création'
+    ]
+    fields = ['matricule', 'first_name', 'last_name', 'email', 'tel',
+              'position', 'department', 'hire_date', 'contract_type',
+              'salary', 'insurance', 'insurance_number',
+              'emergency_contact', 'emergency_tel',
+              'status', 'notes', 'created_at']
+    widths = [12, 14, 14, 22, 14, 18, 18, 14, 12, 14, 14, 14, 18, 14, 10, 30, 18]
+    
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True, color='FFFFFF', size=10)
+        cell.fill = PatternFill(start_color='1A7A6D', end_color='1A7A6D', fill_type='solid')
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = widths[col-1] if col-1 < len(widths) else 14
+    ws.row_dimensions[1].height = 28
+    
+    for r, emp in enumerate(employees, 2):
+        for c, field in enumerate(fields, 1):
+            val = emp.get(field, '')
+            if field == 'salary' and val:
+                try: val = float(val)
+                except: val = 0
+            ws.cell(row=r, column=c, value=val if val is not None else '')
+    
+    # Notice
+    ws2 = wb.create_sheet("Notice import")
+    notice = [
+        ['📋 Import / Export base personnel', ''],
+        ['', ''],
+        ['Colonne', 'Description'],
+        ['Matricule', 'Identifiant unique (laisser vide pour création)'],
+        ['Prénom', 'OBLIGATOIRE'],
+        ['Nom', 'OBLIGATOIRE'],
+        ['Email', 'Adresse email professionnelle'],
+        ['Téléphone', 'Numéro de téléphone'],
+        ['Poste', 'Fonction occupée'],
+        ['Département', 'Service / département'],
+        ["Date d'embauche", 'Format YYYY-MM-DD'],
+        ['Type contrat', 'CDI / CDD / Stage / Freelance'],
+        ['Salaire (FCFA)', 'Salaire mensuel en FCFA (entier)'],
+        ['Assurance', 'Nom organisme assurance'],
+        ['N° Assurance', "Numéro d'assuré"],
+        ['Contact urgence', "Personne à contacter en cas d'urgence"],
+        ['Tél. urgence', "Téléphone de l'urgence"],
+        ['Statut', 'actif / inactif / parti'],
+        ['Notes', 'Commentaires libres'],
+        ['', ''],
+        ['⚠️ Règles import :', ''],
+        ['', "• Matricule existant → mise à jour de l'employé"],
+        ['', "• Matricule vide ou nouveau → création d'un nouvel employé"],
+        ['', '• Prénom et Nom obligatoires sinon la ligne est ignorée'],
+    ]
+    for r, row in enumerate(notice, 1):
+        for c, val in enumerate(row, 1):
+            cell = ws2.cell(row=r, column=c, value=val)
+            if r == 1:
+                cell.font = Font(bold=True, size=14, color='1A7A6D')
+            elif r == 3 or r == 21:
+                cell.font = Font(bold=True, size=11, color='FFFFFF')
+                cell.fill = PatternFill(start_color='1A7A6D', end_color='1A7A6D', fill_type='solid')
+    ws2.column_dimensions['A'].width = 22
+    ws2.column_dimensions['B'].width = 55
+    
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    
+    try:
+        log_activity(session.get('user_id'),
+                    get_user_by_id(session['user_id'])['full_name'],
+                    'RH', f"Export base personnel ({len(employees)} employés)",
+                    request.remote_addr)
+    except: pass
+    
+    from datetime import datetime as _dt77
+    fname = f"personnel_{_dt77.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return Response(buf.getvalue(),
+                   mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                   headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+
+# v77 : Import base personnel (Excel)
+@app.route('/rh/personnel/import', methods=['POST'])
+@permission_required('fichiers')
+def rh_personnel_import():
+    """Importe (création/mise à jour) des employés depuis un fichier Excel."""
+    if 'excel_file' not in request.files:
+        flash("Fichier requis", "error")
+        return redirect('/rh/personnel')
+    f = request.files['excel_file']
+    if not f.filename:
+        flash("Fichier vide", "error")
+        return redirect('/rh/personnel')
+    
+    import openpyxl
+    import tempfile as _tmp
+    tmp_path = os.path.join(_tmp.gettempdir(), f'personnel_imp_{uuid.uuid4().hex[:8]}.xlsx')
+    f.save(tmp_path)
+    
+    nb_created = 0
+    nb_updated = 0
+    nb_skipped = 0
+    errors = []
+    
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+        ws = wb.active
+        
+        # Détection colonnes
+        header_map = {}
+        for c in range(1, ws.max_column + 1):
+            hv = str(ws.cell(1, c).value or '').strip().lower()
+            if not hv: continue
+            if 'matricule' in hv: header_map['matricule'] = c
+            elif 'prénom' in hv or 'prenom' in hv: header_map['first_name'] = c
+            elif hv == 'nom' or 'nom de famille' in hv or hv.startswith('nom'):
+                if 'first_name' not in header_map or header_map.get('first_name') != c:
+                    header_map['last_name'] = c
+            elif 'email' in hv or 'mail' in hv: header_map['email'] = c
+            elif 'téléphone' in hv or 'telephone' in hv or hv == 'tel':
+                if 'urgence' not in hv:
+                    header_map['tel'] = c
+                else:
+                    header_map['emergency_tel'] = c
+            elif 'poste' in hv or 'fonction' in hv: header_map['position'] = c
+            elif 'département' in hv or 'departement' in hv or 'service' in hv: header_map['department'] = c
+            elif 'embauche' in hv: header_map['hire_date'] = c
+            elif 'contrat' in hv: header_map['contract_type'] = c
+            elif 'salaire' in hv or 'salary' in hv: header_map['salary'] = c
+            elif 'n°' in hv and 'assurance' in hv: header_map['insurance_number'] = c
+            elif 'assurance' in hv: header_map['insurance'] = c
+            elif 'urgence' in hv and ('tél' in hv or 'tel' in hv): header_map['emergency_tel'] = c
+            elif 'urgence' in hv: header_map['emergency_contact'] = c
+            elif 'statut' in hv or 'status' in hv: header_map['status'] = c
+            elif 'notes' in hv or 'commentaire' in hv: header_map['notes'] = c
+        
+        if 'first_name' not in header_map or 'last_name' not in header_map:
+            flash("Fichier invalide : colonnes 'Prénom' et 'Nom' obligatoires", "error")
+            return redirect('/rh/personnel')
+        
+        from models import get_db as _gdb_
+        conn = _gdb_()
+        
+        for row_idx in range(2, ws.max_row + 1):
+            try:
+                def _v(field, default=''):
+                    if field not in header_map: return default
+                    val = ws.cell(row_idx, header_map[field]).value
+                    return val if val is not None else default
+                
+                first_name = str(_v('first_name', '')).strip()
+                last_name = str(_v('last_name', '')).strip()
+                if not first_name or not last_name:
+                    nb_skipped += 1
+                    continue
+                
+                matricule_raw = _v('matricule', '')
+                matricule = str(matricule_raw).strip() if matricule_raw else ''
+                
+                hd = _v('hire_date', '')
+                if hasattr(hd, 'strftime'):
+                    hire_date = hd.strftime('%Y-%m-%d')
+                else:
+                    hire_date = str(hd)[:10] if hd else None
+                
+                data = {
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'matricule': matricule or None,
+                    'email': str(_v('email', '')).strip() or None,
+                    'tel': str(_v('tel', '')).strip() or None,
+                    'position': str(_v('position', '')).strip() or None,
+                    'department': str(_v('department', '')).strip() or None,
+                    'hire_date': hire_date,
+                    'contract_type': str(_v('contract_type', 'CDI')).strip() or 'CDI',
+                    'salary': float(_v('salary', 0) or 0),
+                    'insurance': str(_v('insurance', '')).strip() or None,
+                    'insurance_number': str(_v('insurance_number', '')).strip() or None,
+                    'emergency_contact': str(_v('emergency_contact', '')).strip() or None,
+                    'emergency_tel': str(_v('emergency_tel', '')).strip() or None,
+                    'status': str(_v('status', 'actif')).strip() or 'actif',
+                    'notes': str(_v('notes', '')).strip() or None,
+                }
+                
+                existing = None
+                if matricule:
+                    existing = conn.execute("SELECT id FROM employees WHERE matricule=?", (matricule,)).fetchone()
+                
+                if existing:
+                    fields_set = ', '.join([f"{k}=?" for k in data.keys()])
+                    values = list(data.values()) + [existing['id']]
+                    conn.execute(f"UPDATE employees SET {fields_set} WHERE id=?", values)
+                    nb_updated += 1
+                else:
+                    cols = ', '.join(data.keys())
+                    qs = ', '.join(['?'] * len(data))
+                    conn.execute(f"INSERT INTO employees ({cols}) VALUES ({qs})", list(data.values()))
+                    nb_created += 1
+            except Exception as e_row:
+                errors.append(f"Ligne {row_idx}: {str(e_row)[:60]}")
+                nb_skipped += 1
+                continue
+        
+        conn.commit()
+        conn.close()
+        
+        try:
+            log_activity(session.get('user_id'),
+                        get_user_by_id(session['user_id'])['full_name'],
+                        'RH', f"Import personnel : {nb_created} créés, {nb_updated} màj, {nb_skipped} ignorés",
+                        request.remote_addr)
+        except: pass
+        
+        msg = f"✅ Import terminé : {nb_created} créé(s), {nb_updated} mis à jour, {nb_skipped} ignoré(s)"
+        if errors and len(errors) <= 5:
+            msg += " | Erreurs : " + " ; ".join(errors[:5])
+        flash(msg, "success" if nb_created + nb_updated > 0 else "warning")
+    except Exception as e:
+        import traceback as _tb
+        _tb.print_exc()
+        flash(f"Erreur import : {e}", "error")
+    finally:
+        try:
+            if os.path.exists(tmp_path): os.remove(tmp_path)
+        except: pass
+    
+    return redirect('/rh/personnel')
+
 
 @app.route('/rh/personnel/add', methods=['GET', 'POST'])
 @permission_required('fichiers')
@@ -16249,6 +16506,10 @@ def pharma_generate():
                         d = _dt4.strptime(rec['date'][:10], '%Y-%m-%d')
                         dn = _DAYS_FR[d.weekday()]
                         if per_day.get(dn):
+                            # v76 : Préserver l'EDT d'origine avant override
+                            if 'sched_start_original' not in rec:
+                                rec['sched_start_original'] = rec.get('sched_start', '')
+                                rec['sched_end_original'] = rec.get('sched_end', '')
                             rec['sched_start'] = per_day[dn].get('start_time') or rec.get('sched_start','')
                             rec['sched_end'] = per_day[dn].get('end_time') or rec.get('sched_end','')
                     except: pass
@@ -16268,6 +16529,10 @@ def pharma_generate():
                         per_day = schedules_per_day_map.get(emp['name'], {})
                         if per_day.get(dn): continue  # déjà appliqué par-jour
                     except: pass
+                    # v76 : Préserver l'EDT d'origine avant override
+                    if 'sched_start_original' not in rec:
+                        rec['sched_start_original'] = rec.get('sched_start', '')
+                        rec['sched_end_original'] = rec.get('sched_end', '')
                     if sched.get('start_time'):
                         rec['sched_start'] = sched['start_time']
                     if sched.get('end_time'):

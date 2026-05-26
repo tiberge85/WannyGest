@@ -2,8 +2,24 @@
 {% block title %}WannyGest - Personnel{% endblock %}
 {% block content %}
 <div class="page-header"><h1>👤 Gestion du personnel</h1></div>
-<div class="card"><div class="card-header"><h3>Employés ({{ employees|length }})</h3><a href="/rh/personnel/add" class="btn btn-primary btn-sm">+ Ajouter</a></div><div class="card-body">
-{% if employees %}<div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un employé..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div><div class="table-wrap"><table id="dataTable">
+<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <h3 style="margin:0">Employés ({{ employees|length }})</h3>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/rh/personnel/export" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Exporter la base personnel en Excel">📥 Exporter Excel</a>
+        <button type="button" class="btn btn-sm" style="background:#1976d2;color:#fff" onclick="document.getElementById('importModal').style.display='flex'" title="Importer un fichier Excel">📤 Importer Excel</button>
+        <a href="/rh/personnel/add" class="btn btn-primary btn-sm">+ Ajouter</a>
+    </div>
+</div>
+<div class="card-body">
+{% if employees %}
+<div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#555;padding:6px 12px;background:#f8faf9;border:1.5px solid #e0e0e0;border-radius:8px">
+        <input type="checkbox" id="hideSalary" onchange="toggleSalary()" style="width:16px;height:16px;cursor:pointer">
+        <span>👁️ Masquer les salaires</span>
+    </label>
+    <input type="text" id="searchInput" placeholder="🔍 Rechercher un employé..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px">
+</div>
+<div class="table-wrap"><table id="dataTable">
 <thead><tr>
 <th style="cursor:pointer" onclick="sortTable('dataTable',0,'text')">Matricule <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
 <th style="cursor:pointer" onclick="sortTable('dataTable',1,'text')">Nom <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
@@ -11,7 +27,7 @@
 <th style="cursor:pointer" onclick="sortTable('dataTable',3,'text')">Département <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
 <th>Contrat</th>
 <th style="cursor:pointer" onclick="sortTable('dataTable',5,'text')">Statut <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
-<th style="cursor:pointer" onclick="sortTable('dataTable',6,'num')">Salaire <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+<th class="col-salary" style="cursor:pointer" onclick="sortTable('dataTable',6,'num')">Salaire <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
 <th>Actions</th></tr></thead>
 <tbody>{% for e in employees %}<tr>
 <td>{{ e.matricule or '-' }}</td>
@@ -26,7 +42,7 @@
 {{ st|capitalize }}
 </span>
 </td>
-<td>{{ '{:,.0f}'.format(e.salary) }} F</td>
+<td class="col-salary"><span class="salary-value">{{ '{:,.0f}'.format(e.salary) }} F</span><span class="salary-hidden" style="display:none;color:#999">••••••</span></td>
 <td style="white-space:nowrap">
     <a href="/rh/personnel/edit/{{ e.id }}" class="btn btn-outline btn-sm">✏️</a>
     <a href="/rh/personnel/{{ e.id }}/files" class="btn btn-outline btn-sm" title="Pièces jointes">📎</a>
@@ -35,4 +51,48 @@
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun employé. <a href="/rh/personnel/add" style="color:#1a4a6c">Ajouter le premier →</a></p>{% endif %}
 </div></div>
+
+<!-- v77 : Modal import Excel -->
+<div id="importModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:#fff;border-radius:12px;padding:24px;max-width:520px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,0.3)">
+        <h2 style="margin:0 0 12px;color:#1a4a6c;font-size:18px">📤 Importer la base personnel</h2>
+        <div style="background:#fff3cd;border-left:4px solid #f29f2f;padding:10px;border-radius:6px;margin-bottom:14px;font-size:12px;color:#856404">
+            <strong>📋 Format attendu :</strong> fichier Excel (.xlsx) avec les colonnes <strong>Matricule, Prénom, Nom, Email, Téléphone, Poste, Département, Salaire</strong>...<br>
+            <strong>📝 Comportement :</strong>
+            <ul style="margin:5px 0 0 18px;padding:0">
+                <li>Matricule <strong>existant</strong> → mise à jour de l'employé</li>
+                <li>Matricule <strong>nouveau ou vide</strong> → création</li>
+                <li><em>Prénom et Nom obligatoires</em></li>
+            </ul>
+            <div style="margin-top:8px"><strong>💡 Conseil :</strong> <a href="/rh/personnel/export" style="color:#1976d2">Exportez d'abord</a> pour obtenir le bon format.</div>
+        </div>
+        <form method="post" action="/rh/personnel/import" enctype="multipart/form-data">
+            <div style="margin-bottom:14px">
+                <label style="display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:6px">Fichier Excel à importer</label>
+                <input type="file" name="excel_file" accept=".xlsx,.xls" required style="width:100%;padding:10px;border:1.5px dashed #1976d2;border-radius:8px;background:#f0f7ff;cursor:pointer">
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn btn-outline">Annuler</button>
+                <button type="submit" class="btn" style="background:#1976d2;color:#fff">📤 Lancer l'import</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleSalary() {
+    var hidden = document.getElementById('hideSalary').checked;
+    document.querySelectorAll('.salary-value').forEach(function(el) { el.style.display = hidden ? 'none' : ''; });
+    document.querySelectorAll('.salary-hidden').forEach(function(el) { el.style.display = hidden ? '' : 'none'; });
+    try { localStorage.setItem('wg_hide_salary', hidden ? '1' : '0'); } catch(e) {}
+}
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        if (localStorage.getItem('wg_hide_salary') === '1') {
+            document.getElementById('hideSalary').checked = true;
+            toggleSalary();
+        }
+    } catch(e) {}
+});
+</script>
 {% endblock %}

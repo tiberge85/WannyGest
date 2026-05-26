@@ -232,7 +232,12 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
         if not is_rest_day:
             total_required += required
         
-        schedule_str = f"({rec['sched_start']}_{rec['sched_end']})"
+        # v76 : afficher l'EDT d'origine du fichier (préservé), pas l'EDT du matching
+        # Le matching modifie sched_start/sched_end pour le calcul de required mais
+        # l'affichage doit garder l'EDT d'origine pour ne pas tromper l'utilisateur
+        display_start = rec.get('sched_start_original') or rec.get('sched_start', '')
+        display_end = rec.get('sched_end_original') or rec.get('sched_end', '')
+        schedule_str = f"({display_start}_{display_end})"
         
         # Déterminer l'état
         if is_rest_day:
@@ -2083,6 +2088,9 @@ def calc_dpci_stats(emp, schedule=None, hourly_cost=0, hp=0, hp_weekend=0, sched
                 'arrival': '-', 'pause_start': '-', 'pause_end': '-', 'departure': '-',
                 'worked': '00:00', 'pause': '00:00', 'presence': '00:00',
                 'required': m2h(required), 'state': 'Absent', 'respect': 'ABS',
+                # v76 : propager l'EDT d'origine pour l'affichage
+                'sched_start_original': rec.get('sched_start_original'),
+                'sched_end_original': rec.get('sched_end_original'),
             })
             continue
 
@@ -2129,6 +2137,9 @@ def calc_dpci_stats(emp, schedule=None, hourly_cost=0, hp=0, hp_weekend=0, sched
             'required': m2h(required),
             'state': 'Présent',
             'respect': respect,
+            # v76 : propager l'EDT d'origine pour l'affichage
+            'sched_start_original': rec.get('sched_start_original'),
+            'sched_end_original': rec.get('sched_end_original'),
         })
 
     presence_rate = (days_present / len(records) * 100) if len(records) > 0 else 0
@@ -2296,7 +2307,13 @@ def generate_dpci_pdf(emps, output_path, client_name, period, schedules_map=None
             total_pause_mins = 0
 
             for i, rec in enumerate(enriched, 1):
-                sched_str = stats['sched_str']
+                # v76 : afficher l'EDT d'origine du fichier si préservé, sinon le sched_str global
+                _orig_s = rec.get('sched_start_original')
+                _orig_e = rec.get('sched_end_original')
+                if _orig_s and _orig_e:
+                    sched_str = f"{_orig_s}-{_orig_e}"
+                else:
+                    sched_str = stats['sched_str']
                 resp = rec['respect']
                 if resp == 'OUI':
                     rp = Paragraph("OUI", ParagraphStyle('g', fontName='Helvetica-Bold', fontSize=7, textColor=HexColor('#2e7d32'), alignment=TA_CENTER))
