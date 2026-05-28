@@ -49,6 +49,75 @@
 <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:2px solid #eee;padding-bottom:0">
     <button id="tabBtnList" onclick="switchView('list')" class="rv-tab rv-tab-active" style="padding:9px 18px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;border-bottom:3px solid #1976d2;color:#1976d2">📋 Liste</button>
     <button id="tabBtnCal" onclick="switchView('cal')" class="rv-tab" style="padding:9px 18px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;border-bottom:3px solid transparent;color:#888">📅 Calendrier</button>
+    <button id="tabBtnFilter" onclick="switchView('filter')" class="rv-tab" style="padding:9px 18px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;border-bottom:3px solid transparent;color:#888">🔎 Filtres &amp; Export</button>
+</div>
+
+<!-- v81 : VUE FILTRES & EXPORT -->
+<div id="viewFilter" style="display:none">
+    <div class="card"><div class="card-body">
+        <h3 style="margin:0 0 12px;color:#1A7A6D">🔎 Filtrer & Exporter les recharges</h3>
+        
+        <!-- Sélecteur période -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+            <span style="font-size:13px;font-weight:600;color:#555">Période :</span>
+            <a href="/it/recharge?periode=jour#filter" class="btn btn-sm {% if periode=='jour' %}btn-primary{% else %}btn-outline{% endif %}">📆 Jour</a>
+            <a href="/it/recharge?periode=semaine#filter" class="btn btn-sm {% if periode=='semaine' %}btn-primary{% else %}btn-outline{% endif %}">🗓️ Semaine</a>
+            <a href="/it/recharge?periode=mois#filter" class="btn btn-sm {% if periode=='mois' %}btn-primary{% else %}btn-outline{% endif %}">📅 Mois</a>
+            <a href="/it/recharge?periode=tous#filter" class="btn btn-sm {% if periode=='tous' and not show_done %}btn-primary{% else %}btn-outline{% endif %}">∞ Toutes</a>
+            <span style="margin:0 4px;color:#ccc">|</span>
+            <a href="/it/recharge?periode={{ periode }}&done=1#filter" class="btn btn-sm {% if show_done %}btn-primary{% else %}btn-outline{% endif %}" style="{% if show_done %}background:#2e7d32;border-color:#2e7d32{% endif %}">✅ Déjà effectuées</a>
+        </div>
+        
+        <!-- Boutons export PDF -->
+        <div style="background:#f8faf9;border-radius:8px;padding:12px;margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:13px;font-weight:600;color:#555">📄 Exporter en PDF :</span>
+            <a href="/it/recharge/export-pdf?periode={{ periode }}{% if show_done %}&done=1{% endif %}" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff">📄 Télécharger le PDF ({{ f_libelle }})</a>
+        </div>
+        
+        <!-- Résultat du filtre -->
+        <div style="margin-bottom:8px;font-size:13px;color:#666">
+            {% if show_done %}
+                <strong>Recharges déjà effectuées</strong> {{ f_libelle }} : <strong>{{ filtered|length }}</strong> résultat(s)
+            {% else %}
+                <strong>Recharges à effectuer</strong> {{ f_libelle }} : <strong>{{ filtered|length }}</strong> résultat(s)
+            {% endif %}
+        </div>
+        
+        {% if filtered %}
+        <div class="table-wrap"><table>
+        {% if show_done %}
+            <thead><tr><th>Date recharge</th><th>Équipement</th><th>Opérateur</th><th>Montant</th><th>Effectué par</th></tr></thead>
+            <tbody>{% for r in filtered %}<tr>
+                <td><strong>{{ r.recharge_date }}</strong></td>
+                <td>{{ r.equipment_name or '-' }}</td>
+                <td>{{ r.operator or '-' }}</td>
+                <td>{{ '{:,.0f}'.format(r.amount or 0) }} F</td>
+                <td>{{ r.done_by_name or '-' }}</td>
+            </tr>{% endfor %}</tbody>
+            <tfoot><tr style="background:#e8f5e9;font-weight:700">
+                <td colspan="3" style="text-align:right">TOTAL</td>
+                <td>{{ '{:,.0f}'.format(filtered|sum(attribute='amount')) }} F</td><td></td>
+            </tr></tfoot>
+        {% else %}
+            <thead><tr><th>Échéance</th><th>Équipement</th><th>Opérateur</th><th>Périodicité</th><th>État</th><th>Montant</th></tr></thead>
+            <tbody>{% for r in filtered %}<tr>
+                <td><strong>{{ r.next_due }}</strong></td>
+                <td>{{ r.equipment_name }}</td>
+                <td>{{ r.operator or '-' }}</td>
+                <td style="font-size:11px">{% if r.period_type=='mensuel' %}Le {{ r.period_monthly_day }} du mois{% else %}Tous les {{ r.period_days }}j{% endif %}</td>
+                <td>
+                    {% if r.state=='retard' %}<span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">⚠️ Retard {{ -r.days_left }}j</span>
+                    {% elif r.state=='bientot' %}<span style="background:#fff3e0;color:#e8672a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">🔔 Dans {{ r.days_left }}j</span>
+                    {% else %}<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✅ Dans {{ r.days_left }}j</span>{% endif %}
+                </td>
+                <td>{{ '{:,.0f}'.format(r.amount or 0) }} F</td>
+            </tr>{% endfor %}</tbody>
+        {% endif %}
+        </table></div>
+        {% else %}
+        <p style="text-align:center;color:#999;padding:30px">Aucune recharge pour cette période.</p>
+        {% endif %}
+    </div></div>
 </div>
 
 <!-- VUE CALENDRIER -->
@@ -264,28 +333,28 @@
 </div></div>
 
 <script>
-// v80 : Bascule Liste / Calendrier
+// v80/v81 : Bascule Liste / Calendrier / Filtres
 function switchView(v) {
-    var isCal = (v === 'cal');
-    document.getElementById('viewList').style.display = isCal ? 'none' : '';
-    document.getElementById('viewCal').style.display = isCal ? '' : 'none';
-    var btnList = document.getElementById('tabBtnList');
-    var btnCal = document.getElementById('tabBtnCal');
-    if (isCal) {
-        btnCal.style.borderBottomColor = '#1976d2'; btnCal.style.color = '#1976d2';
-        btnList.style.borderBottomColor = 'transparent'; btnList.style.color = '#888';
-    } else {
-        btnList.style.borderBottomColor = '#1976d2'; btnList.style.color = '#1976d2';
-        btnCal.style.borderBottomColor = 'transparent'; btnCal.style.color = '#888';
+    var views = {'list':'viewList', 'cal':'viewCal', 'filter':'viewFilter'};
+    var btns = {'list':'tabBtnList', 'cal':'tabBtnCal', 'filter':'tabBtnFilter'};
+    for (var k in views) {
+        var vd = document.getElementById(views[k]);
+        if (vd) vd.style.display = (k === v) ? '' : 'none';
+        var bt = document.getElementById(btns[k]);
+        if (bt) {
+            if (k === v) { bt.style.borderBottomColor = '#1976d2'; bt.style.color = '#1976d2'; }
+            else { bt.style.borderBottomColor = 'transparent'; bt.style.color = '#888'; }
+        }
     }
     try { localStorage.setItem('wg_recharge_view', v); } catch(e) {}
 }
-// Restaurer la vue préférée ou ouvrir le calendrier si ancre #cal
+// Restaurer la vue préférée ou ouvrir selon l'ancre
 document.addEventListener('DOMContentLoaded', function() {
     if (window.location.hash === '#cal') { switchView('cal'); return; }
+    if (window.location.hash === '#filter') { switchView('filter'); return; }
     try {
         var v = localStorage.getItem('wg_recharge_view');
-        if (v === 'cal') switchView('cal');
+        if (v === 'cal' || v === 'filter') switchView(v);
     } catch(e) {}
 });
 

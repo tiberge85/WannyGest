@@ -10636,6 +10636,83 @@ def get_recharge_alerts():
     return alerts
 
 
+def _filter_recharges(periode='tous', show_done=False):
+    """v81 : Filtre les recharges selon la période et l'état.
+    periode : 'jour' | 'semaine' | 'mois' | 'tous'
+    show_done : si True, retourne l'historique des recharges déjà effectuées
+    Retourne (liste, date_debut, date_fin, libelle_periode)
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    today = _dt.now().date()
+    
+    # Déterminer la fenêtre de dates
+    if periode == 'jour':
+        d_start = today
+        d_end = today
+        libelle = f"du {today.strftime('%d/%m/%Y')}"
+    elif periode == 'semaine':
+        d_start = today - _td(days=today.weekday())  # lundi
+        d_end = d_start + _td(days=6)  # dimanche
+        libelle = f"du {d_start.strftime('%d/%m/%Y')} au {d_end.strftime('%d/%m/%Y')}"
+    elif periode == 'mois':
+        d_start = today.replace(day=1)
+        if today.month == 12:
+            d_end = today.replace(year=today.year+1, month=1, day=1) - _td(days=1)
+        else:
+            d_end = today.replace(month=today.month+1, day=1) - _td(days=1)
+        _mois_fr = ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+        libelle = f"de {_mois_fr[today.month]} {today.year}"
+    else:
+        d_start = None
+        d_end = None
+        libelle = "(toutes périodes)"
+    
+    conn = _gdb()
+    
+    if show_done:
+        # Historique des recharges effectuées
+        sql = """SELECT h.*, r.equipment_name, r.operator, r.sim_number, r.location,
+                 u.full_name as done_by_name
+                 FROM it_internet_recharge_history h
+                 LEFT JOIN it_internet_recharge r ON h.recharge_id = r.id
+                 LEFT JOIN users u ON h.done_by = u.id"""
+        params = []
+        if d_start and d_end:
+            sql += " WHERE h.recharge_date >= ? AND h.recharge_date <= ?"
+            params = [d_start.strftime('%Y-%m-%d'), d_end.strftime('%Y-%m-%d')]
+        sql += " ORDER BY h.recharge_date DESC"
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        conn.close()
+        return rows, d_start, d_end, libelle
+    else:
+        # Recharges à effectuer (échéances)
+        recharges = [dict(r) for r in conn.execute(
+            "SELECT * FROM it_internet_recharge WHERE status='actif' ORDER BY next_due ASC").fetchall()]
+        conn.close()
+        result = []
+        for r in recharges:
+            if not r.get('next_due'): continue
+            try:
+                due = _dt.strptime(r['next_due'][:10], '%Y-%m-%d').date()
+            except:
+                continue
+            # Filtre période : échéance dans la fenêtre OU déjà en retard (toujours inclus)
+            if d_start and d_end:
+                if not (due <= d_end):  # inclut les retards (due < d_start)
+                    continue
+            days_left = (due - today).days
+            alert_before = int(r.get('alert_days_before') or 2)
+            if days_left < 0:
+                r['state'] = 'retard'
+            elif days_left <= alert_before:
+                r['state'] = 'bientot'
+            else:
+                r['state'] = 'ok'
+            r['days_left'] = days_left
+            result.append(r)
+        return result, d_start, d_end, libelle
+
+
 @app.route('/it/recharge')
 @recharge_access_required
 def it_recharge():
@@ -10765,13 +10842,150 @@ def it_recharge():
     next_month = cal_month + 1; next_year = cal_year
     if next_month > 12: next_month = 1; next_year += 1
     
+    # === v81 : Filtre (jour/semaine/mois + effectuées) ===
+    periode = request.args.get('periode', 'tous')
+    show_done = request.args.get('done', '') == '1'
+    filtered, f_start, f_end, f_libelle = _filter_recharges(periode, show_done)
+    
     return render_template('it_recharge.html', page='it_recharge',
         recharges=recharges, nb_total=nb_total, nb_retard=nb_retard,
         nb_bientot=nb_bientot, nb_ok=nb_ok, today=today.strftime('%Y-%m-%d'),
         calendar_grid=calendar_grid, cal_year=cal_year, cal_month=cal_month,
         cal_month_name=month_names_fr[cal_month],
         prev_year=prev_year, prev_month=prev_month,
-        next_year=next_year, next_month=next_month)
+        next_year=next_year, next_month=next_month,
+        filtered=filtered, periode=periode, show_done=show_done, f_libelle=f_libelle)
+
+
+@app.route('/it/recharge/export-pdf')
+@recharge_access_required
+def it_recharge_export_pdf():
+    """v81 : Export PDF de la liste des recharges (à effectuer ou effectuées) filtrée par période."""
+    from datetime import datetime as _dt
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+    from flask import Response
+    import io as _io
+    
+    periode = request.args.get('periode', 'tous')
+    show_done = request.args.get('done', '') == '1'
+    rows, d_start, d_end, libelle = _filter_recharges(periode, show_done)
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm,
+                            topMargin=10*mm, bottomMargin=10*mm)
+    
+    TEAL = HexColor('#1A7A6D'); ORANGE = HexColor('#e8672a'); RED = HexColor('#c53030')
+    GREEN = HexColor('#2e7d32'); GREY = HexColor('#888888')
+    
+    hw = ParagraphStyle('hw', fontName='Helvetica-Bold', fontSize=8, textColor=white, alignment=TA_CENTER)
+    tc = ParagraphStyle('tc', fontSize=8, alignment=TA_CENTER)
+    tl = ParagraphStyle('tl', fontSize=8)
+    tr_s = ParagraphStyle('tr', fontSize=8, alignment=TA_RIGHT)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
+    
+    titre = "RECHARGES INTERNET EFFECTUÉES" if show_done else "RECHARGES INTERNET À EFFECTUER"
+    story.append(Paragraph(f"<b>{titre}</b>",
+        ParagraphStyle('t', fontName='Helvetica-Bold', fontSize=16, textColor=TEAL, alignment=TA_CENTER, spaceAfter=2*mm)))
+    
+    periode_label = {'jour': 'Aujourd\'hui', 'semaine': 'Cette semaine',
+                     'mois': 'Ce mois', 'tous': 'Toutes périodes'}.get(periode, periode)
+    story.append(Paragraph(f"Filtre : {periode_label} {libelle} — Généré le {_dt.now().strftime('%d/%m/%Y à %H:%M')}",
+        ParagraphStyle('sub', fontSize=8, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)))
+    
+    pw = 186*mm
+    
+    if not rows:
+        story.append(Paragraph("Aucune recharge pour cette période.",
+            ParagraphStyle('empty', fontSize=11, textColor=GREY, alignment=TA_CENTER, spaceBefore=20*mm)))
+    elif show_done:
+        # Tableau historique des recharges effectuées
+        data = [[Paragraph(h, hw) for h in ['Date', 'Équipement', 'Opérateur', 'Montant (FCFA)', 'Effectué par']]]
+        total = 0
+        for r in rows:
+            total += (r.get('amount') or 0)
+            data.append([
+                Paragraph(r.get('recharge_date', '-'), tc),
+                Paragraph(r.get('equipment_name', '-'), tl),
+                Paragraph(r.get('operator', '-') or '-', tc),
+                Paragraph(f"{r.get('amount', 0):,.0f}", tr_s),
+                Paragraph(r.get('done_by_name', '-') or '-', tl),
+            ])
+        data.append([Paragraph('', tc), Paragraph('<b>TOTAL</b>', ParagraphStyle('tot', fontName='Helvetica-Bold', fontSize=9)),
+                     Paragraph('', tc), Paragraph(f"<b>{total:,.0f}</b>", ParagraphStyle('totr', fontName='Helvetica-Bold', fontSize=9, alignment=TA_RIGHT)),
+                     Paragraph('', tc)])
+        t = Table(data, colWidths=[24*mm, pw-104*mm, 28*mm, 28*mm, 24*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('BOX',(0,0),(-1,-1),0.5,HexColor('#cccccc')),
+            ('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#e0e0e0')),
+            ('BACKGROUND',(0,-1),(-1,-1),HexColor('#e8f5e9')),
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('ROWBACKGROUNDS',(0,1),(-1,-2),[white, HexColor('#f8faf9')]),
+        ]))
+        story.append(t)
+    else:
+        # Tableau des recharges à effectuer
+        data = [[Paragraph(h, hw) for h in ['Échéance', 'Équipement', 'Opérateur', 'N° SIM', 'Périodicité', 'État', 'Montant']]]
+        for r in rows:
+            st = r.get('state', '')
+            if st == 'retard':
+                etat = Paragraph(f"<font color='#c53030'><b>⚠ Retard {-r['days_left']}j</b></font>", tc)
+            elif st == 'bientot':
+                etat = Paragraph(f"<font color='#e8672a'><b>Dans {r['days_left']}j</b></font>", tc)
+            else:
+                etat = Paragraph(f"<font color='#2e7d32'>Dans {r['days_left']}j</font>", tc)
+            if r.get('period_type') == 'mensuel':
+                period_txt = f"Le {r.get('period_monthly_day', '-')} du mois"
+            else:
+                period_txt = f"Tous les {r.get('period_days', '-')}j"
+            data.append([
+                Paragraph(r.get('next_due', '-'), tc),
+                Paragraph(r.get('equipment_name', '-'), tl),
+                Paragraph(r.get('operator', '-') or '-', tc),
+                Paragraph(r.get('sim_number', '-') or '-', tc),
+                Paragraph(period_txt, tc),
+                etat,
+                Paragraph(f"{r.get('amount', 0):,.0f} F", tr_s),
+            ])
+        t = Table(data, colWidths=[22*mm, pw-128*mm, 24*mm, 26*mm, 28*mm, 24*mm, 24*mm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('BOX',(0,0),(-1,-1),0.5,HexColor('#cccccc')),
+            ('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#e0e0e0')),
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[white, HexColor('#f8faf9')]),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 4*mm))
+        # Résumé
+        nb_r = sum(1 for r in rows if r.get('state') == 'retard')
+        nb_b = sum(1 for r in rows if r.get('state') == 'bientot')
+        story.append(Paragraph(
+            f"<b>Total : {len(rows)} recharge(s)</b> — En retard : {nb_r} — Bientôt dû : {nb_b}",
+            ParagraphStyle('resume', fontSize=9, textColor=HexColor('#444'))))
+    
+    doc.build(story)
+    buf.seek(0)
+    
+    try:
+        log_activity(session.get('user_id'),
+                    get_user_by_id(session['user_id'])['full_name'],
+                    'IT', f"Export PDF recharges ({periode}{', effectuées' if show_done else ''})",
+                    request.remote_addr)
+    except: pass
+    
+    suffix = 'effectuees' if show_done else 'a_effectuer'
+    fname = f"recharges_{suffix}_{periode}_{_dt.now().strftime('%Y%m%d')}.pdf"
+    return Response(buf.getvalue(), mimetype='application/pdf',
+                   headers={'Content-Disposition': f'attachment; filename="{fname}"'})
 
 
 @app.route('/it/recharge/add', methods=['POST'])
