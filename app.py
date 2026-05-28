@@ -10639,8 +10639,9 @@ def get_recharge_alerts():
 @app.route('/it/recharge')
 @recharge_access_required
 def it_recharge():
-    """Page de suivi des recharges Internet."""
-    from datetime import datetime as _dt
+    """Page de suivi des recharges Internet + calendrier."""
+    from datetime import datetime as _dt, timedelta as _td
+    import calendar as _cal
     conn = _gdb()
     recharges = [dict(r) for r in conn.execute(
         "SELECT * FROM it_internet_recharge ORDER BY status DESC, next_due ASC").fetchall()]
@@ -10672,9 +10673,105 @@ def it_recharge():
     nb_bientot = sum(1 for r in recharges if r['state'] == 'bientot')
     nb_ok = sum(1 for r in recharges if r['state'] == 'ok')
     
+    # === v80 : Données calendrier ===
+    # Mois affiché (navigation via ?cal_year=&cal_month=)
+    try:
+        cal_year = int(request.args.get('cal_year', today.year))
+        cal_month = int(request.args.get('cal_month', today.month))
+    except:
+        cal_year, cal_month = today.year, today.month
+    if cal_month < 1: cal_month = 12; cal_year -= 1
+    if cal_month > 12: cal_month = 1; cal_year += 1
+    
+    # Projeter les échéances futures sur 6 mois pour le calendrier
+    # (next_due + récurrences suivantes selon la périodicité)
+    events_by_date = {}  # 'YYYY-MM-DD' -> [ {equipment_name, state, operator, id, is_projection} ]
+    
+    def _project_due_dates(rec, horizon_months=6):
+        """Génère les dates d'échéance projetées sur l'horizon."""
+        dates = []
+        if not rec.get('next_due'): return dates
+        try:
+            cur = _dt.strptime(rec['next_due'][:10], '%Y-%m-%d').date()
+        except:
+            return dates
+        horizon_end = today + _td(days=horizon_months*31)
+        count = 0
+        while cur <= horizon_end and count < 30:
+            dates.append(cur)
+            # Calculer la suivante
+            if rec.get('period_type') == 'mensuel':
+                day = int(rec.get('period_monthly_day') or cur.day)
+                m = cur.month + 1; y = cur.year
+                if m > 12: m = 1; y += 1
+                last_day = _cal.monthrange(y, m)[1]
+                cur = cur.replace(year=y, month=m, day=min(day, last_day))
+            else:
+                cur = cur + _td(days=int(rec.get('period_days') or 30))
+            count += 1
+        return dates
+    
+    for r in recharges:
+        if r['status'] != 'actif':
+            continue
+        due_dates = _project_due_dates(r)
+        for idx, d in enumerate(due_dates):
+            ds = d.strftime('%Y-%m-%d')
+            # État de cette occurrence
+            dl = (d - today).days
+            alert_before = int(r.get('alert_days_before') or 2)
+            if dl < 0:
+                ev_state = 'retard'
+            elif dl <= alert_before:
+                ev_state = 'bientot'
+            else:
+                ev_state = 'ok'
+            events_by_date.setdefault(ds, []).append({
+                'id': r['id'],
+                'equipment_name': r['equipment_name'],
+                'operator': r.get('operator', ''),
+                'state': ev_state,
+                'is_projection': idx > 0,  # 1ère = échéance réelle, suivantes = projections
+                'next_due': ds,
+                'amount': r.get('amount', 0),
+            })
+    
+    # Construire la grille du mois (semaines de lundi à dimanche)
+    _cal.setfirstweekday(_cal.MONDAY)
+    month_weeks = _cal.monthcalendar(cal_year, cal_month)  # liste de semaines, 0 = jour hors mois
+    
+    calendar_grid = []
+    for week in month_weeks:
+        week_days = []
+        for day in week:
+            if day == 0:
+                week_days.append(None)
+            else:
+                ds = f"{cal_year:04d}-{cal_month:02d}-{day:02d}"
+                week_days.append({
+                    'day': day,
+                    'date': ds,
+                    'is_today': (ds == today.strftime('%Y-%m-%d')),
+                    'events': events_by_date.get(ds, []),
+                })
+        calendar_grid.append(week_days)
+    
+    month_names_fr = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+    
+    # Navigation préc/suiv
+    prev_month = cal_month - 1; prev_year = cal_year
+    if prev_month < 1: prev_month = 12; prev_year -= 1
+    next_month = cal_month + 1; next_year = cal_year
+    if next_month > 12: next_month = 1; next_year += 1
+    
     return render_template('it_recharge.html', page='it_recharge',
         recharges=recharges, nb_total=nb_total, nb_retard=nb_retard,
-        nb_bientot=nb_bientot, nb_ok=nb_ok, today=today.strftime('%Y-%m-%d'))
+        nb_bientot=nb_bientot, nb_ok=nb_ok, today=today.strftime('%Y-%m-%d'),
+        calendar_grid=calendar_grid, cal_year=cal_year, cal_month=cal_month,
+        cal_month_name=month_names_fr[cal_month],
+        prev_year=prev_year, prev_month=prev_month,
+        next_year=next_year, next_month=next_month)
 
 
 @app.route('/it/recharge/add', methods=['POST'])

@@ -45,6 +45,75 @@
 </div>
 {% endif %}
 
+<!-- v80 : Onglets Liste / Calendrier -->
+<div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:2px solid #eee;padding-bottom:0">
+    <button id="tabBtnList" onclick="switchView('list')" class="rv-tab rv-tab-active" style="padding:9px 18px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;border-bottom:3px solid #1976d2;color:#1976d2">📋 Liste</button>
+    <button id="tabBtnCal" onclick="switchView('cal')" class="rv-tab" style="padding:9px 18px;border:none;background:none;cursor:pointer;font-size:14px;font-weight:600;border-bottom:3px solid transparent;color:#888">📅 Calendrier</button>
+</div>
+
+<!-- VUE CALENDRIER -->
+<div id="viewCal" style="display:none">
+    <div class="card"><div class="card-body">
+        <!-- Navigation mois -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+            <a href="/it/recharge?cal_year={{ prev_year }}&cal_month={{ prev_month }}#cal" class="btn btn-outline btn-sm">← Mois précédent</a>
+            <h2 style="margin:0;font-size:20px;color:#1a3a5c">{{ cal_month_name }} {{ cal_year }}</h2>
+            <a href="/it/recharge?cal_year={{ next_year }}&cal_month={{ next_month }}#cal" class="btn btn-outline btn-sm">Mois suivant →</a>
+        </div>
+        
+        <!-- Légende couleurs -->
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:14px;height:14px;border-radius:3px;background:#c53030;display:inline-block"></span> En retard</span>
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:14px;height:14px;border-radius:3px;background:#e8672a;display:inline-block"></span> Bientôt dû (≤ alerte)</span>
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:14px;height:14px;border-radius:3px;background:#2e7d32;display:inline-block"></span> À venir</span>
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:14px;height:14px;border-radius:3px;background:#90caf9;display:inline-block"></span> Échéances projetées</span>
+        </div>
+        
+        <!-- Grille calendrier -->
+        <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:640px">
+            <thead><tr>
+                {% for d in ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'] %}
+                <th style="padding:8px;background:#1a3a5c;color:#fff;font-size:12px;font-weight:600;border:1px solid #2a4a6c">{{ d }}</th>
+                {% endfor %}
+            </tr></thead>
+            <tbody>
+            {% for week in calendar_grid %}
+            <tr>
+                {% for day in week %}
+                {% if day is none %}
+                <td style="border:1px solid #eee;background:#fafafa;height:90px;vertical-align:top"></td>
+                {% else %}
+                <td style="border:1px solid #e0e0e0;height:90px;vertical-align:top;padding:4px;{% if day.is_today %}background:#fff8e1{% else %}background:#fff{% endif %};position:relative">
+                    <div style="font-size:12px;font-weight:600;color:{% if day.is_today %}#e8672a{% else %}#888{% endif %};margin-bottom:3px">
+                        {{ day.day }}{% if day.is_today %} <span style="font-size:9px;background:#e8672a;color:#fff;padding:1px 5px;border-radius:8px">Auj.</span>{% endif %}
+                    </div>
+                    {% for ev in day.events %}
+                    <div onclick="openDone({{ ev.id }}, '{{ ev.equipment_name|replace("'", "") }}', {{ ev.amount or 0 }})"
+                        title="{{ ev.equipment_name }}{% if ev.operator %} ({{ ev.operator }}){% endif %} — cliquer pour confirmer la recharge"
+                        style="cursor:pointer;font-size:10px;padding:2px 5px;margin-bottom:2px;border-radius:4px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                        {% if ev.is_projection %}background:#90caf9;color:#0d47a1
+                        {% elif ev.state == 'retard' %}background:#c53030
+                        {% elif ev.state == 'bientot' %}background:#e8672a
+                        {% else %}background:#2e7d32{% endif %}">
+                        {% if ev.state == 'retard' and not ev.is_projection %}⚠️{% elif ev.is_projection %}🔄{% else %}📶{% endif %} {{ ev.equipment_name }}
+                    </div>
+                    {% endfor %}
+                </td>
+                {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <p style="font-size:11px;color:#888;margin-top:10px">💡 La première échéance est en couleur pleine, les <strong>échéances suivantes projetées</strong> (selon la périodicité) sont en bleu clair 🔄. Cliquez sur une échéance pour confirmer la recharge.</p>
+    </div></div>
+</div>
+
+<!-- VUE LISTE (tableau) -->
+<div id="viewList">
+
 <!-- Tableau complet -->
 {% if recharges %}
 <div class="card"><div class="card-body" style="padding:0"><div class="table-wrap">
@@ -89,6 +158,7 @@
     <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="document.getElementById('addM').classList.add('active')">+ Enregistrer le premier équipement</button>
 </div></div>
 {% endif %}
+</div><!-- fin viewList -->
 
 <!-- Modal AJOUT -->
 <div class="modal-bg" id="addM"><div class="modal"><h3>📶 Nouvel équipement à recharger</h3>
@@ -194,6 +264,31 @@
 </div></div>
 
 <script>
+// v80 : Bascule Liste / Calendrier
+function switchView(v) {
+    var isCal = (v === 'cal');
+    document.getElementById('viewList').style.display = isCal ? 'none' : '';
+    document.getElementById('viewCal').style.display = isCal ? '' : 'none';
+    var btnList = document.getElementById('tabBtnList');
+    var btnCal = document.getElementById('tabBtnCal');
+    if (isCal) {
+        btnCal.style.borderBottomColor = '#1976d2'; btnCal.style.color = '#1976d2';
+        btnList.style.borderBottomColor = 'transparent'; btnList.style.color = '#888';
+    } else {
+        btnList.style.borderBottomColor = '#1976d2'; btnList.style.color = '#1976d2';
+        btnCal.style.borderBottomColor = 'transparent'; btnCal.style.color = '#888';
+    }
+    try { localStorage.setItem('wg_recharge_view', v); } catch(e) {}
+}
+// Restaurer la vue préférée ou ouvrir le calendrier si ancre #cal
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.location.hash === '#cal') { switchView('cal'); return; }
+    try {
+        var v = localStorage.getItem('wg_recharge_view');
+        if (v === 'cal') switchView('cal');
+    } catch(e) {}
+});
+
 function togglePeriod(prefix) {
     var isMonthly = document.querySelector('#' + (prefix==='add'?'addM':'editM') + ' input[name="period_type"]:checked').value === 'mensuel';
     document.getElementById(prefix + '_jours').style.display = isMonthly ? 'none' : '';
