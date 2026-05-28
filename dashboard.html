@@ -3,6 +3,7 @@
 {% block content %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <div class="page-header"><h1>👋 {{ current_user.full_name }}</h1><p>{{ current_user.role | upper }}</p></div>
+{% include '_recharge_alert.html' %}
 
 {# ======================== ADMIN DASHBOARD (style SGI) ======================== #}
 {% if user_role == 'admin' %}

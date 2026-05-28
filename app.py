@@ -595,6 +595,36 @@ def permission_required_any(*perms):
         return decorated
     return decorator
 
+
+def recharge_access_required(f):
+    """v79 : Accès au module recharge Internet.
+    Autorisé pour : admin, et les rôles/permissions IT, comptabilité, RH.
+    Vérifie à la fois le rôle ET les permissions (souplesse selon config)."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        user = get_user_by_id(session['user_id'])
+        if not user:
+            flash("Accès non autorisé", "error")
+            return redirect(url_for('dashboard'))
+        role = user['role']
+        # Admin et DG toujours autorisés
+        if role in ('admin', 'dg', 'directeur'):
+            return f(*args, **kwargs)
+        # Rôles métier explicitement autorisés (compta, RH, IT)
+        allowed_roles = ('rh', 'comptable', 'comptabilite', 'informaticien',
+                         'informatique', 'it', 'finance')
+        if role in allowed_roles:
+            return f(*args, **kwargs)
+        # Sinon vérifier les permissions (informatique, comptabilite)
+        user_perms = get_role_permissions(role)
+        if any(p in user_perms for p in ('informatique', 'comptabilite')):
+            return f(*args, **kwargs)
+        flash("Accès non autorisé", "error")
+        return redirect(url_for('dashboard'))
+    return decorated
+
 @app.context_processor
 def inject_globals():
     """Injecte les variables globales dans tous les templates."""
@@ -636,8 +666,11 @@ def inject_globals():
                 except: ctx['mg_pending_count'] = 0
             else:
                 ctx['mg_pending_count'] = 0
-            # v78 : compteur alertes recharge Internet (pour le département IT)
-            if 'informatique' in perms or 'admin' in perms:
+            # v78/v79 : compteur alertes recharge Internet (IT + compta + RH + admin)
+            _recharge_roles = user['role'] in ('admin', 'dg', 'directeur', 'rh', 'comptable',
+                                               'comptabilite', 'informaticien', 'informatique', 'it', 'finance')
+            _recharge_perms = any(p in perms for p in ('informatique', 'comptabilite'))
+            if _recharge_roles or _recharge_perms:
                 try:
                     from datetime import datetime as _dt_r, timedelta as _td_r
                     from models import get_db as _r_db
@@ -659,6 +692,31 @@ def inject_globals():
                 except: ctx['recharge_alerts_count'] = 0
             else:
                 ctx['recharge_alerts_count'] = 0
+            # v79 : liste détaillée des alertes recharge (pour affichage dashboards)
+            if _recharge_roles or _recharge_perms:
+                try:
+                    from datetime import datetime as _dt_ra
+                    from models import get_db as _ra_db
+                    _rac = _ra_db()
+                    _arows = [dict(r) for r in _rac.execute(
+                        "SELECT * FROM it_internet_recharge WHERE status='actif' ORDER BY next_due ASC").fetchall()]
+                    _rac.close()
+                    _today2 = _dt_ra.now().date()
+                    _alerts = []
+                    for _r in _arows:
+                        if not _r.get('next_due'): continue
+                        try:
+                            _due2 = _dt_ra.strptime(_r['next_due'][:10], '%Y-%m-%d').date()
+                            _dl2 = (_due2 - _today2).days
+                            if _dl2 <= int(_r.get('alert_days_before') or 2):
+                                _r['days_left'] = _dl2
+                                _r['is_overdue'] = _dl2 < 0
+                                _alerts.append(_r)
+                        except: pass
+                    ctx['recharge_alerts'] = _alerts
+                except: ctx['recharge_alerts'] = []
+            else:
+                ctx['recharge_alerts'] = []
             if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
                     from models import get_db as _gdb
@@ -10579,7 +10637,7 @@ def get_recharge_alerts():
 
 
 @app.route('/it/recharge')
-@permission_required('informatique')
+@recharge_access_required
 def it_recharge():
     """Page de suivi des recharges Internet."""
     from datetime import datetime as _dt
@@ -10620,7 +10678,7 @@ def it_recharge():
 
 
 @app.route('/it/recharge/add', methods=['POST'])
-@permission_required('informatique')
+@recharge_access_required
 def it_recharge_add():
     """Enregistre un nouvel équipement à recharger."""
     equipment_name = request.form.get('equipment_name', '').strip()
@@ -10662,7 +10720,7 @@ def it_recharge_add():
 
 
 @app.route('/it/recharge/<int:rid>/done', methods=['POST'])
-@permission_required('informatique')
+@recharge_access_required
 def it_recharge_done(rid):
     """Confirme qu'une recharge a été effectuée → recalcule la prochaine échéance."""
     from datetime import datetime as _dt
@@ -10698,11 +10756,15 @@ def it_recharge_done(rid):
     except: pass
     
     flash(f"✅ Recharge confirmée pour '{rec['equipment_name']}'. Prochaine échéance : {next_due}", "success")
+    # v79 : revenir à la page d'origine (dashboard) si fournie
+    next_url = request.form.get('next') or request.referrer
+    if next_url and '/it/recharge' not in next_url:
+        return redirect(next_url)
     return redirect('/it/recharge')
 
 
 @app.route('/it/recharge/<int:rid>/edit', methods=['POST'])
-@permission_required('informatique')
+@recharge_access_required
 def it_recharge_edit(rid):
     """Modifie un équipement de recharge."""
     period_type = request.form.get('period_type', 'jours')
@@ -10725,7 +10787,7 @@ def it_recharge_edit(rid):
 
 
 @app.route('/it/recharge/<int:rid>/toggle')
-@permission_required('informatique')
+@recharge_access_required
 def it_recharge_toggle(rid):
     """Active/désactive le suivi d'un équipement."""
     conn = _gdb()
@@ -10739,7 +10801,7 @@ def it_recharge_toggle(rid):
 
 
 @app.route('/it/recharge/<int:rid>/delete')
-@permission_required('informatique')
+@recharge_access_required
 def it_recharge_delete(rid):
     """Supprime un équipement de recharge."""
     conn = _gdb()
@@ -10751,7 +10813,7 @@ def it_recharge_delete(rid):
 
 
 @app.route('/it/recharge/<int:rid>/history')
-@permission_required('informatique')
+@recharge_access_required
 def it_recharge_history(rid):
     """Historique des recharges d'un équipement."""
     conn = _gdb()
