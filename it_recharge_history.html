@@ -1,0 +1,36 @@
+{% extends "base.html" %}{% block title %}WannyGest - Historique recharge{% endblock %}{% block content %}
+<div class="page-header"><h1>📜 Historique des recharges</h1>
+<a href="/it/recharge" class="btn btn-outline btn-sm">← Retour</a></div>
+
+<div class="card" style="margin-bottom:16px"><div class="card-body">
+    <h3 style="margin:0 0 8px">{{ recharge.equipment_name }}</h3>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:13px;color:#555">
+        {% if recharge.operator %}<div>📡 <strong>{{ recharge.operator }}</strong></div>{% endif %}
+        {% if recharge.sim_number %}<div>📱 {{ recharge.sim_number }}</div>{% endif %}
+        {% if recharge.location %}<div>📍 {{ recharge.location }}</div>{% endif %}
+        <div>⏱️ {% if recharge.period_type == 'mensuel' %}Le {{ recharge.period_monthly_day }} de chaque mois{% else %}Tous les {{ recharge.period_days }} jours{% endif %}</div>
+        <div>🔔 Prochaine : <strong>{{ recharge.next_due or '-' }}</strong></div>
+    </div>
+</div></div>
+
+{% if history %}
+<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap">
+<table id="dataTable">
+<thead><tr><th>Date de recharge</th><th>Montant</th><th>Effectué par</th><th>Notes</th></tr></thead>
+<tbody>{% for h in history %}<tr>
+<td><strong>{{ h.recharge_date }}</strong></td>
+<td>{{ '{:,.0f}'.format(h.amount or 0) }} F</td>
+<td>{{ h.done_by_name or '-' }}</td>
+<td style="font-size:12px;color:#666">{{ h.notes or '-' }}</td>
+</tr>{% endfor %}</tbody></table>
+</div></div></div>
+<div style="margin-top:12px;font-size:13px;color:#666">
+    Total : <strong>{{ history|length }}</strong> recharge(s) — 
+    Montant cumulé : <strong>{{ '{:,.0f}'.format(history|sum(attribute='amount')) }} F</strong>
+</div>
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">
+    Aucune recharge enregistrée pour cet équipement.
+</div></div>
+{% endif %}
+{% endblock %}

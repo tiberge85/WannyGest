@@ -449,6 +449,7 @@
                     <a href="/it" class="{% if page == 'it' %}active{% endif %}">📊 Dashboard IT</a>
                     <a href="/it/parc" class="{% if page == 'it_parc' %}active{% endif %}">🖥️ Parc informatique</a>
                     <a href="/it/tickets" class="{% if page == 'it_tickets' %}active{% endif %}">🛠️ Helpdesk</a>
+                    <a href="/it/recharge" class="{% if page == 'it_recharge' %}active{% endif %}" style="position:relative">📶 Recharge Internet{% if recharge_alerts_count and recharge_alerts_count > 0 %} <span style="background:#c53030;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ recharge_alerts_count }}</span>{% endif %}</a>
                 </div>
             </div>
             {% endif %}

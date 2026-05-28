@@ -379,6 +379,8 @@ from models import migrate_v71
 migrate_v71()
 from models import migrate_v72
 migrate_v72()
+from models import migrate_v73
+migrate_v73()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -634,6 +636,29 @@ def inject_globals():
                 except: ctx['mg_pending_count'] = 0
             else:
                 ctx['mg_pending_count'] = 0
+            # v78 : compteur alertes recharge Internet (pour le département IT)
+            if 'informatique' in perms or 'admin' in perms:
+                try:
+                    from datetime import datetime as _dt_r, timedelta as _td_r
+                    from models import get_db as _r_db
+                    _rc = _r_db()
+                    _rows = _rc.execute(
+                        "SELECT next_due, alert_days_before FROM it_internet_recharge WHERE status='actif'").fetchall()
+                    _rc.close()
+                    _today = _dt_r.now().date()
+                    _cnt = 0
+                    for _row in _rows:
+                        if not _row['next_due']: continue
+                        try:
+                            _due = _dt_r.strptime(_row['next_due'][:10], '%Y-%m-%d').date()
+                            _dl = (_due - _today).days
+                            if _dl <= int(_row['alert_days_before'] or 2):
+                                _cnt += 1
+                        except: pass
+                    ctx['recharge_alerts_count'] = _cnt
+                except: ctx['recharge_alerts_count'] = 0
+            else:
+                ctx['recharge_alerts_count'] = 0
             if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
                     from models import get_db as _gdb
@@ -10493,6 +10518,255 @@ def it_ticket_status(tid, status):
         conn.commit()
     conn.close()
     flash("Ticket mis à jour","success"); return redirect('/it/tickets')
+
+# ==================== v78 : MODULE RECHARGE INTERNET ====================
+
+def _compute_next_due(base_date_str, period_type, period_days, period_monthly_day):
+    """Calcule la prochaine date d'échéance à partir d'une date de base.
+    base_date_str : 'YYYY-MM-DD' (date de la dernière recharge ou date de départ)
+    period_type : 'jours' ou 'mensuel'
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        base = _dt.strptime(base_date_str[:10], '%Y-%m-%d').date()
+    except:
+        base = _dt.now().date()
+    
+    if period_type == 'mensuel':
+        day = int(period_monthly_day or base.day)
+        month = base.month + 1
+        year = base.year
+        if month > 12:
+            month = 1
+            year += 1
+        import calendar as _cal
+        last_day = _cal.monthrange(year, month)[1]
+        day = min(day, last_day)
+        next_d = base.replace(year=year, month=month, day=day)
+    else:
+        days = int(period_days or 30)
+        next_d = base + _td(days=days)
+    
+    return next_d.strftime('%Y-%m-%d')
+
+
+def get_recharge_alerts():
+    """Retourne les recharges en alerte (échéance dans <= alert_days_before jours, ou en retard).
+    Le rappel reste actif tant que la recharge n'est pas confirmée (status='actif')."""
+    from datetime import datetime as _dt
+    conn = _gdb()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM it_internet_recharge WHERE status='actif' ORDER BY next_due ASC").fetchall()]
+    except:
+        rows = []
+    conn.close()
+    today = _dt.now().date()
+    alerts = []
+    for r in rows:
+        if not r.get('next_due'): continue
+        try:
+            due = _dt.strptime(r['next_due'][:10], '%Y-%m-%d').date()
+        except:
+            continue
+        days_left = (due - today).days
+        alert_before = int(r.get('alert_days_before') or 2)
+        if days_left <= alert_before:
+            r['days_left'] = days_left
+            r['is_overdue'] = days_left < 0
+            alerts.append(r)
+    return alerts
+
+
+@app.route('/it/recharge')
+@permission_required('informatique')
+def it_recharge():
+    """Page de suivi des recharges Internet."""
+    from datetime import datetime as _dt
+    conn = _gdb()
+    recharges = [dict(r) for r in conn.execute(
+        "SELECT * FROM it_internet_recharge ORDER BY status DESC, next_due ASC").fetchall()]
+    conn.close()
+    
+    today = _dt.now().date()
+    for r in recharges:
+        r['days_left'] = None
+        r['state'] = 'inconnu'
+        if r.get('next_due'):
+            try:
+                due = _dt.strptime(r['next_due'][:10], '%Y-%m-%d').date()
+                days_left = (due - today).days
+                r['days_left'] = days_left
+                alert_before = int(r.get('alert_days_before') or 2)
+                if r['status'] != 'actif':
+                    r['state'] = 'inactif'
+                elif days_left < 0:
+                    r['state'] = 'retard'
+                elif days_left <= alert_before:
+                    r['state'] = 'bientot'
+                else:
+                    r['state'] = 'ok'
+            except:
+                pass
+    
+    nb_total = len(recharges)
+    nb_retard = sum(1 for r in recharges if r['state'] == 'retard')
+    nb_bientot = sum(1 for r in recharges if r['state'] == 'bientot')
+    nb_ok = sum(1 for r in recharges if r['state'] == 'ok')
+    
+    return render_template('it_recharge.html', page='it_recharge',
+        recharges=recharges, nb_total=nb_total, nb_retard=nb_retard,
+        nb_bientot=nb_bientot, nb_ok=nb_ok, today=today.strftime('%Y-%m-%d'))
+
+
+@app.route('/it/recharge/add', methods=['POST'])
+@permission_required('informatique')
+def it_recharge_add():
+    """Enregistre un nouvel équipement à recharger."""
+    equipment_name = request.form.get('equipment_name', '').strip()
+    if not equipment_name:
+        flash("Nom de l'équipement requis", "error")
+        return redirect('/it/recharge')
+    
+    period_type = request.form.get('period_type', 'jours')
+    period_days = int(request.form.get('period_days', 30) or 30)
+    period_monthly_day = int(request.form.get('period_monthly_day', 1) or 1)
+    alert_days_before = int(request.form.get('alert_days_before', 2) or 2)
+    
+    next_due = request.form.get('next_due', '').strip()
+    if not next_due:
+        from datetime import datetime as _dt
+        next_due = _compute_next_due(_dt.now().strftime('%Y-%m-%d'),
+                                     period_type, period_days, period_monthly_day)
+    
+    conn = _gdb()
+    conn.execute("""INSERT INTO it_internet_recharge
+        (equipment_name, equipment_type, operator, sim_number, location, amount,
+         period_type, period_days, period_monthly_day, next_due, alert_days_before,
+         status, notes, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (equipment_name, request.form.get('equipment_type', ''),
+         request.form.get('operator', ''), request.form.get('sim_number', ''),
+         request.form.get('location', ''), float(request.form.get('amount', 0) or 0),
+         period_type, period_days, period_monthly_day, next_due, alert_days_before,
+         'actif', request.form.get('notes', ''), session.get('user_id')))
+    conn.commit(); conn.close()
+    
+    try:
+        log_activity(session.get('user_id'), get_user_by_id(session['user_id'])['full_name'],
+                    'IT', f"Équipement recharge ajouté : {equipment_name}", request.remote_addr)
+    except: pass
+    
+    flash(f"✅ Équipement '{equipment_name}' enregistré. Prochaine recharge : {next_due}", "success")
+    return redirect('/it/recharge')
+
+
+@app.route('/it/recharge/<int:rid>/done', methods=['POST'])
+@permission_required('informatique')
+def it_recharge_done(rid):
+    """Confirme qu'une recharge a été effectuée → recalcule la prochaine échéance."""
+    from datetime import datetime as _dt
+    conn = _gdb()
+    rec = conn.execute("SELECT * FROM it_internet_recharge WHERE id=?", (rid,)).fetchone()
+    if not rec:
+        conn.close()
+        flash("Équipement introuvable", "error")
+        return redirect('/it/recharge')
+    rec = dict(rec)
+    
+    recharge_date = request.form.get('recharge_date', '').strip() or _dt.now().strftime('%Y-%m-%d')
+    amount = float(request.form.get('amount', rec.get('amount', 0)) or 0)
+    
+    # Recalculer la prochaine échéance À PARTIR de la date réelle de recharge
+    next_due = _compute_next_due(recharge_date, rec['period_type'],
+                                 rec['period_days'], rec['period_monthly_day'])
+    
+    conn.execute("""INSERT INTO it_internet_recharge_history
+        (recharge_id, recharge_date, amount, done_by, notes)
+        VALUES (?,?,?,?,?)""",
+        (rid, recharge_date, amount, session.get('user_id'),
+         request.form.get('notes', '')))
+    
+    conn.execute("""UPDATE it_internet_recharge
+        SET last_recharge_date=?, next_due=?, status='actif' WHERE id=?""",
+        (recharge_date, next_due, rid))
+    conn.commit(); conn.close()
+    
+    try:
+        log_activity(session.get('user_id'), get_user_by_id(session['user_id'])['full_name'],
+                    'IT', f"Recharge effectuée : {rec['equipment_name']} ({recharge_date})", request.remote_addr)
+    except: pass
+    
+    flash(f"✅ Recharge confirmée pour '{rec['equipment_name']}'. Prochaine échéance : {next_due}", "success")
+    return redirect('/it/recharge')
+
+
+@app.route('/it/recharge/<int:rid>/edit', methods=['POST'])
+@permission_required('informatique')
+def it_recharge_edit(rid):
+    """Modifie un équipement de recharge."""
+    period_type = request.form.get('period_type', 'jours')
+    conn = _gdb()
+    conn.execute("""UPDATE it_internet_recharge SET
+        equipment_name=?, equipment_type=?, operator=?, sim_number=?, location=?,
+        amount=?, period_type=?, period_days=?, period_monthly_day=?,
+        next_due=?, alert_days_before=?, notes=? WHERE id=?""",
+        (request.form.get('equipment_name', ''), request.form.get('equipment_type', ''),
+         request.form.get('operator', ''), request.form.get('sim_number', ''),
+         request.form.get('location', ''), float(request.form.get('amount', 0) or 0),
+         period_type, int(request.form.get('period_days', 30) or 30),
+         int(request.form.get('period_monthly_day', 1) or 1),
+         request.form.get('next_due', '').strip(),
+         int(request.form.get('alert_days_before', 2) or 2),
+         request.form.get('notes', ''), rid))
+    conn.commit(); conn.close()
+    flash("Équipement mis à jour", "success")
+    return redirect('/it/recharge')
+
+
+@app.route('/it/recharge/<int:rid>/toggle')
+@permission_required('informatique')
+def it_recharge_toggle(rid):
+    """Active/désactive le suivi d'un équipement."""
+    conn = _gdb()
+    rec = conn.execute("SELECT status FROM it_internet_recharge WHERE id=?", (rid,)).fetchone()
+    if rec:
+        new_status = 'inactif' if rec['status'] == 'actif' else 'actif'
+        conn.execute("UPDATE it_internet_recharge SET status=? WHERE id=?", (new_status, rid))
+        conn.commit()
+    conn.close()
+    return redirect('/it/recharge')
+
+
+@app.route('/it/recharge/<int:rid>/delete')
+@permission_required('informatique')
+def it_recharge_delete(rid):
+    """Supprime un équipement de recharge."""
+    conn = _gdb()
+    conn.execute("DELETE FROM it_internet_recharge_history WHERE recharge_id=?", (rid,))
+    conn.execute("DELETE FROM it_internet_recharge WHERE id=?", (rid,))
+    conn.commit(); conn.close()
+    flash("Équipement supprimé", "success")
+    return redirect('/it/recharge')
+
+
+@app.route('/it/recharge/<int:rid>/history')
+@permission_required('informatique')
+def it_recharge_history(rid):
+    """Historique des recharges d'un équipement."""
+    conn = _gdb()
+    rec = conn.execute("SELECT * FROM it_internet_recharge WHERE id=?", (rid,)).fetchone()
+    if not rec:
+        conn.close()
+        flash("Équipement introuvable", "error")
+        return redirect('/it/recharge')
+    history = [dict(r) for r in conn.execute("""SELECT h.*, u.full_name as done_by_name
+        FROM it_internet_recharge_history h LEFT JOIN users u ON h.done_by=u.id
+        WHERE h.recharge_id=? ORDER BY h.recharge_date DESC""", (rid,)).fetchall()]
+    conn.close()
+    return render_template('it_recharge_history.html', page='it_recharge',
+        recharge=dict(rec), history=history)
+
 
 @app.route('/it/securite')
 @permission_required('informatique')

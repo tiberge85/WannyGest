@@ -4645,6 +4645,54 @@ def migrate_v72():
     conn.commit(); conn.close()
 
 
+def migrate_v73():
+    """v78 : Module Rappel Recharge Internet (département IT).
+    
+    Table it_internet_recharge :
+    - Enregistrement d'un équipement nécessitant des recharges Internet périodiques
+    - Périodicité au choix : 'jours' (nombre fixe) OU 'mensuel' (même jour chaque mois)
+    - next_due : prochaine date de recharge prévue
+    - Alerte 2 jours avant, qui reste active jusqu'à confirmation
+    - Recalcul auto de next_due à partir de la date réelle de recharge
+    """
+    conn = get_db()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS it_internet_recharge (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_name TEXT NOT NULL,
+            equipment_type TEXT,
+            operator TEXT,
+            sim_number TEXT,
+            location TEXT,
+            amount REAL DEFAULT 0,
+            period_type TEXT DEFAULT 'jours',
+            period_days INTEGER DEFAULT 30,
+            period_monthly_day INTEGER DEFAULT 1,
+            next_due TEXT,
+            last_recharge_date TEXT,
+            alert_days_before INTEGER DEFAULT 2,
+            status TEXT DEFAULT 'actif',
+            notes TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    # Historique des recharges effectuées
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS it_internet_recharge_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recharge_id INTEGER NOT NULL,
+            recharge_date TEXT,
+            amount REAL DEFAULT 0,
+            done_by INTEGER,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (recharge_id) REFERENCES it_internet_recharge(id)
+        )
+    ''')
+    conn.commit(); conn.close()
+
+
 def mg_get_fournisseur_dashboard(fournisseur_id=None):
     """Tableau de bord fournisseur :
     - total_commandes : somme des commandes du fournisseur

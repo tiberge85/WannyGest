@@ -1,0 +1,233 @@
+{% extends "base.html" %}{% block title %}WannyGest - Recharge Internet{% endblock %}{% block content %}
+<div class="page-header"><h1>📶 Rappel Recharge Internet</h1>
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Équipement</button></div>
+
+<!-- Cartes statistiques -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+    <div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #1976d2;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">Total équipements</div>
+        <div style="font-size:26px;font-weight:700;color:#1976d2">{{ nb_total }}</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #c53030;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">⚠️ En retard</div>
+        <div style="font-size:26px;font-weight:700;color:#c53030">{{ nb_retard }}</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #e8672a;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">🔔 Bientôt dû</div>
+        <div style="font-size:26px;font-weight:700;color:#e8672a">{{ nb_bientot }}</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #2e7d32;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">✅ À jour</div>
+        <div style="font-size:26px;font-weight:700;color:#2e7d32">{{ nb_ok }}</div>
+    </div>
+</div>
+
+<!-- Bandeau alertes -->
+{% set alerts = recharges|selectattr('state','in',['retard','bientot'])|list %}
+{% if alerts %}
+<div style="background:linear-gradient(135deg,#fff3e0,#ffe0b2);border-left:5px solid #e8672a;border-radius:10px;padding:14px;margin-bottom:16px">
+    <strong style="color:#b8561f;font-size:14px">🔔 {{ alerts|length }} recharge(s) à effectuer</strong>
+    <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+    {% for r in alerts %}
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;background:#fff;padding:8px 12px;border-radius:8px;flex-wrap:wrap">
+            <span style="font-weight:700">{{ r.equipment_name }}</span>
+            {% if r.operator %}<span style="color:#888;font-size:11px">({{ r.operator }})</span>{% endif %}
+            {% if r.state == 'retard' %}
+                <span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">⚠️ En retard de {{ -r.days_left }} jour(s)</span>
+            {% else %}
+                <span style="background:#fff3e0;color:#e8672a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">🔔 Échéance dans {{ r.days_left }} jour(s)</span>
+            {% endif %}
+            <span style="color:#666;font-size:11px">Prévu le {{ r.next_due }}</span>
+            <button class="btn btn-sm" style="background:#2e7d32;color:#fff;margin-left:auto" onclick="openDone({{ r.id }}, '{{ r.equipment_name|replace("'", "") }}', {{ r.amount or 0 }})">✅ Recharge effectuée</button>
+        </div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Tableau complet -->
+{% if recharges %}
+<div class="card"><div class="card-body" style="padding:0"><div class="table-wrap">
+<div style="margin:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div>
+<table id="dataTable">
+<thead><tr>
+<th>Équipement</th><th>Opérateur</th><th>N° SIM</th><th>Lieu</th><th>Périodicité</th>
+<th>Prochaine recharge</th><th>État</th><th>Montant</th><th>Actions</th>
+</tr></thead>
+<tbody>{% for r in recharges %}<tr>
+<td><strong>{{ r.equipment_name }}</strong>{% if r.equipment_type %}<br><span style="font-size:10px;color:#888">{{ r.equipment_type }}</span>{% endif %}</td>
+<td>{{ r.operator or '-' }}</td>
+<td style="font-size:11px">{{ r.sim_number or '-' }}</td>
+<td style="font-size:11px">{{ r.location or '-' }}</td>
+<td style="font-size:11px">
+    {% if r.period_type == 'mensuel' %}📅 Le {{ r.period_monthly_day }} de chaque mois
+    {% else %}🔁 Tous les {{ r.period_days }} jours{% endif %}
+</td>
+<td><strong>{{ r.next_due or '-' }}</strong>
+    {% if r.last_recharge_date %}<br><span style="font-size:10px;color:#888">Dernière : {{ r.last_recharge_date }}</span>{% endif %}
+</td>
+<td>
+    {% if r.state == 'retard' %}<span style="background:#fde8e8;color:#c53030;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600">⚠️ Retard {{ -r.days_left }}j</span>
+    {% elif r.state == 'bientot' %}<span style="background:#fff3e0;color:#e8672a;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600">🔔 Dans {{ r.days_left }}j</span>
+    {% elif r.state == 'ok' %}<span style="background:#e8f5e9;color:#2e7d32;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600">✅ Dans {{ r.days_left }}j</span>
+    {% elif r.state == 'inactif' %}<span style="background:#f5f5f5;color:#888;padding:3px 8px;border-radius:10px;font-size:11px">⏸️ Inactif</span>
+    {% else %}<span style="color:#999">-</span>{% endif %}
+</td>
+<td style="font-size:11px">{{ '{:,.0f}'.format(r.amount or 0) }} F</td>
+<td style="white-space:nowrap">
+    <button class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Confirmer recharge" onclick="openDone({{ r.id }}, '{{ r.equipment_name|replace("'", "") }}', {{ r.amount or 0 }})">✅</button>
+    <button class="btn btn-outline btn-sm" title="Modifier" onclick='openEdit({{ r|tojson }})'>✏️</button>
+    <a href="/it/recharge/{{ r.id }}/history" class="btn btn-outline btn-sm" title="Historique">📜</a>
+    <a href="/it/recharge/{{ r.id }}/toggle" class="btn btn-outline btn-sm" title="Activer/Désactiver">{% if r.status == 'actif' %}⏸️{% else %}▶️{% endif %}</a>
+    <a href="/it/recharge/{{ r.id }}/delete" class="btn btn-sm" style="color:#c53030" title="Supprimer" onclick="return confirm('Supprimer cet équipement ?')">🗑️</a>
+</td>
+</tr>{% endfor %}</tbody></table></div></div></div>
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:40px">
+    <div style="font-size:40px;margin-bottom:10px">📶</div>
+    Aucun équipement enregistré.<br>
+    <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="document.getElementById('addM').classList.add('active')">+ Enregistrer le premier équipement</button>
+</div></div>
+{% endif %}
+
+<!-- Modal AJOUT -->
+<div class="modal-bg" id="addM"><div class="modal"><h3>📶 Nouvel équipement à recharger</h3>
+<form method="post" action="/it/recharge/add">
+    <div class="form-row">
+        <div class="form-group"><label>Nom de l'équipement *</label><input type="text" name="equipment_name" required placeholder="Ex: Routeur 4G Bureau"></div>
+        <div class="form-group"><label>Type</label><input type="text" name="equipment_type" placeholder="Routeur 4G, Modem, Clé..."></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Opérateur</label><input type="text" name="operator" placeholder="Orange, MTN, Moov..."></div>
+        <div class="form-group"><label>N° SIM / Ligne</label><input type="text" name="sim_number" placeholder="07 XX XX XX XX"></div>
+        <div class="form-group"><label>Lieu</label><input type="text" name="location" placeholder="Agence, étage..."></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Montant recharge (FCFA)</label><input type="number" name="amount" step="500" value="0"></div>
+        <div class="form-group"><label>Alerte (jours avant)</label><input type="number" name="alert_days_before" value="2" min="0" max="30"></div>
+    </div>
+    <div style="background:#f8faf9;border-radius:8px;padding:12px;margin-bottom:12px">
+        <label style="font-weight:600;font-size:13px;color:#1976d2;display:block;margin-bottom:8px">⏱️ Périodicité de recharge</label>
+        <div style="display:flex;gap:16px;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                <input type="radio" name="period_type" value="jours" checked onchange="togglePeriod('add')"> 🔁 Tous les X jours
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                <input type="radio" name="period_type" value="mensuel" onchange="togglePeriod('add')"> 📅 Mensuel (même jour)
+            </label>
+        </div>
+        <div id="add_jours" class="form-group" style="margin:0">
+            <label>Nombre de jours</label><input type="number" name="period_days" value="30" min="1" style="width:120px">
+        </div>
+        <div id="add_mensuel" class="form-group" style="margin:0;display:none">
+            <label>Jour du mois (1-31)</label><input type="number" name="period_monthly_day" value="1" min="1" max="31" style="width:120px">
+        </div>
+    </div>
+    <div class="form-group"><label>Première échéance (laisser vide = calcul auto depuis aujourd'hui)</label><input type="date" name="next_due"></div>
+    <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('addM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">✅ Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+<!-- Modal RECHARGE EFFECTUÉE -->
+<div class="modal-bg" id="doneM"><div class="modal"><h3>✅ Confirmer la recharge</h3>
+<form method="post" id="doneForm">
+    <p style="font-size:13px;color:#555">Équipement : <strong id="doneEquipName"></strong></p>
+    <div class="form-row">
+        <div class="form-group"><label>Date de la recharge *</label><input type="date" name="recharge_date" id="doneDate" required></div>
+        <div class="form-group"><label>Montant rechargé (FCFA)</label><input type="number" name="amount" id="doneAmount" step="500"></div>
+    </div>
+    <div class="form-group"><label>Notes (optionnel)</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="background:#e8f5e9;border-radius:8px;padding:10px;font-size:12px;color:#2e7d32;margin-bottom:10px">
+        💡 La prochaine échéance sera <strong>recalculée automatiquement</strong> à partir de cette date de recharge.
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('doneM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn" style="background:#2e7d32;color:#fff">✅ Confirmer la recharge</button>
+    </div>
+</form>
+</div></div>
+
+<!-- Modal MODIFICATION -->
+<div class="modal-bg" id="editM"><div class="modal"><h3>✏️ Modifier l'équipement</h3>
+<form method="post" id="editForm">
+    <div class="form-row">
+        <div class="form-group"><label>Nom *</label><input type="text" name="equipment_name" id="e_name" required></div>
+        <div class="form-group"><label>Type</label><input type="text" name="equipment_type" id="e_type"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Opérateur</label><input type="text" name="operator" id="e_operator"></div>
+        <div class="form-group"><label>N° SIM</label><input type="text" name="sim_number" id="e_sim"></div>
+        <div class="form-group"><label>Lieu</label><input type="text" name="location" id="e_location"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Montant (FCFA)</label><input type="number" name="amount" id="e_amount" step="500"></div>
+        <div class="form-group"><label>Alerte (jours avant)</label><input type="number" name="alert_days_before" id="e_alert" min="0" max="30"></div>
+    </div>
+    <div style="background:#f8faf9;border-radius:8px;padding:12px;margin-bottom:12px">
+        <label style="font-weight:600;font-size:13px;color:#1976d2;display:block;margin-bottom:8px">⏱️ Périodicité</label>
+        <div style="display:flex;gap:16px;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                <input type="radio" name="period_type" value="jours" id="e_pt_jours" onchange="togglePeriod('edit')"> 🔁 Tous les X jours
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                <input type="radio" name="period_type" value="mensuel" id="e_pt_mensuel" onchange="togglePeriod('edit')"> 📅 Mensuel
+            </label>
+        </div>
+        <div id="edit_jours" class="form-group" style="margin:0">
+            <label>Nombre de jours</label><input type="number" name="period_days" id="e_days" min="1" style="width:120px">
+        </div>
+        <div id="edit_mensuel" class="form-group" style="margin:0;display:none">
+            <label>Jour du mois (1-31)</label><input type="number" name="period_monthly_day" id="e_mday" min="1" max="31" style="width:120px">
+        </div>
+    </div>
+    <div class="form-group"><label>Prochaine échéance</label><input type="date" name="next_due" id="e_next_due"></div>
+    <div class="form-group"><label>Notes</label><textarea name="notes" id="e_notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+<script>
+function togglePeriod(prefix) {
+    var isMonthly = document.querySelector('#' + (prefix==='add'?'addM':'editM') + ' input[name="period_type"]:checked').value === 'mensuel';
+    document.getElementById(prefix + '_jours').style.display = isMonthly ? 'none' : '';
+    document.getElementById(prefix + '_mensuel').style.display = isMonthly ? '' : 'none';
+}
+
+function openDone(id, name, amount) {
+    document.getElementById('doneForm').action = '/it/recharge/' + id + '/done';
+    document.getElementById('doneEquipName').textContent = name;
+    document.getElementById('doneAmount').value = amount || 0;
+    document.getElementById('doneDate').value = '{{ today }}';
+    document.getElementById('doneM').classList.add('active');
+}
+
+function openEdit(r) {
+    document.getElementById('editForm').action = '/it/recharge/' + r.id + '/edit';
+    document.getElementById('e_name').value = r.equipment_name || '';
+    document.getElementById('e_type').value = r.equipment_type || '';
+    document.getElementById('e_operator').value = r.operator || '';
+    document.getElementById('e_sim').value = r.sim_number || '';
+    document.getElementById('e_location').value = r.location || '';
+    document.getElementById('e_amount').value = r.amount || 0;
+    document.getElementById('e_alert').value = r.alert_days_before || 2;
+    document.getElementById('e_days').value = r.period_days || 30;
+    document.getElementById('e_mday').value = r.period_monthly_day || 1;
+    document.getElementById('e_next_due').value = r.next_due || '';
+    document.getElementById('e_notes').value = r.notes || '';
+    if (r.period_type === 'mensuel') {
+        document.getElementById('e_pt_mensuel').checked = true;
+    } else {
+        document.getElementById('e_pt_jours').checked = true;
+    }
+    togglePeriod('edit');
+    document.getElementById('editM').classList.add('active');
+}
+</script>
+{% endblock %}
