@@ -6,6 +6,7 @@
     <div class="card-header">
         <h3>Clients ({{ clients|length }})</h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <a href="/clients/export" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Exporter la base clients en Excel">📤 Exporter</a>
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('importM').classList.add('active')">📥 Import</button>
             <button class="btn btn-primary btn-sm" onclick="document.getElementById('addModal').classList.add('active')">+ Client</button>
         </div>
@@ -56,6 +57,7 @@
                 <th>Téléphone</th>
                 <th>Email</th>
                 <th style="cursor:pointer" onclick="sortTable('cliTable',7,'text')">Statut <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
+                <th>Type</th>
                 <th>Actions</th>
             </tr></thead>
             <tbody>
@@ -75,9 +77,16 @@
                 {% elif 'sous_contrat' in st %}background:#e8f5e9;color:#2e7d32
                 {% else %}background:#f0f4f8;color:#555{% endif %}">
                 {{ st|replace('_',' ')|replace('sous','sous ')|capitalize }}</span></td>
+                <td>{% set tp = c.type or 'client' %}
+                {% if tp == 'prospect' %}
+                    <span style="background:#fff3e0;color:#e8672a;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">🎯 Prospect</span>
+                {% else %}
+                    <span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">✅ Client</span>
+                {% endif %}</td>
                 <td style="white-space:nowrap">
                     <a href="/clients/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Voir">👁️</a>
                     <a href="/clients/edit/{{ c.id }}?return_to={{ (request.url | urlencode) if request.url else '' }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Modifier">✏️</a>
+                    <a href="/clients/{{ c.id }}/toggle-type" class="btn btn-sm btn-outline" style="font-size:9px" title="{% if (c.type or 'client') == 'client' %}Convertir en prospect{% else %}Convertir en client{% endif %}" onclick="return confirm('Basculer entre client et prospect ?')">🔄</a>
                     <a href="/clients/delete/{{ c.id }}?return_to={{ (request.url | urlencode) if request.url else '' }}" class="btn btn-sm del-client-btn" data-name="{{ c.name|e }}" style="color:#c53030;font-size:9px" title="Supprimer">🗑️</a>
                 </td>
             </tr>

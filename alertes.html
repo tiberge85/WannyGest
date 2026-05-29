@@ -3,11 +3,19 @@
 {% block content %}
 <div class="page-header">
     <h1>🚨 Alertes automatiques</h1>
-    <p>Retards excessifs et absences répétées détectés dans les rapports</p>
+    <p>Retards excessifs et absences répétées détectés dans les rapports — regroupées par site</p>
 </div>
 
 {% set high_alerts = alerts|selectattr('severity', 'equalto', 'high')|list %}
 {% set medium_alerts = alerts|selectattr('severity', 'equalto', 'medium')|list %}
+
+{# v83 : Regroupement par site (client) #}
+{% set sites = {} %}
+{% for a in alerts %}
+    {% set site = a.client or 'Site inconnu' %}
+    {% if site not in sites %}{% set _ = sites.update({site: []}) %}{% endif %}
+    {% set _ = sites[site].append(a) %}
+{% endfor %}
 
 <div class="stats-grid">
     <div class="stat-card">
@@ -31,33 +39,53 @@
             <div class="stat-label">Total alertes</div>
         </div>
     </div>
-</div>
-
-<div class="card">
-    <div class="card-header"><h3>Détail des alertes</h3></div>
-    <div class="card-body">
-        {% if alerts %}
-        <div class="table-wrap"><table>
-            <thead><tr><th>Sévérité</th><th>Type</th><th>Employé</th><th>Client</th><th>Détail</th><th>Période</th><th>Rapport</th></tr></thead>
-            <tbody>
-            {% for a in alerts %}
-            <tr>
-                <td>{% if a.severity == 'high' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">🔴 Critique</span>{% else %}<span class="badge-status pending">🟠 Modéré</span>{% endif %}</td>
-                <td>{% if a.type == 'retard' %}⏰ Retards{% else %}❌ Absences{% endif %}</td>
-                <td><strong>{{ a.employee }}</strong></td>
-                <td>{{ a.client }}</td>
-                <td>{{ a.detail }}</td>
-                <td style="font-size:12px">{{ a.period }}</td>
-                <td><a href="/job/{{ a.job_id }}" class="btn btn-outline btn-sm">Voir</a></td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table></div>
-        {% else %}
-        <p style="text-align:center;color:#2e7d32;padding:30px;font-size:16px">✅ Aucune alerte — Tous les employés sont dans les normes</p>
-        {% endif %}
+    <div class="stat-card">
+        <div class="stat-icon blue">🏢</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ sites|length }}</div>
+            <div class="stat-label">Sites concernés</div>
+        </div>
     </div>
 </div>
+
+{% if alerts %}
+<div style="margin-bottom:10px;display:flex;justify-content:flex-end;gap:8px">
+    <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('.site-block').forEach(s=>s.open=true)">Tout déplier</button>
+    <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('.site-block').forEach(s=>s.open=false)">Tout replier</button>
+</div>
+{% for site, site_alerts in sites|dictsort %}
+    {% set s_high = site_alerts|selectattr('severity', 'equalto', 'high')|list|length %}
+    {% set s_med = site_alerts|selectattr('severity', 'equalto', 'medium')|list|length %}
+    <details class="site-block card" style="margin-bottom:10px" {% if s_high > 0 %}open{% endif %}>
+        <summary style="cursor:pointer;padding:14px 16px;background:linear-gradient(135deg,#f8faf9,#eaf3f0);border-radius:10px 10px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="background:#1A7A6D;color:#fff;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px">🏢</span>
+            <strong style="font-size:15px;color:#1a3a5c">{{ site }}</strong>
+            <span style="background:#fff;padding:3px 10px;border-radius:12px;font-size:11px;color:#666;border:1px solid #ddd">{{ site_alerts|length }} alerte(s)</span>
+            {% if s_high > 0 %}<span style="background:#fde8e8;color:#c53030;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700">🔴 {{ s_high }} critique(s)</span>{% endif %}
+            {% if s_med > 0 %}<span style="background:#fff3e0;color:#e8672a;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700">🟠 {{ s_med }} modéré(s)</span>{% endif %}
+        </summary>
+        <div style="padding:0">
+            <div class="table-wrap"><table>
+                <thead><tr><th>Sévérité</th><th>Type</th><th>Employé</th><th>Détail</th><th>Période</th><th>Rapport</th></tr></thead>
+                <tbody>
+                {% for a in site_alerts %}
+                <tr>
+                    <td>{% if a.severity == 'high' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">🔴 Critique</span>{% else %}<span class="badge-status pending">🟠 Modéré</span>{% endif %}</td>
+                    <td>{% if a.type == 'retard' %}⏰ Retards{% else %}❌ Absences{% endif %}</td>
+                    <td><strong>{{ a.employee }}</strong></td>
+                    <td>{{ a.detail }}</td>
+                    <td style="font-size:12px">{{ a.period }}</td>
+                    <td><a href="/job/{{ a.job_id }}" class="btn btn-outline btn-sm">Voir</a></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table></div>
+        </div>
+    </details>
+{% endfor %}
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;color:#2e7d32;padding:30px;font-size:16px">✅ Aucune alerte — Tous les employés sont dans les normes</div></div>
+{% endif %}
 
 <div class="card"><div class="card-body" style="font-size:13px;color:#888">
     <strong>Critères d'alerte :</strong> Retard critique = 10+ jours, modéré = 5-9 jours. Absence critique = 5+ jours, modérée = 3-4 jours. Basé sur les données des derniers rapports traités.

@@ -381,6 +381,8 @@ from models import migrate_v72
 migrate_v72()
 from models import migrate_v73
 migrate_v73()
+from models import migrate_v74
+migrate_v74()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -2026,6 +2028,83 @@ def clients_page():
     return render_template('clients.html', page='clients', clients=clients)
 
 
+# v83 : Export base clients en Excel
+@app.route('/clients/export')
+@permission_required('clients')
+def clients_export():
+    """Exporte la base clients (clients + prospects) en Excel."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from flask import Response
+    import io as _io
+    
+    clients = get_all_clients()
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Clients"
+    
+    headers = ['ID', 'Type', 'Nom', 'Contact', 'Téléphone', 'Email', 'Adresse', 'Notes', 'Date création']
+    fields = ['id', 'type', 'name', 'contact_name', 'tel', 'email', 'address', 'notes', 'created_at']
+    widths = [6, 12, 28, 22, 14, 22, 28, 30, 18]
+    
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True, color='FFFFFF', size=10)
+        cell.fill = PatternFill(start_color='1A7A6D', end_color='1A7A6D', fill_type='solid')
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = widths[col-1] if col-1 < len(widths) else 16
+    ws.row_dimensions[1].height = 26
+    
+    for r, cli in enumerate(clients, 2):
+        for c, field in enumerate(fields, 1):
+            val = cli.get(field, '') if isinstance(cli, dict) else getattr(cli, field, '')
+            ws.cell(row=r, column=c, value=val if val is not None else '')
+    
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    
+    try:
+        log_activity(session.get('user_id'),
+                    get_user_by_id(session['user_id'])['full_name'],
+                    'Clients', f"Export base clients ({len(clients)} entrées)",
+                    request.remote_addr)
+    except: pass
+    
+    from datetime import datetime as _dt83
+    fname = f"clients_{_dt83.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return Response(buf.getvalue(),
+                   mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                   headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+
+# v83 : Convertir un client en prospect (et inversement)
+@app.route('/clients/<int:cid>/toggle-type')
+@permission_required('clients')
+def clients_toggle_type(cid):
+    """Bascule le type entre 'client' et 'prospect'."""
+    conn = _gdb()
+    row = conn.execute("SELECT type, name FROM clients WHERE id=?", (cid,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Client introuvable", "error")
+        return redirect('/clients')
+    current_type = row['type'] or 'client'
+    new_type = 'prospect' if current_type == 'client' else 'client'
+    conn.execute("UPDATE clients SET type=? WHERE id=?", (new_type, cid))
+    conn.commit(); conn.close()
+    
+    try:
+        log_activity(session.get('user_id'), get_user_by_id(session['user_id'])['full_name'],
+                    'Clients', f"{row['name']} : {current_type} → {new_type}", request.remote_addr)
+    except: pass
+    
+    label = "🎯 Prospect" if new_type == 'prospect' else "✅ Client"
+    flash(f"{row['name']} converti en {label}", "success")
+    return redirect('/clients')
+
+
 @app.route('/clients/<int:cid>')
 @permission_required('clients')
 def client_profile(cid):
@@ -2662,6 +2741,38 @@ def contrats_page():
     contracts = get_all_contracts()
     clients = get_all_clients()
     return render_template('contrats.html', page='contrats', contracts=contracts, clients=clients)
+
+
+# v83 : Réorganiser l'ordre des contrats (monter / descendre)
+@app.route('/contrats/<int:cid>/move/<direction>')
+@permission_required('contrats')
+def contrats_move(cid, direction):
+    """Monte ou descend un contrat dans l'ordre d'affichage."""
+    if direction not in ('up', 'down'):
+        return redirect('/contrats')
+    conn = _gdb()
+    # Lister tous les contrats avec leur ordre actuel
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, COALESCE(display_order, 0) as ord FROM contracts ORDER BY COALESCE(display_order, 0), id").fetchall()]
+    # Réaffecter des ordres séquentiels (1,2,3...) si tous sont à 0
+    for i, r in enumerate(rows):
+        conn.execute("UPDATE contracts SET display_order=? WHERE id=?", (i + 1, r['id']))
+    # Rafraîchir
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, display_order FROM contracts ORDER BY display_order, id").fetchall()]
+    idx = next((i for i, r in enumerate(rows) if r['id'] == cid), None)
+    if idx is not None:
+        if direction == 'up' and idx > 0:
+            other = rows[idx - 1]
+            conn.execute("UPDATE contracts SET display_order=? WHERE id=?", (other['display_order'], cid))
+            conn.execute("UPDATE contracts SET display_order=? WHERE id=?", (rows[idx]['display_order'], other['id']))
+        elif direction == 'down' and idx < len(rows) - 1:
+            other = rows[idx + 1]
+            conn.execute("UPDATE contracts SET display_order=? WHERE id=?", (other['display_order'], cid))
+            conn.execute("UPDATE contracts SET display_order=? WHERE id=?", (rows[idx]['display_order'], other['id']))
+    conn.commit(); conn.close()
+    return redirect('/contrats')
+
 
 @app.route('/contrats/add', methods=['POST'])
 @permission_required('contrats')
@@ -10736,6 +10847,304 @@ def _filter_recharges(periode='tous', show_done=False):
         return result, d_start, d_end, libelle
 
 
+# ==================== v83 : MODULE CARTOGRAPHIE INSTALLATIONS ====================
+
+def _cartographie_period_filter(periode):
+    """Retourne (date_debut, date_fin, libelle) selon la période demandée."""
+    from datetime import datetime as _dt, timedelta as _td
+    today = _dt.now().date()
+    if periode == 'mois':
+        d_start = today.replace(day=1)
+        if today.month == 12:
+            d_end = today.replace(year=today.year+1, month=1, day=1) - _td(days=1)
+        else:
+            d_end = today.replace(month=today.month+1, day=1) - _td(days=1)
+        libelle = f"de {['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][today.month]} {today.year}"
+    elif periode == 'trimestre':
+        q = (today.month - 1) // 3
+        d_start = today.replace(month=q*3 + 1, day=1)
+        end_m = q*3 + 3
+        if end_m == 12:
+            d_end = today.replace(year=today.year+1, month=1, day=1) - _td(days=1)
+        else:
+            d_end = today.replace(month=end_m+1, day=1) - _td(days=1)
+        libelle = f"du trimestre T{q+1} {today.year}"
+    elif periode == 'semestre':
+        if today.month <= 6:
+            d_start = today.replace(month=1, day=1)
+            d_end = today.replace(month=6, day=30)
+            libelle = f"du 1er semestre {today.year}"
+        else:
+            d_start = today.replace(month=7, day=1)
+            d_end = today.replace(month=12, day=31)
+            libelle = f"du 2e semestre {today.year}"
+    elif periode == 'annee':
+        d_start = today.replace(month=1, day=1)
+        d_end = today.replace(month=12, day=31)
+        libelle = f"de l'année {today.year}"
+    else:
+        d_start = None
+        d_end = None
+        libelle = "(toutes périodes)"
+    return d_start, d_end, libelle
+
+
+@app.route('/installations')
+@permission_required_any('clients', 'centre_technique', 'admin')
+def installations_page():
+    """Cartographie des installations + statistiques d'interventions."""
+    periode = request.args.get('periode', 'annee')
+    d_start, d_end, libelle = _cartographie_period_filter(periode)
+    
+    conn = _gdb()
+    # Toutes les installations
+    installations = [dict(r) for r in conn.execute(
+        "SELECT i.*, cl.name as client_name_ref FROM installations i "
+        "LEFT JOIN clients cl ON i.client_id = cl.id "
+        "ORDER BY i.created_at DESC").fetchall()]
+    
+    # Interventions filtrées par période
+    int_sql = "SELECT * FROM installation_interventions"
+    int_params = []
+    if d_start and d_end:
+        int_sql += " WHERE intervention_date >= ? AND intervention_date <= ?"
+        int_params = [d_start.strftime('%Y-%m-%d'), d_end.strftime('%Y-%m-%d')]
+    int_sql += " ORDER BY intervention_date DESC"
+    interventions = [dict(r) for r in conn.execute(int_sql, int_params).fetchall()]
+    
+    conn.close()
+    
+    # Compteurs par zone
+    zones_count = {}
+    interventions_by_install = {}
+    for it in interventions:
+        interventions_by_install[it['installation_id']] = interventions_by_install.get(it['installation_id'], 0) + 1
+    
+    # Compteur d'équipements + zones
+    total_equipements = 0
+    zones_stats = {}  # zone -> {'installations': N, 'equipements': N, 'interventions': N}
+    for inst in installations:
+        eq = inst.get('equipment_count') or 0
+        total_equipements += eq
+        z = inst.get('zone') or 'Non précisée'
+        if z not in zones_stats:
+            zones_stats[z] = {'installations': 0, 'equipements': 0, 'interventions': 0}
+        zones_stats[z]['installations'] += 1
+        zones_stats[z]['equipements'] += eq
+        zones_stats[z]['interventions'] += interventions_by_install.get(inst['id'], 0)
+    
+    # Zones avec le plus d'interventions (top 5)
+    top_zones = sorted(zones_stats.items(), key=lambda x: x[1]['interventions'], reverse=True)[:5]
+    
+    # Stats interventions par type
+    types_stats = {}
+    for it in interventions:
+        t = it.get('type') or 'autre'
+        types_stats[t] = types_stats.get(t, 0) + 1
+    
+    return render_template('installations.html', page='installations',
+        installations=installations, interventions=interventions,
+        zones_stats=zones_stats, top_zones=top_zones, types_stats=types_stats,
+        total_equipements=total_equipements,
+        nb_installations=len(installations), nb_interventions=len(interventions),
+        nb_zones=len(zones_stats),
+        periode=periode, libelle=libelle, clients=get_all_clients())
+
+
+@app.route('/installations/add', methods=['POST'])
+@permission_required_any('clients', 'centre_technique', 'admin')
+def installations_add():
+    """Enregistre une nouvelle installation."""
+    name = request.form.get('site_name', '').strip()
+    if not name:
+        flash("Nom du site requis", "error")
+        return redirect('/installations')
+    conn = _gdb()
+    client_id = request.form.get('client_id') or None
+    client_name = ''
+    if client_id:
+        row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        if row: client_name = row['name']
+    
+    def _f(v, default=0.0):
+        try: return float(v)
+        except: return default
+    
+    conn.execute("""INSERT INTO installations
+        (client_id, client_name, site_name, zone, address, latitude, longitude,
+         install_date, equipment_count, equipment_type, status, notes, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (client_id, client_name, name,
+         request.form.get('zone', '').strip(),
+         request.form.get('address', '').strip(),
+         _f(request.form.get('latitude'), None) if request.form.get('latitude') else None,
+         _f(request.form.get('longitude'), None) if request.form.get('longitude') else None,
+         request.form.get('install_date', '').strip() or None,
+         int(request.form.get('equipment_count', 0) or 0),
+         request.form.get('equipment_type', '').strip(),
+         'actif',
+         request.form.get('notes', '').strip(),
+         session.get('user_id')))
+    conn.commit(); conn.close()
+    flash(f"Installation '{name}' enregistrée", "success")
+    return redirect('/installations')
+
+
+@app.route('/installations/<int:iid>/delete')
+@permission_required_any('clients', 'centre_technique', 'admin')
+def installations_delete(iid):
+    conn = _gdb()
+    conn.execute("DELETE FROM installation_interventions WHERE installation_id=?", (iid,))
+    conn.execute("DELETE FROM installations WHERE id=?", (iid,))
+    conn.commit(); conn.close()
+    flash("Installation supprimée", "success")
+    return redirect('/installations')
+
+
+@app.route('/installations/<int:iid>/intervention/add', methods=['POST'])
+@permission_required_any('clients', 'centre_technique', 'admin')
+def installations_intervention_add(iid):
+    """Ajoute une intervention (installation / entretien / dépannage)."""
+    conn = _gdb()
+    conn.execute("""INSERT INTO installation_interventions
+        (installation_id, intervention_date, type, description, technician,
+         duration_hours, cost, status, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?)""",
+        (iid, request.form.get('intervention_date', '').strip() or datetime.now().strftime('%Y-%m-%d'),
+         request.form.get('type', 'entretien'),
+         request.form.get('description', '').strip(),
+         request.form.get('technician', '').strip(),
+         float(request.form.get('duration_hours', 0) or 0),
+         float(request.form.get('cost', 0) or 0),
+         'termine',
+         session.get('user_id')))
+    conn.commit(); conn.close()
+    flash("Intervention enregistrée", "success")
+    return redirect('/installations')
+
+
+@app.route('/installations/export-pdf')
+@permission_required_any('clients', 'centre_technique', 'admin')
+def installations_export_pdf():
+    """Génère le rapport PDF de cartographie + interventions filtré par période."""
+    from datetime import datetime as _dt
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from flask import Response
+    import io as _io
+    
+    periode = request.args.get('periode', 'annee')
+    d_start, d_end, libelle = _cartographie_period_filter(periode)
+    
+    conn = _gdb()
+    installations = [dict(r) for r in conn.execute("SELECT * FROM installations").fetchall()]
+    int_sql = "SELECT * FROM installation_interventions"
+    int_params = []
+    if d_start and d_end:
+        int_sql += " WHERE intervention_date >= ? AND intervention_date <= ?"
+        int_params = [d_start.strftime('%Y-%m-%d'), d_end.strftime('%Y-%m-%d')]
+    interventions = [dict(r) for r in conn.execute(int_sql, int_params).fetchall()]
+    conn.close()
+    
+    # Stats
+    interventions_by_install = {}
+    for it in interventions:
+        interventions_by_install[it['installation_id']] = interventions_by_install.get(it['installation_id'], 0) + 1
+    zones_stats = {}
+    total_eq = 0
+    for inst in installations:
+        eq = inst.get('equipment_count') or 0
+        total_eq += eq
+        z = inst.get('zone') or 'Non précisée'
+        if z not in zones_stats:
+            zones_stats[z] = {'installations': 0, 'equipements': 0, 'interventions': 0}
+        zones_stats[z]['installations'] += 1
+        zones_stats[z]['equipements'] += eq
+        zones_stats[z]['interventions'] += interventions_by_install.get(inst['id'], 0)
+    top_zones = sorted(zones_stats.items(), key=lambda x: x[1]['interventions'], reverse=True)[:5]
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm,
+                            topMargin=10*mm, bottomMargin=10*mm)
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888888'); ORANGE = HexColor('#e8672a')
+    hw = ParagraphStyle('hw', fontName='Helvetica-Bold', fontSize=8, textColor=white, alignment=TA_CENTER)
+    tc = ParagraphStyle('tc', fontSize=8, alignment=TA_CENTER)
+    tl = ParagraphStyle('tl', fontSize=8)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
+    story.append(Paragraph("<b>RAPPORT DE CARTOGRAPHIE DES INSTALLATIONS</b>",
+        ParagraphStyle('t', fontName='Helvetica-Bold', fontSize=16, textColor=TEAL, alignment=TA_CENTER, spaceAfter=2*mm)))
+    story.append(Paragraph(f"Filtre : {libelle} — Généré le {_dt.now().strftime('%d/%m/%Y à %H:%M')}",
+        ParagraphStyle('sub', fontSize=8, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)))
+    
+    # Résumé
+    story.append(Paragraph("<b>📊 Résumé général</b>", ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=11, textColor=TEAL, spaceAfter=3*mm)))
+    resume_data = [
+        [Paragraph("Installations", hw), Paragraph("Équipements", hw), Paragraph("Zones couvertes", hw), Paragraph("Interventions", hw)],
+        [Paragraph(f"<b>{len(installations)}</b>", tc), Paragraph(f"<b>{total_eq}</b>", tc),
+         Paragraph(f"<b>{len(zones_stats)}</b>", tc), Paragraph(f"<b>{len(interventions)}</b>", tc)],
+    ]
+    t = Table(resume_data, colWidths=[44*mm]*4)
+    t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),TEAL),
+        ('BOX',(0,0),(-1,-1),0.5,GREY),('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
+    story.append(t)
+    story.append(Spacer(1, 6*mm))
+    
+    # Top zones
+    story.append(Paragraph("<b>🗺️ Zones avec le plus d'interventions</b>", ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=11, textColor=TEAL, spaceAfter=3*mm)))
+    if top_zones:
+        data = [[Paragraph(h, hw) for h in ['Rang', 'Zone', 'Installations', 'Équipements', 'Interventions']]]
+        for i, (z, s) in enumerate(top_zones, 1):
+            data.append([Paragraph(f"#{i}", tc), Paragraph(z, tl),
+                         Paragraph(str(s['installations']), tc), Paragraph(str(s['equipements']), tc),
+                         Paragraph(f"<b>{s['interventions']}</b>", tc)])
+        t = Table(data, colWidths=[14*mm, 70*mm, 30*mm, 30*mm, 30*mm])
+        t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('BOX',(0,0),(-1,-1),0.5,GREY),('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[white, HexColor('#f8faf9')])]))
+        story.append(t)
+    else:
+        story.append(Paragraph("<i>Aucune intervention pour cette période</i>", ParagraphStyle('i', fontSize=9, textColor=GREY)))
+    story.append(Spacer(1, 6*mm))
+    
+    # Détail installations
+    story.append(Paragraph("<b>🏗️ Liste des installations</b>", ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=11, textColor=TEAL, spaceAfter=3*mm)))
+    if installations:
+        data = [[Paragraph(h, hw) for h in ['#', 'Site', 'Client', 'Zone', 'Équipements', 'Interventions', 'Date install.']]]
+        for i, inst in enumerate(installations, 1):
+            data.append([Paragraph(str(i), tc),
+                         Paragraph(inst.get('site_name', '-'), tl),
+                         Paragraph(inst.get('client_name', '-') or '-', tl),
+                         Paragraph(inst.get('zone', '-') or '-', tc),
+                         Paragraph(str(inst.get('equipment_count', 0) or 0), tc),
+                         Paragraph(str(interventions_by_install.get(inst['id'], 0)), tc),
+                         Paragraph(inst.get('install_date', '-') or '-', tc)])
+        t = Table(data, colWidths=[10*mm, 40*mm, 36*mm, 28*mm, 22*mm, 24*mm, 22*mm])
+        t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('BOX',(0,0),(-1,-1),0.5,GREY),('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[white, HexColor('#f8faf9')])]))
+        story.append(t)
+    
+    doc.build(story)
+    buf.seek(0)
+    
+    try:
+        log_activity(session.get('user_id'), get_user_by_id(session['user_id'])['full_name'],
+                    'Cartographie', f"Export PDF rapport cartographie ({periode})", request.remote_addr)
+    except: pass
+    
+    fname = f"cartographie_{periode}_{_dt.now().strftime('%Y%m%d')}.pdf"
+    return Response(buf.getvalue(), mimetype='application/pdf',
+                   headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+
 @app.route('/it/recharge')
 @recharge_access_required
 def it_recharge():
@@ -16669,20 +17078,23 @@ def mg_paiements_add():
 def mg_equipements():
     conn = _gdb()
     statut = request.args.get('statut', '').strip()
+    show_alerts = request.args.get('alertes', '') == '1'
+    
+    base_sql = """
+        SELECT e.*, u.username as affectation_user_name
+        FROM mg_equipements e
+        LEFT JOIN users u ON e.affectation_user_id = u.id
+    """
+    where = []; params = []
     if statut:
-        rows = conn.execute("""
-            SELECT e.*, u.username as affectation_user_name
-            FROM mg_equipements e
-            LEFT JOIN users u ON e.affectation_user_id = u.id
-            WHERE e.statut=? ORDER BY e.created_at DESC
-        """, (statut,)).fetchall()
-    else:
-        rows = conn.execute("""
-            SELECT e.*, u.username as affectation_user_name
-            FROM mg_equipements e
-            LEFT JOIN users u ON e.affectation_user_id = u.id
-            ORDER BY e.created_at DESC
-        """).fetchall()
+        where.append("e.statut=?"); params.append(statut)
+    if show_alerts:
+        # Stock actuel < stock min ET stock_min > 0
+        where.append("COALESCE(e.stock_min, 0) > 0 AND COALESCE(e.stock_actuel, 0) < COALESCE(e.stock_min, 0)")
+    if where:
+        base_sql += " WHERE " + " AND ".join(where)
+    base_sql += " ORDER BY e.created_at DESC"
+    rows = conn.execute(base_sql, params).fetchall()
     equipements = [dict(r) for r in rows]
     
     users = [dict(r) for r in conn.execute(
@@ -16693,10 +17105,16 @@ def mg_equipements():
     stats = {}
     for s in ['actif', 'panne', 'maintenance', 'reforme']:
         stats[s] = conn.execute("SELECT COUNT(*) FROM mg_equipements WHERE statut=?", (s,)).fetchone()[0]
+    # v83 : nombre d'alertes inventaire
+    stats['alertes_stock'] = conn.execute(
+        "SELECT COUNT(*) FROM mg_equipements "
+        "WHERE COALESCE(stock_min, 0) > 0 AND COALESCE(stock_actuel, 0) < COALESCE(stock_min, 0)"
+    ).fetchone()[0]
     conn.close()
     
     return render_template('mg_equipements.html', equipements=equipements,
-                          users=users, stats=stats, current_statut=statut)
+                          users=users, stats=stats, current_statut=statut,
+                          show_alerts=show_alerts)
 
 
 @app.route('/mg/equipements/add', methods=['POST'])
@@ -16720,8 +17138,28 @@ def mg_equipements_add():
          affectation_lieu=request.form.get('affectation_lieu', ''),
          date_prochaine_maintenance=request.form.get('date_prochaine_maintenance', ''),
          commentaire=request.form.get('commentaire', ''),
+         # v83 : champs inventaire
+         stock_actuel=int(request.form.get('stock_actuel', 0) or 0),
+         stock_min=int(request.form.get('stock_min', 0) or 0),
+         unite=request.form.get('unite', 'unité'),
          created_by=session['user_id'])
     flash(f"Équipement {ref} ajouté", "success")
+    return redirect('/mg/equipements')
+
+
+# v83 : Mise à jour rapide du stock (depuis la liste)
+@app.route('/mg/equipements/<int:eid>/stock', methods=['POST'])
+@permission_required_any('mg_gestion', 'admin')
+def mg_equipement_stock(eid):
+    """Met à jour stock_actuel et stock_min d'un équipement."""
+    conn = _gdb()
+    conn.execute("UPDATE mg_equipements SET stock_actuel=?, stock_min=?, unite=? WHERE id=?",
+        (int(request.form.get('stock_actuel', 0) or 0),
+         int(request.form.get('stock_min', 0) or 0),
+         request.form.get('unite', 'unité'),
+         eid))
+    conn.commit(); conn.close()
+    flash("Stock mis à jour", "success")
     return redirect('/mg/equipements')
 
 

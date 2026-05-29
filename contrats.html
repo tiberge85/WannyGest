@@ -13,17 +13,20 @@
     <div class="card-body">
         {% if contracts %}
         <div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un contrat..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
-            <thead><tr><th>Client</th><th>Référence</th><th>Début</th><th>Fin</th><th>Tarif/mois</th><th>Statut</th><th>Actions</th></tr></thead>
+            <thead><tr><th style="width:50px">Ordre</th><th>Client</th><th>Référence</th><th>Début</th><th>Fin</th><th>Tarif/mois</th><th>Statut</th><th>Actions</th></tr></thead>
             <tbody>
             {% for c in contracts %}
             <tr>
+                <td style="text-align:center;font-weight:700;color:#1A7A6D">{{ loop.index }}</td>
                 <td><strong>{{ c.client_name }}</strong></td>
                 <td>{{ c.reference or '-' }}</td>
                 <td>{{ c.start_date or '-' }}</td>
                 <td>{{ c.end_date or '-' }}</td>
                 <td>{{ '{:,.0f}'.format(c.monthly_rate) }} FCFA</td>
                 <td>{% if c.status == 'actif' %}<span class="badge-status sent">Actif</span>{% elif c.status == 'expire' %}<span class="badge-status pending">Expiré</span>{% else %}<span class="badge-status" style="background:#f0f0f0;color:#666">{{ c.status }}</span>{% endif %}</td>
-                <td style="display:flex;gap:6px">
+                <td style="display:flex;gap:4px;flex-wrap:wrap">
+                    {% if not loop.first %}<a href="/contrats/{{ c.id }}/move/up" class="btn btn-outline btn-sm" title="Monter" style="padding:3px 7px">▲</a>{% else %}<span style="width:26px"></span>{% endif %}
+                    {% if not loop.last %}<a href="/contrats/{{ c.id }}/move/down" class="btn btn-outline btn-sm" title="Descendre" style="padding:3px 7px">▼</a>{% else %}<span style="width:26px"></span>{% endif %}
                     <a href="/contrats/edit/{{ c.id }}" class="btn btn-outline btn-sm">✏️</a>
                     <a href="/contrats/delete/{{ c.id }}" class="btn btn-danger btn-sm" onclick="return confirm('Supprimer ?')">🗑️</a>
                 </td>

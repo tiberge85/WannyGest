@@ -9,26 +9,46 @@
     <div class="stat-card"><div class="stat-icon" style="background:#fde8e8;color:#c53030">🔧</div><div class="stat-info"><div class="stat-num">{{ stats.panne }}</div><div class="stat-label">En panne</div></div></div>
     <div class="stat-card"><div class="stat-icon orange">⚙️</div><div class="stat-info"><div class="stat-num">{{ stats.maintenance }}</div><div class="stat-label">En maintenance</div></div></div>
     <div class="stat-card"><div class="stat-icon" style="background:#f5f5f5;color:#666">📦</div><div class="stat-info"><div class="stat-num">{{ stats.reforme }}</div><div class="stat-label">Réformés</div></div></div>
+    {# v83 : Alerte stock #}
+    <a href="/mg/equipements?alertes=1" style="text-decoration:none">
+    <div class="stat-card" style="cursor:pointer;{% if stats.alertes_stock > 0 %}border:2px solid #c53030;animation:rechargeBlink 1.5s ease-in-out infinite{% endif %}">
+        <div class="stat-icon" style="background:#fde8e8;color:#c53030">⚠️</div>
+        <div class="stat-info"><div class="stat-num" style="{% if stats.alertes_stock > 0 %}color:#c53030{% endif %}">{{ stats.alertes_stock }}</div>
+        <div class="stat-label">Alertes inventaire</div></div>
+    </div></a>
 </div>
 
+{# v83 : Filtres incluant alertes #}
 <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
-    <a href="/mg/equipements" class="btn btn-sm {% if not current_statut %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous</a>
+    <a href="/mg/equipements" class="btn btn-sm {% if not current_statut and not show_alerts %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous</a>
     <a href="/mg/equipements?statut=actif" class="btn btn-sm {% if current_statut=='actif' %}btn-primary{% else %}btn-outline{% endif %}">✅ Actifs</a>
     <a href="/mg/equipements?statut=panne" class="btn btn-sm {% if current_statut=='panne' %}btn-primary{% else %}btn-outline{% endif %}">🔧 Panne</a>
     <a href="/mg/equipements?statut=maintenance" class="btn btn-sm {% if current_statut=='maintenance' %}btn-primary{% else %}btn-outline{% endif %}">⚙️ Maintenance</a>
     <a href="/mg/equipements?statut=reforme" class="btn btn-sm {% if current_statut=='reforme' %}btn-primary{% else %}btn-outline{% endif %}">📦 Réformés</a>
+    <a href="/mg/equipements?alertes=1" class="btn btn-sm {% if show_alerts %}btn-primary{% else %}btn-outline{% endif %}" style="{% if stats.alertes_stock > 0 %}border-color:#c53030;color:#c53030{% endif %}">⚠️ Alertes stock ({{ stats.alertes_stock }})</a>
     <button class="btn btn-orange btn-sm" onclick="document.getElementById('addEQ').classList.add('active')" style="margin-left:auto">+ Équipement</button>
 </div>
 
 <div class="card"><div class="card-body">
 {% if equipements %}<div class="table-wrap"><table>
-<thead><tr><th>Réf</th><th>Nom</th><th>Catégorie</th><th>Marque/Modèle</th><th>N° Série</th><th>Affecté à</th><th>Statut</th><th>Maintenance</th><th>Actions</th></tr></thead>
+<thead><tr><th>Réf</th><th>Nom</th><th>Catégorie</th><th>Marque/Modèle</th><th>Stock / Seuil</th><th>Affecté à</th><th>Statut</th><th>Actions</th></tr></thead>
 <tbody>{% for e in equipements %}<tr>
 <td><strong>{{ e.reference }}</strong></td>
 <td><strong>{{ e.nom }}</strong>{% if e.description %}<br><span style="font-size:11px;color:#666">{{ e.description|truncate(40) }}</span>{% endif %}</td>
 <td>{{ e.categorie or '-' }}</td>
 <td>{{ e.marque or '' }} {{ e.modele or '' }}</td>
-<td style="font-size:11px">{{ e.numero_serie or '-' }}</td>
+<td>
+    {% set sa = e.stock_actuel or 0 %}{% set sm = e.stock_min or 0 %}
+    {% if sm > 0 %}
+        {% set is_low = sa < sm %}
+        <span style="font-weight:700;{% if is_low %}color:#c53030{% else %}color:#2e7d32{% endif %}">
+            {% if is_low %}⚠️{% endif %} {{ sa }} / {{ sm }} {{ e.unite or 'unité' }}
+        </span>
+    {% else %}
+        <span style="color:#999;font-size:11px">{{ sa }} {{ e.unite or 'unité' }} (pas de seuil)</span>
+    {% endif %}
+    <br><button class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px;margin-top:2px" onclick="openStock({{ e.id }}, {{ sa }}, {{ sm }}, '{{ e.unite or 'unité' }}', '{{ e.nom|replace("'","") }}')">✏️ Stock</button>
+</td>
 <td>{{ e.affectation_user_name or e.affectation_lieu or '-' }}</td>
 <td>
     {% if e.statut == 'actif' %}<span style="color:#2e7d32;font-weight:700">✅ Actif</span>
@@ -36,7 +56,6 @@
     {% elif e.statut == 'maintenance' %}<span style="color:#e65100;font-weight:700">⚙️ Maintenance</span>
     {% else %}<span style="color:#999">📦 Réformé</span>{% endif %}
 </td>
-<td style="font-size:11px">{{ e.date_prochaine_maintenance or '-' }}</td>
 <td style="display:flex;gap:3px;flex-wrap:wrap">
     {% if e.statut != 'actif' %}<a href="/mg/equipements/{{ e.id }}/statut/actif" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Activer">✅</a>{% endif %}
     {% if e.statut != 'panne' %}<a href="/mg/equipements/{{ e.id }}/statut/panne" class="btn btn-sm" style="background:#c53030;color:#fff" title="Marquer en panne">🔧</a>{% endif %}
@@ -44,8 +63,38 @@
     {% if e.statut != 'reforme' %}<a href="/mg/equipements/{{ e.id }}/statut/reforme" class="btn btn-sm" style="color:#666" title="Réformer">📦</a>{% endif %}
 </td>
 </tr>{% endfor %}</tbody></table></div>
-{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun équipement enregistré</p>{% endif %}
+{% else %}<p style="text-align:center;color:#999;padding:30px">{% if show_alerts %}✅ Aucune alerte de stock — tous les stocks sont au-dessus du seuil{% else %}Aucun équipement enregistré{% endif %}</p>{% endif %}
 </div></div>
+
+{# v83 : Modal édition stock #}
+<div class="modal-bg" id="stockM"><div class="modal" style="max-width:420px"><h3>📦 Mise à jour du stock</h3>
+<form method="post" id="stockForm">
+    <p style="font-size:13px;color:#555">Équipement : <strong id="stockEqName"></strong></p>
+    <div class="form-row">
+        <div class="form-group"><label>Stock actuel</label><input type="number" name="stock_actuel" id="s_actuel" min="0" required></div>
+        <div class="form-group"><label>Seuil min. (alerte)</label><input type="number" name="stock_min" id="s_min" min="0" required></div>
+    </div>
+    <div class="form-group"><label>Unité</label><input type="text" name="unite" id="s_unite" placeholder="unité, pièce, mètre..."></div>
+    <div style="background:#fff3cd;padding:8px;border-left:3px solid #e8672a;border-radius:6px;font-size:11px;color:#856404;margin-bottom:10px">
+        💡 Une alerte sera déclenchée quand le stock actuel sera <strong>inférieur</strong> au seuil minimum. Mettre le seuil à 0 désactive l'alerte pour cet équipement.
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('stockM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+<script>
+function openStock(id, actuel, min, unite, name) {
+    document.getElementById('stockForm').action = '/mg/equipements/' + id + '/stock';
+    document.getElementById('stockEqName').textContent = name;
+    document.getElementById('s_actuel').value = actuel || 0;
+    document.getElementById('s_min').value = min || 0;
+    document.getElementById('s_unite').value = unite || 'unité';
+    document.getElementById('stockM').classList.add('active');
+}
+</script>
 
 <!-- Modal Ajout équipement -->
 <div class="modal-bg" id="addEQ"><div class="modal" style="max-width:700px"><h3>🖥️ Nouvel équipement</h3>
@@ -95,6 +144,16 @@
 <div class="form-row">
     <div class="form-group"><label>Date prochaine maintenance</label><input type="date" name="date_prochaine_maintenance"></div>
     <div class="form-group"><label>Commentaire</label><input type="text" name="commentaire"></div>
+</div>
+{# v83 : Champs inventaire / stock #}
+<div style="background:#f0f7ff;border-radius:8px;padding:12px;margin-bottom:12px">
+    <label style="font-weight:600;font-size:13px;color:#1976d2;display:block;margin-bottom:8px">📦 Inventaire (optionnel — pour suivi de stock)</label>
+    <div class="form-row">
+        <div class="form-group"><label>Stock actuel</label><input type="number" name="stock_actuel" min="0" value="0"></div>
+        <div class="form-group"><label>Seuil min. d'alerte</label><input type="number" name="stock_min" min="0" value="0" placeholder="0 = pas d'alerte"></div>
+        <div class="form-group"><label>Unité</label><input type="text" name="unite" value="unité" placeholder="unité, pièce..."></div>
+    </div>
+    <p style="font-size:11px;color:#666;margin:0">💡 Une alerte s'affichera quand le stock actuel passera en dessous du seuil minimum.</p>
 </div>
 <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
     <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>

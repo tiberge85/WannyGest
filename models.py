@@ -805,7 +805,7 @@ def get_all_contracts():
     contracts = conn.execute("""
         SELECT c.*, cl.name as client_name FROM contracts c
         LEFT JOIN clients cl ON c.client_id = cl.id
-        ORDER BY c.status, c.end_date
+        ORDER BY COALESCE(c.display_order, 0) ASC, c.status, c.end_date
     """).fetchall()
     conn.close()
     return [dict(c) for c in contracts]
@@ -4690,6 +4690,86 @@ def migrate_v73():
             FOREIGN KEY (recharge_id) REFERENCES it_internet_recharge(id)
         )
     ''')
+    conn.commit(); conn.close()
+
+
+def migrate_v74():
+    """v83 : ajouts pour cartographie, inventaire MG, type client, ordre contrats.
+    
+    - clients.type ('client' | 'prospect') : pour basculer entre les deux
+    - rh_contrats.display_order : pour réorganisation manuelle
+    - mg_equipements.stock_min, stock_actuel : seuil d'alerte d'inventaire
+    - installations : nouveau module cartographie
+    - installations_interventions : interventions (entretien, dépannage) sur les installations
+    """
+    conn = get_db()
+    
+    # 1) Type client/prospect
+    try:
+        conn.execute("ALTER TABLE clients ADD COLUMN type TEXT DEFAULT 'client'")
+    except: pass
+    try:
+        # Définir 'client' par défaut pour les existants
+        conn.execute("UPDATE clients SET type='client' WHERE type IS NULL OR type=''")
+    except: pass
+    
+    # 2) Ordre d'affichage des contrats (clients et RH)
+    try:
+        conn.execute("ALTER TABLE contracts ADD COLUMN display_order INTEGER DEFAULT 0")
+    except: pass
+    try:
+        conn.execute("ALTER TABLE rh_contracts ADD COLUMN display_order INTEGER DEFAULT 0")
+    except: pass
+    
+    # 3) Inventaire MG : stock_min et stock_actuel
+    try:
+        conn.execute("ALTER TABLE mg_equipements ADD COLUMN stock_min INTEGER DEFAULT 0")
+    except: pass
+    try:
+        conn.execute("ALTER TABLE mg_equipements ADD COLUMN stock_actuel INTEGER DEFAULT 0")
+    except: pass
+    try:
+        conn.execute("ALTER TABLE mg_equipements ADD COLUMN unite TEXT DEFAULT 'unité'")
+    except: pass
+    
+    # 4) Cartographie installations
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS installations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER,
+            client_name TEXT,
+            site_name TEXT NOT NULL,
+            zone TEXT,
+            address TEXT,
+            latitude REAL,
+            longitude REAL,
+            install_date TEXT,
+            equipment_count INTEGER DEFAULT 0,
+            equipment_type TEXT,
+            status TEXT DEFAULT 'actif',
+            notes TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (client_id) REFERENCES clients(id)
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS installation_interventions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            installation_id INTEGER NOT NULL,
+            intervention_date TEXT NOT NULL,
+            type TEXT,
+            description TEXT,
+            technician TEXT,
+            duration_hours REAL DEFAULT 0,
+            cost REAL DEFAULT 0,
+            status TEXT DEFAULT 'termine',
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (installation_id) REFERENCES installations(id)
+        )
+    ''')
+    
     conn.commit(); conn.close()
 
 
