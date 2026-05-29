@@ -3146,6 +3146,11 @@ def dpci_generate():
             if name not in schedules_map:
                 schedules_map[name] = s  # Use first found (e.g., Monday schedule)
         
+        # v82 : Sauvegarder l'EDT d'origine (avant matching) pour l'affichage Planning
+        # Le matching modifiera schedules_map pour les calculs, mais l'affichage
+        # gardera les EDT originaux du fichier/BDD pour respecter le souhait utilisateur
+        schedules_map_original = {name: dict(s) for name, s in schedules_map.items()}
+        
         # v62 NOUVEAU : appliquer schedule_override aux employés
         # v64 : ajout du support "days" (par jour de semaine) et "person_days" (personne+jour)
         try:
@@ -3267,6 +3272,24 @@ def dpci_generate():
                     if not day_s.get('break_start'):
                         day_s['break_start'] = gps_v
                         day_s['break_end'] = gpe_v
+        
+        # v82 : Propager l'EDT d'origine (avant matching) sur chaque record
+        # pour que generate_dpci_pdf affiche le Planning d'origine.
+        # Si pas d'EDT en BDD, on utilise les defaults 07:00-17:00 (ceux de calc_dpci_stats)
+        # pour garantir que l'affichage Planning ne change PAS après matching.
+        for emp in emps:
+            orig = schedules_map_original.get(emp['name'])
+            if orig:
+                orig_s = orig.get('start_time', '') or '07:00'
+                orig_e = orig.get('end_time', '') or '17:00'
+            else:
+                # Pas d'EDT en BDD → utiliser les defaults DPCI
+                orig_s = '07:00'
+                orig_e = '17:00'
+            for rec in emp['records']:
+                if 'sched_start_original' not in rec:
+                    rec['sched_start_original'] = orig_s
+                    rec['sched_end_original'] = orig_e
         
         generate_dpci_pdf(emps, output_path, client_name, period_str,
                          schedules_map=schedules_map, employee_costs=employee_costs,
