@@ -2777,6 +2777,9 @@ function filterRecent() {
     <a href="/centre-technique" class="btn btn-outline btn-sm">← Centre technique</a>
 </div>
 
+{# v89 : Widget Roadmap projets #}
+{% include '_my_projects_widget.html' %}
+
 <!-- Filtres tabs -->
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
     <a href="?filter=nouvelles" class="btn btn-sm {% if filter_status == 'nouvelles' %}btn-primary{% else %}btn-outline{% endif %}">
@@ -6529,6 +6532,9 @@ function showTab(id){
 
 {% elif page == 'interventions_tech' %}
 <div class="page-header"><h1>🔧 Mes interventions</h1></div>
+
+{# v89 : Widget Roadmap projets pour le technicien #}
+{% include '_my_projects_widget.html' %}
 
 {% set planifiees = interventions|selectattr('status','equalto','planifiee')|list %}
 {% set en_cours = interventions|selectattr('status','equalto','en_cours')|list %}

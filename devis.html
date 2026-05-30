@@ -2,6 +2,9 @@
 {% block title %}WannyGest - Devis{% endblock %}
 {% block content %}
 <div class="page-header"><h1>📝 Devis & Proformas</h1><p>Édition et suivi des devis clients</p></div>
+
+{# v89 : Widget Roadmap pour le commercial — voit ses projets en cours #}
+{% include '_my_projects_widget.html' %}
 <div class="stats-grid">
     <div class="stat-card"><div class="stat-icon blue">📝</div><div class="stat-info"><div class="stat-num">{{ d_stats.brouillon }}</div><div class="stat-label">Brouillons</div></div></div>
     <div class="stat-card"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-num">{{ d_stats.envoye }}</div><div class="stat-label">Envoyés</div></div></div>

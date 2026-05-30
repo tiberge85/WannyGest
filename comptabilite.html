@@ -5,6 +5,9 @@
 {% include '_recharge_alert.html' %}
 {% include '_project_notifs.html' %}
 
+{# v89 : Widget Roadmap pour le comptable — voit projets nécessitant facturation #}
+{% include '_my_projects_widget.html' %}
+
 <!-- Dashboard financier -->
 <div class="g4" style="margin-bottom:10px">
     <div class="stat-card"><div class="stat-icon green">💵</div><div class="stat-info"><div class="stat-num" style="color:#2e7d32">{{ '{:,.0f}'.format(chart.total_revenue) }}</div><div class="stat-label">Revenus encaissés (F)</div></div></div>

@@ -402,6 +402,48 @@ try:
     _v86_conn.commit()
     _v86_conn.close()
 except: pass
+
+# v89 : Permissions pour le module Roadmap projets (workflow v84-v88)
+# Ajoute les permissions manquantes aux rôles concernés pour qu'ils accèdent au module
+try:
+    from models import get_db as _v89_db
+    _v89_conn = _v89_db()
+    
+    # Nouvelles permissions Roadmap
+    V89_PERMS = {
+        # Coordination (3 rôles = même fonction métier)
+        'coordinateur':         ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
+        'gestionnaire_projet':  ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
+        'resp_projet':          ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
+        # Commercial : créer projets + clôture + contrat
+        'commercial':           ['roadmap_view', 'project_create', 'project_close', 'project_contract'],
+        # Centre technique : exécute + rapporte
+        'technicien':           ['roadmap_view', 'project_progress', 'project_report'],
+        'tech_chef':            ['roadmap_view', 'project_progress', 'project_report'],
+        'centre_technique':     ['roadmap_view', 'project_progress', 'project_report'],
+        'chef_chantier':        ['roadmap_view', 'project_progress', 'project_report'],
+        # Moyens Généraux : prépare matériel
+        'mg':                   ['roadmap_view', 'project_material'],
+        'magasinier':           ['roadmap_view', 'project_material'],
+        'moyens_generaux':      ['roadmap_view', 'project_material'],
+        # Comptable : facture le solde
+        'comptable':            ['roadmap_view', 'project_invoice', 'project_payment'],
+        'comptabilite':         ['roadmap_view', 'project_invoice', 'project_payment'],
+        # Admin : tout
+        'admin':                ['roadmap_view', 'roadmap_manage', 'roadmap_delete', 'project_create', 'project_advance', 'project_qc', 'project_deliver', 'project_plan', 'project_close', 'project_contract', 'project_progress', 'project_report', 'project_material', 'project_invoice', 'project_payment'],
+        'dg':                   ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver'],
+        'directeur':            ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver'],
+    }
+    for role, perms in V89_PERMS.items():
+        for perm in perms:
+            try: _v89_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    _v89_conn.commit()
+    _v89_conn.close()
+    print("[v89] Permissions Roadmap initialisées", flush=True)
+except Exception as _e:
+    print(f"[v89] Erreur init permissions : {_e}", flush=True)
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -530,6 +572,23 @@ PERM_CATEGORIES = {
         ('resp_projet', 'Resp. projet lecture'),
         ('resp_projet_edit', 'Resp. projet modif'),
         ('projets', 'Projets info'),
+    ],
+    'Roadmap (Workflow projets v89)': [
+        ('roadmap_view', 'Voir la Roadmap (liste projets)'),
+        ('roadmap_manage', 'Gérer projets (avancer étapes)'),
+        ('roadmap_delete', 'Supprimer projets clôturés'),
+        ('project_create', 'Créer un projet'),
+        ('project_advance', 'Faire avancer un projet'),
+        ('project_qc', 'Valider/rejeter contrôle qualité'),
+        ('project_deliver', 'Programmer & valider livraison (BL+ABE)'),
+        ('project_plan', 'Planifier & affecter équipe'),
+        ('project_close', 'Clôturer un projet'),
+        ('project_contract', 'Décision contrat entretien (oui/non)'),
+        ('project_progress', 'Rapports d\'avancement technicien'),
+        ('project_report', 'Voir rapports projet'),
+        ('project_material', 'Gérer matériel MG du projet'),
+        ('project_invoice', 'Facturer le solde'),
+        ('project_payment', 'Valider paiement solde'),
     ],
     'RH & Admin': [
         ('fichiers', 'Employés/RH'),
@@ -2579,7 +2638,7 @@ def clients_merge():
 def admin_page():
     users = get_all_users()
     stats = get_dashboard_stats()
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'proprietaire', 'concierge', 'secretaire']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
     conn = _gdb()
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
@@ -2752,7 +2811,10 @@ def admin_delete_user(uid):
 @app.route('/admin/permissions', methods=['POST'])
 @permission_required('admin')
 def admin_permissions():
-    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'concierge', 'proprietaire', 'secretaire']:
+    # v89 : Ajout des rôles coordinateur, gestionnaire_projet
+    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique',
+                 'resp_projet', 'gestionnaire_projet', 'coordinateur',  # v89
+                 'concierge', 'proprietaire', 'secretaire']:
         perms = [p for p in ALL_PERMISSIONS if request.form.get(f'{role}_{p}')]
         update_role_permissions(role, perms)
     # Admin always has all
