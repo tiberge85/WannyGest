@@ -14,7 +14,25 @@
     </div>
 </div>
 
-<!-- Stepper workflow visuel -->
+{# Bandeau service responsable #}
+{% set current_info = status_info.get(project.status, {}) %}
+{% set svc_color = current_info.get('color', '#1A7A6D') %}
+<div style="background:{{ svc_color }};color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;box-shadow:0 2px 6px rgba(0,0,0,0.1)">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="background:rgba(255,255,255,0.2);width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px">{{ current_info.get('icon', '📋') }}</div>
+        <div>
+            <div style="font-size:11px;opacity:0.85;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Étape {{ current_info.get('num', '?') }} — Service responsable</div>
+            <div style="font-size:18px;font-weight:700;margin-top:2px">{{ current_info.get('service_label', '—') }}</div>
+            <div style="font-size:12px;margin-top:2px;opacity:0.9">{{ current_info.get('label', project.status) }}</div>
+        </div>
+    </div>
+    <div style="text-align:right">
+        <div style="font-size:11px;opacity:0.85;text-transform:uppercase">Prochaine action</div>
+        <div style="font-size:13px;font-weight:600;margin-top:2px">{{ current_info.get('next_label', '—') }}</div>
+    </div>
+</div>
+
+{# Stepper workflow 9 étapes #}
 <div class="card" style="margin-bottom:16px"><div class="card-body" style="padding:16px;overflow-x:auto">
     <div style="display:flex;gap:6px;min-width:900px">
     {% for s in steps %}
@@ -22,19 +40,20 @@
         {% set is_done = (project.current_step > s.num) %}
         {% set is_rejected = (project.status == 'qc_rejete' and s.num == 6) %}
         <div style="flex:1;text-align:center;position:relative">
-            <div style="width:36px;height:36px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;
+            <div style="width:38px;height:38px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;
                 {% if is_rejected %}background:#c53030;color:#fff
-                {% elif is_current %}background:#e8672a;color:#fff;box-shadow:0 0 0 4px rgba(232,103,42,0.2)
+                {% elif is_current %}background:{{ s.color }};color:#fff;box-shadow:0 0 0 4px {{ s.color }}33
                 {% elif is_done %}background:#2e7d32;color:#fff
                 {% else %}background:#e0e0e0;color:#999{% endif %}">
                 {% if is_rejected %}❌{% elif is_done %}✓{% else %}{{ s.num }}{% endif %}
             </div>
-            <div style="font-size:10px;font-weight:600;
-                {% if is_current %}color:#e8672a{% elif is_done %}color:#2e7d32{% else %}color:#888{% endif %}">
+            <div style="font-size:10px;font-weight:700;
+                {% if is_current %}color:{{ s.color }}{% elif is_done %}color:#2e7d32{% else %}color:#888{% endif %}">
                 {{ s.icon }} {{ s.label }}
             </div>
+            <div style="font-size:9px;color:#aaa;margin-top:1px">{{ s.service_label }}</div>
             {% if not loop.last %}
-                <div style="position:absolute;top:18px;left:calc(50% + 20px);width:calc(100% - 40px);height:2px;
+                <div style="position:absolute;top:19px;left:calc(50% + 21px);width:calc(100% - 42px);height:2px;
                     background:{% if is_done %}#2e7d32{% else %}#e0e0e0{% endif %}"></div>
             {% endif %}
         </div>
@@ -46,56 +65,70 @@
     <div style="text-align:center;margin-top:6px;font-size:12px;color:#666">
         Progression : <strong style="color:#1A7A6D">{{ project.progress_pct }}%</strong>
         {% if project.status == 'qc_rejete' %}
-            <span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:700">⚠️ CONTRÔLE QUALITÉ REJETÉ — Retour à l'exécution</span>
+            <span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:700">⚠️ CONTRÔLE QUALITÉ REJETÉ</span>
         {% endif %}
     </div>
 </div></div>
 
 <div style="display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start">
 
-<!-- COLONNE GAUCHE : actions + équipe + matériel + historique -->
 <div>
 
-<!-- Actions contextuelles selon statut -->
-<div class="card" style="margin-bottom:14px;border-left:5px solid #e8672a">
-    <div class="card-header"><h3 style="margin:0;color:#e8672a;font-size:14px">⚡ Action(s) disponible(s) — Étape {{ project.current_step }}</h3></div>
+<div class="card" style="margin-bottom:14px;border-left:5px solid {{ svc_color }}">
+    <div class="card-header"><h3 style="margin:0;color:{{ svc_color }};font-size:14px">⚡ Action à réaliser par {{ current_info.get('service_label', 'le service') }}</h3></div>
     <div class="card-body">
+
     {% if project.status == 'valide' %}
-        <p style="font-size:13px;color:#555">✅ Projet validé. Vous pouvez maintenant lancer la <strong>préparation</strong> en sollicitant les Moyens Généraux.</p>
+        <p style="font-size:13px;color:#555">✅ Le devis est validé et l'acompte enregistré. Le projet doit être <strong>transmis au coordinateur</strong>.</p>
+        <form method="post" action="/projects/{{ project.id }}/advance">
+            <input type="hidden" name="to_status" value="demarre">
+            <input type="text" name="comment" placeholder="Commentaire pour le coordinateur" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
+            <button type="submit" class="btn btn-primary">👨‍💼 Transmettre au coordinateur</button>
+        </form>
+
+    {% elif project.status == 'demarre' %}
+        <p style="font-size:13px;color:#555">🚀 <strong>Le coordinateur</strong> valide le démarrage et notifie les Moyens Généraux.</p>
         <form method="post" action="/projects/{{ project.id }}/advance">
             <input type="hidden" name="to_status" value="preparation">
-            <input type="text" name="comment" placeholder="Commentaire (optionnel)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
-            <button type="submit" class="btn btn-primary">📦 Lancer la préparation</button>
+            <input type="text" name="comment" placeholder="Instructions MG" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
+            <button type="submit" class="btn btn-primary">🏪 Notifier les Moyens Généraux</button>
         </form>
+
     {% elif project.status == 'preparation' %}
-        <p style="font-size:13px;color:#555">📦 En attente de validation des Moyens Généraux. Ajoutez le matériel nécessaire ci-dessous puis validez la préparation.</p>
-        {% set all_reserved = (project.materials and project.materials|selectattr('reserved', 'eq', 1)|list|length == project.materials|length) %}
+        <p style="font-size:13px;color:#555">📦 <strong>Les Moyens Généraux</strong> vérifient et réservent le matériel.</p>
+        {% if project.materials %}
+            <p style="font-size:12px;color:#666">Matériels : {{ project.materials|length }} · Réservés : {{ project.materials|selectattr('reserved', 'eq', 1)|list|length }}/{{ project.materials|length }}</p>
+        {% else %}
+            <p style="background:#fff3cd;color:#856404;padding:8px;border-radius:6px;font-size:12px;border-left:3px solid #e8672a">⚠️ Aucun matériel listé.</p>
+        {% endif %}
         <form method="post" action="/projects/{{ project.id }}/advance">
             <input type="hidden" name="to_status" value="planifie">
-            <input type="text" name="comment" placeholder="Commentaire (optionnel)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
-            <button type="submit" class="btn btn-primary">📅 Passer à la planification</button>
-            {% if project.materials and not all_reserved %}
-                <span style="color:#e8672a;font-size:11px;margin-left:8px">⚠️ Certains matériels ne sont pas encore réservés</span>
-            {% endif %}
+            <button type="submit" class="btn btn-primary">👨‍💼 Retour coordinateur (matériel prêt)</button>
         </form>
+
     {% elif project.status == 'planifie' %}
-        <p style="font-size:13px;color:#555">📅 Projet planifié. Lancez l'exécution des travaux.</p>
+        <p style="font-size:13px;color:#555">📅 <strong>Le coordinateur</strong> planifie les travaux et transmet au centre technique.</p>
+        <div style="background:#e3f2fd;padding:10px;border-radius:6px;font-size:12px;color:#1565c0;margin-bottom:10px">
+            📄 <a href="/projects/{{ project.id }}/fiche-planification.pdf" target="_blank" style="font-weight:700;color:#1565c0">Télécharger la fiche de planification</a>
+        </div>
         <form method="post" action="/projects/{{ project.id }}/advance">
             <input type="hidden" name="to_status" value="execution">
-            <input type="text" name="comment" placeholder="Commentaire (optionnel)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
-            <button type="submit" class="btn btn-primary">🔧 Démarrer les travaux</button>
+            <input type="text" name="comment" placeholder="Instructions techniques" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
+            <button type="submit" class="btn btn-primary">🛠️ Transmettre au centre technique</button>
         </form>
+
     {% elif project.status == 'execution' %}
-        <p style="font-size:13px;color:#555">🔧 Travaux en cours. Les techniciens peuvent ajouter des rapports d'avancement.</p>
+        <p style="font-size:13px;color:#555">🔧 <strong>Le centre technique</strong> exécute les travaux. Les techniciens ajoutent leurs rapports avec photos.</p>
         <div style="background:#fff3e0;padding:10px;border-radius:6px;font-size:12px;color:#b8561f">
-            💡 Le passage à "Travaux terminés" se fait automatiquement quand un technicien marque son rapport comme final.
+            💡 Quand un technicien coche "Travaux terminés", le projet passe automatiquement au contrôle qualité.
         </div>
         <form method="post" action="/projects/{{ project.id }}/advance" style="margin-top:8px">
             <input type="hidden" name="to_status" value="travaux_fin">
             <button type="submit" class="btn btn-outline btn-sm">🏁 Signaler manuellement la fin des travaux</button>
         </form>
+
     {% elif project.status == 'travaux_fin' %}
-        <p style="font-size:13px;color:#555">🔍 Contrôle qualité requis avant livraison.</p>
+        <p style="font-size:13px;color:#555">🏁 Travaux terminés. <strong>Le coordinateur</strong> effectue le contrôle qualité.</p>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
             <form method="post" action="/projects/{{ project.id }}/advance" style="display:inline">
                 <input type="hidden" name="to_status" value="qc_valide">
@@ -103,68 +136,79 @@
             </form>
             <form method="post" action="/projects/{{ project.id }}/advance" style="display:inline">
                 <input type="hidden" name="to_status" value="qc_rejete">
-                <button type="submit" class="btn" style="background:#c53030;color:#fff" onclick="return confirm('Rejeter ? Le projet retournera à l\'étape Exécution.')">❌ Rejeter (retour exécution)</button>
+                <button type="submit" class="btn" style="background:#c53030;color:#fff" onclick="return confirm('Rejeter ? Retour au centre technique.')">❌ Rejeter (retour technique)</button>
             </form>
         </div>
+
     {% elif project.status == 'qc_rejete' %}
-        <p style="font-size:13px;color:#c53030"><strong>⚠️ Contrôle qualité rejeté</strong> ({{ project.qc_rejected_count or 0 }} rejet(s)). Reprenez les travaux selon les observations.</p>
+        <p style="font-size:13px;color:#c53030"><strong>⚠️ Contrôle qualité rejeté</strong> ({{ project.qc_rejected_count or 0 }} rejet(s)).</p>
         <form method="post" action="/projects/{{ project.id }}/advance">
             <input type="hidden" name="to_status" value="execution">
-            <button type="submit" class="btn btn-primary">🔧 Reprendre l'exécution</button>
+            <button type="submit" class="btn btn-primary">🛠️ Reprendre l'exécution</button>
         </form>
+
     {% elif project.status == 'qc_valide' %}
-        <p style="font-size:13px;color:#555">✅ Contrôle qualité validé. Programmez la livraison au client.</p>
-        <div style="background:#e8f5e9;padding:10px;border-radius:6px;font-size:12px;color:#1b5e20;margin-bottom:10px">
-            📋 Documents à générer : Bon de livraison + ABE (Attestation de Bonne Exécution).
-            Ils seront accessibles depuis le module Interventions une fois le projet livré.
+        <p style="font-size:13px;color:#555">✅ Contrôle qualité validé. <strong>La livraison au client est OBLIGATOIRE.</strong></p>
+        <div style="background:#fff3cd;padding:10px;border-radius:6px;font-size:12px;color:#856404;margin-bottom:10px;border-left:3px solid #e8672a">
+            ⚠️ <strong>Étape obligatoire</strong> — Pas de raccourci vers la comptabilité. Le coordinateur doit programmer un rendez-vous, faire signer le BL et générer l'ABE.
         </div>
-        <form method="post" action="/projects/{{ project.id }}/advance">
-            <input type="hidden" name="to_status" value="livre">
-            <input type="text" name="comment" placeholder="Date livraison effective (optionnel)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
-            <button type="submit" class="btn btn-primary">🚚 Marquer comme livré</button>
-        </form>
+        <button class="btn btn-primary" onclick="document.getElementById('deliveryM').classList.add('active')">🚚 Programmer la livraison</button>
+
     {% elif project.status == 'livre' %}
-        <p style="font-size:13px;color:#555">🚚 Projet livré. La comptabilité doit générer la facture de solde ({{ '{:,.0f}'.format(project.solde_amount or 0) }} FCFA).</p>
+        <p style="font-size:13px;color:#555">🚚 Projet livré le <strong>{{ project.delivery_date or '-' }}</strong>{% if project.delivery_signed_by %}, signé par <strong>{{ project.delivery_signed_by }}</strong>{% endif %}.</p>
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+            <a href="/projects/{{ project.id }}/bon-livraison.pdf" target="_blank" class="btn btn-outline btn-sm" style="color:#1976d2">📄 Bon de livraison</a>
+            <a href="/projects/{{ project.id }}/abe.pdf" target="_blank" class="btn btn-outline btn-sm" style="color:#2e7d32">📄 ABE</a>
+        </div>
+        <p style="font-size:12px;color:#666;margin-bottom:8px"><strong>La comptabilité</strong> facture le solde ({{ '{:,.0f}'.format(project.solde_amount or 0) }} F).</p>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
             <form method="post" action="/projects/{{ project.id }}/advance" style="display:inline">
                 <input type="hidden" name="to_status" value="attente_solde">
-                <button type="submit" class="btn btn-outline">⏳ En attente du solde</button>
+                <button type="submit" class="btn btn-outline">⏳ Facture envoyée — Attente paiement</button>
             </form>
             <form method="post" action="/projects/{{ project.id }}/advance" style="display:inline">
                 <input type="hidden" name="to_status" value="solde">
-                <button type="submit" class="btn" style="background:#2e7d32;color:#fff">💰 Solde reçu</button>
+                <button type="submit" class="btn" style="background:#2e7d32;color:#fff">💰 Solde encaissé</button>
             </form>
         </div>
+
     {% elif project.status == 'attente_solde' %}
-        <p style="font-size:13px;color:#e8672a">⏳ En attente du paiement du solde ({{ '{:,.0f}'.format(project.solde_amount or 0) }} FCFA).</p>
+        <p style="font-size:13px;color:#e8672a">⏳ <strong>La comptabilité</strong> attend le paiement du solde ({{ '{:,.0f}'.format(project.solde_amount or 0) }} F).</p>
         <form method="post" action="/projects/{{ project.id }}/advance">
             <input type="hidden" name="to_status" value="solde">
-            <button type="submit" class="btn" style="background:#2e7d32;color:#fff">💰 Solde reçu</button>
+            <button type="submit" class="btn" style="background:#2e7d32;color:#fff">💰 Solde encaissé</button>
         </form>
+
     {% elif project.status == 'solde' %}
-        <p style="font-size:13px;color:#555">💰 Projet soldé. Proposez un contrat d'entretien au client.</p>
+        <p style="font-size:13px;color:#555">💰 Solde encaissé. <strong>Le commercial</strong> propose un contrat d'entretien.</p>
         <form method="post" action="/projects/{{ project.id }}/contract-decision">
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-                <button type="submit" name="decision" value="oui" class="btn" style="background:#2e7d32;color:#fff">✅ Client accepte</button>
-                <button type="submit" name="decision" value="non" class="btn btn-outline">🚫 Client refuse</button>
+                <button type="submit" name="decision" value="oui" class="btn" style="background:#2e7d32;color:#fff">✅ Client accepte le contrat</button>
+                <button type="submit" name="decision" value="non" class="btn btn-outline">🚫 Client refuse le contrat</button>
             </div>
         </form>
+
     {% elif project.status in ('contrat_oui', 'contrat_non') %}
         <p style="font-size:13px;color:#555">
-            {% if project.status == 'contrat_oui' %}✅ Contrat d'entretien accepté{% else %}🚫 Contrat d'entretien refusé{% endif %}.
-            Le projet peut être clôturé.
+            {% if project.status == 'contrat_oui' %}✅ Contrat d'entretien <strong>accepté</strong>.{% else %}🚫 Contrat d'entretien <strong>refusé</strong>.{% endif %}
+            Le commercial peut clôturer.
         </p>
         <form method="post" action="/projects/{{ project.id }}/advance">
             <input type="hidden" name="to_status" value="cloture">
             <button type="submit" class="btn btn-primary">🏆 Clôturer le projet</button>
         </form>
+
     {% elif project.status == 'cloture' %}
-        <p style="font-size:13px;color:#2e7d32"><strong>🏆 Projet clôturé</strong> le {{ project.cloture_at or '-' }}.</p>
+        <div style="text-align:center;padding:20px;background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:10px">
+            <div style="font-size:50px;margin-bottom:8px">🏆</div>
+            <p style="font-size:16px;color:#2e7d32;font-weight:700;margin:0">Projet clôturé</p>
+            <p style="font-size:12px;color:#1b5e20;margin:4px 0 0">Clôturé le {{ project.cloture_at or '-' }}</p>
+        </div>
     {% endif %}
+
     </div>
 </div>
 
-<!-- Équipe technique -->
 <div class="card" style="margin-bottom:14px">
     <div class="card-header"><h3 style="margin:0;font-size:14px">👷 Équipe technique ({{ project.team|length }})</h3>
         {% if project.status not in ('cloture',) %}<button class="btn btn-outline btn-sm" onclick="document.getElementById('addTeamM').classList.add('active')">+ Ajouter</button>{% endif %}
@@ -178,7 +222,7 @@
             <span style="background:#eaf3f0;color:#1A7A6D;padding:2px 6px;border-radius:8px;font-size:10px;margin-left:6px">{{ t.role }}</span></td>
         <td style="padding:8px;text-align:right">
             {% if project.status not in ('cloture',) %}
-            <a href="/projects/{{ project.id }}/team/{{ t.id }}/remove" class="btn btn-sm" style="color:#c53030;font-size:11px" onclick="return confirm('Retirer ce membre ?')">🗑️</a>
+            <a href="/projects/{{ project.id }}/team/{{ t.id }}/remove" class="btn btn-sm" style="color:#c53030;font-size:11px" onclick="return confirm('Retirer ?')">🗑️</a>
             {% endif %}
         </td>
     </tr>
@@ -190,9 +234,8 @@
     </div>
 </div>
 
-<!-- Matériel -->
 <div class="card" style="margin-bottom:14px">
-    <div class="card-header"><h3 style="margin:0;font-size:14px">📦 Matériel prévu ({{ project.materials|length }})</h3>
+    <div class="card-header"><h3 style="margin:0;font-size:14px">📦 Matériel ({{ project.materials|length }})</h3>
         {% if project.status not in ('cloture',) %}<button class="btn btn-outline btn-sm" onclick="document.getElementById('addMatM').classList.add('active')">+ Ajouter</button>{% endif %}
     </div>
     <div class="card-body" style="padding:0">
@@ -210,7 +253,7 @@
                 {% else %}<span style="background:#fde8e8;color:#c53030;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600">⚠️ Rupture</span>{% endif %}
             </td>
             <td style="white-space:nowrap;text-align:right;padding:4px">
-                {% if not m.reserved and project.status in ('preparation','valide') %}
+                {% if not m.reserved and project.status in ('preparation','demarre','valide') %}
                 <a href="/projects/{{ project.id }}/material/{{ m.id }}/reserve" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:10px">Réserver</a>
                 {% endif %}
                 <a href="/projects/{{ project.id }}/material/{{ m.id }}/delete" class="btn btn-sm" style="color:#c53030;font-size:11px" onclick="return confirm('Retirer ?')">🗑️</a>
@@ -225,7 +268,6 @@
     </div>
 </div>
 
-<!-- Rapports d'avancement (techniciens) -->
 {% if project.status in ('execution', 'travaux_fin', 'qc_rejete') %}
 <div class="card" style="margin-bottom:14px">
     <div class="card-header"><h3 style="margin:0;font-size:14px">📝 Rapports d'avancement ({{ project.progress_reports|length }})</h3>
@@ -247,7 +289,7 @@
     </div>
     {% endfor %}
     {% else %}
-    <p style="text-align:center;color:#999;padding:14px;font-size:12px">Aucun rapport. Les techniciens peuvent en ajouter via le bouton ci-dessus.</p>
+    <p style="text-align:center;color:#999;padding:14px;font-size:12px">Aucun rapport.</p>
     {% endif %}
     </div>
 </div>
@@ -255,10 +297,8 @@
 
 </div>
 
-<!-- COLONNE DROITE : infos + historique -->
 <div>
 
-<!-- Infos -->
 <div class="card" style="margin-bottom:14px"><div class="card-body">
     <h3 style="margin:0 0 10px;font-size:14px;color:#1A7A6D">ℹ️ Informations</h3>
     <table style="width:100%;font-size:12px">
@@ -271,19 +311,26 @@
         <tr><td style="padding:4px 0;color:#888">Coordinateur</td><td>{{ project.coordinator.full_name if project.coordinator else '-' }}</td></tr>
         <tr><td style="padding:4px 0;color:#888">Date début</td><td>{{ project.start_date or '-' }}</td></tr>
         <tr><td style="padding:4px 0;color:#888">Fin prévue</td><td>{{ project.end_date_planned or '-' }}</td></tr>
-        <tr><td style="padding:4px 0;color:#888">Fin effective</td><td>{{ project.end_date_actual or '-' }}</td></tr>
         <tr><td style="padding:4px 0;color:#888">Livré le</td><td>{{ project.delivery_date or '-' }}</td></tr>
-        {% if project.qc_rejected_count and project.qc_rejected_count > 0 %}
-        <tr><td style="padding:4px 0;color:#c53030">QC rejets</td><td style="color:#c53030;font-weight:700">{{ project.qc_rejected_count }}</td></tr>
-        {% endif %}
+        {% if project.delivery_signed_by %}<tr><td style="padding:4px 0;color:#888">Signé par</td><td>{{ project.delivery_signed_by }}</td></tr>{% endif %}
+        {% if project.qc_rejected_count and project.qc_rejected_count > 0 %}<tr><td style="padding:4px 0;color:#c53030">QC rejets</td><td style="color:#c53030;font-weight:700">{{ project.qc_rejected_count }}</td></tr>{% endif %}
     </table>
-    
     {% if project.status not in ('cloture',) %}
-    <button class="btn btn-outline btn-sm" onclick="document.getElementById('planM').classList.add('active')" style="margin-top:10px;width:100%">📅 Modifier planning / coordinateur</button>
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('planM').classList.add('active')" style="margin-top:10px;width:100%">📅 Modifier planning</button>
     {% endif %}
 </div></div>
 
-<!-- Historique timeline -->
+{% if project.delivery_date or project.status in ('livre','attente_solde','solde','contrat_oui','contrat_non','cloture') %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 10px;font-size:14px;color:#1A7A6D">📄 Documents</h3>
+    <div style="display:flex;flex-direction:column;gap:6px">
+        <a href="/projects/{{ project.id }}/fiche-planification.pdf" target="_blank" style="display:flex;align-items:center;gap:8px;padding:8px;background:#e3f2fd;border-radius:6px;text-decoration:none;color:#1565c0;font-size:12px">📄 <span>Fiche de planification</span></a>
+        <a href="/projects/{{ project.id }}/bon-livraison.pdf" target="_blank" style="display:flex;align-items:center;gap:8px;padding:8px;background:#fff3e0;border-radius:6px;text-decoration:none;color:#b8561f;font-size:12px">📄 <span>Bon de livraison</span>{% if project.delivery_pv_generated %}<span style="margin-left:auto;color:#2e7d32">✓</span>{% endif %}</a>
+        <a href="/projects/{{ project.id }}/abe.pdf" target="_blank" style="display:flex;align-items:center;gap:8px;padding:8px;background:#e8f5e9;border-radius:6px;text-decoration:none;color:#2e7d32;font-size:12px">📄 <span>ABE (Attestation Bonne Exécution)</span>{% if project.delivery_abe_generated %}<span style="margin-left:auto">✓</span>{% endif %}</a>
+    </div>
+</div></div>
+{% endif %}
+
 <div class="card"><div class="card-body">
     <h3 style="margin:0 0 10px;font-size:14px;color:#1A7A6D">📜 Historique ({{ project.history|length }})</h3>
     <div style="max-height:400px;overflow-y:auto">
@@ -292,9 +339,7 @@
         <div style="font-size:11px;color:#666">{{ h.created_at[:16] if h.created_at else '' }}</div>
         <div style="font-size:12px;margin-top:2px"><strong>{{ h.actor_name or 'Système' }}</strong></div>
         {% if h.from_status and h.to_status %}
-        <div style="font-size:11px;color:#888;margin-top:2px">
-            {{ h.from_status }} → <strong style="color:#1A7A6D">{{ h.to_status }}</strong>
-        </div>
+        <div style="font-size:11px;color:#888;margin-top:2px">{{ h.from_status }} → <strong style="color:#1A7A6D">{{ h.to_status }}</strong></div>
         {% endif %}
         {% if h.comment %}<div style="font-size:11px;color:#555;margin-top:2px;font-style:italic">{{ h.comment }}</div>{% endif %}
     </div>
@@ -305,7 +350,7 @@
 </div>
 </div>
 
-<!-- Modal équipe -->
+<!-- Modals -->
 <div class="modal-bg" id="addTeamM"><div class="modal"><h3>👷 Ajouter un membre</h3>
 <form method="post" action="/projects/{{ project.id }}/team/add">
     <div class="form-group"><label>Technicien *</label>
@@ -313,7 +358,7 @@
             <option value="">— Sélectionner —</option>
             {% for u in available_techs %}<option value="{{ u.id }}">{{ u.full_name or u.username }} ({{ u.role }})</option>{% endfor %}
         </select></div>
-    <div class="form-group"><label>Rôle dans le projet</label>
+    <div class="form-group"><label>Rôle</label>
         <select name="role">
             <option value="technicien">Technicien</option>
             <option value="chef_equipe">Chef d'équipe</option>
@@ -325,18 +370,17 @@
     </div>
 </form></div></div>
 
-<!-- Modal matériel -->
 <div class="modal-bg" id="addMatM"><div class="modal"><h3>📦 Ajouter du matériel</h3>
 <form method="post" action="/projects/{{ project.id }}/material/add">
     <div class="form-row">
-        <div class="form-group"><label>Désignation *</label><input type="text" name="material_name" required placeholder="Ex: Caméra IP HD"></div>
+        <div class="form-group"><label>Désignation *</label><input type="text" name="material_name" required></div>
         <div class="form-group"><label>Quantité</label><input type="number" name="quantity" value="1" min="1"></div>
         <div class="form-group"><label>Unité</label><input type="text" name="unite" value="unité"></div>
     </div>
-    <div class="form-group"><label>Lier à un équipement MG (optionnel)</label>
+    <div class="form-group"><label>Lier à un équipement MG</label>
         <select name="mg_equipement_id">
             <option value="">— Aucun —</option>
-            {% for e in mg_equips %}<option value="{{ e.id }}">{{ e.nom }} (stock: {{ e.stock_actuel or 0 }} {{ e.unite or 'unité' }})</option>{% endfor %}
+            {% for e in mg_equips %}<option value="{{ e.id }}">{{ e.nom }} (stock: {{ e.stock_actuel or 0 }})</option>{% endfor %}
         </select></div>
     <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -345,17 +389,16 @@
     </div>
 </form></div></div>
 
-<!-- Modal rapport avancement -->
 <div class="modal-bg" id="addProgM"><div class="modal"><h3>📝 Rapport d'avancement</h3>
 <form method="post" action="/projects/{{ project.id }}/progress">
     <div class="form-group"><label>Progression (%)</label>
         <input type="range" name="progress_pct" min="0" max="100" value="50" oninput="this.nextElementSibling.textContent=this.value+'%'">
         <span style="font-weight:700;color:#1A7A6D">50%</span></div>
-    <div class="form-group"><label>Description des travaux effectués</label>
+    <div class="form-group"><label>Description des travaux</label>
         <textarea name="description" rows="3" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:10px;background:#fff3e0;border-radius:6px;margin-bottom:10px">
         <input type="checkbox" name="is_final" value="1">
-        <span>🏁 <strong>Travaux terminés</strong> — passe l'étape au contrôle qualité</span>
+        <span>🏁 <strong>Travaux terminés</strong> — passe au contrôle qualité</span>
     </label>
     <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('addProgM').classList.remove('active')">Annuler</button>
@@ -363,12 +406,11 @@
     </div>
 </form></div></div>
 
-<!-- Modal planning -->
 <div class="modal-bg" id="planM"><div class="modal"><h3>📅 Planning</h3>
 <form method="post" action="/projects/{{ project.id }}/plan">
     <div class="form-row">
-        <div class="form-group"><label>Date de début</label><input type="date" name="start_date" value="{{ project.start_date or '' }}"></div>
-        <div class="form-group"><label>Date de fin prévue</label><input type="date" name="end_date_planned" value="{{ project.end_date_planned or '' }}"></div>
+        <div class="form-group"><label>Date début</label><input type="date" name="start_date" value="{{ project.start_date or '' }}"></div>
+        <div class="form-group"><label>Date fin prévue</label><input type="date" name="end_date_planned" value="{{ project.end_date_planned or '' }}"></div>
     </div>
     <div class="form-group"><label>Coordinateur</label>
         <select name="coordinator_id">
@@ -380,5 +422,62 @@
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
     </div>
 </form></div></div>
+
+<!-- v86 : Modal livraison OBLIGATOIRE -->
+<div class="modal-bg" id="deliveryM"><div class="modal" style="max-width:560px"><h3>🚚 Livraison du projet</h3>
+<form method="post" action="/projects/{{ project.id }}/delivery" id="deliveryForm">
+    <div style="background:#e3f2fd;padding:12px;border-radius:6px;font-size:12px;color:#1565c0;margin-bottom:14px">
+        📋 <strong>Étape obligatoire</strong> avant transfert à la comptabilité. Le client signe le BL et l'ABE.
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Date de livraison *</label>
+            <input type="date" name="delivery_date" required value="{{ project.delivery_date or '' }}"></div>
+        <div class="form-group"><label>Signé par (client) *</label>
+            <input type="text" name="delivery_signed_by" required placeholder="Ex: M. KOFFI" value="{{ project.delivery_signed_by or '' }}"></div>
+    </div>
+    <div class="form-group"><label>Notes livraison</label>
+        <textarea name="delivery_notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">{{ project.delivery_notes or '' }}</textarea></div>
+    <div style="background:#fff3e0;padding:12px;border-radius:6px;margin-bottom:14px">
+        <strong style="color:#b8561f;font-size:13px">📄 Documents :</strong>
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" name="pv_generated" value="1" {% if project.delivery_pv_generated %}checked{% endif %}>
+                <span>Bon de livraison signé</span>
+                <a href="/projects/{{ project.id }}/bon-livraison.pdf" target="_blank" style="margin-left:auto;color:#1976d2;font-size:11px;font-weight:700">📄 Télécharger BL</a>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" name="abe_generated" value="1" {% if project.delivery_abe_generated %}checked{% endif %}>
+                <span>ABE générée</span>
+                <a href="/projects/{{ project.id }}/abe.pdf" target="_blank" style="margin-left:auto;color:#2e7d32;font-size:11px;font-weight:700">📄 Télécharger ABE</a>
+            </label>
+        </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('deliveryM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer la livraison</button>
+        <button type="button" class="btn" style="background:#1A7A6D;color:#fff" onclick="submitAndAdvance()">🚚 Enregistrer + Marquer livré</button>
+    </div>
+</form>
+<script>
+function submitAndAdvance() {
+    var form = document.getElementById('deliveryForm');
+    var fd = new FormData(form);
+    if (!fd.get('delivery_signed_by') || !fd.get('delivery_signed_by').trim()) {
+        alert('Le nom du signataire est requis');
+        return;
+    }
+    fetch(form.action, {method:'POST', body:fd}).then(function() {
+        var advForm = document.createElement('form');
+        advForm.method = 'POST';
+        advForm.action = '/projects/{{ project.id }}/advance';
+        var inp = document.createElement('input');
+        inp.name = 'to_status'; inp.value = 'livre';
+        advForm.appendChild(inp);
+        document.body.appendChild(advForm);
+        advForm.submit();
+    });
+}
+</script>
+</div></div>
 
 {% endblock %}

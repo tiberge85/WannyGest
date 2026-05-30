@@ -385,6 +385,23 @@ from models import migrate_v74
 migrate_v74()
 from models import migrate_v75
 migrate_v75()
+
+# v86 : Ajout de colonnes pour la livraison
+try:
+    from models import get_db as _v86_db
+    _v86_conn = _v86_db()
+    for col, default in [
+        ('delivery_signed_by', 'TEXT'),
+        ('delivery_signed_at', 'TEXT'),
+        ('delivery_notes', 'TEXT'),
+        ('delivery_pv_generated', 'INTEGER DEFAULT 0'),
+        ('delivery_abe_generated', 'INTEGER DEFAULT 0'),
+    ]:
+        try: _v86_conn.execute(f"ALTER TABLE wf_projects ADD COLUMN {col} {default}")
+        except: pass
+    _v86_conn.commit()
+    _v86_conn.close()
+except: pass
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -10801,27 +10818,28 @@ def _compute_next_due(base_date_str, period_type, period_days, period_monthly_da
 
 # ==================== v84 : MODULE SUIVI CYCLE DE VIE PROJETS ====================
 
-# Définition des 10 étapes du workflow
+# Définition des 9 étapes du workflow (v86 - aligné processus métier)
+# Note : étape "Travaux terminés" est un sous-état de l'étape 5 (technique)
 PROJECT_STEPS = [
-    {'num': 1,  'key': 'valide',         'label': 'Projet validé',          'pct': 10,  'icon': '✅', 'service': 'commercial'},
-    {'num': 2,  'key': 'preparation',    'label': 'Préparation en cours',   'pct': 20,  'icon': '📦', 'service': 'mg'},
-    {'num': 3,  'key': 'planifie',       'label': 'Planifié',               'pct': 35,  'icon': '📅', 'service': 'coordination'},
-    {'num': 4,  'key': 'execution',      'label': 'Travaux en cours',       'pct': 50,  'icon': '🔧', 'service': 'technique'},
-    {'num': 5,  'key': 'travaux_fin',    'label': 'Travaux terminés',       'pct': 65,  'icon': '🏁', 'service': 'technique'},
-    {'num': 6,  'key': 'qc_valide',      'label': 'Contrôle qualité validé','pct': 75,  'icon': '🔍', 'service': 'coordination'},
-    {'num': 7,  'key': 'livre',          'label': 'Livré au client',        'pct': 85,  'icon': '🚚', 'service': 'coordination'},
-    {'num': 8,  'key': 'solde',          'label': 'Soldé',                  'pct': 92,  'icon': '💰', 'service': 'comptabilite'},
-    {'num': 9,  'key': 'contrat_traite', 'label': 'Contrat entretien traité','pct': 96, 'icon': '📋', 'service': 'commercial'},
-    {'num': 10, 'key': 'cloture',        'label': 'Projet clôturé',         'pct': 100, 'icon': '🏆', 'service': 'coordination'},
+    {'num': 1, 'key': 'valide',      'label': 'Projet validé',            'pct': 10,  'icon': '✅', 'service': 'commercial',    'service_label': '🏷️ Commercial',         'color': '#1976d2', 'next_label': '→ Transfert au coordinateur'},
+    {'num': 2, 'key': 'demarre',     'label': 'Démarrage validé',         'pct': 18,  'icon': '🚀', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Notification Moyens Généraux'},
+    {'num': 3, 'key': 'preparation', 'label': 'Préparation matériel',     'pct': 28,  'icon': '📦', 'service': 'mg',            'service_label': '🏪 Moyens Généraux',     'color': '#e8672a', 'next_label': '→ Retour coordinateur'},
+    {'num': 4, 'key': 'planifie',    'label': 'Planifié',                 'pct': 40,  'icon': '📅', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Transfert au centre technique'},
+    {'num': 5, 'key': 'execution',   'label': 'Travaux en cours',         'pct': 55,  'icon': '🔧', 'service': 'technique',     'service_label': '🛠️ Centre Technique',    'color': '#7b1fa2', 'next_label': '→ Transfert au coordinateur'},
+    {'num': 6, 'key': 'qc_valide',   'label': 'Contrôle qualité validé',  'pct': 70,  'icon': '🔍', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Livraison obligatoire'},
+    {'num': 7, 'key': 'livre',       'label': 'Livré au client',          'pct': 82,  'icon': '🚚', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Transfert à la comptabilité'},
+    {'num': 8, 'key': 'solde',       'label': 'Solde encaissé',           'pct': 92,  'icon': '💰', 'service': 'comptabilite',  'service_label': '💼 Comptabilité',        'color': '#2e7d32', 'next_label': '→ Transfert au commercial'},
+    {'num': 9, 'key': 'cloture',     'label': 'Projet clôturé',           'pct': 100, 'icon': '🏆', 'service': 'commercial',    'service_label': '🏷️ Commercial',          'color': '#1976d2', 'next_label': 'Fin du cycle'},
 ]
 
 # Mapping statut → infos étape
 PROJECT_STATUS_INFO = {s['key']: s for s in PROJECT_STEPS}
-# Statuts spéciaux (non séquentiels)
-PROJECT_STATUS_INFO['qc_rejete'] = {'num': 6, 'key': 'qc_rejete', 'label': 'Contrôle qualité rejeté', 'pct': 50, 'icon': '❌', 'service': 'coordination'}
-PROJECT_STATUS_INFO['attente_solde'] = {'num': 8, 'key': 'attente_solde', 'label': 'En attente de solde', 'pct': 88, 'icon': '⏳', 'service': 'comptabilite'}
-PROJECT_STATUS_INFO['contrat_oui'] = {'num': 9, 'key': 'contrat_oui', 'label': 'Contrat accepté', 'pct': 96, 'icon': '✅', 'service': 'commercial'}
-PROJECT_STATUS_INFO['contrat_non'] = {'num': 9, 'key': 'contrat_non', 'label': 'Contrat refusé', 'pct': 96, 'icon': '🚫', 'service': 'commercial'}
+# Statuts spéciaux (non séquentiels) — affichés mais ne font pas partie des 9 étapes
+PROJECT_STATUS_INFO['travaux_fin']   = {'num': 5, 'key': 'travaux_fin',   'label': 'Travaux terminés (attente QC)', 'pct': 65, 'icon': '🏁', 'service': 'technique',    'service_label': '🛠️ Centre Technique',   'color': '#7b1fa2', 'next_label': '→ Contrôle qualité par coord.'}
+PROJECT_STATUS_INFO['qc_rejete']     = {'num': 6, 'key': 'qc_rejete',     'label': 'Contrôle qualité rejeté',       'pct': 55, 'icon': '❌', 'service': 'technique',    'service_label': '🛠️ Centre Technique',   'color': '#c53030', 'next_label': '→ Reprise des travaux'}
+PROJECT_STATUS_INFO['attente_solde'] = {'num': 8, 'key': 'attente_solde', 'label': 'En attente du solde',           'pct': 88, 'icon': '⏳', 'service': 'comptabilite', 'service_label': '💼 Comptabilité',       'color': '#e8672a', 'next_label': '→ Suivi paiement client'}
+PROJECT_STATUS_INFO['contrat_oui']   = {'num': 9, 'key': 'contrat_oui',   'label': 'Contrat entretien accepté',     'pct': 96, 'icon': '✅', 'service': 'commercial',   'service_label': '🏷️ Commercial',         'color': '#2e7d32', 'next_label': '→ Clôture du projet'}
+PROJECT_STATUS_INFO['contrat_non']   = {'num': 9, 'key': 'contrat_non',   'label': 'Contrat entretien refusé',      'pct': 96, 'icon': '🚫', 'service': 'commercial',   'service_label': '🏷️ Commercial',         'color': '#c53030', 'next_label': '→ Clôture du projet'}
 
 
 def _project_log(project_id, event_type, from_status=None, to_status=None, comment=''):
@@ -11037,20 +11055,21 @@ def _project_advance(project_id, to_status, comment=''):
     
     _project_log(project_id, 'transition', from_status, to_status, comment)
     
-    # Notifications selon nouveau statut
+    # v86 : Notifications selon nouveau workflow (chaque étape notifie le service suivant)
     notif_map = {
-        'preparation':    (['mg', 'magasinier'],           "Préparation matériel demandée",     "Vérifier la disponibilité du matériel et réserver les ressources."),
-        'planifie':       (['technicien', 'coordinateur'], "Projet planifié",                   "Le projet est planifié, fiche de planification disponible."),
-        'execution':      (['technicien'],                 "Travaux à exécuter",                "Vous êtes affecté au projet — consultez le programme."),
-        'travaux_fin':    (['coordinateur'],               "Travaux terminés — Contrôle qualité","Procéder au contrôle qualité avant livraison."),
-        'qc_valide':      (['coordinateur', 'commercial'], "Contrôle qualité validé",           "Programmer la livraison au client."),
-        'qc_rejete':      (['technicien'],                 "Contrôle qualité rejeté",           "Reprendre les travaux selon les observations."),
-        'livre':          (['comptabilite'],               "Projet livré — Facturer le solde",  "Générer la facture de solde et suivre le paiement."),
-        'attente_solde':  (['comptabilite'],               "Solde en attente",                  "Relancer le client pour le paiement du solde."),
-        'solde':          (['commercial'],                 "Projet soldé — Proposer contrat",   "Proposer un contrat d'entretien au client."),
-        'contrat_oui':    (['coordinateur'],               "Contrat d'entretien accepté",       "Le client accepte le contrat d'entretien."),
-        'contrat_non':    (['coordinateur'],               "Contrat d'entretien refusé",        "Le client refuse le contrat d'entretien."),
-        'cloture':        (['admin', 'coordinateur'],      "Projet clôturé",                    "Le projet est officiellement clôturé."),
+        'demarre':        (['mg', 'magasinier'],           "🚀 Démarrage validé — Préparer le matériel",  "Le coordinateur a validé le démarrage. Vérifier la disponibilité du matériel et préparer les ressources."),
+        'preparation':    (['mg', 'magasinier'],           "📦 Préparation matériel demandée",            "Lister et réserver le matériel nécessaire au projet."),
+        'planifie':       (['technicien', 'tech_chef', 'chef_chantier'], "📅 Projet planifié — Travaux à venir", "Vous êtes affecté à ce projet. Consultez la fiche de planification."),
+        'execution':      (['technicien', 'tech_chef'],    "🔧 Travaux à exécuter maintenant",            "Démarrer les travaux selon le programme défini."),
+        'travaux_fin':    (['coordinateur'],               "🏁 Travaux terminés — Contrôle qualité requis","Procéder au contrôle qualité avant livraison au client."),
+        'qc_valide':      (['coordinateur'],               "🔍 Contrôle qualité validé — Programmer livraison","Le contrôle qualité est validé. Programmer le rendez-vous de livraison avec le client."),
+        'qc_rejete':      (['technicien', 'tech_chef'],    "❌ Contrôle qualité rejeté — Reprise requise", "Le contrôle qualité a été rejeté. Reprendre les travaux selon les observations du coordinateur."),
+        'livre':          (['comptabilite', 'comptable'],  "🚚 Projet livré — Facturer le solde",         "La livraison est effectuée (BL + ABE signés). Générer la facture du solde et suivre le paiement."),
+        'attente_solde':  (['comptabilite', 'comptable'],  "⏳ Solde en attente de paiement",             "Relancer le client pour le paiement du solde du projet."),
+        'solde':          (['commercial'],                 "💰 Projet soldé — Proposer contrat entretien", "Le solde est encaissé. Proposer un contrat d'entretien au client."),
+        'contrat_oui':    (['commercial', 'coordinateur'], "✅ Contrat entretien accepté",                "Le client accepte le contrat d'entretien. Procéder à la clôture du projet."),
+        'contrat_non':    (['commercial', 'coordinateur'], "🚫 Contrat entretien refusé",                 "Le client refuse le contrat d'entretien. Procéder à la clôture du projet."),
+        'cloture':        (['admin', 'coordinateur', 'commercial'], "🏆 Projet clôturé",                  "Le projet est officiellement clôturé. Archivage disponible."),
     }
     if to_status in notif_map:
         roles, n_title, n_msg = notif_map[to_status]
@@ -11671,20 +11690,21 @@ def project_advance(pid):
         return redirect('/projects')
     current = p['status']
     
-    # Vérifier transitions autorisées
+    # v86 : Transitions selon workflow métier strict
     valid_transitions = {
-        'valide':       ['preparation'],
-        'preparation':  ['planifie'],
-        'planifie':     ['execution'],
-        'execution':    ['travaux_fin'],
-        'travaux_fin':  ['qc_valide', 'qc_rejete'],
-        'qc_rejete':    ['execution'],
-        'qc_valide':    ['livre'],
-        'livre':        ['attente_solde', 'solde'],
-        'attente_solde':['solde'],
-        'solde':        ['contrat_oui', 'contrat_non'],
-        'contrat_oui':  ['cloture'],
-        'contrat_non':  ['cloture'],
+        'valide':       ['demarre'],                   # Commercial → Coordinateur
+        'demarre':      ['preparation'],               # Coordinateur → MG
+        'preparation':  ['planifie'],                  # MG → Coordinateur (planification)
+        'planifie':     ['execution'],                 # Coordinateur → Centre Technique
+        'execution':    ['travaux_fin'],               # Centre Technique
+        'travaux_fin':  ['qc_valide', 'qc_rejete'],    # Coordinateur (contrôle qualité)
+        'qc_rejete':    ['execution'],                 # Retour Centre Technique
+        'qc_valide':    ['livre'],                     # LIVRAISON OBLIGATOIRE
+        'livre':        ['solde', 'attente_solde'],    # Coordinateur → Comptabilité
+        'attente_solde':['solde'],                     # Comptabilité (suivi)
+        'solde':        ['contrat_oui', 'contrat_non'],# Comptabilité → Commercial
+        'contrat_oui':  ['cloture'],                   # Commercial
+        'contrat_non':  ['cloture'],                   # Commercial
     }
     allowed_next = valid_transitions.get(current, [])
     if to_status not in allowed_next:
@@ -11692,7 +11712,7 @@ def project_advance(pid):
         flash(f"Transition non autorisée : {current} → {to_status}", "error")
         return redirect(f'/projects/{pid}')
     
-    # Validations spéciales par étape
+    # v86 : Validations métier strictes par étape
     if to_status == 'planifie':
         # Vérifier que l'équipe + date début sont définis
         team_count = conn.execute("SELECT COUNT(*) FROM wf_project_team WHERE project_id=?", (pid,)).fetchone()[0]
@@ -11701,6 +11721,15 @@ def project_advance(pid):
             conn.close()
             flash("Impossible de planifier : au moins 1 technicien + date de début requis", "error")
             return redirect(f'/projects/{pid}')
+    elif to_status == 'preparation':
+        # Vérifier qu'au moins 1 matériel a été ajouté (sinon avertir mais ne pas bloquer)
+        nb_mat = conn.execute("SELECT COUNT(*) FROM wf_project_materials WHERE project_id=?", (pid,)).fetchone()[0]
+        if nb_mat == 0:
+            flash("⚠️ Aucun matériel n'a été listé. Demandez aux Moyens Généraux de l'ajouter.", "warning")
+    elif to_status == 'livre':
+        # Vérifier que la livraison a bien été enregistrée (bon de livraison ou ABE)
+        # On accepte le passage en livré, mais on flash un rappel
+        flash("📋 Pensez à imprimer le bon de livraison et l'ABE depuis la page projet", "info")
     
     conn.close()
     
@@ -11852,6 +11881,241 @@ def project_progress_add(pid):
         flash(f"✅ Rapport d'avancement enregistré ({pct}%)", "success")
     
     return redirect(f'/projects/{pid}')
+
+
+# v86 : Enregistrement de la livraison effective (étape obligatoire)
+@app.route('/projects/<int:pid>/delivery', methods=['POST'])
+@project_access_required
+def project_delivery(pid):
+    """Enregistre les détails de la livraison : nom du signataire, date, notes.
+    Marque les flags de documents générés (BL + ABE)."""
+    signed_by = request.form.get('delivery_signed_by', '').strip()
+    if not signed_by:
+        flash("Nom du signataire (client) requis pour la livraison", "error")
+        return redirect(f'/projects/{pid}')
+    
+    delivery_date = request.form.get('delivery_date', '').strip() or datetime.now().strftime('%Y-%m-%d')
+    delivery_notes = request.form.get('delivery_notes', '').strip()
+    pv_generated = 1 if request.form.get('pv_generated') else 0
+    abe_generated = 1 if request.form.get('abe_generated') else 0
+    
+    conn = _gdb()
+    conn.execute("""UPDATE wf_projects SET
+        delivery_date=?, delivery_signed_by=?, delivery_signed_at=?,
+        delivery_notes=?, delivery_pv_generated=?, delivery_abe_generated=?
+        WHERE id=?""",
+        (delivery_date, signed_by, datetime.now().strftime('%Y-%m-%d %H:%M'),
+         delivery_notes, pv_generated, abe_generated, pid))
+    conn.commit(); conn.close()
+    
+    _project_log(pid, 'delivery_signed', None, None,
+        f"Livraison signée par {signed_by} le {delivery_date}" +
+        (f" — BL: {'oui' if pv_generated else 'non'}, ABE: {'oui' if abe_generated else 'non'}"))
+    
+    flash(f"🚚 Livraison enregistrée — signée par {signed_by}", "success")
+    return redirect(f'/projects/{pid}')
+
+
+# v86 : Génération PDF bon de livraison du projet
+@app.route('/projects/<int:pid>/bon-livraison.pdf')
+@project_access_required
+def project_bon_livraison_pdf(pid):
+    """Génère un bon de livraison pour le projet."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from flask import Response
+    import io as _io
+    
+    p = get_project_by_id_full(pid)
+    if not p:
+        flash("Projet introuvable", "error")
+        return redirect('/projects')
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm,
+                            topMargin=12*mm, bottomMargin=12*mm)
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888'); ORANGE = HexColor('#e8672a')
+    
+    h = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=18, textColor=TEAL, alignment=TA_CENTER, spaceAfter=4*mm)
+    sub = ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=8*mm)
+    section = ParagraphStyle('sec', fontName='Helvetica-Bold', fontSize=11, textColor=TEAL, spaceAfter=3*mm, spaceBefore=5*mm)
+    n = ParagraphStyle('n', fontSize=10)
+    nb = ParagraphStyle('nb', fontName='Helvetica-Bold', fontSize=10)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=10, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
+    story.append(Paragraph("<b>BON DE LIVRAISON</b>", h))
+    story.append(Paragraph(f"N° {p.get('reference') or '-'} — Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
+    
+    # Bloc client
+    story.append(Paragraph("<b>👤 LIVRÉ À</b>", section))
+    cli_data = [
+        [Paragraph("Client", nb), Paragraph(p.get('client_name', '-') or '-', n)],
+        [Paragraph("Référence devis", nb), Paragraph(p.get('devis_reference', '-') or '-', n)],
+        [Paragraph("Date de livraison", nb), Paragraph(p.get('delivery_date') or datetime.now().strftime('%Y-%m-%d'), n)],
+    ]
+    t = Table(cli_data, colWidths=[55*mm, 127*mm])
+    t.setStyle(TableStyle([('BOX',(0,0),(-1,-1),0.5,GREY),
+        ('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+        ('BACKGROUND',(0,0),(0,-1),HexColor('#f8faf9'))]))
+    story.append(t)
+    
+    # Projet
+    story.append(Paragraph("<b>📋 PROJET LIVRÉ</b>", section))
+    story.append(Paragraph(f"<b>{p.get('title') or '-'}</b>", ParagraphStyle('t1', fontName='Helvetica-Bold', fontSize=11, spaceAfter=3*mm)))
+    if p.get('description'):
+        story.append(Paragraph(p['description'], n))
+    
+    # Matériels livrés
+    if p['materials']:
+        story.append(Paragraph("<b>📦 MATÉRIELS LIVRÉS</b>", section))
+        mat_data = [[Paragraph(s, ParagraphStyle('hw', fontName='Helvetica-Bold', fontSize=9, textColor=white, alignment=TA_CENTER))
+                     for s in ['#', 'Désignation', 'Quantité', 'Unité']]]
+        for i, m in enumerate(p['materials'], 1):
+            mat_data.append([
+                Paragraph(str(i), ParagraphStyle('tc', fontSize=9, alignment=TA_CENTER)),
+                Paragraph(m['material_name'], ParagraphStyle('tl', fontSize=9)),
+                Paragraph(str(m.get('quantity', 1)), ParagraphStyle('tc', fontSize=9, alignment=TA_CENTER)),
+                Paragraph(m.get('unite', 'unité'), ParagraphStyle('tc', fontSize=9, alignment=TA_CENTER)),
+            ])
+        tab = Table(mat_data, colWidths=[14*mm, 110*mm, 28*mm, 30*mm])
+        tab.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('BOX',(0,0),(-1,-1),0.5,GREY),('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[white, HexColor('#f8faf9')])]))
+        story.append(tab)
+    
+    # Mention de réception
+    story.append(Spacer(1, 8*mm))
+    story.append(Paragraph(
+        "Je soussigné(e), <b>" + (p.get('delivery_signed_by') or '________________________') +
+        "</b>, atteste avoir reçu les éléments listés ci-dessus en bon état de fonctionnement.",
+        ParagraphStyle('mention', fontSize=10, spaceAfter=4*mm)))    
+    # Signatures
+    story.append(Spacer(1, 18*mm))
+    sig_data = [
+        [Paragraph("<b>RAMYA Technologie</b><br/><br/><br/>_______________________<br/><i>Signature &amp; cachet</i>",
+                   ParagraphStyle('sig', fontSize=9, alignment=TA_CENTER)),
+         Paragraph("<b>Client</b><br/><br/><br/>_______________________<br/><i>Signature</i>",
+                   ParagraphStyle('sig', fontSize=9, alignment=TA_CENTER))],
+    ]
+    t = Table(sig_data, colWidths=[91*mm, 91*mm])
+    t.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP')]))
+    story.append(t)
+    
+    doc.build(story)
+    buf.seek(0)
+    
+    # Marquer le BL comme généré
+    try:
+        conn = _gdb()
+        conn.execute("UPDATE wf_projects SET delivery_pv_generated=1 WHERE id=?", (pid,))
+        conn.commit(); conn.close()
+    except: pass
+    
+    fname = f"BL_{p.get('reference') or pid}.pdf"
+    return Response(buf.getvalue(), mimetype='application/pdf',
+                   headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+
+# v86 : Génération PDF ABE (Attestation de Bonne Exécution)
+@app.route('/projects/<int:pid>/abe.pdf')
+@project_access_required
+def project_abe_pdf(pid):
+    """Génère l'ABE (Attestation de Bonne Exécution) pour le projet."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+    from flask import Response
+    import io as _io
+    
+    p = get_project_by_id_full(pid)
+    if not p:
+        flash("Projet introuvable", "error")
+        return redirect('/projects')
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18*mm, rightMargin=18*mm,
+                            topMargin=15*mm, bottomMargin=15*mm)
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888')
+    
+    h = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=20, textColor=TEAL, alignment=TA_CENTER, spaceAfter=4*mm)
+    sub = ParagraphStyle('sub', fontSize=10, textColor=GREY, alignment=TA_CENTER, spaceAfter=12*mm)
+    body = ParagraphStyle('body', fontSize=11, alignment=TA_JUSTIFY, spaceAfter=4*mm, leading=16)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=11, textColor=GREY, alignment=TA_CENTER, spaceAfter=4*mm)))
+    story.append(Paragraph("<b>ATTESTATION DE BONNE EXÉCUTION</b>", h))
+    story.append(Paragraph(f"Référence : {p.get('reference') or '-'}", sub))
+    
+    story.append(Spacer(1, 6*mm))
+    
+    # Corps de l'ABE
+    client_name = p.get('client_name') or '________________'
+    title = p.get('title') or '________________'
+    delivery_date = p.get('delivery_date') or datetime.now().strftime('%d/%m/%Y')
+    
+    story.append(Paragraph(
+        f"La société <b>RAMYA Technologie &amp; Innovation</b> certifie par la présente avoir réalisé, "
+        f"à la satisfaction du client <b>{client_name}</b>, les prestations suivantes :",
+        body))
+    
+    story.append(Spacer(1, 4*mm))
+    story.append(Paragraph(f"<b>Projet :</b> {title}", body))
+    if p.get('description'):
+        story.append(Paragraph(f"<b>Description :</b> {p['description']}", body))
+    if p.get('devis_reference'):
+        story.append(Paragraph(f"<b>Référence devis :</b> {p['devis_reference']}", body))
+    story.append(Paragraph(f"<b>Date de livraison :</b> {delivery_date}", body))
+    story.append(Paragraph(f"<b>Montant total :</b> {(p.get('total_amount') or 0):,.0f} FCFA", body))
+    
+    story.append(Spacer(1, 6*mm))
+    
+    story.append(Paragraph(
+        "Les travaux ont été exécutés conformément aux spécifications convenues, dans les règles de l'art "
+        "et dans les délais impartis. Le contrôle qualité a été validé par notre coordinateur de projet.",
+        body))
+    
+    story.append(Paragraph(
+        "La présente attestation est délivrée pour servir et faire valoir ce que de droit.",
+        body))
+    
+    # Signatures
+    story.append(Spacer(1, 25*mm))
+    story.append(Paragraph(f"Fait à Abidjan, le {datetime.now().strftime('%d/%m/%Y')}",
+        ParagraphStyle('right', fontSize=10, alignment=2)))  # right
+    story.append(Spacer(1, 15*mm))
+    sig_data = [
+        [Paragraph("<b>Pour RAMYA Technologie</b><br/><br/><br/>_______________________<br/><i>Signature &amp; cachet</i>",
+                   ParagraphStyle('sig', fontSize=10, alignment=TA_CENTER)),
+         Paragraph(f"<b>Pour {client_name[:30]}</b><br/><br/><br/>_______________________<br/><i>{p.get('delivery_signed_by') or 'Signature'}</i>",
+                   ParagraphStyle('sig', fontSize=10, alignment=TA_CENTER))],
+    ]
+    t = Table(sig_data, colWidths=[85*mm, 85*mm])
+    t.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP')]))
+    story.append(t)
+    
+    doc.build(story)
+    buf.seek(0)
+    
+    # Marquer l'ABE comme générée
+    try:
+        conn = _gdb()
+        conn.execute("UPDATE wf_projects SET delivery_abe_generated=1 WHERE id=?", (pid,))
+        conn.commit(); conn.close()
+    except: pass
+    
+    fname = f"ABE_{p.get('reference') or pid}.pdf"
+    return Response(buf.getvalue(), mimetype='application/pdf',
+                   headers={'Content-Disposition': f'attachment; filename="{fname}"'})
 
 
 @app.route('/projects/<int:pid>/contract-decision', methods=['POST'])

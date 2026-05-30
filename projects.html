@@ -36,11 +36,15 @@
         <span style="font-size:13px;font-weight:600;color:#555">Filtre :</span>
         <a href="/projects" class="btn btn-sm {% if not status_filter %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous</a>
         <a href="/projects?status=actifs" class="btn btn-sm {% if status_filter=='actifs' %}btn-primary{% else %}btn-outline{% endif %}">🔵 Actifs (non clôturés)</a>
-        <a href="/projects?status=valide" class="btn btn-sm {% if status_filter=='valide' %}btn-primary{% else %}btn-outline{% endif %}">✅ Validés</a>
-        <a href="/projects?status=preparation" class="btn btn-sm {% if status_filter=='preparation' %}btn-primary{% else %}btn-outline{% endif %}">📦 Préparation</a>
+        <a href="/projects?status=valide" class="btn btn-sm {% if status_filter=='valide' %}btn-primary{% else %}btn-outline{% endif %}">✅ Validés (commercial)</a>
+        <a href="/projects?status=demarre" class="btn btn-sm {% if status_filter=='demarre' %}btn-primary{% else %}btn-outline{% endif %}">🚀 Démarrés (coord.)</a>
+        <a href="/projects?status=preparation" class="btn btn-sm {% if status_filter=='preparation' %}btn-primary{% else %}btn-outline{% endif %}">📦 Préparation (MG)</a>
         <a href="/projects?status=planifie" class="btn btn-sm {% if status_filter=='planifie' %}btn-primary{% else %}btn-outline{% endif %}">📅 Planifiés</a>
-        <a href="/projects?status=execution" class="btn btn-sm {% if status_filter=='execution' %}btn-primary{% else %}btn-outline{% endif %}">🔧 En cours</a>
-        <a href="/projects?status=livre" class="btn btn-sm {% if status_filter=='livre' %}btn-primary{% else %}btn-outline{% endif %}">🚚 Livrés</a>
+        <a href="/projects?status=execution" class="btn btn-sm {% if status_filter=='execution' %}btn-primary{% else %}btn-outline{% endif %}">🔧 En cours (tech.)</a>
+        <a href="/projects?status=travaux_fin" class="btn btn-sm {% if status_filter=='travaux_fin' %}btn-primary{% else %}btn-outline{% endif %}">🏁 QC attente</a>
+        <a href="/projects?status=qc_valide" class="btn btn-sm {% if status_filter=='qc_valide' %}btn-primary{% else %}btn-outline{% endif %}">🔍 QC validé (→livraison)</a>
+        <a href="/projects?status=livre" class="btn btn-sm {% if status_filter=='livre' %}btn-primary{% else %}btn-outline{% endif %}">🚚 Livrés (→compta)</a>
+        <a href="/projects?status=solde" class="btn btn-sm {% if status_filter=='solde' %}btn-primary{% else %}btn-outline{% endif %}">💰 Soldés (→commercial)</a>
         <a href="/projects?status=cloture" class="btn btn-sm {% if status_filter=='cloture' %}btn-primary{% else %}btn-outline{% endif %}">🏆 Clôturés</a>
     </div>
 </div></div>
