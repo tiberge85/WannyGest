@@ -21,13 +21,13 @@
 
 {% for m in months_data %}
 {% set has_real = m.real_total or m.real_masse_salariale or m.real_charges_patronales %}
-<div class="card" style="margin-bottom:12px;border-left:4px solid {% if has_real %}#2e7d32{% else %}#888{% endif %}">
-    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
-        <h3 style="margin:0;font-size:14px;color:#1A7A6D">🗓️ {{ mois_fr[m.month] }} {{ year }}
-            {% if has_real %}<span style="background:#2e7d32;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:6px">RÉEL SAISI</span>
-            {% else %}<span style="background:#888;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:6px">À SAISIR</span>{% endif %}
+<div class="card" style="margin-bottom:12px;border-left:6px solid {% if has_real %}#2e7d32{% else %}#F29F2F{% endif %}">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;background:{% if m.month % 2 == 1 %}#F29F2F{% else %}#e8672a{% endif %};color:#fff;padding:12px 16px;border-radius:6px 6px 0 0">
+        <h3 style="margin:0;font-size:17px;color:#fff;font-weight:900;text-shadow:1px 1px 2px rgba(0,0,0,0.3)">🗓️ {{ mois_fr[m.month] }} {{ year }}
+            {% if has_real %}<span style="background:#2e7d32;color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;margin-left:10px;font-weight:700">✅ RÉEL SAISI</span>
+            {% else %}<span style="background:rgba(255,255,255,0.25);color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;margin-left:10px;font-weight:700;border:1px solid rgba(255,255,255,0.5)">⏳ À SAISIR</span>{% endif %}
         </h3>
-        {% if m.real_updated_at %}<span style="font-size:10px;color:#888">Mis à jour: {{ m.real_updated_at }}</span>{% endif %}
+        {% if m.real_updated_at %}<span style="font-size:10px;color:rgba(255,255,255,0.95)">Mis à jour: {{ m.real_updated_at }}</span>{% endif %}
     </div>
     <div class="card-body" style="padding:0">
         <form method="post" action="/rh/budget/real/{{ year }}/{{ m.month }}">

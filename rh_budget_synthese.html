@@ -44,12 +44,12 @@
 <div class="card" style="margin-bottom:14px">
     <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📋 Récapitulatif annuel des postes budgétaires</h3></div>
     <div class="card-body" style="padding:0;overflow-x:auto">
-        <table style="width:100%;font-size:12px;border-collapse:collapse;min-width:1000px">
-            <thead style="background:#1A7A6D;color:#fff">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;min-width:1100px">
+            <thead>
                 <tr>
-                    <th style="padding:10px;text-align:left;min-width:250px">POSTES BUDGÉTAIRES</th>
-                    {% for m in range(1, 13) %}<th style="padding:10px;text-align:right;min-width:75px">{{ mois_court[m] }}</th>{% endfor %}
-                    <th style="padding:10px;text-align:right;background:#0f5a51;min-width:110px">TOTAL ANNUEL</th>
+                    <th style="padding:14px 10px;text-align:left;min-width:250px;background:#1A7A6D;color:#fff;font-size:13px;font-weight:800">POSTES BUDGÉTAIRES</th>
+                    {% for m in range(1, 13) %}<th style="padding:14px 6px;text-align:center;min-width:85px;background:{% if m % 2 == 1 %}#F29F2F{% else %}#e8672a{% endif %};color:#fff;border-left:2px solid #fff;border-right:2px solid #fff;font-size:14px;font-weight:900;text-shadow:1px 1px 2px rgba(0,0,0,0.3)">{{ mois_court[m] }}</th>{% endfor %}
+                    <th style="padding:14px 8px;text-align:center;background:#0f5a51;color:#fff;min-width:120px;border-left:3px solid #fff;font-size:13px;font-weight:800">TOTAL<br>ANNUEL</th>
                 </tr>
             </thead>
             <tbody>
