@@ -379,7 +379,11 @@
                     {% if 'comptabilite' in permissions or 'admin' in permissions %}
                     <div class="compta-subsection-title"><span class="dot"></span>SUIVI TIERS</div>
                     <a href="/comptabilite/factures" class="{% if page == 'factures' %}active{% endif %}">🧾 Factures</a>
+                    {% if 'creances_view' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
                     <a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📥 Créances clients</a>
+                    <a href="/comptabilite/creances/relances" style="font-size:11px;padding-left:18px">  └ 🔔 Relances</a>
+                    <a href="/comptabilite/creances/parametres" style="font-size:11px;padding-left:18px">  └ ⚙️ Paramètres</a>
+                    {% endif %}
                     <a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>
                     <a href="/comptabilite/validation-paie" class="{% if page == 'compta_paie' %}active{% endif %}">💵 Validation paie</a>
                     {% endif %}
@@ -501,6 +505,14 @@
                     <a href="/mg/receptions" class="{% if page == 'mg_receptions' %}active{% endif %}">📦 Réceptions</a>
                     <a href="/mg/paiements" class="{% if page == 'mg_paiements' %}active{% endif %}">💵 Paiements fournisseurs</a>
                     <a href="/mg/equipements" class="{% if page == 'mg_equipements' %}active{% endif %}">🖥️ Équipements</a>
+                    {% if 'stock_view' in permissions or 'admin' in permissions %}
+                    <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.1)">
+                        <a href="/mg/stock" class="{% if page == 'mg_stock' %}active{% endif %}">📦 Gestion Stock (Inventaire)</a>
+                        <a href="/mg/stock/catalogue">  └ 📋 Catalogue articles</a>
+                        <a href="/mg/stock/entrees">  └ 📥 Entrées</a>
+                        <a href="/mg/stock/sorties">  └ 📤 Sorties</a>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}

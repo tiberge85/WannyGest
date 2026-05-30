@@ -1,0 +1,38 @@
+{% extends "base.html" %}{% block title %}WannyGest - Paramètres Créances{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div><h1>⚙️ Paramètres Créances</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Seuils, délais de relance et informations entreprise</p>
+    </div>
+    <a href="/comptabilite/creances" class="btn btn-outline btn-sm">← Tableau de bord</a>
+</div>
+
+<form method="post" action="/comptabilite/creances/parametres">
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📋 Paramètres généraux</h3></div>
+    <div class="card-body">
+        <table style="width:100%;font-size:13px">
+        {% for p in params %}
+        <tr style="border-bottom:1px solid #eee">
+            <td style="padding:10px;width:50%">{{ p.param_label }}</td>
+            <td style="padding:10px"><input type="text" name="param_{{ p.param_key }}" value="{{ p.param_value }}" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;width:100%;max-width:300px"></td>
+        </tr>
+        {% endfor %}
+        </table>
+    </div>
+</div>
+<div style="text-align:right">
+    <button type="submit" class="btn btn-primary">💾 Enregistrer les paramètres</button>
+</div>
+</form>
+
+<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:14px;border-radius:8px;margin-top:18px;font-size:12px">
+    <strong style="color:#0d47a1">ℹ️ Délais de relance automatiques</strong>
+    <ul style="margin:8px 0 0 18px;color:#1a3a5c;line-height:1.6">
+        <li><strong>Relance 1</strong> : déclenchée à partir du nombre de jours après échéance configuré (par défaut 30j)</li>
+        <li><strong>Relance 2</strong> : niveau renforcé (par défaut 60j)</li>
+        <li><strong>Relance 3</strong> : avant-dernière étape (par défaut 90j)</li>
+        <li><strong>Mise en demeure</strong> : action légale formelle (par défaut 120j)</li>
+    </ul>
+    Les seuils sont configurables ci-dessus et la liste des relances à effectuer est calculée automatiquement.
+</div>
+{% endblock %}

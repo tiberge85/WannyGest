@@ -1,0 +1,115 @@
+{% extends "base.html" %}{% block title %}WannyGest - Catalogue Articles{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div><h1>📋 Catalogue Articles</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Gestion des références produits et fournitures</p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/mg/stock" class="btn btn-outline btn-sm">← Inventaire</a>
+        <button onclick="document.getElementById('addArt').classList.add('active')" class="btn btn-primary btn-sm">+ Nouvel article</button>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body" style="padding:0;overflow-x:auto">
+        <table style="width:100%;font-size:12px;min-width:900px">
+            <thead style="background:#1A7A6D;color:#fff">
+                <tr>
+                    <th style="padding:10px;text-align:left">Référence</th>
+                    <th style="padding:10px;text-align:left">Désignation</th>
+                    <th style="padding:10px;text-align:left">Catégorie</th>
+                    <th style="padding:10px;text-align:center">Unité</th>
+                    <th style="padding:10px;text-align:right">Seuil</th>
+                    <th style="padding:10px;text-align:right">Stock initial</th>
+                    <th style="padding:10px;text-align:right">P.U. (FCFA)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for a in articles %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:7px 10px;font-family:monospace;font-weight:600">{{ a.reference }}</td>
+                <td style="padding:7px 10px"><strong>{{ a.designation }}</strong>{% if a.notes %}<br><span style="font-size:10px;color:#888">{{ a.notes }}</span>{% endif %}</td>
+                <td style="padding:7px 10px;color:#666">{{ a.categorie or '-' }}</td>
+                <td style="text-align:center;padding:7px 10px">{{ a.unite or 'UNITE' }}</td>
+                <td style="text-align:right;padding:7px 10px">{{ a.seuil_alerte or '-' }}</td>
+                <td style="text-align:right;padding:7px 10px">{{ a.stock_initial or 0 }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:600">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
+                <td style="padding:7px 10px;text-align:right;white-space:nowrap">
+                    <button onclick="editArt({{ a.id }}, {{ a.designation|tojson }}, {{ (a.categorie or '')|tojson }}, {{ (a.unite or 'UNITE')|tojson }}, {{ a.seuil_alerte or 2 }}, {{ a.prix_unitaire or 0 }}, {{ (a.notes or '')|tojson }})" class="btn btn-sm" style="color:#1976d2">✏️</button>
+                    <form method="post" action="/mg/stock/article/{{ a.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer {{ a.reference }} ?');">
+                        <button type="submit" class="btn btn-sm" style="color:#c53030">🗑️</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" style="padding:30px;text-align:center;color:#888">Aucun article. Cliquez sur "+ Nouvel article" pour commencer.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal ajout -->
+<div class="modal-bg" id="addArt"><div class="modal" style="max-width:600px"><h3>📦 Nouvel article</h3>
+<form method="post" action="/mg/stock/article/add">
+    <div class="form-row">
+        <div class="form-group"><label>Référence *</label><input type="text" name="reference" required maxlength="20" placeholder="EX: ADP" style="text-transform:uppercase"></div>
+        <div class="form-group" style="flex:2"><label>Désignation *</label><input type="text" name="designation" required placeholder="Ex: ADAPTATEUR"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Catégorie</label>
+            <input list="cats" name="categorie" placeholder="ELECTRICITE / CCTV / RESEAU...">
+            <datalist id="cats">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+        </div>
+        <div class="form-group"><label>Unité</label>
+            <select name="unite">
+                <option value="UNITE">UNITE</option><option value="PIECES">PIECES</option>
+                <option value="PAQUETS">PAQUETS</option><option value="CARTON">CARTON</option>
+                <option value="ROULEAU">ROULEAU</option><option value="PAIRES">PAIRES</option>
+                <option value="METRE">METRE</option><option value="KG">KG</option>
+            </select></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Seuil alerte</label><input type="number" name="seuil_alerte" value="2" min="0"></div>
+        <div class="form-group"><label>Stock initial</label><input type="number" name="stock_initial" value="0" min="0"></div>
+        <div class="form-group"><label>Prix unitaire (FCFA)</label><input type="number" name="prix_unitaire" value="0" min="0" step="100"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('addArt').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">✅ Ajouter</button>
+    </div>
+</form></div></div>
+
+<!-- Modal édition -->
+<div class="modal-bg" id="editArtModal"><div class="modal" style="max-width:600px"><h3>✏️ Modifier l'article</h3>
+<form method="post" id="editForm">
+    <div class="form-group"><label>Désignation</label><input type="text" name="designation" id="ed_designation" required></div>
+    <div class="form-row">
+        <div class="form-group"><label>Catégorie</label><input type="text" name="categorie" id="ed_categorie"></div>
+        <div class="form-group"><label>Unité</label><input type="text" name="unite" id="ed_unite"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Seuil alerte</label><input type="number" name="seuil_alerte" id="ed_seuil" min="0"></div>
+        <div class="form-group"><label>Prix unitaire (FCFA)</label><input type="number" name="prix_unitaire" id="ed_prix" min="0" step="100"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea name="notes" id="ed_notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editArtModal').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+</form></div></div>
+
+<script>
+function editArt(id, designation, categorie, unite, seuil, prix, notes) {
+    document.getElementById('editForm').action = '/mg/stock/article/' + id + '/edit';
+    document.getElementById('ed_designation').value = designation;
+    document.getElementById('ed_categorie').value = categorie;
+    document.getElementById('ed_unite').value = unite;
+    document.getElementById('ed_seuil').value = seuil;
+    document.getElementById('ed_prix').value = prix;
+    document.getElementById('ed_notes').value = notes;
+    document.getElementById('editArtModal').classList.add('active');
+}
+</script>
+{% endblock %}

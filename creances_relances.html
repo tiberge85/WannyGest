@@ -1,0 +1,105 @@
+{% extends "base.html" %}{% block title %}WannyGest - Relances Créances{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div><h1>🔔 Relances à effectuer</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            {{ total }} créance(s) en retard nécessitent une action — triées par urgence
+        </p>
+    </div>
+    <a href="/comptabilite/creances" class="btn btn-outline btn-sm">← Toutes les créances</a>
+</div>
+
+<div style="background:#fff3cd;border-left:4px solid #e8672a;padding:12px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#856404">
+    💡 <strong>Niveaux de relance automatiques</strong> : Relance 1 (30j) · Relance 2 (60j) · Relance 3 (90j) · Mise en demeure (120j).<br>
+    Ces délais sont modifiables dans <a href="/comptabilite/creances/parametres" style="color:#1A7A6D;font-weight:600">⚙️ Paramètres</a>.
+</div>
+
+<div class="card">
+    <div class="card-body" style="padding:0;overflow-x:auto">
+        <table style="width:100%;font-size:11px;min-width:1100px">
+            <thead style="background:#c53030;color:#fff">
+                <tr>
+                    <th style="padding:10px;text-align:center">Niveau</th>
+                    <th style="padding:10px;text-align:left">N° Facture</th>
+                    <th style="padding:10px;text-align:left">Client</th>
+                    <th style="padding:10px;text-align:left">Commercial</th>
+                    <th style="padding:10px;text-align:left">Échéance</th>
+                    <th style="padding:10px;text-align:right">Solde dû</th>
+                    <th style="padding:10px;text-align:center">J. retard</th>
+                    <th style="padding:10px;text-align:left">Dernière relance</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for c in creances %}
+            <tr style="border-bottom:1px solid #eee;{% if c.urgence >= 3 %}background:#ffebee{% elif c.urgence == 2 %}background:#fff3e0{% endif %}">
+                <td style="text-align:center;padding:7px 10px">
+                    <span style="background:{{ c.color }};color:#fff;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">{{ c.niveau_relance }}</span>
+                </td>
+                <td style="padding:7px 10px;font-family:monospace;font-weight:600">{{ c.num_facture }}</td>
+                <td style="padding:7px 10px"><strong>{{ c.client_name }}</strong>{% if c.ville %}<br><span style="font-size:10px;color:#888">{{ c.ville }}</span>{% endif %}</td>
+                <td style="padding:7px 10px">{{ c.commercial or '-' }}</td>
+                <td style="padding:7px 10px;white-space:nowrap">{{ c.date_echeance[:10] if c.date_echeance else '-' }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(c.solde_du).replace(',', ' ') }}</td>
+                <td style="text-align:center;padding:7px 10px;font-weight:700;color:#c53030">{{ c.jours_retard }}j</td>
+                <td style="padding:7px 10px;font-size:10px">
+                    {% if c.last_relance %}<strong>{{ c.last_relance.niveau }}</strong> le {{ c.last_relance.date_relance }}<br><span style="color:#666">{{ c.last_relance.canal or '-' }} · {{ c.last_relance.user_name or '-' }}</span>
+                    {% else %}<span style="color:#888;font-style:italic">Jamais relancé</span>{% endif %}
+                </td>
+                <td style="text-align:right;padding:7px 10px">
+                    <button onclick="addRelance({{ c.id }}, {{ c.niveau_relance|tojson }}, {{ c.num_facture|tojson }}, {{ c.client_name|tojson }})" class="btn btn-sm btn-primary" style="font-size:11px">📞 Relancer</button>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" style="padding:30px;text-align:center;color:#888">🎉 Aucune créance en retard !</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal relance -->
+<div class="modal-bg" id="relModal"><div class="modal" style="max-width:500px">
+    <h3>📞 Enregistrer une relance</h3>
+    <div style="background:#f8faf9;padding:10px;border-radius:6px;margin-bottom:12px;font-size:12px">
+        <strong id="rel_facture"></strong> — <span id="rel_client"></span>
+    </div>
+    <form method="post" id="relForm">
+        <div class="form-row">
+            <div class="form-group"><label>Niveau *</label>
+                <select name="niveau" id="rel_niveau" required>
+                    <option>Relance 1</option>
+                    <option>Relance 2</option>
+                    <option>Relance 3</option>
+                    <option>Mise en demeure</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Date</label><input type="date" name="date_relance" required></div>
+        </div>
+        <div class="form-group"><label>Canal *</label>
+            <select name="canal" required>
+                <option value="email">📧 Email</option>
+                <option value="telephone">📞 Téléphone</option>
+                <option value="courrier">📨 Courrier postal</option>
+                <option value="visite">🚶 Visite</option>
+                <option value="huissier">⚖️ Huissier</option>
+            </select>
+        </div>
+        <div class="form-group"><label>Notes</label><textarea name="notes" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Compte-rendu, engagement client, prochaine action..."></textarea></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('relModal').classList.remove('active')">Annuler</button>
+            <button type="submit" class="btn btn-primary">📞 Enregistrer la relance</button>
+        </div>
+    </form>
+</div></div>
+
+<script>
+function addRelance(id, niveau, facture, client) {
+    document.getElementById('relForm').action = '/comptabilite/creances/' + id + '/relance/add';
+    document.getElementById('rel_niveau').value = niveau;
+    document.getElementById('rel_facture').textContent = facture;
+    document.getElementById('rel_client').textContent = client;
+    document.querySelector('input[name="date_relance"]').value = new Date().toISOString().split('T')[0];
+    document.getElementById('relModal').classList.add('active');
+}
+</script>
+{% endblock %}

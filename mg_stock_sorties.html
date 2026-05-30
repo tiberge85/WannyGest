@@ -1,0 +1,85 @@
+{% extends "base.html" %}{% block title %}WannyGest - Sorties Stock{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div><h1>📤 Sorties de Stock</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Enregistrement des sorties matériel vers techniciens/projets</p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/mg/stock" class="btn btn-outline btn-sm">← Inventaire</a>
+        <button onclick="document.getElementById('addSor').classList.add('active')" class="btn btn-primary btn-sm">+ Nouvelle sortie</button>
+    </div>
+</div>
+
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card"><div class="stat-icon" style="background:#e8672a;color:#fff">📤</div><div class="stat-info">
+        <div class="stat-num">{{ exits|length }}</div><div class="stat-label">Sorties enregistrées</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#c53030;color:#fff">💰</div><div class="stat-info">
+        <div class="stat-num">{{ '{:,.0f}'.format(total_value).replace(',', ' ') }}</div><div class="stat-label">Valeur totale (FCFA)</div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-body" style="padding:0;overflow-x:auto">
+        <table style="width:100%;font-size:12px;min-width:1000px">
+            <thead style="background:#e8672a;color:#fff">
+                <tr>
+                    <th style="padding:10px;text-align:left">Date</th>
+                    <th style="padding:10px;text-align:left">Réf.</th>
+                    <th style="padding:10px;text-align:left">Désignation</th>
+                    <th style="padding:10px;text-align:left">Catégorie</th>
+                    <th style="padding:10px;text-align:right">Qté</th>
+                    <th style="padding:10px;text-align:right">Valeur</th>
+                    <th style="padding:10px;text-align:left">Destination</th>
+                    <th style="padding:10px;text-align:left">Observation</th>
+                    <th style="padding:10px;text-align:left">Par</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for s in exits %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:7px 10px;white-space:nowrap">{{ s.date_sortie[:10] if s.date_sortie else '-' }}</td>
+                <td style="padding:7px 10px;font-family:monospace;font-weight:600">{{ s.reference or '-' }}</td>
+                <td style="padding:7px 10px">{{ s.designation or '-' }}</td>
+                <td style="padding:7px 10px;font-size:11px;color:#666">{{ s.categorie or '-' }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:700;color:#c53030">−{{ s.quantite }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:600">{{ '{:,.0f}'.format(s.total).replace(',', ' ') }}</td>
+                <td style="padding:7px 10px">{{ s.destination or '-' }}</td>
+                <td style="padding:7px 10px;font-size:11px;color:#666">{{ s.observation or '' }}</td>
+                <td style="padding:7px 10px;font-size:11px;color:#888">{{ s.user_name or '-' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" style="padding:30px;text-align:center;color:#888">Aucune sortie enregistrée</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal ajout -->
+<div class="modal-bg" id="addSor"><div class="modal" style="max-width:600px"><h3>📤 Nouvelle sortie</h3>
+<form method="post" action="/mg/stock/sorties/add">
+    <div class="form-group"><label>Article *</label>
+        <select name="article_id" required>
+            <option value="">-- Choisir --</option>
+            {% for a in articles %}<option value="{{ a.id }}" {% if a.stock_actuel <= 0 %}disabled style="color:#c53030"{% endif %}>{{ a.reference }} — {{ a.designation }} (stock: {{ a.stock_actuel }})</option>{% endfor %}
+        </select>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Quantité *</label><input type="number" name="quantite" required min="1"></div>
+        <div class="form-group"><label>Date *</label><input type="date" name="date_sortie" required></div>
+    </div>
+    <div class="form-group"><label>Destination</label>
+        <input type="text" name="destination" placeholder="Technicien / Client / N° projet">
+    </div>
+    <div class="form-group"><label>Observation</label><textarea name="observation" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Motif, chantier, intervention..."></textarea></div>
+    <div style="background:#fff3cd;padding:10px;border-left:4px solid #e8672a;border-radius:6px;font-size:11px;color:#856404;margin-bottom:12px">
+        ⚠ La sortie ne peut excéder le stock actuel disponible.
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('addSor').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary" style="background:#e8672a">📤 Enregistrer sortie</button>
+    </div>
+</form></div></div>
+
+<script>
+document.querySelector('input[name="date_sortie"]').value = new Date().toISOString().split('T')[0];
+</script>
+{% endblock %}

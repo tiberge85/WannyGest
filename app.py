@@ -561,6 +561,179 @@ try:
 except Exception as _e:
     print(f"[v90] Erreur init Budget RH : {_e}", flush=True)
 
+# ==================== v92 : MODULE GESTION DE STOCK (MG) ====================
+# Inspiré du fichier GESTION_DE_STOCK.xlsx RAMYA
+# Structure : Catalogue (Marchandise) + Entrées + Sorties + Inventaire (stock actuel)
+try:
+    from models import get_db as _v92_db
+    _v92_conn = _v92_db()
+    
+    # 1. Catalogue articles (Marchandise)
+    _v92_conn.execute("""CREATE TABLE IF NOT EXISTS mg_stock_articles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference TEXT UNIQUE NOT NULL,
+        designation TEXT NOT NULL,
+        categorie TEXT,
+        unite TEXT DEFAULT 'UNITE',
+        seuil_alerte INTEGER DEFAULT 2,
+        stock_initial INTEGER DEFAULT 0,
+        prix_unitaire REAL DEFAULT 0,
+        notes TEXT,
+        created_at TEXT,
+        updated_at TEXT
+    )""")
+    
+    # 2. Entrées stock
+    _v92_conn.execute("""CREATE TABLE IF NOT EXISTS mg_stock_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        article_id INTEGER NOT NULL,
+        quantite INTEGER NOT NULL,
+        prix_unitaire REAL,
+        date_entree TEXT NOT NULL,
+        fournisseur TEXT,
+        observation TEXT,
+        user_id INTEGER,
+        created_at TEXT,
+        FOREIGN KEY (article_id) REFERENCES mg_stock_articles(id)
+    )""")
+    
+    # 3. Sorties stock
+    _v92_conn.execute("""CREATE TABLE IF NOT EXISTS mg_stock_exits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        article_id INTEGER NOT NULL,
+        quantite INTEGER NOT NULL,
+        date_sortie TEXT NOT NULL,
+        destination TEXT,  -- technicien/client/projet
+        project_id INTEGER,
+        intervention_id INTEGER,
+        observation TEXT,
+        user_id INTEGER,
+        created_at TEXT,
+        FOREIGN KEY (article_id) REFERENCES mg_stock_articles(id)
+    )""")
+    
+    # Permissions Stock
+    V92_PERMS_STOCK = {
+        'admin':           ['stock_view', 'stock_edit', 'stock_in', 'stock_out', 'stock_inventory', 'stock_export'],
+        'dg':              ['stock_view', 'stock_export'],
+        'directeur':       ['stock_view', 'stock_export'],
+        'mg':              ['stock_view', 'stock_edit', 'stock_in', 'stock_out', 'stock_inventory', 'stock_export'],
+        'magasinier':      ['stock_view', 'stock_edit', 'stock_in', 'stock_out', 'stock_inventory', 'stock_export'],
+        'moyens_generaux': ['stock_view', 'stock_edit', 'stock_in', 'stock_out', 'stock_inventory', 'stock_export'],
+        'technicien':      ['stock_view'],  # consultation seule
+        'tech_chef':       ['stock_view', 'stock_out'],  # peut demander sorties
+        'centre_technique':['stock_view', 'stock_out'],
+        'comptable':       ['stock_view', 'stock_export'],
+        'comptabilite':    ['stock_view', 'stock_export'],
+    }
+    for role, perms in V92_PERMS_STOCK.items():
+        for perm in perms:
+            try: _v92_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    _v92_conn.commit()
+    _v92_conn.close()
+    print("[v92-Stock] Tables Gestion Stock + permissions initialisées", flush=True)
+except Exception as _e:
+    print(f"[v92-Stock] Erreur init Stock : {_e}", flush=True)
+
+
+# ==================== v92 : MODULE SUIVI DES CRÉANCES CLIENTS ====================
+# Inspiré du fichier TABLEAU_DE_BORD_CREANCE_CLIENT.xlsx
+try:
+    from models import get_db as _v92b_db
+    _v92b_conn = _v92b_db()
+    
+    # 1. Créances (factures clients à recouvrer)
+    _v92b_conn.execute("""CREATE TABLE IF NOT EXISTS creances_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        num_facture TEXT UNIQUE NOT NULL,
+        client_id INTEGER,
+        client_code TEXT,
+        client_name TEXT NOT NULL,
+        ville TEXT,
+        commercial TEXT,
+        date_facture TEXT NOT NULL,
+        date_echeance TEXT NOT NULL,
+        montant_ht REAL DEFAULT 0,
+        tva REAL DEFAULT 0,
+        montant_ttc REAL DEFAULT 0,
+        montant_paye REAL DEFAULT 0,
+        solde_du REAL DEFAULT 0,
+        statut TEXT DEFAULT 'en_cours',
+        mode_paiement TEXT,
+        commentaire TEXT,
+        invoice_id INTEGER,
+        created_at TEXT,
+        updated_at TEXT,
+        created_by INTEGER,
+        FOREIGN KEY (client_id) REFERENCES clients(id)
+    )""")
+    
+    # 2. Suivi relances
+    _v92b_conn.execute("""CREATE TABLE IF NOT EXISTS creances_relances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        creance_id INTEGER NOT NULL,
+        niveau TEXT,  -- Relance 1/2/3 ou Mise en demeure
+        date_relance TEXT NOT NULL,
+        canal TEXT,  -- email/telephone/courrier/visite
+        notes TEXT,
+        user_id INTEGER,
+        user_name TEXT,
+        created_at TEXT,
+        FOREIGN KEY (creance_id) REFERENCES creances_invoices(id)
+    )""")
+    
+    # 3. Paramètres créances
+    _v92b_conn.execute("""CREATE TABLE IF NOT EXISTS creances_params (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        param_key TEXT UNIQUE NOT NULL,
+        param_value TEXT,
+        param_label TEXT,
+        updated_at TEXT
+    )""")
+    
+    # Paramètres par défaut (adaptés CI/FCFA)
+    DEFAULT_CREANCE_PARAMS = [
+        ('jours_avant_alerte', '7', 'Jours avant alerte échéance proche'),
+        ('tva_default', '18', 'Taux de TVA par défaut (%) — CI'),
+        ('seuil_litige', '500000', 'Seuil montant litige (FCFA)'),
+        ('delai_relance_1', '30', 'Délai relance 1 (jours après échéance)'),
+        ('delai_relance_2', '60', 'Délai relance 2 (jours après échéance)'),
+        ('delai_relance_3', '90', 'Délai relance 3 (jours après échéance)'),
+        ('delai_mise_demeure', '120', 'Délai mise en demeure (jours après échéance)'),
+        ('responsable_creances', 'Service Comptabilité', 'Responsable créances'),
+        ('email_compta', 'comptabilite@ramyaci.tech', 'Email comptabilité'),
+        ('tel_compta', '+225 ', 'Téléphone comptabilité'),
+    ]
+    for key, val, label in DEFAULT_CREANCE_PARAMS:
+        try: _v92b_conn.execute("""INSERT OR IGNORE INTO creances_params 
+            (param_key, param_value, param_label, updated_at) VALUES (?,?,?,datetime('now'))""",
+            (key, val, label))
+        except: pass
+    
+    # Permissions Créances
+    V92_PERMS_CREANCES = {
+        'admin':           ['creances_view', 'creances_edit', 'creances_relance', 'creances_export'],
+        'dg':              ['creances_view', 'creances_export'],
+        'directeur':       ['creances_view', 'creances_export'],
+        'comptable':       ['creances_view', 'creances_edit', 'creances_relance', 'creances_export'],
+        'comptabilite':    ['creances_view', 'creances_edit', 'creances_relance', 'creances_export'],
+        'commercial':      ['creances_view'],  # consultation des créances de ses clients
+        'rh':              [],  # pas d'accès
+    }
+    for role, perms in V92_PERMS_CREANCES.items():
+        for perm in perms:
+            try: _v92b_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    _v92b_conn.commit()
+    _v92b_conn.close()
+    print("[v92-Créances] Tables Suivi Créances + permissions initialisées", flush=True)
+except Exception as _e:
+    print(f"[v92-Créances] Erreur init Créances : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -595,7 +768,10 @@ try:
                    'project_progress', 'project_report', 'project_material',
                    'project_invoice', 'project_payment',
                    # v90 : Budget prévisionnel RH
-                   'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'])
+                   'rh_budget_view', 'rh_budget_edit', 'rh_budget_real',
+                   # v92 : Gestion de Stock + Suivi Créances
+                   'stock_view', 'stock_edit', 'stock_in', 'stock_out', 'stock_inventory', 'stock_export',
+                   'creances_view', 'creances_edit', 'creances_relance', 'creances_export'])
     from models import get_role_permissions as _grp
     if not _grp('concierge'):
         update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
@@ -725,6 +901,20 @@ PERM_CATEGORIES = {
         ('rh_budget_view', 'Voir Budget Prévisionnel RH'),
         ('rh_budget_edit', 'Modifier hypothèses & budget mensuel'),
         ('rh_budget_real', 'Saisir le réel mensuel (consommation)'),
+    ],
+    'Gestion de Stock (v92)': [
+        ('stock_view', 'Voir le stock (catalogue + inventaire)'),
+        ('stock_edit', 'Créer/modifier les articles du catalogue'),
+        ('stock_in', 'Enregistrer entrées de stock'),
+        ('stock_out', 'Enregistrer sorties de stock'),
+        ('stock_inventory', 'Réaliser un inventaire physique'),
+        ('stock_export', 'Exporter PDF/Excel du stock'),
+    ],
+    'Suivi Créances Clients (v92)': [
+        ('creances_view', 'Voir le suivi des créances'),
+        ('creances_edit', 'Créer/modifier les créances'),
+        ('creances_relance', 'Enregistrer des relances'),
+        ('creances_export', 'Exporter PDF/Excel des créances'),
     ],
     'Général': [
         ('dashboard', 'Dashboard'),
@@ -3980,7 +4170,7 @@ def comptabilite_page():
 def compta_factures():
     return redirect('/comptabilite?tab=factures')
 
-@app.route('/comptabilite/creances')
+@app.route('/comptabilite/creances-factures-impayees')
 @permission_required('comptabilite')
 def compta_creances():
     conn = _gdb()
@@ -10879,6 +11069,735 @@ def rh_budget_synthese():
 
 
 # ==================== FIN MODULE BUDGET RH v90 ====================
+
+
+# ==================== v92 : MODULE GESTION DE STOCK ====================
+
+def _compute_stock_current(article_id, conn=None):
+    """Calcule le stock actuel = stock_initial + entrées - sorties."""
+    close_after = False
+    if conn is None:
+        conn = _gdb()
+        close_after = True
+    try:
+        article = conn.execute("SELECT stock_initial FROM mg_stock_articles WHERE id=?", (article_id,)).fetchone()
+        initial = article['stock_initial'] if article else 0
+        ent = conn.execute("SELECT COALESCE(SUM(quantite), 0) FROM mg_stock_entries WHERE article_id=?", (article_id,)).fetchone()[0]
+        sor = conn.execute("SELECT COALESCE(SUM(quantite), 0) FROM mg_stock_exits WHERE article_id=?", (article_id,)).fetchone()[0]
+        return (initial or 0) + (ent or 0) - (sor or 0)
+    finally:
+        if close_after: conn.close()
+
+
+@app.route('/mg/stock')
+@permission_required('stock_view')
+def mg_stock_dashboard():
+    """Tableau de bord du module Stock — vue Inventaire avec alertes."""
+    conn = _gdb()
+    rows = conn.execute("""SELECT a.*, 
+        COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=a.id), 0) as total_entrees,
+        COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=a.id), 0) as total_sorties
+        FROM mg_stock_articles a ORDER BY a.designation""").fetchall()
+    articles = []
+    for r in rows:
+        a = dict(r)
+        a['stock_actuel'] = (a['stock_initial'] or 0) + (a['total_entrees'] or 0) - (a['total_sorties'] or 0)
+        a['valeur_stock'] = a['stock_actuel'] * (a['prix_unitaire'] or 0)
+        # Alerte
+        if a['stock_actuel'] <= 0:
+            a['alerte'] = 'EPUISE'
+            a['alerte_label'] = '⛔ ÉPUISÉ'
+            a['alerte_color'] = '#c53030'
+        elif a['stock_actuel'] <= (a['seuil_alerte'] or 2):
+            a['alerte'] = 'FAIBLE'
+            a['alerte_label'] = '⚠ FAIBLE'
+            a['alerte_color'] = '#e8672a'
+        else:
+            a['alerte'] = 'OK'
+            a['alerte_label'] = '✓ OK'
+            a['alerte_color'] = '#2e7d32'
+        articles.append(a)
+    
+    # Stats
+    stats = {
+        'total_articles': len(articles),
+        'total_valeur': sum(a['valeur_stock'] for a in articles),
+        'nb_epuises': sum(1 for a in articles if a['alerte'] == 'EPUISE'),
+        'nb_faibles': sum(1 for a in articles if a['alerte'] == 'FAIBLE'),
+        'nb_ok': sum(1 for a in articles if a['alerte'] == 'OK'),
+    }
+    
+    # Catégories pour filtre
+    categories = sorted(set(a['categorie'] for a in articles if a.get('categorie')))
+    
+    # Filtre
+    cat_filter = request.args.get('cat', '').strip()
+    alerte_filter = request.args.get('alerte', '').strip()
+    if cat_filter:
+        articles = [a for a in articles if (a.get('categorie') or '') == cat_filter]
+    if alerte_filter:
+        articles = [a for a in articles if a['alerte'] == alerte_filter]
+    
+    conn.close()
+    return render_template('mg_stock_dashboard.html', page='mg_stock',
+        articles=articles, stats=stats, categories=categories,
+        cat_filter=cat_filter, alerte_filter=alerte_filter)
+
+
+@app.route('/mg/stock/catalogue')
+@permission_required('stock_view')
+def mg_stock_catalogue():
+    """Catalogue (Marchandise) — articles du stock."""
+    conn = _gdb()
+    articles = [dict(r) for r in conn.execute("SELECT * FROM mg_stock_articles ORDER BY designation").fetchall()]
+    categories = sorted(set(a['categorie'] for a in articles if a.get('categorie')))
+    conn.close()
+    return render_template('mg_stock_catalogue.html', page='mg_stock',
+        articles=articles, categories=categories)
+
+
+@app.route('/mg/stock/article/add', methods=['POST'])
+@permission_required('stock_edit')
+def mg_stock_article_add():
+    ref = request.form.get('reference', '').strip().upper()
+    desig = request.form.get('designation', '').strip()
+    if not ref or not desig:
+        flash("Référence et désignation requises", "error")
+        return redirect('/mg/stock/catalogue')
+    try:
+        conn = _gdb()
+        conn.execute("""INSERT INTO mg_stock_articles 
+            (reference, designation, categorie, unite, seuil_alerte, stock_initial, prix_unitaire, notes, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))""",
+            (ref, desig, request.form.get('categorie','').strip(),
+             request.form.get('unite','UNITE').strip(),
+             int(request.form.get('seuil_alerte','2') or 2),
+             int(request.form.get('stock_initial','0') or 0),
+             float(request.form.get('prix_unitaire','0').replace(',','.') or 0),
+             request.form.get('notes','')))
+        conn.commit(); conn.close()
+        flash(f"✅ Article {ref} ajouté", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/mg/stock/catalogue')
+
+
+@app.route('/mg/stock/article/<int:aid>/edit', methods=['POST'])
+@permission_required('stock_edit')
+def mg_stock_article_edit(aid):
+    try:
+        conn = _gdb()
+        conn.execute("""UPDATE mg_stock_articles SET
+            designation=?, categorie=?, unite=?, seuil_alerte=?, prix_unitaire=?, notes=?,
+            updated_at=datetime('now') WHERE id=?""",
+            (request.form.get('designation','').strip(),
+             request.form.get('categorie','').strip(),
+             request.form.get('unite','UNITE').strip(),
+             int(request.form.get('seuil_alerte','2') or 2),
+             float(request.form.get('prix_unitaire','0').replace(',','.') or 0),
+             request.form.get('notes',''), aid))
+        conn.commit(); conn.close()
+        flash("✅ Article modifié", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/mg/stock/catalogue')
+
+
+@app.route('/mg/stock/article/<int:aid>/delete', methods=['POST'])
+@permission_required('stock_edit')
+def mg_stock_article_delete(aid):
+    conn = _gdb()
+    # Vérifier qu'il n'y a pas d'entrées/sorties
+    ent = conn.execute("SELECT COUNT(*) FROM mg_stock_entries WHERE article_id=?", (aid,)).fetchone()[0]
+    sor = conn.execute("SELECT COUNT(*) FROM mg_stock_exits WHERE article_id=?", (aid,)).fetchone()[0]
+    if ent or sor:
+        conn.close()
+        flash(f"⚠️ Impossible de supprimer : {ent} entrée(s) et {sor} sortie(s) liées", "error")
+        return redirect('/mg/stock/catalogue')
+    conn.execute("DELETE FROM mg_stock_articles WHERE id=?", (aid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Article supprimé", "success")
+    return redirect('/mg/stock/catalogue')
+
+
+@app.route('/mg/stock/entrees')
+@permission_required('stock_view')
+def mg_stock_entrees():
+    conn = _gdb()
+    entries = [dict(r) for r in conn.execute("""SELECT e.*, a.reference, a.designation, a.unite, a.categorie,
+        u.full_name as user_name
+        FROM mg_stock_entries e
+        LEFT JOIN mg_stock_articles a ON e.article_id = a.id
+        LEFT JOIN users u ON e.user_id = u.id
+        ORDER BY e.date_entree DESC, e.id DESC LIMIT 200""").fetchall()]
+    for e in entries:
+        e['total'] = (e.get('quantite') or 0) * (e.get('prix_unitaire') or 0)
+    articles = [dict(r) for r in conn.execute("SELECT id, reference, designation, prix_unitaire, unite FROM mg_stock_articles ORDER BY designation").fetchall()]
+    total_value = sum(e['total'] for e in entries)
+    conn.close()
+    return render_template('mg_stock_entrees.html', page='mg_stock',
+        entries=entries, articles=articles, total_value=total_value)
+
+
+@app.route('/mg/stock/entrees/add', methods=['POST'])
+@permission_required('stock_in')
+def mg_stock_entree_add():
+    try:
+        aid = int(request.form.get('article_id', 0))
+        qt = int(request.form.get('quantite', 0))
+        if not aid or qt <= 0:
+            flash("Article et quantité requis", "error")
+            return redirect('/mg/stock/entrees')
+        conn = _gdb()
+        # Récupérer le prix unitaire si non saisi
+        pu = request.form.get('prix_unitaire', '').strip().replace(',', '.')
+        if not pu:
+            row = conn.execute("SELECT prix_unitaire FROM mg_stock_articles WHERE id=?", (aid,)).fetchone()
+            pu = row['prix_unitaire'] if row else 0
+        else:
+            pu = float(pu)
+        conn.execute("""INSERT INTO mg_stock_entries 
+            (article_id, quantite, prix_unitaire, date_entree, fournisseur, observation, user_id, created_at)
+            VALUES (?,?,?,?,?,?,?,datetime('now'))""",
+            (aid, qt, pu,
+             request.form.get('date_entree') or datetime.now().strftime('%Y-%m-%d'),
+             request.form.get('fournisseur',''),
+             request.form.get('observation',''),
+             session.get('user_id')))
+        conn.commit(); conn.close()
+        flash(f"✅ Entrée de {qt} unité(s) enregistrée", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/mg/stock/entrees')
+
+
+@app.route('/mg/stock/sorties')
+@permission_required('stock_view')
+def mg_stock_sorties():
+    conn = _gdb()
+    exits = [dict(r) for r in conn.execute("""SELECT s.*, a.reference, a.designation, a.unite, a.categorie,
+        a.prix_unitaire, u.full_name as user_name
+        FROM mg_stock_exits s
+        LEFT JOIN mg_stock_articles a ON s.article_id = a.id
+        LEFT JOIN users u ON s.user_id = u.id
+        ORDER BY s.date_sortie DESC, s.id DESC LIMIT 200""").fetchall()]
+    for s in exits:
+        s['total'] = (s.get('quantite') or 0) * (s.get('prix_unitaire') or 0)
+    articles = [dict(r) for r in conn.execute("""SELECT id, reference, designation, unite,
+        stock_initial + COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=mg_stock_articles.id),0)
+        - COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=mg_stock_articles.id),0) as stock_actuel
+        FROM mg_stock_articles ORDER BY designation""").fetchall()]
+    total_value = sum(s['total'] for s in exits)
+    conn.close()
+    return render_template('mg_stock_sorties.html', page='mg_stock',
+        exits=exits, articles=articles, total_value=total_value)
+
+
+@app.route('/mg/stock/sorties/add', methods=['POST'])
+@permission_required('stock_out')
+def mg_stock_sortie_add():
+    try:
+        aid = int(request.form.get('article_id', 0))
+        qt = int(request.form.get('quantite', 0))
+        if not aid or qt <= 0:
+            flash("Article et quantité requis", "error")
+            return redirect('/mg/stock/sorties')
+        # Vérifier stock disponible
+        stock_actuel = _compute_stock_current(aid)
+        if qt > stock_actuel:
+            flash(f"⚠️ Stock insuffisant : il reste {stock_actuel} unité(s)", "error")
+            return redirect('/mg/stock/sorties')
+        conn = _gdb()
+        conn.execute("""INSERT INTO mg_stock_exits 
+            (article_id, quantite, date_sortie, destination, observation, user_id, created_at)
+            VALUES (?,?,?,?,?,?,datetime('now'))""",
+            (aid, qt,
+             request.form.get('date_sortie') or datetime.now().strftime('%Y-%m-%d'),
+             request.form.get('destination',''),
+             request.form.get('observation',''),
+             session.get('user_id')))
+        conn.commit(); conn.close()
+        flash(f"✅ Sortie de {qt} unité(s) enregistrée", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/mg/stock/sorties')
+
+
+@app.route('/mg/stock/export-pdf')
+@permission_required('stock_export')
+def mg_stock_export_pdf():
+    """Export PDF de l'inventaire."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from flask import Response
+    import io as _io
+    
+    conn = _gdb()
+    rows = conn.execute("""SELECT a.*, 
+        COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=a.id), 0) as total_entrees,
+        COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=a.id), 0) as total_sorties
+        FROM mg_stock_articles a ORDER BY a.categorie, a.designation""").fetchall()
+    conn.close()
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+        leftMargin=8*mm, rightMargin=8*mm, topMargin=10*mm, bottomMargin=10*mm)
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888')
+    
+    h = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=15, textColor=TEAL, alignment=TA_CENTER, spaceAfter=2*mm)
+    sub = ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=2*mm)))
+    story.append(Paragraph("<b>INVENTAIRE DES STOCKS</b>", h))
+    story.append(Paragraph(f"Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
+    
+    data = [['Réf.', 'Désignation', 'Catégorie', 'Unité', 'Seuil', 'Initial', 'Entrées', 'Sorties', 'Actuel', 'P.U.', 'Valeur', 'Alerte']]
+    total_val = 0
+    for r in rows:
+        initial = r['stock_initial'] or 0
+        ent = r['total_entrees'] or 0
+        sor = r['total_sorties'] or 0
+        actuel = initial + ent - sor
+        pu = r['prix_unitaire'] or 0
+        val = actuel * pu
+        total_val += val
+        if actuel <= 0: alerte = '⛔ ÉPUISÉ'
+        elif actuel <= (r['seuil_alerte'] or 2): alerte = '⚠ FAIBLE'
+        else: alerte = '✓ OK'
+        data.append([
+            r['reference'] or '-',
+            (r['designation'] or '-')[:30],
+            (r['categorie'] or '-')[:14],
+            r['unite'] or 'UNITE',
+            str(r['seuil_alerte'] or 0),
+            str(initial), str(ent), str(sor), str(actuel),
+            f"{pu:,.0f}".replace(',', ' '),
+            f"{val:,.0f}".replace(',', ' '),
+            alerte
+        ])
+    # Ligne total
+    data.append(['', '', '', '', '', '', '', '', '', 'TOTAL', f"{total_val:,.0f}".replace(',', ' '), ''])
+    
+    col_w = [18*mm, 60*mm, 24*mm, 16*mm, 12*mm, 14*mm, 14*mm, 14*mm, 14*mm, 18*mm, 24*mm, 22*mm]
+    tab = Table(data, colWidths=col_w, repeatRows=1)
+    tab.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), TEAL),
+        ('TEXTCOLOR', (0, 0), (-1, 0), white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 0.5, GREY),
+        ('INNERGRID', (0, 0), (-1, -1), 0.3, HexColor('#ddd')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [white, HexColor('#f8faf9')]),
+        ('BACKGROUND', (0, -1), (-1, -1), HexColor('#fff3e0')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+    ]))
+    story.append(tab)
+    
+    doc.build(story)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="Inventaire_Stock_{datetime.now().strftime("%Y%m%d")}.pdf"'})
+
+
+# ==================== FIN MODULE GESTION DE STOCK ====================
+
+
+# ==================== v92 : MODULE SUIVI DES CRÉANCES CLIENTS ====================
+
+def _compute_creance_status(creance):
+    """Recalcule statut/jours_retard d'une créance selon paiement et date échéance."""
+    today = datetime.now().date()
+    try:
+        ech = datetime.strptime(creance['date_echeance'], '%Y-%m-%d').date()
+    except:
+        try: ech = datetime.strptime(creance['date_echeance'][:10], '%Y-%m-%d').date()
+        except: ech = today
+    
+    jours_retard = (today - ech).days if today > ech else 0
+    montant_ttc = float(creance.get('montant_ttc') or 0)
+    paye = float(creance.get('montant_paye') or 0)
+    solde = montant_ttc - paye
+    
+    if solde <= 0.01:
+        statut = 'solde'  # Soldé
+    elif creance.get('statut') == 'litigieux':
+        statut = 'litigieux'
+    elif paye > 0 and solde > 0:
+        statut = 'paye_partiel'
+    elif jours_retard > 0:
+        statut = 'echu'
+    else:
+        statut = 'en_cours'
+    
+    return {'statut': statut, 'solde_du': solde, 'jours_retard': jours_retard}
+
+
+STATUT_LABELS = {
+    'en_cours': ('En cours', '#1976d2', '🔵'),
+    'echu': ('Échu', '#c53030', '⚠'),
+    'paye_partiel': ('Payé partiellement', '#e8672a', '◐'),
+    'litigieux': ('Litigieux', '#7b1fa2', '⛔'),
+    'solde': ('Soldé', '#2e7d32', '✅'),
+}
+
+
+@app.route('/comptabilite/creances')
+@permission_required('creances_view')
+def creances_dashboard():
+    """Tableau de bord — créances clients avec indicateurs."""
+    conn = _gdb()
+    creances = [dict(r) for r in conn.execute(
+        "SELECT * FROM creances_invoices ORDER BY date_facture DESC LIMIT 500").fetchall()]
+    
+    # Recalculer statut + solde + jours_retard de chaque créance (sans toucher la BDD)
+    for c in creances:
+        info = _compute_creance_status(c)
+        c['statut_calcule'] = info['statut']
+        c['solde_du'] = info['solde_du']
+        c['jours_retard'] = info['jours_retard']
+        label, color, icon = STATUT_LABELS.get(info['statut'], (info['statut'], '#888', '•'))
+        c['statut_label'] = label
+        c['statut_color'] = color
+        c['statut_icon'] = icon
+    
+    # Stats indicateurs clés
+    actives = [c for c in creances if c['statut_calcule'] != 'solde']
+    stats = {
+        'total_ttc_actives': sum(c.get('montant_ttc') or 0 for c in actives),
+        'total_paye': sum(c.get('montant_paye') or 0 for c in creances),
+        'solde_total_du': sum(c['solde_du'] for c in actives),
+        'nb_echues': sum(1 for c in creances if c['statut_calcule'] == 'echu'),
+        'nb_litiges': sum(1 for c in creances if c['statut_calcule'] == 'litigieux'),
+        'nb_actives': len(actives),
+        'nb_soldees': sum(1 for c in creances if c['statut_calcule'] == 'solde'),
+    }
+    
+    # Répartition par statut
+    repartition_statut = {}
+    for st_key, (label, color, icon) in STATUT_LABELS.items():
+        nb = sum(1 for c in creances if c['statut_calcule'] == st_key)
+        montant = sum(c.get('montant_ttc') or 0 for c in creances if c['statut_calcule'] == st_key)
+        repartition_statut[st_key] = {'label': label, 'color': color, 'icon': icon, 'nb': nb, 'montant': montant}
+    
+    # Répartition par commercial
+    repartition_commercial = {}
+    for c in actives:
+        com = c.get('commercial') or 'Non assigné'
+        if com not in repartition_commercial:
+            repartition_commercial[com] = {'nb': 0, 'solde': 0}
+        repartition_commercial[com]['nb'] += 1
+        repartition_commercial[com]['solde'] += c['solde_du']
+    repartition_commercial = dict(sorted(repartition_commercial.items(), key=lambda x: -x[1]['solde'])[:10])
+    
+    # Tranches de retard
+    tranches = {
+        'non_echu':  {'label': 'Non échu (0 jour)', 'nb': 0, 'montant': 0},
+        '1_30':      {'label': '1 à 30 jours', 'nb': 0, 'montant': 0},
+        '31_60':     {'label': '31 à 60 jours', 'nb': 0, 'montant': 0},
+        '61_90':     {'label': '61 à 90 jours', 'nb': 0, 'montant': 0},
+        'plus_90':   {'label': 'Plus de 90 jours', 'nb': 0, 'montant': 0},
+    }
+    for c in actives:
+        jr = c['jours_retard']
+        if jr <= 0: key = 'non_echu'
+        elif jr <= 30: key = '1_30'
+        elif jr <= 60: key = '31_60'
+        elif jr <= 90: key = '61_90'
+        else: key = 'plus_90'
+        tranches[key]['nb'] += 1
+        tranches[key]['montant'] += c['solde_du']
+    
+    # Filtre
+    statut_filter = request.args.get('statut', '').strip()
+    commercial_filter = request.args.get('commercial', '').strip()
+    if statut_filter:
+        creances = [c for c in creances if c['statut_calcule'] == statut_filter]
+    if commercial_filter:
+        creances = [c for c in creances if (c.get('commercial') or '') == commercial_filter]
+    
+    conn.close()
+    return render_template('creances_dashboard.html', page='creances',
+        creances=creances, stats=stats,
+        repartition_statut=repartition_statut,
+        repartition_commercial=repartition_commercial,
+        tranches=tranches,
+        statut_filter=statut_filter, commercial_filter=commercial_filter,
+        statut_labels=STATUT_LABELS)
+
+
+@app.route('/comptabilite/creances/add', methods=['POST'])
+@permission_required('creances_edit')
+def creance_add():
+    num = request.form.get('num_facture', '').strip()
+    client_name = request.form.get('client_name', '').strip()
+    if not num or not client_name:
+        flash("N° facture et nom client requis", "error")
+        return redirect('/comptabilite/creances')
+    try:
+        montant_ht = float(request.form.get('montant_ht', '0').replace(',', '.') or 0)
+        tva_rate = float(request.form.get('tva_rate', '18').replace(',', '.') or 18) / 100
+        tva = montant_ht * tva_rate
+        montant_ttc = montant_ht + tva
+        date_facture = request.form.get('date_facture') or datetime.now().strftime('%Y-%m-%d')
+        # Échéance par défaut = +30 jours
+        delai = int(request.form.get('delai_paiement', '30') or 30)
+        date_ech = request.form.get('date_echeance') or (datetime.strptime(date_facture, '%Y-%m-%d') + timedelta(days=delai)).strftime('%Y-%m-%d')
+        
+        conn = _gdb()
+        conn.execute("""INSERT INTO creances_invoices 
+            (num_facture, client_code, client_name, ville, commercial, date_facture, date_echeance,
+             montant_ht, tva, montant_ttc, montant_paye, solde_du, statut, mode_paiement, commentaire,
+             created_at, updated_at, created_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'),?)""",
+            (num, request.form.get('client_code',''), client_name,
+             request.form.get('ville',''), request.form.get('commercial',''),
+             date_facture, date_ech,
+             montant_ht, tva, montant_ttc, 0, montant_ttc,
+             request.form.get('statut','en_cours'),
+             request.form.get('mode_paiement','Virement'),
+             request.form.get('commentaire',''),
+             session.get('user_id')))
+        conn.commit(); conn.close()
+        flash(f"✅ Créance {num} ajoutée", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/comptabilite/creances')
+
+
+@app.route('/comptabilite/creances/<int:cid>/edit', methods=['POST'])
+@permission_required('creances_edit')
+def creance_edit(cid):
+    try:
+        montant_paye = float(request.form.get('montant_paye', '0').replace(',', '.') or 0)
+        conn = _gdb()
+        conn.execute("""UPDATE creances_invoices SET
+            montant_paye=?, statut=?, mode_paiement=?, commentaire=?, updated_at=datetime('now')
+            WHERE id=?""",
+            (montant_paye,
+             request.form.get('statut','en_cours'),
+             request.form.get('mode_paiement',''),
+             request.form.get('commentaire',''), cid))
+        conn.commit(); conn.close()
+        flash("✅ Créance modifiée", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/comptabilite/creances')
+
+
+@app.route('/comptabilite/creances/<int:cid>/delete', methods=['POST'])
+@permission_required('creances_edit')
+def creance_delete(cid):
+    conn = _gdb()
+    conn.execute("DELETE FROM creances_relances WHERE creance_id=?", (cid,))
+    conn.execute("DELETE FROM creances_invoices WHERE id=?", (cid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Créance supprimée", "success")
+    return redirect('/comptabilite/creances')
+
+
+@app.route('/comptabilite/creances/relances')
+@permission_required('creances_view')
+def creances_relances():
+    """Liste des créances en retard à relancer (Relance 1/2/3 et Mise en demeure)."""
+    conn = _gdb()
+    creances = [dict(r) for r in conn.execute(
+        "SELECT * FROM creances_invoices WHERE statut != 'solde' ORDER BY date_echeance ASC").fetchall()]
+    
+    # Récupérer paramètres délais
+    params = {p['param_key']: p['param_value'] for p in conn.execute("SELECT * FROM creances_params").fetchall()}
+    d1 = int(params.get('delai_relance_1', 30))
+    d2 = int(params.get('delai_relance_2', 60))
+    d3 = int(params.get('delai_relance_3', 90))
+    dmd = int(params.get('delai_mise_demeure', 120))
+    
+    # Recalculer statut + déterminer niveau de relance
+    to_relancer = []
+    for c in creances:
+        info = _compute_creance_status(c)
+        if info['statut'] == 'solde': continue
+        c['solde_du'] = info['solde_du']
+        c['jours_retard'] = info['jours_retard']
+        jr = info['jours_retard']
+        if jr >= dmd:
+            niveau = 'Mise en demeure'
+            color = '#c53030'
+            urgence = 4
+        elif jr >= d3:
+            niveau = 'Relance 3'
+            color = '#e8672a'
+            urgence = 3
+        elif jr >= d2:
+            niveau = 'Relance 2'
+            color = '#e8672a'
+            urgence = 2
+        elif jr >= d1:
+            niveau = 'Relance 1'
+            color = '#1976d2'
+            urgence = 1
+        elif jr > 0:
+            niveau = 'À relancer'
+            color = '#888'
+            urgence = 0
+        else:
+            continue  # pas encore échu
+        c['niveau_relance'] = niveau
+        c['color'] = color
+        c['urgence'] = urgence
+        # Dernière relance
+        last_rel = conn.execute("""SELECT * FROM creances_relances WHERE creance_id=?
+            ORDER BY date_relance DESC LIMIT 1""", (c['id'],)).fetchone()
+        c['last_relance'] = dict(last_rel) if last_rel else None
+        to_relancer.append(c)
+    
+    # Trier par urgence puis par jours de retard
+    to_relancer.sort(key=lambda x: (-x['urgence'], -x['jours_retard']))
+    conn.close()
+    
+    return render_template('creances_relances.html', page='creances',
+        creances=to_relancer, total=len(to_relancer))
+
+
+@app.route('/comptabilite/creances/<int:cid>/relance/add', methods=['POST'])
+@permission_required('creances_relance')
+def creance_relance_add(cid):
+    try:
+        conn = _gdb()
+        user = get_user_by_id(session.get('user_id'))
+        conn.execute("""INSERT INTO creances_relances 
+            (creance_id, niveau, date_relance, canal, notes, user_id, user_name, created_at)
+            VALUES (?,?,?,?,?,?,?,datetime('now'))""",
+            (cid,
+             request.form.get('niveau', 'Relance 1'),
+             request.form.get('date_relance') or datetime.now().strftime('%Y-%m-%d'),
+             request.form.get('canal', 'email'),
+             request.form.get('notes', ''),
+             session.get('user_id'),
+             user['full_name'] if user else 'Système'))
+        conn.commit(); conn.close()
+        flash("✅ Relance enregistrée", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/comptabilite/creances/relances')
+
+
+@app.route('/comptabilite/creances/parametres', methods=['GET', 'POST'])
+@permission_required('creances_edit')
+def creances_parametres():
+    if request.method == 'POST':
+        conn = _gdb()
+        for key in request.form:
+            if key.startswith('param_'):
+                pkey = key.replace('param_', '')
+                val = request.form.get(key, '').strip()
+                try:
+                    conn.execute("""UPDATE creances_params SET param_value=?, updated_at=datetime('now')
+                        WHERE param_key=?""", (val, pkey))
+                except: pass
+        conn.commit(); conn.close()
+        flash("✅ Paramètres mis à jour", "success")
+        return redirect('/comptabilite/creances/parametres')
+    
+    conn = _gdb()
+    params = [dict(r) for r in conn.execute("SELECT * FROM creances_params ORDER BY id").fetchall()]
+    conn.close()
+    return render_template('creances_parametres.html', page='creances', params=params)
+
+
+@app.route('/comptabilite/creances/export-pdf')
+@permission_required('creances_export')
+def creances_export_pdf():
+    """Export PDF de toutes les créances actives."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from flask import Response
+    import io as _io
+    
+    conn = _gdb()
+    rows = conn.execute("SELECT * FROM creances_invoices ORDER BY date_echeance ASC").fetchall()
+    conn.close()
+    
+    creances = [dict(r) for r in rows]
+    for c in creances:
+        info = _compute_creance_status(c)
+        c['statut_calcule'] = info['statut']
+        c['solde_du'] = info['solde_du']
+        c['jours_retard'] = info['jours_retard']
+    creances = [c for c in creances if c['statut_calcule'] != 'solde']
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+        leftMargin=8*mm, rightMargin=8*mm, topMargin=10*mm, bottomMargin=10*mm)
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888'); RED = HexColor('#c53030')
+    
+    h = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=15, textColor=TEAL, alignment=TA_CENTER, spaceAfter=2*mm)
+    sub = ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=2*mm)))
+    story.append(Paragraph("<b>SUIVI DES CRÉANCES CLIENTS</b>", h))
+    story.append(Paragraph(f"Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')} — {len(creances)} créance(s) active(s)", sub))
+    
+    data = [['N° Facture', 'Client', 'Commercial', 'Date fact.', 'Échéance', 'TTC', 'Payé', 'Solde dû', 'J. retard', 'Statut']]
+    total_ttc = 0; total_paye = 0; total_solde = 0
+    for c in creances:
+        total_ttc += c.get('montant_ttc') or 0
+        total_paye += c.get('montant_paye') or 0
+        total_solde += c['solde_du']
+        statut_lbl = STATUT_LABELS.get(c['statut_calcule'], (c['statut_calcule'],))[0]
+        data.append([
+            c['num_facture'][:14], (c['client_name'] or '-')[:22],
+            (c.get('commercial') or '-')[:14],
+            (c['date_facture'] or '-')[:10], (c['date_echeance'] or '-')[:10],
+            f"{c.get('montant_ttc',0):,.0f}".replace(',', ' '),
+            f"{c.get('montant_paye',0):,.0f}".replace(',', ' '),
+            f"{c['solde_du']:,.0f}".replace(',', ' '),
+            str(c['jours_retard']) if c['jours_retard'] > 0 else '-',
+            statut_lbl
+        ])
+    data.append(['', '', '', '', 'TOTAL',
+        f"{total_ttc:,.0f}".replace(',', ' '),
+        f"{total_paye:,.0f}".replace(',', ' '),
+        f"{total_solde:,.0f}".replace(',', ' '), '', ''])
+    
+    col_w = [26*mm, 40*mm, 26*mm, 22*mm, 22*mm, 24*mm, 24*mm, 26*mm, 14*mm, 26*mm]
+    tab = Table(data, colWidths=col_w, repeatRows=1)
+    tab.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), TEAL),
+        ('TEXTCOLOR', (0, 0), (-1, 0), white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+        ('ALIGN', (5, 0), (8, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 0.5, GREY),
+        ('INNERGRID', (0, 0), (-1, -1), 0.3, HexColor('#ddd')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [white, HexColor('#f8faf9')]),
+        ('BACKGROUND', (0, -1), (-1, -1), HexColor('#fff3e0')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+    ]))
+    story.append(tab)
+    
+    doc.build(story)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="Creances_{datetime.now().strftime("%Y%m%d")}.pdf"'})
+
+
+# ==================== FIN MODULE SUIVI CRÉANCES ====================
 
 @app.route('/rh/contrats-rh')
 @permission_required('fichiers')

@@ -1,0 +1,231 @@
+{% extends "base.html" %}{% block title %}WannyGest - Suivi Créances Clients{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div><h1>💰 Suivi Créances Clients</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Mis à jour le {{ now_str if now_str else '' }} · {{ stats.nb_actives }} créance(s) active(s) · {{ stats.nb_soldees }} soldée(s)
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/comptabilite/creances/relances" class="btn btn-sm" style="background:#e8672a;color:#fff">🔔 Relances à effectuer</a>
+        <a href="/comptabilite/creances/parametres" class="btn btn-outline btn-sm">⚙️ Paramètres</a>
+        <a href="/comptabilite/creances/export-pdf" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff">📄 Export PDF</a>
+        <button onclick="document.getElementById('addCr').classList.add('active')" class="btn btn-primary btn-sm">+ Nouvelle créance</button>
+    </div>
+</div>
+
+<!-- KPI indicateurs clés -->
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card"><div class="stat-icon" style="background:#1976d2;color:#fff">💼</div><div class="stat-info">
+        <div class="stat-num">{{ '{:,.0f}'.format(stats.total_ttc_actives).replace(',', ' ') }}</div>
+        <div class="stat-label">Total TTC Actives</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#2e7d32;color:#fff">✅</div><div class="stat-info">
+        <div class="stat-num">{{ '{:,.0f}'.format(stats.total_paye).replace(',', ' ') }}</div>
+        <div class="stat-label">Total Payé</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#c53030;color:#fff">💸</div><div class="stat-info">
+        <div class="stat-num">{{ '{:,.0f}'.format(stats.solde_total_du).replace(',', ' ') }}</div>
+        <div class="stat-label">Solde Total Dû</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#e8672a;color:#fff">⚠️</div><div class="stat-info">
+        <div class="stat-num">{{ stats.nb_echues }}</div>
+        <div class="stat-label">Factures Échues</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#7b1fa2;color:#fff">⛔</div><div class="stat-info">
+        <div class="stat-num">{{ stats.nb_litiges }}</div>
+        <div class="stat-label">Litiges</div></div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:14px">
+    <!-- Répartition par statut -->
+    <div class="card">
+        <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:13px">📊 Répartition par statut</h3></div>
+        <div class="card-body" style="padding:8px">
+            <table style="width:100%;font-size:11px">
+            {% for sk, s in repartition_statut.items() %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:6px 8px">
+                    <span style="display:inline-block;width:10px;height:10px;background:{{ s.color }};border-radius:50%;margin-right:6px"></span>{{ s.label }}
+                </td>
+                <td style="text-align:right;padding:6px 8px;font-weight:600">{{ s.nb }}</td>
+                <td style="text-align:right;padding:6px 8px">{{ '{:,.0f}'.format(s.montant).replace(',', ' ') }} F</td>
+            </tr>
+            {% endfor %}
+            </table>
+        </div>
+    </div>
+    
+    <!-- Répartition par commercial -->
+    <div class="card">
+        <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:13px">👥 Top commerciaux (par solde dû)</h3></div>
+        <div class="card-body" style="padding:8px">
+            <table style="width:100%;font-size:11px">
+            {% for com, d in repartition_commercial.items() %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:6px 8px">{{ com }}</td>
+                <td style="text-align:right;padding:6px 8px;font-weight:600">{{ d.nb }}</td>
+                <td style="text-align:right;padding:6px 8px;color:#c53030;font-weight:600">{{ '{:,.0f}'.format(d.solde).replace(',', ' ') }} F</td>
+            </tr>
+            {% else %}<tr><td colspan="3" style="padding:14px;text-align:center;color:#888">Aucune créance active</td></tr>
+            {% endfor %}
+            </table>
+        </div>
+    </div>
+    
+    <!-- Tranches de retard -->
+    <div class="card">
+        <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:13px">⏰ Analyse par tranche de retard</h3></div>
+        <div class="card-body" style="padding:8px">
+            <table style="width:100%;font-size:11px">
+            {% set colors = {'non_echu': '#2e7d32', '1_30': '#1976d2', '31_60': '#e8672a', '61_90': '#c53030', 'plus_90': '#7b1fa2'} %}
+            {% for tk, t in tranches.items() %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:6px 8px">
+                    <span style="display:inline-block;width:10px;height:10px;background:{{ colors[tk] }};border-radius:2px;margin-right:6px"></span>{{ t.label }}
+                </td>
+                <td style="text-align:right;padding:6px 8px;font-weight:600">{{ t.nb }}</td>
+                <td style="text-align:right;padding:6px 8px">{{ '{:,.0f}'.format(t.montant).replace(',', ' ') }} F</td>
+            </tr>
+            {% endfor %}
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Filtres -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:10px">
+    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select name="statut" onchange="this.form.submit()" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Tous statuts</option>
+            {% for sk, (lbl, col, ic) in statut_labels.items() %}
+            <option value="{{ sk }}" {% if sk == statut_filter %}selected{% endif %}>{{ ic }} {{ lbl }}</option>
+            {% endfor %}
+        </select>
+        <input type="text" name="commercial" value="{{ commercial_filter }}" placeholder="Commercial..." style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
+        <button type="submit" class="btn btn-outline btn-sm">🔍 Filtrer</button>
+        {% if statut_filter or commercial_filter %}<a href="/comptabilite/creances" class="btn btn-outline btn-sm">↻ Reset</a>{% endif %}
+        <span style="margin-left:auto;font-size:11px;color:#888">{{ creances|length }} créance(s) affichée(s)</span>
+    </form>
+</div></div>
+
+<!-- Tableau des créances -->
+<div class="card">
+    <div class="card-body" style="padding:0;overflow-x:auto">
+        <table style="width:100%;font-size:11px;min-width:1300px">
+            <thead style="background:#1A7A6D;color:#fff">
+                <tr>
+                    <th style="padding:10px;text-align:left">N° Facture</th>
+                    <th style="padding:10px;text-align:left">Client</th>
+                    <th style="padding:10px;text-align:left">Commercial</th>
+                    <th style="padding:10px;text-align:left">Date fact.</th>
+                    <th style="padding:10px;text-align:left">Échéance</th>
+                    <th style="padding:10px;text-align:right">TTC</th>
+                    <th style="padding:10px;text-align:right">Payé</th>
+                    <th style="padding:10px;text-align:right">Solde dû</th>
+                    <th style="padding:10px;text-align:center">J. retard</th>
+                    <th style="padding:10px;text-align:center">Statut</th>
+                    <th style="padding:10px;text-align:center">Mode</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for c in creances %}
+            <tr style="border-bottom:1px solid #eee;{% if c.statut_calcule == 'echu' %}background:#ffebee{% elif c.statut_calcule == 'litigieux' %}background:#f3e5f5{% elif c.statut_calcule == 'paye_partiel' %}background:#fff9c4{% elif c.statut_calcule == 'solde' %}background:#e8f5e9{% endif %}">
+                <td style="padding:7px 10px;font-family:monospace;font-weight:600">{{ c.num_facture }}</td>
+                <td style="padding:7px 10px"><strong>{{ c.client_name }}</strong>{% if c.ville %}<br><span style="font-size:10px;color:#666">{{ c.ville }}</span>{% endif %}</td>
+                <td style="padding:7px 10px">{{ c.commercial or '-' }}</td>
+                <td style="padding:7px 10px;white-space:nowrap">{{ c.date_facture[:10] if c.date_facture else '-' }}</td>
+                <td style="padding:7px 10px;white-space:nowrap">{{ c.date_echeance[:10] if c.date_echeance else '-' }}</td>
+                <td style="text-align:right;padding:7px 10px">{{ '{:,.0f}'.format(c.montant_ttc or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 10px;color:#2e7d32">{{ '{:,.0f}'.format(c.montant_paye or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(c.solde_du).replace(',', ' ') }}</td>
+                <td style="text-align:center;padding:7px 10px">{% if c.jours_retard > 0 %}<span style="color:#c53030;font-weight:700">{{ c.jours_retard }}j</span>{% else %}-{% endif %}</td>
+                <td style="text-align:center;padding:7px 10px">
+                    <span style="background:{{ c.statut_color }};color:#fff;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700">{{ c.statut_icon }} {{ c.statut_label }}</span>
+                </td>
+                <td style="text-align:center;padding:7px 10px;font-size:10px">{{ c.mode_paiement or '-' }}</td>
+                <td style="text-align:right;padding:7px 10px;white-space:nowrap">
+                    <button onclick="editCr({{ c.id }}, {{ (c.montant_paye or 0) }}, {{ (c.statut or 'en_cours')|tojson }}, {{ (c.mode_paiement or '')|tojson }}, {{ (c.commentaire or '')|tojson }})" class="btn btn-sm" style="color:#1976d2">✏️</button>
+                    <form method="post" action="/comptabilite/creances/{{ c.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer {{ c.num_facture }} ?');">
+                        <button type="submit" class="btn btn-sm" style="color:#c53030">🗑️</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="12" style="padding:30px;text-align:center;color:#888">Aucune créance. Cliquez sur "+ Nouvelle créance" pour commencer.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal ajout -->
+<div class="modal-bg" id="addCr"><div class="modal" style="max-width:700px"><h3>💰 Nouvelle créance</h3>
+<form method="post" action="/comptabilite/creances/add">
+    <div class="form-row">
+        <div class="form-group"><label>N° Facture *</label><input type="text" name="num_facture" required placeholder="Ex: FAC-2026-0001"></div>
+        <div class="form-group"><label>Code Client</label><input type="text" name="client_code" placeholder="CLI001"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group" style="flex:2"><label>Nom Client *</label><input type="text" name="client_name" required placeholder="Ex: Société ARTECH"></div>
+        <div class="form-group"><label>Ville</label><input type="text" name="ville" placeholder="Abidjan, Cocody"></div>
+    </div>
+    <div class="form-group"><label>Commercial</label><input type="text" name="commercial" placeholder="Nom du commercial"></div>
+    <div class="form-row">
+        <div class="form-group"><label>Date facture *</label><input type="date" name="date_facture" required></div>
+        <div class="form-group"><label>Délai paiement (j)</label><input type="number" name="delai_paiement" value="30" min="0"></div>
+        <div class="form-group"><label>Date échéance</label><input type="date" name="date_echeance" placeholder="Auto +30j"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Montant HT *</label><input type="number" name="montant_ht" required min="0" step="100"></div>
+        <div class="form-group"><label>TVA (%)</label><input type="number" name="tva_rate" value="18" min="0" max="100" step="0.5"></div>
+        <div class="form-group"><label>Mode paiement</label>
+            <select name="mode_paiement">
+                <option>Virement</option><option>Chèque</option><option>Espèces</option>
+                <option>Carte</option><option>Prélèvement</option>
+            </select></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Statut initial</label>
+            <select name="statut">
+                <option value="en_cours">En cours</option>
+                <option value="echu">Échu</option>
+                <option value="litigieux">Litigieux</option>
+            </select></div>
+    </div>
+    <div class="form-group"><label>Commentaire</label><textarea name="commentaire" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('addCr').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">✅ Ajouter</button>
+    </div>
+</form></div></div>
+
+<!-- Modal édition (paiement reçu) -->
+<div class="modal-bg" id="editCrModal"><div class="modal" style="max-width:500px"><h3>💵 Enregistrer un paiement / Modifier</h3>
+<form method="post" id="editCrForm">
+    <div class="form-group"><label>Montant payé (cumulé)</label><input type="number" name="montant_paye" id="ec_paye" min="0" step="100" required></div>
+    <div class="form-group"><label>Statut</label>
+        <select name="statut" id="ec_statut">
+            <option value="en_cours">En cours</option>
+            <option value="echu">Échu</option>
+            <option value="paye_partiel">Payé partiellement</option>
+            <option value="litigieux">Litigieux</option>
+            <option value="solde">Soldé</option>
+        </select>
+    </div>
+    <div class="form-group"><label>Mode paiement</label><input type="text" name="mode_paiement" id="ec_mode"></div>
+    <div class="form-group"><label>Commentaire</label><textarea name="commentaire" id="ec_com" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editCrModal').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+</form></div></div>
+
+<script>
+function editCr(id, paye, statut, mode, com) {
+    document.getElementById('editCrForm').action = '/comptabilite/creances/' + id + '/edit';
+    document.getElementById('ec_paye').value = paye;
+    document.getElementById('ec_statut').value = statut;
+    document.getElementById('ec_mode').value = mode;
+    document.getElementById('ec_com').value = com;
+    document.getElementById('editCrModal').classList.add('active');
+}
+document.querySelector('input[name="date_facture"]').value = new Date().toISOString().split('T')[0];
+</script>
+{% endblock %}
