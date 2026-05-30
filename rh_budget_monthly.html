@@ -1,0 +1,58 @@
+{% extends "base.html" %}{% block title %}WannyGest - Budget {{ month_label }} {{ year }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📅 Budget {{ month_label }} {{ year }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Saisissez les données prévisionnelles du mois. Les charges sont calculées automatiquement.
+        </p>
+    </div>
+    <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+</div>
+
+<form method="post" action="/rh/budget/monthly/{{ year }}/{{ month }}">
+
+<div class="card" style="margin-bottom:14px;border-left:4px solid #1A7A6D">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">👥 Mouvements d'effectifs</h3></div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group"><label>Effectif début de mois</label>
+                <input type="number" name="effectif_debut" value="{{ data.effectif_debut or 0 }}" min="0" required></div>
+            <div class="form-group"><label>Recrutements</label>
+                <input type="number" name="recrutements" value="{{ data.recrutements or 0 }}" min="0">
+                <small style="color:#888">Saisir aussi dans <a href="/rh/budget/recrutements?year={{ year }}" style="color:#1A7A6D">détail recrutements</a></small></div>
+            <div class="form-group"><label>Départs</label>
+                <input type="number" name="departs" value="{{ data.departs or 0 }}" min="0"></div>
+        </div>
+        <p style="font-size:11px;color:#666;background:#f8faf9;padding:8px;border-radius:6px">
+            ℹ️ Effectif fin de mois = début + recrutements - départs (calculé automatiquement)
+        </p>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;border-left:4px solid #e8672a">
+    <div class="card-header"><h3 style="margin:0;color:#e8672a;font-size:14px">💰 Masse salariale</h3></div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group"><label>Masse salariale brute (FCFA)</label>
+                <input type="number" name="masse_salariale" value="{{ data.masse_salariale or 0 }}" min="0" step="1000"></div>
+            <div class="form-group"><label>Employés déclarés CNPS</label>
+                <input type="number" name="employes_declares_cnps" value="{{ data.employes_declares_cnps or 0 }}" min="0">
+                <small style="color:#888">CNPS 17% s'applique uniquement aux déclarés</small></div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+    <div class="card-body">
+        <div class="form-group"><label>Notes / observations</label>
+            <textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">{{ data.notes or '' }}</textarea></div>
+    </div>
+</div>
+
+<div style="text-align:right;margin-top:16px">
+    <a href="/rh/budget?year={{ year }}" class="btn btn-outline">Annuler</a>
+    <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+</div>
+
+</form>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}{% block title %}WannyGest - Suivi Réel vs Budget {{ year }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📊 Suivi Réel vs Budget {{ year }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Saisissez les montants RÉELS de chaque mois. Les écarts sont calculés automatiquement (Réel − Budget).
+        </p>
+    </div>
+    <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+</div>
+
+<div style="background:#fff3cd;border-left:4px solid #e8672a;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#856404">
+    ⚠️ Les colonnes "Réel" sont à saisir manuellement chaque fin de mois pour suivre la consommation effective vs le budget prévisionnel.
+</div>
+
+{% for m in months_data %}
+{% set has_real = m.real_total or m.real_masse_salariale or m.real_charges_patronales %}
+<div class="card" style="margin-bottom:12px;border-left:4px solid {% if has_real %}#2e7d32{% else %}#888{% endif %}">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:14px;color:#1A7A6D">🗓️ {{ mois_fr[m.month] }} {{ year }}
+            {% if has_real %}<span style="background:#2e7d32;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:6px">RÉEL SAISI</span>
+            {% else %}<span style="background:#888;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:6px">À SAISIR</span>{% endif %}
+        </h3>
+        {% if m.real_updated_at %}<span style="font-size:10px;color:#888">Mis à jour: {{ m.real_updated_at }}</span>{% endif %}
+    </div>
+    <div class="card-body" style="padding:0">
+        <form method="post" action="/rh/budget/real/{{ year }}/{{ m.month }}">
+        <table style="width:100%;font-size:12px">
+            <thead style="background:#f8faf9">
+                <tr>
+                    <th style="padding:8px;text-align:left">Rubrique</th>
+                    <th style="padding:8px;text-align:right;width:140px">BUDGET</th>
+                    <th style="padding:8px;text-align:right;width:160px">RÉEL (à saisir)</th>
+                    <th style="padding:8px;text-align:right;width:140px">ÉCART</th>
+                    <th style="padding:8px;text-align:right;width:80px">% ÉCART</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set ecart_masse = (m.real_masse_salariale - m.masse_salariale) if m.real_masse_salariale else None %}
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:6px 8px">Masse salariale brute</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.masse_salariale).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_masse_salariale" value="{{ m.real_masse_salariale or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px;color:{% if ecart_masse and ecart_masse > 0 %}#c53030{% elif ecart_masse and ecart_masse < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_masse).replace(',', ' ') if ecart_masse else '-' }}</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:+.1f}%'.format(ecart_masse / m.masse_salariale * 100) if ecart_masse and m.masse_salariale else '-' }}</td>
+                </tr>
+                {% set ecart_ch = (m.real_charges_patronales - m.charges_patronales) if m.real_charges_patronales else None %}
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:6px 8px">Charges patronales</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.charges_patronales).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_charges_patronales" value="{{ m.real_charges_patronales or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px;color:{% if ecart_ch and ecart_ch > 0 %}#c53030{% elif ecart_ch and ecart_ch < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_ch).replace(',', ' ') if ecart_ch else '-' }}</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">-</td>
+                </tr>
+                {% set ecart_r = (m.real_recrutement - m.total_recrutement) if m.real_recrutement is not none else None %}
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:6px 8px">Budget recrutement</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.total_recrutement).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_recrutement" value="{{ m.real_recrutement or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px;color:{% if ecart_r and ecart_r > 0 %}#c53030{% elif ecart_r and ecart_r < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_r).replace(',', ' ') if ecart_r else '-' }}</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">-</td>
+                </tr>
+                {% set ecart_f = (m.real_formation - m.formation) if m.real_formation is not none else None %}
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:6px 8px">Budget formation</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.formation).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_formation" value="{{ m.real_formation or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px;color:{% if ecart_f and ecart_f > 0 %}#c53030{% elif ecart_f and ecart_f < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_f).replace(',', ' ') if ecart_f else '-' }}</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">-</td>
+                </tr>
+                {% set ecart_a = (m.real_frais_annexes - m.total_frais_annexes) if m.real_frais_annexes is not none else None %}
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:6px 8px">Frais annexes</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.total_frais_annexes).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_frais_annexes" value="{{ m.real_frais_annexes or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px;color:{% if ecart_a and ecart_a > 0 %}#c53030{% elif ecart_a and ecart_a < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_a).replace(',', ' ') if ecart_a else '-' }}</td>
+                    <td style="text-align:right;padding:6px 8px;color:#888">-</td>
+                </tr>
+                {% set ecart_tot = (m.real_total - m.total_budget) if m.real_total else None %}
+                <tr style="background:#eaf3f0;font-weight:700">
+                    <td style="padding:8px;color:#1A7A6D">TOTAL BUDGET RH</td>
+                    <td style="text-align:right;padding:8px;color:#1A7A6D">{{ '{:,.0f}'.format(m.total_budget).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:8px;color:#1A7A6D">{{ '{:,.0f}'.format(m.real_total).replace(',', ' ') if m.real_total else '-' }}</td>
+                    <td style="text-align:right;padding:8px;color:{% if ecart_tot and ecart_tot > 0 %}#c53030{% elif ecart_tot and ecart_tot < 0 %}#2e7d32{% else %}#888{% endif %}">{{ '{:+,.0f}'.format(ecart_tot).replace(',', ' ') if ecart_tot else '-' }}</td>
+                    <td style="text-align:right;padding:8px;color:{% if ecart_tot and ecart_tot > 0 %}#c53030{% elif ecart_tot and ecart_tot < 0 %}#2e7d32{% else %}#888{% endif %}">{{ '{:+.1f}%'.format(ecart_tot / m.total_budget * 100) if ecart_tot and m.total_budget else '-' }}</td>
+                </tr>
+            </tbody>
+        </table>
+        <div style="padding:10px;text-align:right;border-top:1px solid #eee;background:#f8faf9">
+            <input type="text" name="real_notes" value="{{ m.real_notes or '' }}" placeholder="Notes (optionnel)" style="padding:6px;border:1px solid #ddd;border-radius:6px;width:300px;margin-right:8px">
+            <button type="submit" class="btn btn-primary btn-sm">💾 Enregistrer le réel {{ mois_fr[m.month] }}</button>
+        </div>
+        </form>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

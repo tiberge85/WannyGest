@@ -444,6 +444,123 @@ try:
 except Exception as _e:
     print(f"[v89] Erreur init permissions : {_e}", flush=True)
 
+# ==================== v90 : MODULE BUDGET PRÉVISIONNEL RH ====================
+# Inspiré du fichier Budget RH RAMYA (S2 2025) avec hypothèses, budget mensuel,
+# suivi réel vs budget, recrutements prévus
+try:
+    from models import get_db as _v90_db
+    _v90_conn = _v90_db()
+    
+    # 1. Table des paramètres (hypothèses, taux)
+    _v90_conn.execute("""CREATE TABLE IF NOT EXISTS rh_budget_params (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year INTEGER NOT NULL,
+        param_key TEXT NOT NULL,
+        param_value REAL,
+        param_text TEXT,
+        param_label TEXT,
+        param_category TEXT,
+        param_unit TEXT,
+        updated_at TEXT,
+        UNIQUE(year, param_key)
+    )""")
+    
+    # 2. Budget mensuel (1 ligne par mois et par année)
+    _v90_conn.execute("""CREATE TABLE IF NOT EXISTS rh_budget_monthly (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        effectif_debut INTEGER DEFAULT 0,
+        recrutements INTEGER DEFAULT 0,
+        departs INTEGER DEFAULT 0,
+        effectif_fin INTEGER DEFAULT 0,
+        masse_salariale REAL DEFAULT 0,
+        employes_declares_cnps INTEGER DEFAULT 0,
+        cout_recrutement REAL DEFAULT 0,
+        cout_integration REAL DEFAULT 0,
+        notes TEXT,
+        -- Saisie du réel
+        real_masse_salariale REAL,
+        real_charges_patronales REAL,
+        real_cout_salarial REAL,
+        real_recrutement REAL,
+        real_formation REAL,
+        real_frais_annexes REAL,
+        real_total REAL,
+        real_notes TEXT,
+        real_updated_at TEXT,
+        real_updated_by INTEGER,
+        created_at TEXT,
+        updated_at TEXT,
+        UNIQUE(year, month)
+    )""")
+    
+    # 3. Détail recrutements prévus
+    _v90_conn.execute("""CREATE TABLE IF NOT EXISTS rh_budget_recruits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        poste TEXT NOT NULL,
+        salaire_brut REAL DEFAULT 0,
+        cout_integration REAL DEFAULT 0,
+        cout_annonce REAL DEFAULT 0,
+        frais_selection_pct REAL DEFAULT 0.10,
+        notes TEXT,
+        status TEXT DEFAULT 'prevu',
+        employee_id INTEGER,
+        date_embauche_reelle TEXT,
+        created_at TEXT,
+        updated_at TEXT
+    )""")
+    
+    # Initialiser les paramètres par défaut (basés sur le fichier Budget RH RAMYA)
+    _current_year = datetime.now().year
+    _DEFAULT_PARAMS = [
+        # Taux de charges sociales
+        ('cnps_employer_rate', 0.17, None, 'CNPS employeur (employés déclarés)', 'charges', '%'),
+        ('ta_rate', 0.004, None, "Taxe d'apprentissage (TA)", 'charges', '%'),
+        ('fdfp_rate', 0.012, None, 'FDFP (formation professionnelle)', 'charges', '%'),
+        ('its_rate', 0.015, None, 'ITS patronal (impôt sur salaires)', 'charges', '%'),
+        ('cnps_salarial_rate', 0.036, None, 'Taux charges salariales CNPS (pour mémoire)', 'charges', '%'),
+        # Frais annexes
+        ('sirh_usd', 23, None, 'Coût SIRH mensuel (USD)', 'frais_annexes', 'USD'),
+        ('usd_xof_rate', 600, None, 'Taux de change USD → FCFA', 'taux', 'FCFA'),
+        ('medecine_travail', 15000, None, 'Médecine du travail', 'frais_annexes', 'FCFA/mois'),
+        ('autres_frais_rh', 20000, None, 'Autres frais RH (primes de mission)', 'frais_annexes', 'FCFA/mois'),
+        ('marge_securite_rate', 0.03, None, 'Marge de sécurité', 'frais_annexes', '% masse salariale'),
+        # Formation
+        ('formation_rate', 0.0075, None, 'Taux formation (% masse salariale)', 'formation', '% masse salariale'),
+        # Recrutement
+        ('cout_annonce_default', 20000, None, "Coût d'annonce & sourcing par recrutement", 'recrutement', 'FCFA'),
+        ('frais_selection_rate', 0.10, None, 'Frais de sélection (% salaire brut)', 'recrutement', '%'),
+    ]
+    for key, val, text, label, cat, unit in _DEFAULT_PARAMS:
+        try: _v90_conn.execute("""INSERT OR IGNORE INTO rh_budget_params 
+            (year, param_key, param_value, param_text, param_label, param_category, param_unit, updated_at)
+            VALUES (?,?,?,?,?,?,?,datetime('now'))""",
+            (_current_year, key, val, text, label, cat, unit))
+        except: pass
+    
+    # Permissions RH Budget
+    V90_PERMS = {
+        'admin':           ['rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
+        'dg':              ['rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
+        'directeur':       ['rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
+        'rh':              ['rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
+        'comptable':       ['rh_budget_view'],
+        'comptabilite':    ['rh_budget_view'],
+    }
+    for role, perms in V90_PERMS.items():
+        for perm in perms:
+            try: _v90_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    _v90_conn.commit()
+    _v90_conn.close()
+    print("[v90] Tables Budget RH + permissions initialisées", flush=True)
+except Exception as _e:
+    print(f"[v90] Erreur init Budget RH : {_e}", flush=True)
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -470,7 +587,15 @@ try:
                    'grand_livre', 'balance', 'caisse_multi', 'gps_itineraire',
                    'virement_demande', 'virement_valide',
                    'client_requests_view', 'client_users_approve',
-                   'controle_qualite', 'livraison_intervention'])
+                   'controle_qualite', 'livraison_intervention',
+                   # v89 : Roadmap projets
+                   'roadmap_view', 'roadmap_manage', 'roadmap_delete',
+                   'project_create', 'project_advance', 'project_qc', 'project_deliver',
+                   'project_plan', 'project_close', 'project_contract',
+                   'project_progress', 'project_report', 'project_material',
+                   'project_invoice', 'project_payment',
+                   # v90 : Budget prévisionnel RH
+                   'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'])
     from models import get_role_permissions as _grp
     if not _grp('concierge'):
         update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
@@ -595,6 +720,11 @@ PERM_CATEGORIES = {
         ('contrats', 'Contrats'),
         ('envoyer', 'Envoi paie'),
         ('logs', 'Logs'),
+    ],
+    'Budget RH (v90)': [
+        ('rh_budget_view', 'Voir Budget Prévisionnel RH'),
+        ('rh_budget_edit', 'Modifier hypothèses & budget mensuel'),
+        ('rh_budget_real', 'Saisir le réel mensuel (consommation)'),
     ],
     'Général': [
         ('dashboard', 'Dashboard'),
@@ -10142,6 +10272,484 @@ def resp_projet_planning():
         tasks_json=tasks_json, projects_json=projects_json)
 
 # ======================== CONTRATS RH ========================
+
+# ==================== v90 : MODULE BUDGET PRÉVISIONNEL RH ====================
+# Inspiré du fichier Budget RH RAMYA (S2 2025)
+
+MOIS_FR = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+           'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+MOIS_FR_COURT = ['', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+
+def _get_rh_budget_params(year):
+    """Charge les paramètres (taux) pour une année donnée. Fallback année courante si absent."""
+    conn = _gdb()
+    rows = conn.execute("SELECT * FROM rh_budget_params WHERE year=? ORDER BY param_category, id", (year,)).fetchall()
+    if not rows:
+        # Si pas de params pour cette année, copie ceux de l'année courante
+        cur_year = datetime.now().year
+        cur_rows = conn.execute("SELECT * FROM rh_budget_params WHERE year=?", (cur_year,)).fetchall()
+        for r in cur_rows:
+            try:
+                conn.execute("""INSERT OR IGNORE INTO rh_budget_params 
+                    (year, param_key, param_value, param_text, param_label, param_category, param_unit, updated_at)
+                    VALUES (?,?,?,?,?,?,?,datetime('now'))""",
+                    (year, r['param_key'], r['param_value'], r['param_text'], r['param_label'],
+                     r['param_category'], r['param_unit']))
+            except: pass
+        conn.commit()
+        rows = conn.execute("SELECT * FROM rh_budget_params WHERE year=? ORDER BY param_category, id", (year,)).fetchall()
+    conn.close()
+    params = {}
+    for r in rows:
+        d = dict(r)
+        params[d['param_key']] = d
+    return params
+
+def _compute_monthly_budget(year, month, params=None):
+    """Calcule automatiquement le budget RH pour un mois donné à partir des données saisies."""
+    if params is None:
+        params = _get_rh_budget_params(year)
+    
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM rh_budget_monthly WHERE year=? AND month=?", (year, month)).fetchone()
+    if not row:
+        # Initialiser à 0
+        conn.execute("""INSERT INTO rh_budget_monthly (year, month, created_at, updated_at)
+            VALUES (?,?,datetime('now'),datetime('now'))""", (year, month))
+        conn.commit()
+        row = conn.execute("SELECT * FROM rh_budget_monthly WHERE year=? AND month=?", (year, month)).fetchone()
+    
+    # Récupérer aussi les recrutements prévus ce mois
+    recruits = conn.execute("SELECT * FROM rh_budget_recruits WHERE year=? AND month=?", (year, month)).fetchall()
+    conn.close()
+    
+    d = dict(row)
+    
+    # Lecture des taux
+    cnps_rate = (params.get('cnps_employer_rate') or {}).get('param_value', 0.17)
+    ta_rate = (params.get('ta_rate') or {}).get('param_value', 0.004)
+    fdfp_rate = (params.get('fdfp_rate') or {}).get('param_value', 0.012)
+    its_rate = (params.get('its_rate') or {}).get('param_value', 0.015)
+    formation_rate = (params.get('formation_rate') or {}).get('param_value', 0.0075)
+    marge_rate = (params.get('marge_securite_rate') or {}).get('param_value', 0.03)
+    sirh = (params.get('sirh_usd') or {}).get('param_value', 23) * (params.get('usd_xof_rate') or {}).get('param_value', 600)
+    medecine = (params.get('medecine_travail') or {}).get('param_value', 15000)
+    autres = (params.get('autres_frais_rh') or {}).get('param_value', 20000)
+    cout_annonce_def = (params.get('cout_annonce_default') or {}).get('param_value', 20000)
+    selection_rate = (params.get('frais_selection_rate') or {}).get('param_value', 0.10)
+    
+    masse_brute = d.get('masse_salariale') or 0
+    employes_declares = d.get('employes_declares_cnps') or 0
+    
+    # Charges patronales
+    # CNPS seulement sur déclarés : approximation = (masse / effectif_fin) * employes_declares * cnps_rate
+    eff_fin = d.get('effectif_fin') or 0
+    if eff_fin > 0 and employes_declares > 0:
+        cnps = (masse_brute / eff_fin) * employes_declares * cnps_rate
+    else:
+        cnps = 0
+    ta = masse_brute * ta_rate
+    fdfp = masse_brute * fdfp_rate
+    its = masse_brute * its_rate
+    charges_patronales = cnps + ta + fdfp + its
+    cout_salarial_total = masse_brute + charges_patronales
+    
+    # Recrutement (depuis les recrutements prévus ce mois)
+    nb_recrut = len(recruits)
+    cout_annonce_total = sum((r['cout_annonce'] or cout_annonce_def) for r in recruits)
+    frais_selection_total = sum(((r['salaire_brut'] or 0) * (r['frais_selection_pct'] or selection_rate)) for r in recruits)
+    cout_integration_total = sum((r['cout_integration'] or 0) for r in recruits)
+    total_recrutement = cout_annonce_total + frais_selection_total + cout_integration_total
+    
+    # Formation
+    formation = masse_brute * formation_rate
+    
+    # Frais annexes
+    marge = masse_brute * marge_rate
+    total_frais_annexes = sirh + medecine + autres + marge
+    
+    # TOTAL
+    total_budget = cout_salarial_total + total_recrutement + formation + total_frais_annexes
+    
+    return {
+        'year': year, 'month': month, 'month_label': MOIS_FR[month],
+        'effectif_debut': d.get('effectif_debut') or 0,
+        'recrutements': nb_recrut,
+        'departs': d.get('departs') or 0,
+        'effectif_fin': eff_fin,
+        'masse_salariale': masse_brute,
+        'employes_declares': employes_declares,
+        'cnps': cnps, 'ta': ta, 'fdfp': fdfp, 'its': its,
+        'charges_patronales': charges_patronales,
+        'cout_salarial_total': cout_salarial_total,
+        'nb_recrutements': nb_recrut,
+        'cout_annonce': cout_annonce_total,
+        'frais_selection': frais_selection_total,
+        'cout_integration': cout_integration_total,
+        'total_recrutement': total_recrutement,
+        'formation': formation,
+        'sirh': sirh, 'medecine': medecine, 'autres_frais': autres, 'marge': marge,
+        'total_frais_annexes': total_frais_annexes,
+        'total_budget': total_budget,
+        # Réel
+        'real_masse_salariale': d.get('real_masse_salariale'),
+        'real_charges_patronales': d.get('real_charges_patronales'),
+        'real_cout_salarial': d.get('real_cout_salarial'),
+        'real_recrutement': d.get('real_recrutement'),
+        'real_formation': d.get('real_formation'),
+        'real_frais_annexes': d.get('real_frais_annexes'),
+        'real_total': d.get('real_total'),
+        'real_notes': d.get('real_notes'),
+        'real_updated_at': d.get('real_updated_at'),
+        'notes': d.get('notes'),
+        'recruits': [dict(r) for r in recruits],
+    }
+
+
+@app.route('/rh/budget')
+@permission_required('rh_budget_view')
+def rh_budget_dashboard():
+    """Tableau de bord Budget Prévisionnel RH."""
+    year = int(request.args.get('year', datetime.now().year))
+    params = _get_rh_budget_params(year)
+    
+    # Calculer pour les 12 mois
+    months_data = []
+    for m in range(1, 13):
+        months_data.append(_compute_monthly_budget(year, m, params))
+    
+    # Synthèse annuelle
+    total_masse = sum(m['masse_salariale'] for m in months_data)
+    total_charges = sum(m['charges_patronales'] for m in months_data)
+    total_salarial = sum(m['cout_salarial_total'] for m in months_data)
+    total_recrutement = sum(m['total_recrutement'] for m in months_data)
+    total_formation = sum(m['formation'] for m in months_data)
+    total_frais_annexes = sum(m['total_frais_annexes'] for m in months_data)
+    total_budget_annuel = sum(m['total_budget'] for m in months_data)
+    
+    # Effectif moyen (basé sur effectif_fin de chaque mois non nul)
+    months_with_data = [m for m in months_data if m['effectif_fin']]
+    effectif_moyen = sum(m['effectif_fin'] for m in months_with_data) / max(1, len(months_with_data))
+    
+    # Réel vs prévisionnel
+    real_total = sum((m['real_total'] or 0) for m in months_data)
+    months_with_real = [m for m in months_data if m['real_total']]
+    
+    summary = {
+        'year': year,
+        'total_masse': total_masse,
+        'total_charges': total_charges,
+        'total_salarial': total_salarial,
+        'total_recrutement': total_recrutement,
+        'total_formation': total_formation,
+        'total_frais_annexes': total_frais_annexes,
+        'total_budget_annuel': total_budget_annuel,
+        'effectif_moyen': effectif_moyen,
+        'cout_moyen_par_collab': (total_masse / max(1, effectif_moyen) / max(1, len(months_with_data))) if months_with_data else 0,
+        'real_total': real_total,
+        'ecart_total': real_total - total_budget_annuel if real_total else 0,
+        # Répartition
+        'pct_salarial': (total_salarial / total_budget_annuel * 100) if total_budget_annuel > 0 else 0,
+        'pct_recrutement': (total_recrutement / total_budget_annuel * 100) if total_budget_annuel > 0 else 0,
+        'pct_formation': (total_formation / total_budget_annuel * 100) if total_budget_annuel > 0 else 0,
+        'pct_frais_annexes': (total_frais_annexes / total_budget_annuel * 100) if total_budget_annuel > 0 else 0,
+    }
+    
+    # Liste années disponibles
+    conn = _gdb()
+    years = [r[0] for r in conn.execute("SELECT DISTINCT year FROM rh_budget_monthly ORDER BY year DESC").fetchall()]
+    if not years: years = [datetime.now().year]
+    conn.close()
+    
+    return render_template('rh_budget.html', page='rh_budget',
+        year=year, months_data=months_data, summary=summary, params=params,
+        years=years, mois_fr=MOIS_FR, mois_court=MOIS_FR_COURT)
+
+
+@app.route('/rh/budget/hypotheses', methods=['GET', 'POST'])
+@permission_required('rh_budget_edit')
+def rh_budget_hypotheses():
+    """Édition des paramètres/hypothèses du budget RH."""
+    year = int(request.args.get('year', datetime.now().year))
+    
+    if request.method == 'POST':
+        conn = _gdb()
+        for key in request.form:
+            if key.startswith('param_'):
+                pkey = key.replace('param_', '')
+                val = request.form.get(key, '').strip().replace(',', '.').replace('%', '').replace(' ', '')
+                try:
+                    val_f = float(val) if val else 0
+                    # Les % sont saisis comme 17 → 0.17, mais on accepte aussi 0.17
+                    if pkey.endswith('_rate') and val_f > 1:
+                        val_f = val_f / 100
+                    conn.execute("""UPDATE rh_budget_params SET param_value=?, updated_at=datetime('now')
+                        WHERE year=? AND param_key=?""", (val_f, year, pkey))
+                except: pass
+        conn.commit(); conn.close()
+        flash(f"✅ Hypothèses {year} mises à jour", "success")
+        return redirect(f'/rh/budget/hypotheses?year={year}')
+    
+    params = _get_rh_budget_params(year)
+    # Grouper par catégorie
+    by_cat = {}
+    for k, p in params.items():
+        cat = p.get('param_category', 'autre')
+        by_cat.setdefault(cat, []).append(p)
+    
+    return render_template('rh_budget_hypotheses.html', page='rh_budget',
+        year=year, params=params, by_cat=by_cat)
+
+
+@app.route('/rh/budget/monthly/<int:year>/<int:month>', methods=['GET', 'POST'])
+@permission_required('rh_budget_edit')
+def rh_budget_monthly_edit(year, month):
+    """Édition du budget mensuel : effectif, masse salariale, départs."""
+    if request.method == 'POST':
+        conn = _gdb()
+        # S'assurer que la ligne existe
+        if not conn.execute("SELECT id FROM rh_budget_monthly WHERE year=? AND month=?", (year, month)).fetchone():
+            conn.execute("""INSERT INTO rh_budget_monthly (year, month, created_at, updated_at)
+                VALUES (?,?,datetime('now'),datetime('now'))""", (year, month))
+        
+        def _f(name, default=0):
+            v = request.form.get(name, '').strip().replace(',', '.').replace(' ', '')
+            try: return float(v) if v else default
+            except: return default
+        def _i(name, default=0):
+            return int(_f(name, default))
+        
+        eff_debut = _i('effectif_debut')
+        recrut = _i('recrutements')
+        departs = _i('departs')
+        eff_fin = eff_debut + recrut - departs
+        
+        conn.execute("""UPDATE rh_budget_monthly SET
+            effectif_debut=?, recrutements=?, departs=?, effectif_fin=?,
+            masse_salariale=?, employes_declares_cnps=?, notes=?,
+            updated_at=datetime('now')
+            WHERE year=? AND month=?""",
+            (eff_debut, recrut, departs, eff_fin,
+             _f('masse_salariale'), _i('employes_declares_cnps'),
+             request.form.get('notes', ''), year, month))
+        conn.commit(); conn.close()
+        flash(f"✅ Budget {MOIS_FR[month]} {year} mis à jour", "success")
+        return redirect(f'/rh/budget?year={year}')
+    
+    # GET
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM rh_budget_monthly WHERE year=? AND month=?", (year, month)).fetchone()
+    conn.close()
+    data = dict(row) if row else {'year': year, 'month': month}
+    
+    return render_template('rh_budget_monthly.html', page='rh_budget',
+        year=year, month=month, data=data, month_label=MOIS_FR[month])
+
+
+@app.route('/rh/budget/real/<int:year>/<int:month>', methods=['POST'])
+@permission_required('rh_budget_real')
+def rh_budget_real_save(year, month):
+    """Saisie du réel mensuel (consommation)."""
+    conn = _gdb()
+    if not conn.execute("SELECT id FROM rh_budget_monthly WHERE year=? AND month=?", (year, month)).fetchone():
+        conn.execute("""INSERT INTO rh_budget_monthly (year, month, created_at, updated_at)
+            VALUES (?,?,datetime('now'),datetime('now'))""", (year, month))
+    
+    def _f(name):
+        v = request.form.get(name, '').strip().replace(',', '.').replace(' ', '')
+        try: return float(v) if v else None
+        except: return None
+    
+    real_masse = _f('real_masse_salariale')
+    real_charges = _f('real_charges_patronales')
+    real_recrut = _f('real_recrutement')
+    real_form = _f('real_formation')
+    real_frais = _f('real_frais_annexes')
+    real_salarial = (real_masse or 0) + (real_charges or 0) if real_masse is not None else None
+    real_total = sum(x for x in [real_salarial, real_recrut, real_form, real_frais] if x is not None) or None
+    
+    conn.execute("""UPDATE rh_budget_monthly SET
+        real_masse_salariale=?, real_charges_patronales=?, real_cout_salarial=?,
+        real_recrutement=?, real_formation=?, real_frais_annexes=?, real_total=?,
+        real_notes=?, real_updated_at=datetime('now'), real_updated_by=?
+        WHERE year=? AND month=?""",
+        (real_masse, real_charges, real_salarial, real_recrut, real_form, real_frais, real_total,
+         request.form.get('real_notes', ''), session.get('user_id'), year, month))
+    conn.commit(); conn.close()
+    flash(f"✅ Réel {MOIS_FR[month]} {year} enregistré", "success")
+    return redirect(f'/rh/budget/suivi?year={year}')
+
+
+@app.route('/rh/budget/suivi')
+@permission_required('rh_budget_view')
+def rh_budget_suivi():
+    """Tableau de bord Suivi Réel vs Budget."""
+    year = int(request.args.get('year', datetime.now().year))
+    params = _get_rh_budget_params(year)
+    months_data = [_compute_monthly_budget(year, m, params) for m in range(1, 13)]
+    return render_template('rh_budget_suivi.html', page='rh_budget',
+        year=year, months_data=months_data, mois_fr=MOIS_FR)
+
+
+@app.route('/rh/budget/recrutements')
+@permission_required('rh_budget_view')
+def rh_budget_recrutements():
+    """Liste des recrutements prévus."""
+    year = int(request.args.get('year', datetime.now().year))
+    conn = _gdb()
+    recruits = [dict(r) for r in conn.execute(
+        "SELECT * FROM rh_budget_recruits WHERE year=? ORDER BY month, id", (year,)).fetchall()]
+    conn.close()
+    # Calculer coût total par recru
+    for r in recruits:
+        r['mois_label'] = MOIS_FR[r['month']] if r['month'] and r['month'] <= 12 else '-'
+        r['frais_selection'] = (r.get('salaire_brut') or 0) * (r.get('frais_selection_pct') or 0.10)
+        r['cout_total'] = (r.get('cout_annonce') or 0) + r['frais_selection'] + (r.get('cout_integration') or 0)
+    
+    # Stats
+    total_cout = sum(r['cout_total'] for r in recruits)
+    total_integration = sum(r.get('cout_integration') or 0 for r in recruits)
+    nb_recruits = len(recruits)
+    
+    return render_template('rh_budget_recrutements.html', page='rh_budget',
+        year=year, recruits=recruits, total_cout=total_cout,
+        total_integration=total_integration, nb_recruits=nb_recruits, mois_fr=MOIS_FR)
+
+
+@app.route('/rh/budget/recrutements/add', methods=['POST'])
+@permission_required('rh_budget_edit')
+def rh_budget_recrut_add():
+    year = int(request.form.get('year', datetime.now().year))
+    month = int(request.form.get('month', datetime.now().month))
+    poste = request.form.get('poste', '').strip()
+    if not poste:
+        flash("Poste requis", "error")
+        return redirect(f'/rh/budget/recrutements?year={year}')
+    def _f(name, default=0):
+        v = request.form.get(name, '').strip().replace(',', '.').replace(' ', '')
+        try: return float(v) if v else default
+        except: return default
+    conn = _gdb()
+    conn.execute("""INSERT INTO rh_budget_recruits 
+        (year, month, poste, salaire_brut, cout_integration, cout_annonce, frais_selection_pct, notes, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))""",
+        (year, month, poste, _f('salaire_brut'), _f('cout_integration'),
+         _f('cout_annonce', 20000), _f('frais_selection_pct', 0.10),
+         request.form.get('notes', '')))
+    conn.commit(); conn.close()
+    flash(f"✅ Recrutement '{poste}' ajouté pour {MOIS_FR[month]} {year}", "success")
+    return redirect(f'/rh/budget/recrutements?year={year}')
+
+
+@app.route('/rh/budget/recrutements/<int:rid>/delete', methods=['POST'])
+@permission_required('rh_budget_edit')
+def rh_budget_recrut_delete(rid):
+    conn = _gdb()
+    r = conn.execute("SELECT year FROM rh_budget_recruits WHERE id=?", (rid,)).fetchone()
+    year = r[0] if r else datetime.now().year
+    conn.execute("DELETE FROM rh_budget_recruits WHERE id=?", (rid,))
+    conn.commit(); conn.close()
+    flash("Recrutement supprimé", "success")
+    return redirect(f'/rh/budget/recrutements?year={year}')
+
+
+@app.route('/rh/budget/export-pdf')
+@permission_required('rh_budget_view')
+def rh_budget_export_pdf():
+    """Export PDF du budget RH annuel."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white, black
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from flask import Response
+    import io as _io
+    
+    year = int(request.args.get('year', datetime.now().year))
+    params = _get_rh_budget_params(year)
+    months_data = [_compute_monthly_budget(year, m, params) for m in range(1, 13)]
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+        leftMargin=8*mm, rightMargin=8*mm, topMargin=10*mm, bottomMargin=10*mm)
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888'); ORANGE = HexColor('#e8672a')
+    
+    h = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=15, textColor=TEAL, alignment=TA_CENTER, spaceAfter=2*mm)
+    sub = ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=2*mm)))
+    story.append(Paragraph(f"<b>BUDGET PRÉVISIONNEL RH — {year}</b>", h))
+    story.append(Paragraph(f"Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
+    
+    # Tableau principal
+    hd = ['Rubrique'] + [MOIS_FR_COURT[m] for m in range(1, 13)] + ['TOTAL']
+    data = [hd]
+    
+    def fmt_int(v): return f"{int(round(v)):,}".replace(',', ' ') if v else '-'
+    
+    # Effectif fin
+    row = ['Effectif fin'] + [str(m['effectif_fin']) if m['effectif_fin'] else '-' for m in months_data]
+    row.append(str(max(m['effectif_fin'] for m in months_data) if months_data else 0))
+    data.append(row)
+    # Masse salariale
+    row = ['Masse salariale brute'] + [fmt_int(m['masse_salariale']) for m in months_data]
+    row.append(fmt_int(sum(m['masse_salariale'] for m in months_data)))
+    data.append(row)
+    # Charges patronales
+    row = ['Charges patronales'] + [fmt_int(m['charges_patronales']) for m in months_data]
+    row.append(fmt_int(sum(m['charges_patronales'] for m in months_data)))
+    data.append(row)
+    # Coût salarial
+    row = ['Coût salarial total'] + [fmt_int(m['cout_salarial_total']) for m in months_data]
+    row.append(fmt_int(sum(m['cout_salarial_total'] for m in months_data)))
+    data.append(row)
+    # Recrutement
+    row = ['Budget recrutement'] + [fmt_int(m['total_recrutement']) for m in months_data]
+    row.append(fmt_int(sum(m['total_recrutement'] for m in months_data)))
+    data.append(row)
+    # Formation
+    row = ['Budget formation'] + [fmt_int(m['formation']) for m in months_data]
+    row.append(fmt_int(sum(m['formation'] for m in months_data)))
+    data.append(row)
+    # Frais annexes
+    row = ['Frais annexes'] + [fmt_int(m['total_frais_annexes']) for m in months_data]
+    row.append(fmt_int(sum(m['total_frais_annexes'] for m in months_data)))
+    data.append(row)
+    # Total
+    row = ['TOTAL BUDGET RH'] + [fmt_int(m['total_budget']) for m in months_data]
+    row.append(fmt_int(sum(m['total_budget'] for m in months_data)))
+    data.append(row)
+    
+    col_w = [40*mm] + [18*mm]*12 + [24*mm]
+    tab = Table(data, colWidths=col_w)
+    tab.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), TEAL),
+        ('TEXTCOLOR', (0, 0), (-1, 0), white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 0.5, GREY),
+        ('INNERGRID', (0, 0), (-1, -1), 0.3, HexColor('#ddd')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [white, HexColor('#f8faf9')]),
+        ('BACKGROUND', (0, -1), (-1, -1), HexColor('#fff3e0')),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, -1), (-1, -1), HexColor('#b8561f')),
+        ('FONTNAME', (-1, 1), (-1, -1), 'Helvetica-Bold'),
+    ]))
+    story.append(tab)
+    
+    doc.build(story)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="Budget_RH_{year}.pdf"'})
+
+
+# ==================== FIN MODULE BUDGET RH v90 ====================
 
 @app.route('/rh/contrats-rh')
 @permission_required('fichiers')

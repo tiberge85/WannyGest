@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% block title %}WannyGest - Hypothèses Budget RH {{ year }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>⚙️ Hypothèses Budget RH {{ year }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Taux de charges sociales, frais annexes, paramètres de calcul
+        </p>
+    </div>
+    <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+</div>
+
+<form method="post" action="/rh/budget/hypotheses?year={{ year }}">
+
+{% set cat_labels = {'charges': '📋 Taux de Charges Sociales', 'frais_annexes': '🏢 Frais Annexes Mensuels', 'taux': '💱 Taux de Change', 'formation': '🎓 Formation', 'recrutement': '👤 Recrutement'} %}
+{% set cat_colors = {'charges': '#e8672a', 'frais_annexes': '#1976d2', 'taux': '#7b1fa2', 'formation': '#2e7d32', 'recrutement': '#1A7A6D'} %}
+
+{% for cat_key, cat_label in cat_labels.items() %}
+{% if by_cat.get(cat_key) %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid {{ cat_colors[cat_key] }}">
+    <div class="card-header"><h3 style="margin:0;color:{{ cat_colors[cat_key] }};font-size:14px">{{ cat_label }}</h3></div>
+    <div class="card-body">
+        <table style="width:100%;font-size:13px">
+        {% for p in by_cat[cat_key] %}
+        <tr style="border-bottom:1px solid #eee">
+            <td style="padding:8px;width:60%">{{ p.param_label }}</td>
+            <td style="padding:8px;text-align:right;width:25%">
+                {% if p.param_key.endswith('_rate') %}
+                    <input type="text" name="param_{{ p.param_key }}" value="{{ (p.param_value * 100)|round(2) }}" style="text-align:right;padding:6px;border:1.5px solid #ddd;border-radius:6px;width:90px">%
+                {% else %}
+                    <input type="text" name="param_{{ p.param_key }}" value="{{ p.param_value|round(0)|int if p.param_value else 0 }}" style="text-align:right;padding:6px;border:1.5px solid #ddd;border-radius:6px;width:110px">
+                {% endif %}
+            </td>
+            <td style="padding:8px;color:#888;font-size:11px">{{ p.param_unit or '' }}</td>
+        </tr>
+        {% endfor %}
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
+<div style="text-align:right;margin-top:16px">
+    <button type="submit" class="btn btn-primary">💾 Enregistrer les hypothèses</button>
+</div>
+
+</form>
+
+<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:14px;border-radius:8px;margin-top:18px">
+    <strong style="color:#0d47a1">ℹ️ À propos des taux</strong>
+    <ul style="margin:8px 0 0 18px;font-size:12px;color:#1a3a5c;line-height:1.6">
+        <li>Pour les taux (%), saisissez directement la valeur en pourcentage (ex : 17 pour 17%)</li>
+        <li>Le calcul CNPS s'applique uniquement sur les employés déclarés (proportion au prorata)</li>
+        <li>TA, FDFP, ITS s'appliquent sur la masse salariale brute totale</li>
+        <li>Les frais annexes et recrutement utilisent ces taux pour les calculs automatiques</li>
+    </ul>
+</div>
+{% endblock %}
