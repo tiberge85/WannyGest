@@ -1,8 +1,13 @@
 {% extends "base.html" %}{% block title %}WannyGest - Responsable Projet{% endblock %}{% block content %}
-<div class="page-header"><h1>📁 Tableau de bord — Responsable Projet / Coordinateur</h1>
-<div style="display:flex;gap:6px"><a href="/gestion-projets/controle-qualite" class="btn btn-outline btn-sm">🔍 Contrôle qualité</a>
+<div class="page-header"><h1>📁 Tableau de bord — Responsable Projet / Coordinateur / Gestionnaire</h1>
+<div style="display:flex;gap:6px">
+<a href="/projects" class="btn btn-sm" style="background:#1A7A6D;color:#fff">🗺️ Roadmap projets{% if my_projects_action_required and my_projects_action_required > 0 %} <span style="background:#fff;color:#1A7A6D;padding:0 6px;border-radius:8px;font-weight:700">{{ my_projects_action_required }}</span>{% endif %}</a>
+<a href="/gestion-projets/controle-qualite" class="btn btn-outline btn-sm">🔍 Contrôle qualité</a>
 <a href="/gestion-projets/livraisons" class="btn btn-outline btn-sm">📦 Livraisons</a>
 <a href="/resp-projet/projets" class="btn btn-primary btn-sm">+ Nouveau projet</a></div></div>
+
+{# v88 : Widget Roadmap en haut — les coordinateurs voient TOUS les projets actifs #}
+{% include '_my_projects_widget.html' %}
 
 {% set counts = (interv_summary.counts if interv_summary else {}) or {} %}
 {% set total_action = (counts.to_check or 0) + (counts.cq_done_no_date or 0) + (counts.client_proposed or 0) + (counts.ready_deliver or 0) %}

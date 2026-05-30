@@ -648,9 +648,9 @@ def recharge_access_required(f):
 
 
 def project_access_required(f):
-    """v84 : Accès au module projets.
-    Autorisé pour : admin, dg, directeur, coordinateur, commercial, comptable,
-    technicien, magasinier (= moyens généraux), informaticien."""
+    """v88 : Accès au module projets/Roadmap.
+    Autorisé pour : admin, dg, directeur, coordinateur, gestionnaire_projet, resp_projet,
+    commercial, comptable, technicien, magasinier, informaticien, etc."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
@@ -660,14 +660,17 @@ def project_access_required(f):
             flash("Accès non autorisé", "error")
             return redirect(url_for('dashboard'))
         role = user['role']
-        allowed = ('admin', 'dg', 'directeur', 'coordinateur', 'commercial',
-                   'comptable', 'comptabilite', 'technicien', 'tech_chef',
-                   'magasinier', 'mg', 'informaticien', 'informatique',
-                   'rh', 'chef_chantier')
+        allowed = ('admin', 'dg', 'directeur',
+                   'coordinateur', 'gestionnaire_projet', 'resp_projet',  # v88 : 3 rôles équivalents
+                   'commercial',
+                   'comptable', 'comptabilite',
+                   'technicien', 'tech_chef', 'centre_technique', 'chef_chantier',
+                   'magasinier', 'mg', 'moyens_generaux',
+                   'informaticien', 'informatique', 'rh')
         if role in allowed:
             return f(*args, **kwargs)
         perms = get_role_permissions(role)
-        if any(p in perms for p in ('clients', 'centre_technique', 'mg_view', 'comptabilite')):
+        if any(p in perms for p in ('clients', 'centre_technique', 'mg_view', 'comptabilite', 'resp_projet')):
             return f(*args, **kwargs)
         flash("Accès non autorisé", "error")
         return redirect(url_for('dashboard'))
@@ -699,8 +702,19 @@ def _get_my_active_projects(user_id, user_role):
     try:
         from models import get_db as _g
         conn = _g()
-        # Tous projets non clôturés (admin/dg/directeur voient tout, les autres : leur tour ou impliqués)
-        if user_role in ('admin', 'dg', 'directeur'):
+        # v88 : Rôles qui voient TOUS les projets actifs (par responsabilité métier)
+        # - admin/dg/directeur (supervision)
+        # - coordinateur/gestionnaire_projet/resp_projet (3 rôles équivalents : coordination)
+        # - technicien/tech_chef/centre_technique (exécution, doivent connaître tous les chantiers)
+        # - commercial (suit ses ventes)
+        # - mg/magasinier (préparation matérielle)
+        # - comptable/comptabilite (facturation)
+        GLOBAL_VIEW_ROLES = ('admin', 'dg', 'directeur',
+                             'coordinateur', 'gestionnaire_projet', 'resp_projet',
+                             'technicien', 'tech_chef', 'centre_technique', 'chef_chantier',
+                             'commercial', 'mg', 'magasinier', 'moyens_generaux',
+                             'comptable', 'comptabilite')
+        if user_role in GLOBAL_VIEW_ROLES:
             rows = conn.execute("""
                 SELECT id, reference, title, client_name, status, current_step, progress_pct, 
                        coordinator_id, created_by, start_date, end_date_planned
@@ -712,8 +726,7 @@ def _get_my_active_projects(user_id, user_role):
                     created_at DESC LIMIT 30
             """).fetchall()
         else:
-            # Projets où l'utilisateur est : coordinateur, créateur, ou membre d'équipe
-            # OU dont l'étape actuelle concerne son rôle
+            # Autres rôles : seulement projets où impliqué directement
             rows = conn.execute("""
                 SELECT DISTINCT p.id, p.reference, p.title, p.client_name, p.status, p.current_step,
                                 p.progress_pct, p.coordinator_id, p.created_by,
@@ -740,9 +753,8 @@ def _get_my_active_projects(user_id, user_role):
             p['my_turn'] = (user_role in actors) or (user_role == 'admin')
             projects.append(p)
         
-        # Pour les non-admin, ajouter aussi les projets où c'est leur tour (même si pas dans équipe)
-        if user_role not in ('admin', 'dg', 'directeur'):
-            # Quels statuts concernent ce rôle ?
+        # Pour les rôles non-GLOBAL_VIEW : ajouter les projets où c'est leur tour
+        if user_role not in GLOBAL_VIEW_ROLES:
             relevant_statuses = [st for st, actors in STEP_ACTORS.items() if user_role in actors]
             if relevant_statuses:
                 placeholders = ','.join('?' * len(relevant_statuses))

@@ -1,6 +1,9 @@
 {% extends "base.html" %}{% block title %}WannyGest - Centre technique{% endblock %}{% block content %}
 <div class="page-header"><h1>🔧 Centre Technique</h1></div>
 
+{# v88 : Widget Roadmap des projets - les techniciens voient les projets où ils doivent agir #}
+{% include '_my_projects_widget.html' %}
+
 <!-- Stats bar like Image 1 -->
 <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #eee;border-radius:10px;overflow:hidden">
     <div style="flex:1;padding:12px 16px;border-right:1px solid #eee;text-align:center"><strong>{{ systems|length }}</strong> <span style="color:#888;font-size:12px">Nombre total</span></div>

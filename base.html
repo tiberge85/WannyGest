@@ -263,7 +263,9 @@
                 <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 GESTION DE PROJETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/resp-projet" class="{% if page == 'resp_projet' %}active{% endif %}">📊 Tableau de bord</a>
-                    <a href="/resp-projet/projets" class="{% if page == 'resp_projets' %}active{% endif %}">📁 Projets</a>
+                    {# v88 : Lien Roadmap visible également ici pour les gestionnaires de projet #}
+                    <a href="/projects" class="{% if page == 'projects' %}active{% endif %}" style="position:relative">🗺️ Roadmap projets{% if my_projects_action_required and my_projects_action_required > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ my_projects_action_required }}</span>{% endif %}</a>
+                    <a href="/resp-projet/projets" class="{% if page == 'resp_projets' %}active{% endif %}">📁 Projets (anc.)</a>
                     <a href="/kanban" class="{% if page == 'kanban' %}active{% endif %}">📋 Tâches (Kanban)</a>
                     <a href="/resp-projet/planning" class="{% if page == 'resp_planning' %}active{% endif %}">📅 Planning</a>
                     <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}" style="position:relative">🔧 Interventions{% if new_interventions_count and new_interventions_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_interventions_count }}</span>{% endif %}</a>
@@ -276,6 +278,17 @@
                     {% if 'livraison_intervention' in permissions or 'admin' in permissions %}
                     <a href="/gestion-projets/livraisons" class="{% if page == 'gestion_livraisons' %}active{% endif %}">📦 Livraisons{% if pending_deliv_count and pending_deliv_count > 0 %} <span style="background:#1a7a6d;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_deliv_count }}</span>{% endif %}</a>
                     {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {# v88 : Section CENTRE TECHNIQUE — visible pour technicien et rôles équivalents #}
+            {% if 'centre_technique' in permissions or 'admin' in permissions or current_user and current_user.role in ('technicien','tech_chef','chef_chantier','centre_technique') %}
+            <div class="nav-section" id="sec-centre-tech">
+                <div class="nav-section-title" onclick="toggleSection('sec-centre-tech')">🛠️ CENTRE TECHNIQUE <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    <a href="/centre-technique" class="{% if page == 'centre_technique' %}active{% endif %}">📊 Tableau de bord</a>
+                    <a href="/projects" class="{% if page == 'projects' %}active{% endif %}" style="position:relative">🗺️ Roadmap projets{% if my_projects_action_required and my_projects_action_required > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ my_projects_action_required }}</span>{% endif %}</a>
                 </div>
             </div>
             {% endif %}
