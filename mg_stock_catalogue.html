@@ -1,10 +1,15 @@
-{% extends "base.html" %}{% block title %}WannyGest - Catalogue Articles{% endblock %}{% block content %}
+{% extends "base.html" %}{% block title %}WannyGest - Marchandise (Catalogue){% endblock %}{% block content %}
 <div class="page-header" style="flex-wrap:wrap;gap:10px">
-    <div><h1>📋 Catalogue Articles</h1>
-        <p style="color:#666;font-size:12px;margin:4px 0 0">Gestion des références produits et fournitures</p>
+    <div><h1>📋 Marchandise — Catalogue Articles</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Référentiel des produits avec stock initial et prix unitaire {% if total_catalogue %}— Valeur catalogue : <strong>{{ '{:,.0f}'.format(total_catalogue).replace(',', ' ') }} FCFA</strong>{% endif %}
+        </p>
     </div>
-    <div style="display:flex;gap:6px">
-        <a href="/mg/stock" class="btn btn-outline btn-sm">← Inventaire</a>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/mg/stock" class="btn btn-outline btn-sm">📊 Opérations</a>
+        <a href="/mg/stock/entrees" class="btn btn-outline btn-sm">📥 Entrées</a>
+        <a href="/mg/stock/sorties" class="btn btn-outline btn-sm">📤 Sorties</a>
+        <a href="/mg/stock/inventaires" class="btn btn-outline btn-sm">📦 Inventaires</a>
         <button onclick="document.getElementById('addArt').classList.add('active')" class="btn btn-primary btn-sm">+ Nouvel article</button>
     </div>
 </div>
@@ -21,6 +26,7 @@
                     <th style="padding:10px;text-align:right">Seuil</th>
                     <th style="padding:10px;text-align:right">Stock initial</th>
                     <th style="padding:10px;text-align:right">P.U. (FCFA)</th>
+                    <th style="padding:10px;text-align:right">Total initial</th>
                     <th></th>
                 </tr>
             </thead>
@@ -34,6 +40,7 @@
                 <td style="text-align:right;padding:7px 10px">{{ a.seuil_alerte or '-' }}</td>
                 <td style="text-align:right;padding:7px 10px">{{ a.stock_initial or 0 }}</td>
                 <td style="text-align:right;padding:7px 10px;font-weight:600">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:700;color:#e8672a">{{ '{:,.0f}'.format(a.total_initial).replace(',', ' ') }}</td>
                 <td style="padding:7px 10px;text-align:right;white-space:nowrap">
                     <button onclick="editArt({{ a.id }}, {{ a.designation|tojson }}, {{ (a.categorie or '')|tojson }}, {{ (a.unite or 'UNITE')|tojson }}, {{ a.seuil_alerte or 2 }}, {{ a.prix_unitaire or 0 }}, {{ (a.notes or '')|tojson }})" class="btn btn-sm" style="color:#1976d2">✏️</button>
                     <form method="post" action="/mg/stock/article/{{ a.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer {{ a.reference }} ?');">
@@ -42,7 +49,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="8" style="padding:30px;text-align:center;color:#888">Aucun article. Cliquez sur "+ Nouvel article" pour commencer.</td></tr>
+            <tr><td colspan="9" style="padding:30px;text-align:center;color:#888">Aucun article. Cliquez sur "+ Nouvel article" pour commencer.</td></tr>
             {% endfor %}
             </tbody>
         </table>

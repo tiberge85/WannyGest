@@ -380,9 +380,11 @@
                     <div class="compta-subsection-title"><span class="dot"></span>SUIVI TIERS</div>
                     <a href="/comptabilite/factures" class="{% if page == 'factures' %}active{% endif %}">🧾 Factures</a>
                     {% if 'creances_view' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
-                    <a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📥 Créances clients</a>
+                    <a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📋 Suivi Créances clients</a>
+                    <a href="/comptabilite/creances/tableau-bord" class="{% if page == 'creances_tableau_bord' %}active{% endif %}" style="font-size:11px;padding-left:18px">  └ 📊 Tableau de Bord</a>
                     <a href="/comptabilite/creances/relances" style="font-size:11px;padding-left:18px">  └ 🔔 Relances</a>
                     <a href="/comptabilite/creances/parametres" style="font-size:11px;padding-left:18px">  └ ⚙️ Paramètres</a>
+                    <a href="/comptabilite/creances/mode-emploi" class="{% if page == 'creances_mode_emploi' %}active{% endif %}" style="font-size:11px;padding-left:18px">  └ 📖 Mode d'emploi</a>
                     {% endif %}
                     <a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>
                     <a href="/comptabilite/validation-paie" class="{% if page == 'compta_paie' %}active{% endif %}">💵 Validation paie</a>
@@ -500,17 +502,18 @@
                     <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail') %}active{% endif %}">🏭 Fournisseurs &amp; Paiements</a>
                     {% endif %}
                     <a href="/mg/fournisseurs-dashboard" class="{% if page == 'mg_fournisseurs' %}active{% endif %}">💰 Suivi financier fournisseurs</a>
-                    <a href="/achats?tab=stock" class="{% if page == 'achats' or page == 'stock' %}active{% endif %}">🛒 Stock &amp; Articles</a>
                     <a href="/achats?tab=commandes" class="{% if page == 'commandes' %}active{% endif %}">🚚 Bons de commande</a>
                     <a href="/mg/receptions" class="{% if page == 'mg_receptions' %}active{% endif %}">📦 Réceptions</a>
                     <a href="/mg/paiements" class="{% if page == 'mg_paiements' %}active{% endif %}">💵 Paiements fournisseurs</a>
                     <a href="/mg/equipements" class="{% if page == 'mg_equipements' %}active{% endif %}">🖥️ Équipements</a>
                     {% if 'stock_view' in permissions or 'admin' in permissions %}
                     <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.1)">
-                        <a href="/mg/stock" class="{% if page == 'mg_stock' %}active{% endif %}">📦 Gestion Stock (Inventaire)</a>
-                        <a href="/mg/stock/catalogue">  └ 📋 Catalogue articles</a>
-                        <a href="/mg/stock/entrees">  └ 📥 Entrées</a>
-                        <a href="/mg/stock/sorties">  └ 📤 Sorties</a>
+                        <div style="font-size:10px;color:#888;padding:4px 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">📦 Gestion de Stock</div>
+                        <a href="/mg/stock" class="{% if page == 'mg_stock' %}active{% endif %}">📊 Opérations</a>
+                        <a href="/mg/stock/marchandise" class="{% if page == 'mg_stock_marchandise' %}active{% endif %}">📋 Marchandise (Catalogue)</a>
+                        <a href="/mg/stock/entrees" class="{% if page == 'mg_stock_entrees' %}active{% endif %}">📥 Entrées</a>
+                        <a href="/mg/stock/sorties" class="{% if page == 'mg_stock_sorties' %}active{% endif %}">📤 Sorties</a>
+                        <a href="/mg/stock/inventaires" class="{% if page == 'mg_stock_inventaires' %}active{% endif %}">📦 Inventaires</a>
                     </div>
                     {% endif %}
                 </div>

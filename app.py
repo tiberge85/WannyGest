@@ -11092,7 +11092,8 @@ def _compute_stock_current(article_id, conn=None):
 @app.route('/mg/stock')
 @permission_required('stock_view')
 def mg_stock_dashboard():
-    """Tableau de bord du module Stock — vue Inventaire avec alertes."""
+    """Opérations — Vue d'ensemble du stock (synthèse des mouvements).
+    Inspiré de la feuille 'Opérations' du fichier GESTION_DE_STOCK.xlsx"""
     conn = _gdb()
     rows = conn.execute("""SELECT a.*, 
         COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=a.id), 0) as total_entrees,
@@ -11118,14 +11119,24 @@ def mg_stock_dashboard():
             a['alerte_color'] = '#2e7d32'
         articles.append(a)
     
-    # Stats
+    # Stats globales — vue Opérations
     stats = {
         'total_articles': len(articles),
         'total_valeur': sum(a['valeur_stock'] for a in articles),
         'nb_epuises': sum(1 for a in articles if a['alerte'] == 'EPUISE'),
         'nb_faibles': sum(1 for a in articles if a['alerte'] == 'FAIBLE'),
         'nb_ok': sum(1 for a in articles if a['alerte'] == 'OK'),
+        'total_entrees': sum(a['total_entrees'] for a in articles),
+        'total_sorties': sum(a['total_sorties'] for a in articles),
     }
+    
+    # Récents mouvements (5 dernières entrées + 5 dernières sorties)
+    recent_entries = [dict(r) for r in conn.execute("""SELECT e.*, a.reference, a.designation
+        FROM mg_stock_entries e LEFT JOIN mg_stock_articles a ON e.article_id=a.id
+        ORDER BY e.date_entree DESC, e.id DESC LIMIT 5""").fetchall()]
+    recent_exits = [dict(r) for r in conn.execute("""SELECT s.*, a.reference, a.designation
+        FROM mg_stock_exits s LEFT JOIN mg_stock_articles a ON s.article_id=a.id
+        ORDER BY s.date_sortie DESC, s.id DESC LIMIT 5""").fetchall()]
     
     # Catégories pour filtre
     categories = sorted(set(a['categorie'] for a in articles if a.get('categorie')))
@@ -11141,19 +11152,69 @@ def mg_stock_dashboard():
     conn.close()
     return render_template('mg_stock_dashboard.html', page='mg_stock',
         articles=articles, stats=stats, categories=categories,
-        cat_filter=cat_filter, alerte_filter=alerte_filter)
+        cat_filter=cat_filter, alerte_filter=alerte_filter,
+        recent_entries=recent_entries, recent_exits=recent_exits)
 
 
+@app.route('/mg/stock/inventaires')
+@permission_required('stock_view')
+def mg_stock_inventaires():
+    """Inventaires — Vue détaillée avec calcul stock actuel (formule SUMIF du fichier Excel).
+    Stock actuel = Stock initial + Total entrées - Total sorties"""
+    conn = _gdb()
+    rows = conn.execute("""SELECT a.*, 
+        COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=a.id), 0) as total_entrees,
+        COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=a.id), 0) as total_sorties
+        FROM mg_stock_articles a ORDER BY a.categorie, a.designation""").fetchall()
+    articles = []
+    for r in rows:
+        a = dict(r)
+        a['total_initial_value'] = (a['stock_initial'] or 0) * (a['prix_unitaire'] or 0)
+        a['stock_actuel'] = (a['stock_initial'] or 0) + (a['total_entrees'] or 0) - (a['total_sorties'] or 0)
+        a['valeur_actuelle'] = a['stock_actuel'] * (a['prix_unitaire'] or 0)
+        # Alerte
+        if a['stock_actuel'] <= 0:
+            a['alerte'] = 'EPUISE'; a['alerte_label'] = '⛔ ÉPUISÉ'; a['alerte_color'] = '#c53030'
+        elif a['stock_actuel'] <= (a['seuil_alerte'] or 2):
+            a['alerte'] = 'FAIBLE'; a['alerte_label'] = '⚠ FAIBLE'; a['alerte_color'] = '#e8672a'
+        else:
+            a['alerte'] = 'OK'; a['alerte_label'] = '✓ OK'; a['alerte_color'] = '#2e7d32'
+        articles.append(a)
+    
+    # Totaux
+    totaux = {
+        'total_initial': sum(a['stock_initial'] or 0 for a in articles),
+        'total_initial_value': sum(a['total_initial_value'] for a in articles),
+        'total_entrees': sum(a['total_entrees'] for a in articles),
+        'total_sorties': sum(a['total_sorties'] for a in articles),
+        'total_actuel': sum(a['stock_actuel'] for a in articles),
+        'total_valeur_actuelle': sum(a['valeur_actuelle'] for a in articles),
+    }
+    categories = sorted(set(a['categorie'] for a in articles if a.get('categorie')))
+    cat_filter = request.args.get('cat', '').strip()
+    if cat_filter:
+        articles = [a for a in articles if (a.get('categorie') or '') == cat_filter]
+    conn.close()
+    return render_template('mg_stock_inventaires.html', page='mg_stock_inventaires',
+        articles=articles, totaux=totaux, categories=categories, cat_filter=cat_filter)
+
+
+@app.route('/mg/stock/marchandise')
 @app.route('/mg/stock/catalogue')
 @permission_required('stock_view')
 def mg_stock_catalogue():
-    """Catalogue (Marchandise) — articles du stock."""
+    """Marchandise (Catalogue) — articles du stock avec stock initial.
+    Inspiré de la feuille 'Marchandise' du fichier GESTION_DE_STOCK.xlsx"""
     conn = _gdb()
     articles = [dict(r) for r in conn.execute("SELECT * FROM mg_stock_articles ORDER BY designation").fetchall()]
     categories = sorted(set(a['categorie'] for a in articles if a.get('categorie')))
+    # Calculer le total pour chaque article (stock_initial × prix_unitaire)
+    for a in articles:
+        a['total_initial'] = (a.get('stock_initial') or 0) * (a.get('prix_unitaire') or 0)
+    total_catalogue = sum(a['total_initial'] for a in articles)
     conn.close()
-    return render_template('mg_stock_catalogue.html', page='mg_stock',
-        articles=articles, categories=categories)
+    return render_template('mg_stock_catalogue.html', page='mg_stock_marchandise',
+        articles=articles, categories=categories, total_catalogue=total_catalogue)
 
 
 @app.route('/mg/stock/article/add', methods=['POST'])
@@ -11235,7 +11296,7 @@ def mg_stock_entrees():
     articles = [dict(r) for r in conn.execute("SELECT id, reference, designation, prix_unitaire, unite FROM mg_stock_articles ORDER BY designation").fetchall()]
     total_value = sum(e['total'] for e in entries)
     conn.close()
-    return render_template('mg_stock_entrees.html', page='mg_stock',
+    return render_template('mg_stock_entrees.html', page='mg_stock_entrees',
         entries=entries, articles=articles, total_value=total_value)
 
 
@@ -11289,7 +11350,7 @@ def mg_stock_sorties():
         FROM mg_stock_articles ORDER BY designation""").fetchall()]
     total_value = sum(s['total'] for s in exits)
     conn.close()
-    return render_template('mg_stock_sorties.html', page='mg_stock',
+    return render_template('mg_stock_sorties.html', page='mg_stock_sorties',
         exits=exits, articles=articles, total_value=total_value)
 
 
@@ -11532,6 +11593,93 @@ def creances_dashboard():
         tranches=tranches,
         statut_filter=statut_filter, commercial_filter=commercial_filter,
         statut_labels=STATUT_LABELS)
+
+
+@app.route('/comptabilite/creances/tableau-bord')
+@permission_required('creances_view')
+def creances_tableau_bord():
+    """Tableau de Bord — Vue synthèse uniquement (KPI + répartitions, sans la liste).
+    Inspiré de la feuille 'Tableau de Bord' du fichier TABLEAU_DE_BORD_CREANCE_CLIENT.xlsx"""
+    conn = _gdb()
+    creances = [dict(r) for r in conn.execute(
+        "SELECT * FROM creances_invoices ORDER BY date_facture DESC").fetchall()]
+    
+    # Recalculer statut + solde + jours_retard
+    for c in creances:
+        info = _compute_creance_status(c)
+        c['statut_calcule'] = info['statut']
+        c['solde_du'] = info['solde_du']
+        c['jours_retard'] = info['jours_retard']
+    
+    # Stats indicateurs clés
+    actives = [c for c in creances if c['statut_calcule'] != 'solde']
+    stats = {
+        'total_ttc_actives': sum(c.get('montant_ttc') or 0 for c in actives),
+        'total_paye': sum(c.get('montant_paye') or 0 for c in creances),
+        'solde_total_du': sum(c['solde_du'] for c in actives),
+        'nb_echues': sum(1 for c in creances if c['statut_calcule'] == 'echu'),
+        'nb_litiges': sum(1 for c in creances if c['statut_calcule'] == 'litigieux'),
+        'nb_actives': len(actives),
+        'nb_soldees': sum(1 for c in creances if c['statut_calcule'] == 'solde'),
+        'nb_total': len(creances),
+    }
+    
+    # Répartition par statut
+    repartition_statut = {}
+    total_montant = 0
+    for st_key, (label, color, icon) in STATUT_LABELS.items():
+        nb = sum(1 for c in creances if c['statut_calcule'] == st_key)
+        montant = sum(c.get('montant_ttc') or 0 for c in creances if c['statut_calcule'] == st_key)
+        total_montant += montant
+        repartition_statut[st_key] = {'label': label, 'color': color, 'icon': icon, 'nb': nb, 'montant': montant}
+    # Calculer pourcentages
+    for st in repartition_statut.values():
+        st['pct'] = (st['montant'] / total_montant * 100) if total_montant > 0 else 0
+    
+    # Répartition par commercial
+    repartition_commercial = {}
+    for c in actives:
+        com = c.get('commercial') or 'Non assigné'
+        if com not in repartition_commercial:
+            repartition_commercial[com] = {'nb': 0, 'solde': 0}
+        repartition_commercial[com]['nb'] += 1
+        repartition_commercial[com]['solde'] += c['solde_du']
+    repartition_commercial = dict(sorted(repartition_commercial.items(), key=lambda x: -x[1]['solde']))
+    
+    # Tranches de retard
+    tranches = {
+        'non_echu':  {'label': 'Non échu (0 jour)', 'nb': 0, 'montant': 0},
+        '1_30':      {'label': '1 à 30 jours', 'nb': 0, 'montant': 0},
+        '31_60':     {'label': '31 à 60 jours', 'nb': 0, 'montant': 0},
+        '61_90':     {'label': '61 à 90 jours', 'nb': 0, 'montant': 0},
+        'plus_90':   {'label': 'Plus de 90 jours', 'nb': 0, 'montant': 0},
+    }
+    total_solde_actif = sum(c['solde_du'] for c in actives)
+    for c in actives:
+        jr = c['jours_retard']
+        if jr <= 0: key = 'non_echu'
+        elif jr <= 30: key = '1_30'
+        elif jr <= 60: key = '31_60'
+        elif jr <= 90: key = '61_90'
+        else: key = 'plus_90'
+        tranches[key]['nb'] += 1
+        tranches[key]['montant'] += c['solde_du']
+    # Pourcentages
+    for tr in tranches.values():
+        tr['pct'] = (tr['montant'] / total_solde_actif * 100) if total_solde_actif > 0 else 0
+    
+    conn.close()
+    return render_template('creances_tableau_bord.html', page='creances_tableau_bord',
+        stats=stats, repartition_statut=repartition_statut,
+        repartition_commercial=repartition_commercial, tranches=tranches,
+        total_solde_actif=total_solde_actif)
+
+
+@app.route('/comptabilite/creances/mode-emploi')
+@permission_required('creances_view')
+def creances_mode_emploi():
+    """Mode d'emploi du module Suivi Créances Clients."""
+    return render_template('creances_mode_emploi.html', page='creances_mode_emploi')
 
 
 @app.route('/comptabilite/creances/add', methods=['POST'])

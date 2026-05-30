@@ -1,0 +1,151 @@
+{% extends "base.html" %}{% block title %}WannyGest - Mode d'emploi Créances{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📖 Mode d'emploi — Suivi Créances Clients</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Guide d'utilisation du module
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/comptabilite/creances" class="btn btn-outline btn-sm">📋 Suivi Créances</a>
+        <a href="/comptabilite/creances/tableau-bord" class="btn btn-outline btn-sm">📊 Tableau de Bord</a>
+        <a href="/comptabilite/creances/relances" class="btn btn-outline btn-sm">🔔 Relances</a>
+        <a href="/comptabilite/creances/parametres" class="btn btn-outline btn-sm">⚙️ Paramètres</a>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;border-left:4px solid #1A7A6D">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📚 Présentation du module</h3></div>
+    <div class="card-body">
+        <p style="font-size:13px;line-height:1.6">Le module <strong>Suivi des Créances Clients</strong> centralise la gestion des factures émises restant à recouvrer. Il permet de suivre les paiements partiels, d'identifier les retards et de déclencher les relances appropriées.</p>
+        
+        <table style="width:100%;font-size:13px;margin-top:10px">
+            <thead><tr style="background:#f8faf9">
+                <th style="text-align:left;padding:10px;border-bottom:2px solid #1A7A6D;width:200px">Page</th>
+                <th style="text-align:left;padding:10px;border-bottom:2px solid #1A7A6D">Description</th>
+            </tr></thead>
+            <tbody>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>📋 Suivi Créances</strong></td><td style="padding:8px">Feuille principale. Liste détaillée des factures avec filtres par statut/commercial. Permet de saisir/modifier/supprimer des créances.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>📊 Tableau de Bord</strong></td><td style="padding:8px">Synthèse automatique avec indicateurs clés, répartitions par statut/commercial et analyse par tranche de retard.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>🔔 Relances</strong></td><td style="padding:8px">Liste automatique des factures nécessitant une relance, classée par niveau d'urgence.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>⚙️ Paramètres</strong></td><td style="padding:8px">Configurer les seuils d'alerte, délais de relance, informations entreprise.</td></tr>
+                <tr><td style="padding:8px"><strong>📖 Mode d'emploi</strong></td><td style="padding:8px">Ce guide d'utilisation.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;border-left:4px solid #1976d2">
+    <div class="card-header"><h3 style="margin:0;color:#1976d2;font-size:14px">📝 Saisie d'une nouvelle créance</h3></div>
+    <div class="card-body">
+        <p style="font-size:13px;line-height:1.6">Depuis la page <strong>Suivi Créances</strong>, cliquez sur <em>"+ Nouvelle créance"</em>. Renseignez les champs suivants :</p>
+        <table style="width:100%;font-size:13px;margin-top:10px">
+            <thead><tr style="background:#f8faf9">
+                <th style="text-align:left;padding:10px;border-bottom:2px solid #1976d2;width:200px">Champ</th>
+                <th style="text-align:left;padding:10px;border-bottom:2px solid #1976d2">Description</th>
+            </tr></thead>
+            <tbody>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>N° Facture *</strong></td><td style="padding:8px">Numéro unique de la facture (ex: FAC-2026-0001). Doit être unique.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Code Client</strong></td><td style="padding:8px">Code client issu de votre système (optionnel).</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Nom Client *</strong></td><td style="padding:8px">Raison sociale du client.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Ville</strong></td><td style="padding:8px">Ville et code postal (ex: Abidjan, Cocody).</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Commercial</strong></td><td style="padding:8px">Nom du commercial responsable du compte.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Date facture *</strong></td><td style="padding:8px">Date d'émission de la facture.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Délai paiement (jours)</strong></td><td style="padding:8px">Nombre de jours pour calculer automatiquement la date d'échéance (par défaut 30 jours).</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Date échéance</strong></td><td style="padding:8px">Date limite de paiement (calculée automatiquement si vide).</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>Montant HT *</strong></td><td style="padding:8px">Montant hors taxes en FCFA. La TVA et le TTC sont calculés automatiquement.</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><strong>TVA (%)</strong></td><td style="padding:8px">Taux de TVA appliqué (18% par défaut en Côte d'Ivoire).</td></tr>
+                <tr><td style="padding:8px"><strong>Mode paiement</strong></td><td style="padding:8px">Virement / Chèque / Espèces / Carte / Prélèvement.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;border-left:4px solid #e8672a">
+    <div class="card-header"><h3 style="margin:0;color:#e8672a;font-size:14px">🎨 Codes couleur des statuts</h3></div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">
+            <div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:10px;border-radius:6px">
+                <strong style="color:#2e7d32">✅ Soldé</strong>
+                <p style="font-size:12px;margin:6px 0 0;color:#555">Facture entièrement payée. Aucune action requise.</p>
+            </div>
+            <div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:10px;border-radius:6px">
+                <strong style="color:#1976d2">🔵 En cours</strong>
+                <p style="font-size:12px;margin:6px 0 0;color:#555">Facture émise, échéance non dépassée. Suivi normal.</p>
+            </div>
+            <div style="background:#fff3e0;border-left:4px solid #e8672a;padding:10px;border-radius:6px">
+                <strong style="color:#e8672a">◐ Payé partiellement</strong>
+                <p style="font-size:12px;margin:6px 0 0;color:#555">Paiement partiel reçu. Relance complémentaire requise.</p>
+            </div>
+            <div style="background:#ffebee;border-left:4px solid #c53030;padding:10px;border-radius:6px">
+                <strong style="color:#c53030">⚠ Échu</strong>
+                <p style="font-size:12px;margin:6px 0 0;color:#555">Échéance dépassée sans paiement. Action urgente requise.</p>
+            </div>
+            <div style="background:#f3e5f5;border-left:4px solid #7b1fa2;padding:10px;border-radius:6px">
+                <strong style="color:#7b1fa2">⛔ Litigieux</strong>
+                <p style="font-size:12px;margin:6px 0 0;color:#555">Contestation ou litige en cours. Traitement contentieux.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;border-left:4px solid #7b1fa2">
+    <div class="card-header"><h3 style="margin:0;color:#7b1fa2;font-size:14px">🔔 Gestion des relances (automatique)</h3></div>
+    <div class="card-body">
+        <p style="font-size:13px;line-height:1.6">Le module détermine automatiquement le <strong>niveau de relance</strong> à appliquer selon le nombre de jours de retard (configurable dans <a href="/comptabilite/creances/parametres" style="color:#1A7A6D;font-weight:700">⚙️ Paramètres</a>).</p>
+        <table style="width:100%;font-size:13px;margin-top:10px">
+            <thead><tr style="background:#f8faf9">
+                <th style="text-align:left;padding:10px;border-bottom:2px solid #7b1fa2">Niveau</th>
+                <th style="text-align:left;padding:10px;border-bottom:2px solid #7b1fa2">Délai (jours après échéance)</th>
+                <th style="text-align:left;padding:10px;border-bottom:2px solid #7b1fa2">Action recommandée</th>
+            </tr></thead>
+            <tbody>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><span style="background:#1976d2;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">Relance 1</span></td><td style="padding:8px">1 à 30 jours</td><td style="padding:8px">Premier rappel courtois (email + téléphone)</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><span style="background:#e8672a;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">Relance 2</span></td><td style="padding:8px">31 à 60 jours</td><td style="padding:8px">Relance ferme avec rappel des conséquences</td></tr>
+                <tr style="border-bottom:1px solid #eee"><td style="padding:8px"><span style="background:#e8672a;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">Relance 3</span></td><td style="padding:8px">61 à 90 jours</td><td style="padding:8px">Dernière relance avant procédure (courrier RAR)</td></tr>
+                <tr><td style="padding:8px"><span style="background:#c53030;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">Mise en demeure</span></td><td style="padding:8px">+ de 120 jours</td><td style="padding:8px">Procédure légale formelle (huissier / contentieux)</td></tr>
+            </tbody>
+        </table>
+        <p style="font-size:12px;color:#666;margin-top:10px;line-height:1.5">
+            <strong>💡 Pour enregistrer une relance :</strong> rendez-vous sur la page <a href="/comptabilite/creances/relances" style="color:#1A7A6D;font-weight:700">🔔 Relances</a>, cliquez sur le bouton "📞 Relancer" en face d'une créance, choisissez le canal (email/téléphone/courrier/visite/huissier) et ajoutez des notes.
+        </p>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px;border-left:4px solid #2e7d32">
+    <div class="card-header"><h3 style="margin:0;color:#2e7d32;font-size:14px">💵 Enregistrement d'un paiement</h3></div>
+    <div class="card-body">
+        <p style="font-size:13px;line-height:1.6">Pour enregistrer un paiement reçu :</p>
+        <ol style="font-size:13px;line-height:1.8;margin:8px 0 0 18px">
+            <li>Allez sur <strong>📋 Suivi Créances</strong></li>
+            <li>Cliquez sur l'icône ✏️ en bout de ligne de la créance concernée</li>
+            <li>Saisissez le <strong>Montant payé (cumulé)</strong> — pas le montant du versement seul</li>
+            <li>Choisissez le nouveau <strong>Statut</strong> :
+                <ul style="margin:4px 0;font-size:12px">
+                    <li>Si entièrement payée → <em>Soldé</em></li>
+                    <li>Si paiement partiel → <em>Payé partiellement</em></li>
+                </ul>
+            </li>
+            <li>Ajoutez un commentaire si nécessaire</li>
+        </ol>
+        <p style="background:#fff3cd;border-left:4px solid #e8672a;padding:10px;border-radius:6px;font-size:12px;color:#856404;margin-top:10px">
+            ⚠️ <strong>Important :</strong> le solde dû et le statut sont recalculés automatiquement par le système. La date d'échéance et les jours de retard évoluent dynamiquement.
+        </p>
+    </div>
+</div>
+
+<div class="card" style="border-left:4px solid #888">
+    <div class="card-header"><h3 style="margin:0;color:#555;font-size:14px">📤 Export et reporting</h3></div>
+    <div class="card-body">
+        <p style="font-size:13px;line-height:1.6">
+            Toutes les pages disposent d'un bouton <strong>📄 Export PDF</strong> qui génère un document professionnel en format A4 paysage avec :
+        </p>
+        <ul style="font-size:13px;line-height:1.6;margin:8px 0 0 18px">
+            <li>En-tête RAMYA TECHNOLOGIE & INNOVATION</li>
+            <li>Date d'édition automatique</li>
+            <li>Tableau complet des créances actives avec totaux</li>
+            <li>Statuts visibles en clair</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}{% block title %}WannyGest - Inventaires{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📦 Inventaires</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Stock actuel calculé automatiquement (Stock initial + Total entrées − Total sorties)
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/mg/stock" class="btn btn-outline btn-sm">📊 Opérations</a>
+        <a href="/mg/stock/marchandise" class="btn btn-outline btn-sm">📋 Marchandise</a>
+        <a href="/mg/stock/entrees" class="btn btn-outline btn-sm">📥 Entrées</a>
+        <a href="/mg/stock/sorties" class="btn btn-outline btn-sm">📤 Sorties</a>
+        <a href="/mg/stock/export-pdf" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff">📄 Export PDF</a>
+    </div>
+</div>
+
+<!-- KPI Totaux -->
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card"><div class="stat-icon" style="background:#1A7A6D;color:#fff">📦</div><div class="stat-info">
+        <div class="stat-num">{{ articles|length }}</div><div class="stat-label">Articles</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#2e7d32;color:#fff">📥</div><div class="stat-info">
+        <div class="stat-num">+{{ totaux.total_entrees }}</div><div class="stat-label">Total entrées</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#c53030;color:#fff">📤</div><div class="stat-info">
+        <div class="stat-num">−{{ totaux.total_sorties }}</div><div class="stat-label">Total sorties</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#e8672a;color:#fff">💰</div><div class="stat-info">
+        <div class="stat-num">{{ '{:,.0f}'.format(totaux.total_valeur_actuelle).replace(',', ' ') }}</div><div class="stat-label">Valeur stock (FCFA)</div></div></div>
+</div>
+
+<!-- Filtre -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:10px">
+    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select name="cat" onchange="this.form.submit()" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Toutes catégories</option>
+            {% for c in categories %}<option value="{{ c }}" {% if c == cat_filter %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select>
+        {% if cat_filter %}<a href="/mg/stock/inventaires" class="btn btn-outline btn-sm">↻ Réinitialiser</a>{% endif %}
+        <span style="margin-left:auto;font-size:12px;color:#888">{{ articles|length }} article(s) affiché(s)</span>
+    </form>
+</div></div>
+
+<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#0d47a1">
+    💡 Tableau de calcul inspiré de la feuille Excel <strong>"Inventaires"</strong>. Le stock actuel et la valeur sont recalculés à chaque affichage selon les entrées et sorties enregistrées.
+</div>
+
+<div class="card">
+    <div class="card-body" style="padding:0;overflow-x:auto">
+        <table style="width:100%;font-size:11px;min-width:1300px;border-collapse:collapse">
+            <thead style="background:#1A7A6D;color:#fff">
+                <tr>
+                    <th style="padding:10px;text-align:left;min-width:80px">Réf.</th>
+                    <th style="padding:10px;text-align:left;min-width:180px">Désignation</th>
+                    <th style="padding:10px;text-align:left;min-width:110px">Catégorie</th>
+                    <th style="padding:10px;text-align:center">Unité</th>
+                    <th style="padding:10px;text-align:right" title="Seuil d'alerte">Seuil</th>
+                    <th style="padding:10px;text-align:right" title="Stock initial">Stock init.</th>
+                    <th style="padding:10px;text-align:right">P.U. (FCFA)</th>
+                    <th style="padding:10px;text-align:right" title="Valeur initiale">Total initial</th>
+                    <th style="padding:10px;text-align:right;background:#2e7d32" title="Total entrées">Total entrées</th>
+                    <th style="padding:10px;text-align:right;background:#c53030" title="Total sorties">Total sorties</th>
+                    <th style="padding:10px;text-align:right;background:#0f5a51" title="Stock initial + entrées - sorties">Stock actuel</th>
+                    <th style="padding:10px;text-align:right;background:#0f5a51">Valeur actuelle</th>
+                    <th style="padding:10px;text-align:center">Alerte</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for a in articles %}
+            <tr style="border-bottom:1px solid #eee;{% if a.alerte == 'EPUISE' %}background:#ffebee{% elif a.alerte == 'FAIBLE' %}background:#fff3e0{% endif %}">
+                <td style="padding:7px 10px;font-family:monospace;font-weight:600">{{ a.reference }}</td>
+                <td style="padding:7px 10px"><strong>{{ a.designation }}</strong></td>
+                <td style="padding:7px 10px;font-size:10px;color:#666">{{ a.categorie or '-' }}</td>
+                <td style="text-align:center;padding:7px 10px;font-size:10px">{{ a.unite or 'UNITE' }}</td>
+                <td style="text-align:right;padding:7px 10px">{{ a.seuil_alerte or '-' }}</td>
+                <td style="text-align:right;padding:7px 10px;color:#888">{{ a.stock_initial or 0 }}</td>
+                <td style="text-align:right;padding:7px 10px">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 10px;color:#888">{{ '{:,.0f}'.format(a.total_initial_value).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 10px;color:#2e7d32;font-weight:700">+{{ a.total_entrees }}</td>
+                <td style="text-align:right;padding:7px 10px;color:#c53030;font-weight:700">−{{ a.total_sorties }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:800;font-size:14px;color:{{ a.alerte_color }}">{{ a.stock_actuel }}</td>
+                <td style="text-align:right;padding:7px 10px;font-weight:700">{{ '{:,.0f}'.format(a.valeur_actuelle).replace(',', ' ') }}</td>
+                <td style="text-align:center;padding:7px 10px">
+                    <span style="background:{{ a.alerte_color }};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">{{ a.alerte_label }}</span>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="13" style="padding:30px;text-align:center;color:#888">Aucun article au catalogue. <a href="/mg/stock/marchandise" style="color:#1A7A6D">Ajouter dans Marchandise</a></td></tr>
+            {% endfor %}
+            </tbody>
+            {% if articles %}
+            <tfoot style="background:#0f5a51;color:#fff;font-weight:700">
+                <tr>
+                    <td colspan="5" style="padding:12px;text-align:right">TOTAUX</td>
+                    <td style="text-align:right;padding:12px">{{ totaux.total_initial }}</td>
+                    <td></td>
+                    <td style="text-align:right;padding:12px">{{ '{:,.0f}'.format(totaux.total_initial_value).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:12px;background:#2e7d32">+{{ totaux.total_entrees }}</td>
+                    <td style="text-align:right;padding:12px;background:#c53030">−{{ totaux.total_sorties }}</td>
+                    <td style="text-align:right;padding:12px;font-size:14px">{{ totaux.total_actuel }}</td>
+                    <td style="text-align:right;padding:12px;font-size:13px">{{ '{:,.0f}'.format(totaux.total_valeur_actuelle).replace(',', ' ') }}</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+{% endblock %}

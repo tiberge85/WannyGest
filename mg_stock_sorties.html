@@ -3,8 +3,11 @@
     <div><h1>📤 Sorties de Stock</h1>
         <p style="color:#666;font-size:12px;margin:4px 0 0">Enregistrement des sorties matériel vers techniciens/projets</p>
     </div>
-    <div style="display:flex;gap:6px">
-        <a href="/mg/stock" class="btn btn-outline btn-sm">← Inventaire</a>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/mg/stock" class="btn btn-outline btn-sm">📊 Opérations</a>
+        <a href="/mg/stock/marchandise" class="btn btn-outline btn-sm">📋 Marchandise</a>
+        <a href="/mg/stock/entrees" class="btn btn-outline btn-sm">📥 Entrées</a>
+        <a href="/mg/stock/inventaires" class="btn btn-outline btn-sm">📦 Inventaires</a>
         <button onclick="document.getElementById('addSor').classList.add('active')" class="btn btn-primary btn-sm">+ Nouvelle sortie</button>
     </div>
 </div>

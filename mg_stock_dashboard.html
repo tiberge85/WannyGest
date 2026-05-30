@@ -1,16 +1,51 @@
-{% extends "base.html" %}{% block title %}WannyGest - Inventaire Stock{% endblock %}{% block content %}
+{% extends "base.html" %}{% block title %}WannyGest - Opérations Stock{% endblock %}{% block content %}
 <div class="page-header" style="flex-wrap:wrap;gap:10px">
     <div>
-        <h1>📦 Gestion de Stock — Inventaire</h1>
+        <h1>📊 Gestion de Stock — Opérations</h1>
         <p style="color:#666;font-size:12px;margin:4px 0 0">
-            Vue d'ensemble des articles avec alertes seuil/épuisé
+            Vue d'ensemble synthétique des opérations de stock avec alertes
         </p>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <a href="/mg/stock/catalogue" class="btn btn-sm" style="background:#1A7A6D;color:#fff">📋 Catalogue articles</a>
+        <a href="/mg/stock/marchandise" class="btn btn-sm" style="background:#1A7A6D;color:#fff">📋 Marchandise</a>
         <a href="/mg/stock/entrees" class="btn btn-sm" style="background:#2e7d32;color:#fff">📥 Entrées</a>
         <a href="/mg/stock/sorties" class="btn btn-sm" style="background:#e8672a;color:#fff">📤 Sorties</a>
+        <a href="/mg/stock/inventaires" class="btn btn-sm" style="background:#0f5a51;color:#fff">📦 Inventaires</a>
         <a href="/mg/stock/export-pdf" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff">📄 Export PDF</a>
+    </div>
+</div>
+
+<!-- Section mouvements récents -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:14px">
+    <div class="card" style="border-left:4px solid #2e7d32">
+        <div class="card-header"><h3 style="margin:0;color:#2e7d32;font-size:13px">📥 5 dernières entrées</h3></div>
+        <div class="card-body" style="padding:0">
+            <table style="width:100%;font-size:11px">
+            {% for e in recent_entries %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:6px 8px;font-family:monospace">{{ e.reference or '-' }}</td>
+                <td style="padding:6px 8px">{{ e.designation or '-' }}</td>
+                <td style="text-align:right;padding:6px 8px;color:#2e7d32;font-weight:700">+{{ e.quantite }}</td>
+                <td style="padding:6px 8px;font-size:10px;color:#888">{{ e.date_entree[:10] if e.date_entree else '-' }}</td>
+            </tr>
+            {% else %}<tr><td colspan="4" style="padding:14px;text-align:center;color:#888;font-size:11px">Aucune entrée enregistrée</td></tr>{% endfor %}
+            </table>
+        </div>
+    </div>
+    <div class="card" style="border-left:4px solid #c53030">
+        <div class="card-header"><h3 style="margin:0;color:#c53030;font-size:13px">📤 5 dernières sorties</h3></div>
+        <div class="card-body" style="padding:0">
+            <table style="width:100%;font-size:11px">
+            {% for s in recent_exits %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:6px 8px;font-family:monospace">{{ s.reference or '-' }}</td>
+                <td style="padding:6px 8px">{{ s.designation or '-' }}</td>
+                <td style="text-align:right;padding:6px 8px;color:#c53030;font-weight:700">−{{ s.quantite }}</td>
+                <td style="padding:6px 8px;font-size:10px;color:#888">{{ s.date_sortie[:10] if s.date_sortie else '-' }}</td>
+            </tr>
+            {% else %}<tr><td colspan="4" style="padding:14px;text-align:center;color:#888;font-size:11px">Aucune sortie enregistrée</td></tr>{% endfor %}
+            </table>
+        </div>
     </div>
 </div>
 
