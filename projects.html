@@ -1,0 +1,109 @@
+{% extends "base.html" %}{% block title %}WannyGest - Projets{% endblock %}{% block content %}
+<div class="page-header"><h1>🗂️ Suivi des projets</h1>
+<a href="/projects/create" class="btn btn-primary btn-sm">+ Nouveau projet</a></div>
+
+<!-- Statistiques -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+    <a href="/projects" style="text-decoration:none"><div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #1A7A6D;box-shadow:0 1px 3px rgba(0,0,0,0.08);cursor:pointer">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">Total projets</div>
+        <div style="font-size:24px;font-weight:700;color:#1A7A6D">{{ stats.total }}</div>
+    </div></a>
+    <a href="/projects?status=actifs" style="text-decoration:none"><div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #1976d2;box-shadow:0 1px 3px rgba(0,0,0,0.08);cursor:pointer">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">🔵 Actifs</div>
+        <div style="font-size:24px;font-weight:700;color:#1976d2">{{ stats.actifs }}</div>
+    </div></a>
+    <a href="/projects?status=execution" style="text-decoration:none"><div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #e8672a;box-shadow:0 1px 3px rgba(0,0,0,0.08);cursor:pointer">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">🔧 En exécution</div>
+        <div style="font-size:24px;font-weight:700;color:#e8672a">{{ stats.execution }}</div>
+    </div></a>
+    <a href="/projects?status=travaux_fin" style="text-decoration:none"><div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #7b1fa2;box-shadow:0 1px 3px rgba(0,0,0,0.08);cursor:pointer">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">🔍 Contrôle qualité</div>
+        <div style="font-size:24px;font-weight:700;color:#7b1fa2">{{ stats.qc_attente }}</div>
+    </div></a>
+    <a href="/projects?status=livre" style="text-decoration:none"><div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #f29f2f;box-shadow:0 1px 3px rgba(0,0,0,0.08);cursor:pointer">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">💰 Solde attendu</div>
+        <div style="font-size:24px;font-weight:700;color:#f29f2f">{{ stats.solde_attente }}</div>
+    </div></a>
+    <a href="/projects?status=cloture" style="text-decoration:none"><div style="background:#fff;border-radius:10px;padding:14px;border-left:4px solid #2e7d32;box-shadow:0 1px 3px rgba(0,0,0,0.08);cursor:pointer">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;font-weight:600">🏆 Clôturés</div>
+        <div style="font-size:24px;font-weight:700;color:#2e7d32">{{ stats.cloture }}</div>
+    </div></a>
+</div>
+
+<!-- Filtres -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:13px;font-weight:600;color:#555">Filtre :</span>
+        <a href="/projects" class="btn btn-sm {% if not status_filter %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous</a>
+        <a href="/projects?status=actifs" class="btn btn-sm {% if status_filter=='actifs' %}btn-primary{% else %}btn-outline{% endif %}">🔵 Actifs (non clôturés)</a>
+        <a href="/projects?status=valide" class="btn btn-sm {% if status_filter=='valide' %}btn-primary{% else %}btn-outline{% endif %}">✅ Validés</a>
+        <a href="/projects?status=preparation" class="btn btn-sm {% if status_filter=='preparation' %}btn-primary{% else %}btn-outline{% endif %}">📦 Préparation</a>
+        <a href="/projects?status=planifie" class="btn btn-sm {% if status_filter=='planifie' %}btn-primary{% else %}btn-outline{% endif %}">📅 Planifiés</a>
+        <a href="/projects?status=execution" class="btn btn-sm {% if status_filter=='execution' %}btn-primary{% else %}btn-outline{% endif %}">🔧 En cours</a>
+        <a href="/projects?status=livre" class="btn btn-sm {% if status_filter=='livre' %}btn-primary{% else %}btn-outline{% endif %}">🚚 Livrés</a>
+        <a href="/projects?status=cloture" class="btn btn-sm {% if status_filter=='cloture' %}btn-primary{% else %}btn-outline{% endif %}">🏆 Clôturés</a>
+    </div>
+</div></div>
+
+<!-- Liste projets -->
+<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin:0">Projets ({{ projects|length }})</h3>
+    <input type="text" id="searchP" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchP','prjTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px">
+</div>
+<div class="card-body" style="padding:0">
+{% if projects %}
+<div class="table-wrap"><table id="prjTable">
+    <thead><tr>
+        <th>Référence</th><th>Titre</th><th>Client</th><th style="width:280px">Étape</th>
+        <th>Progression</th><th>Montant</th><th>Coordinateur</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+    {% for p in projects %}
+    <tr>
+        <td><strong style="color:#1A7A6D;font-family:monospace">{{ p.reference }}</strong>
+            {% if p.devis_reference %}<br><span style="font-size:10px;color:#888">📄 {{ p.devis_reference }}</span>{% endif %}
+        </td>
+        <td><strong>{{ p.title }}</strong></td>
+        <td>{{ p.client_name or '-' }}</td>
+        <td>
+            <span style="font-size:11px;background:#f8faf9;padding:3px 8px;border-radius:10px;font-weight:600;color:#1A7A6D">
+                {{ p.step_icon }} {{ p.step_label }}
+            </span>
+        </td>
+        <td>
+            <div style="background:#eaf3f0;height:8px;border-radius:4px;overflow:hidden;width:100px">
+                <div style="background:linear-gradient(90deg,#1A7A6D,#2e7d32);height:100%;width:{{ p.step_pct }}%"></div>
+            </div>
+            <span style="font-size:10px;color:#666">{{ p.step_pct }}%</span>
+        </td>
+        <td style="white-space:nowrap;font-size:11px"><strong>{{ '{:,.0f}'.format(p.total_amount or 0) }}</strong> F</td>
+        <td style="font-size:11px">{{ p.coordinator_name or '-' }}</td>
+        <td>
+            <a href="/projects/{{ p.id }}" class="btn btn-outline btn-sm">👁️ Détail</a>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}
+<div style="text-align:center;color:#999;padding:40px">
+    <div style="font-size:40px;margin-bottom:10px">🗂️</div>
+    Aucun projet enregistré.<br>
+    <a href="/projects/create" class="btn btn-primary btn-sm" style="margin-top:12px">+ Créer le premier projet</a>
+</div>
+{% endif %}
+</div></div>
+
+<!-- Légende des 10 étapes -->
+<div class="card" style="margin-top:16px"><div class="card-body">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">📊 Workflow des projets — 10 étapes</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px">
+    {% for s in steps %}
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#f8faf9;border-radius:6px">
+            <span style="background:#1A7A6D;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">{{ s.num }}</span>
+            <span style="font-size:11px">{{ s.icon }} {{ s.label }}</span>
+        </div>
+    {% endfor %}
+    </div>
+</div></div>
+{% endblock %}

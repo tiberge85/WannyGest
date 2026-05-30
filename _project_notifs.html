@@ -1,0 +1,27 @@
+{# v84 : Bloc notifications projet sur les dashboards #}
+{% if project_notifs and project_notifs|length > 0 %}
+<div style="background:linear-gradient(135deg,#e3f2fd,#bbdefb);border-left:5px solid #1976d2;border-radius:12px;padding:16px;margin-bottom:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <strong style="color:#1565c0;font-size:14px">🔔 {{ project_notifs|length }} notification(s) projet</strong>
+        <a href="/projects/notifications/mark-all-read" style="font-size:11px;color:#1976d2;text-decoration:none">Tout marquer comme lu</a>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto">
+    {% for n in project_notifs[:8] %}
+        <a href="/projects/notifications/mark-read/{{ n.id }}" style="display:flex;align-items:center;gap:10px;font-size:12px;background:#fff;padding:8px 10px;border-radius:6px;text-decoration:none;color:#333;border:1px solid #d6e8f5">
+            <span style="font-size:16px">🔔</span>
+            <div style="flex:1;min-width:0">
+                <strong style="color:#1a3a5c;display:block">{{ n.title }}</strong>
+                <span style="color:#666;font-size:11px">{{ n.message }}</span>
+                {% if n.project_ref %}<span style="background:#eaf3f0;color:#1A7A6D;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px">{{ n.project_ref }}</span>{% endif %}
+            </div>
+            <span style="font-size:10px;color:#888;white-space:nowrap">{{ n.created_at[:16] if n.created_at else '' }}</span>
+        </a>
+    {% endfor %}
+    </div>
+    {% if project_notifs|length > 8 %}
+    <div style="margin-top:8px;text-align:center">
+        <a href="/projects" style="font-size:11px;color:#1976d2">Voir tous ({{ project_notifs|length }}) →</a>
+    </div>
+    {% endif %}
+</div>
+{% endif %}

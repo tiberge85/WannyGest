@@ -383,6 +383,8 @@ from models import migrate_v73
 migrate_v73()
 from models import migrate_v74
 migrate_v74()
+from models import migrate_v75
+migrate_v75()
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -627,6 +629,34 @@ def recharge_access_required(f):
         return redirect(url_for('dashboard'))
     return decorated
 
+
+def project_access_required(f):
+    """v84 : Accès au module projets.
+    Autorisé pour : admin, dg, directeur, coordinateur, commercial, comptable,
+    technicien, magasinier (= moyens généraux), informaticien."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        user = get_user_by_id(session['user_id'])
+        if not user:
+            flash("Accès non autorisé", "error")
+            return redirect(url_for('dashboard'))
+        role = user['role']
+        allowed = ('admin', 'dg', 'directeur', 'coordinateur', 'commercial',
+                   'comptable', 'comptabilite', 'technicien', 'tech_chef',
+                   'magasinier', 'mg', 'informaticien', 'informatique',
+                   'rh', 'chef_chantier')
+        if role in allowed:
+            return f(*args, **kwargs)
+        perms = get_role_permissions(role)
+        if any(p in perms for p in ('clients', 'centre_technique', 'mg_view', 'comptabilite')):
+            return f(*args, **kwargs)
+        flash("Accès non autorisé", "error")
+        return redirect(url_for('dashboard'))
+    return decorated
+
+
 @app.context_processor
 def inject_globals():
     """Injecte les variables globales dans tous les templates."""
@@ -719,6 +749,21 @@ def inject_globals():
                 except: ctx['recharge_alerts'] = []
             else:
                 ctx['recharge_alerts'] = []
+            # v84 : compteur + liste notifications projet (selon rôle)
+            try:
+                _pn_conn = _gdb()
+                _pn_rows = _pn_conn.execute("""SELECT n.*, p.reference as project_ref, p.title as project_title
+                    FROM wf_project_notifications n
+                    LEFT JOIN wf_projects p ON n.project_id = p.id
+                    WHERE n.is_read=0 AND (n.target_role=? OR n.target_user_id=? OR ?='admin')
+                    ORDER BY n.created_at DESC LIMIT 30""",
+                    (user['role'], user['id'], user['role'])).fetchall()
+                _pn_conn.close()
+                ctx['project_notifs'] = [dict(r) for r in _pn_rows]
+                ctx['project_notifs_count'] = len(_pn_rows)
+            except:
+                ctx['project_notifs'] = []
+                ctx['project_notifs_count'] = 0
             if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
                     from models import get_db as _gdb
@@ -1466,8 +1511,8 @@ def dashboard_general():
     data['interventions_today'] = _safe_p("SELECT COUNT(*) FROM resp_projet_interventions WHERE date_planifiee=?", (today_str,)) if 'resp_projet_interventions' in tables else 0
     
     # ========== INFORMATIQUE ==========
-    data['projets'] = _safe("SELECT COUNT(*) FROM projects") if 'projects' in tables else 0
-    data['projets_actifs'] = _safe("SELECT COUNT(*) FROM projects WHERE status IN ('en_cours','planifie')") if 'projects' in tables else 0
+    data['projets'] = _safe("SELECT COUNT(*) FROM wf_projects") if 'projects' in tables else 0
+    data['projets_actifs'] = _safe("SELECT COUNT(*) FROM wf_projects WHERE status IN ('en_cours','planifie')") if 'projects' in tables else 0
     data['tickets'] = _safe("SELECT COUNT(*) FROM tickets") if 'tickets' in tables else 0
     data['tickets_ouverts'] = _safe("SELECT COUNT(*) FROM tickets WHERE status IN ('ouvert','en_cours')") if 'tickets' in tables else 0
     data['parc_count'] = _safe("SELECT COUNT(*) FROM it_assets") if 'it_assets' in tables else 0
@@ -2134,7 +2179,7 @@ def client_profile(cid):
     try: data['tickets'] = [dict(r) for r in conn.execute("SELECT * FROM tickets WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
     except: data['tickets'] = []
     # Projets
-    try: data['projets'] = [dict(r) for r in conn.execute("SELECT * FROM projects WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
+    try: data['projets'] = [dict(r) for r in conn.execute("SELECT * FROM wf_projects WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
     except: data['projets'] = []
     # Attachments
     try: data['attachments'] = [dict(r) for r in conn.execute("SELECT * FROM client_attachments WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
@@ -4930,6 +4975,18 @@ def devis_sign(did):
                     f"Devis {devis.get('reference','')} signé électroniquement", request.remote_addr)
     except: pass
     
+    # v84 : Tentative de création automatique du projet (déclenchée si un acompte existe déjà)
+    try:
+        conn2 = _gdb()
+        # Chercher une facture liée à ce devis avec un montant
+        inv = conn2.execute(
+            "SELECT id, amount FROM invoices WHERE notes LIKE ? OR notes LIKE ? ORDER BY id DESC LIMIT 1",
+            (f"%{devis.get('reference','')}%", f"%devis%{did}%")).fetchone()
+        conn2.close()
+        if inv:
+            _auto_create_project_if_needed(did, invoice_id=inv['id'], acompte_amount=inv['amount'])
+    except: pass
+    
     return jsonify({"ok": True, "signed_at": signed_at, "signed_by": signed_by})
 
 
@@ -7536,7 +7593,7 @@ def intervention_fiche(iid):
         inter['tech_info'] = dict(tech) if tech else {}
     # Project info
     if inter.get('project_id'):
-        proj = conn.execute("SELECT name FROM projects WHERE id=?", (inter['project_id'],)).fetchone()
+        proj = conn.execute("SELECT name FROM wf_projects WHERE id=?", (inter['project_id'],)).fetchone()
         inter['project_name'] = proj['name'] if proj else ''
     # Equipment
     equips = []
@@ -8933,7 +8990,7 @@ def interventions_list():
     conn = _gdb()
     interventions = [dict(r) for r in conn.execute(
         "SELECT * FROM interventions ORDER BY scheduled_date DESC, id DESC").fetchall()]
-    projects = [dict(r) for r in conn.execute("SELECT id, name FROM projects ORDER BY name").fetchall()]
+    projects = [dict(r) for r in conn.execute("SELECT id, name FROM wf_projects ORDER BY name").fetchall()]
     clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
     technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin') ORDER BY full_name").fetchall()]
     # Marquer les interventions comme "vues" pour réinitialiser le badge (persisté BDD)
@@ -9697,7 +9754,7 @@ def gestion_livraisons():
 @permission_required('resp_projet')
 def resp_projet_dashboard():
     conn = _gdb()
-    projects = [dict(r) for r in conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()]
+    projects = [dict(r) for r in conn.execute("SELECT * FROM wf_projects ORDER BY created_at DESC").fetchall()]
     tasks = [dict(r) for r in conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()]
     
     # KPIs
@@ -9716,7 +9773,7 @@ def resp_projet_dashboard():
     
     # Recent tasks
     recent = [dict(r) for r in conn.execute("""SELECT t.*, p.name as project_name, u.full_name as assignee 
-        FROM tasks t LEFT JOIN projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
+        FROM tasks t LEFT JOIN wf_projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
         ORDER BY t.created_at DESC LIMIT 10""").fetchall()]
     
     # Deadlines this week
@@ -9724,7 +9781,7 @@ def resp_projet_dashboard():
     today = datetime.now().date()
     week_end = (today + timedelta(days=6)).strftime('%Y-%m-%d')
     deadlines = [dict(r) for r in conn.execute("""SELECT t.*, p.name as project_name 
-        FROM tasks t LEFT JOIN projects p ON t.project_id=p.id 
+        FROM tasks t LEFT JOIN wf_projects p ON t.project_id=p.id 
         WHERE t.due_date <= ? AND t.status != 'termine' ORDER BY t.due_date""",
         (week_end,)).fetchall()]
     
@@ -9777,7 +9834,7 @@ def resp_projet_list():
     projects = [dict(r) for r in conn.execute("""SELECT p.*, u.full_name as manager_name,
         (SELECT COUNT(*) FROM tasks WHERE project_id=p.id) as task_count,
         (SELECT COUNT(*) FROM tasks WHERE project_id=p.id AND status='termine') as task_done
-        FROM projects p LEFT JOIN users u ON p.manager_id=u.id ORDER BY p.created_at DESC""").fetchall()]
+        FROM wf_projects p LEFT JOIN users u ON p.manager_id=u.id ORDER BY p.created_at DESC""").fetchall()]
     users = get_all_users()
     clients = get_all_clients()
     conn.close()
@@ -9867,9 +9924,9 @@ def resp_projet_planning():
     next_m = month + 1; next_y = year
     if next_m > 12: next_m = 1; next_y += 1
     
-    projects = [dict(r) for r in conn.execute("SELECT * FROM projects WHERE start_date IS NOT NULL AND start_date != '' ORDER BY start_date").fetchall()]
+    projects = [dict(r) for r in conn.execute("SELECT * FROM wf_projects WHERE start_date IS NOT NULL AND start_date != '' ORDER BY start_date").fetchall()]
     tasks = [dict(r) for r in conn.execute("""SELECT t.*, p.name as project_name, u.full_name as assigned_name 
-        FROM tasks t LEFT JOIN projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
+        FROM tasks t LEFT JOIN wf_projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
         WHERE t.due_date IS NOT NULL AND t.due_date != '' ORDER BY t.due_date""").fetchall()]
     conn.close()
     
@@ -10742,6 +10799,295 @@ def _compute_next_due(base_date_str, period_type, period_days, period_monthly_da
     return next_d.strftime('%Y-%m-%d')
 
 
+# ==================== v84 : MODULE SUIVI CYCLE DE VIE PROJETS ====================
+
+# Définition des 10 étapes du workflow
+PROJECT_STEPS = [
+    {'num': 1,  'key': 'valide',         'label': 'Projet validé',          'pct': 10,  'icon': '✅', 'service': 'commercial'},
+    {'num': 2,  'key': 'preparation',    'label': 'Préparation en cours',   'pct': 20,  'icon': '📦', 'service': 'mg'},
+    {'num': 3,  'key': 'planifie',       'label': 'Planifié',               'pct': 35,  'icon': '📅', 'service': 'coordination'},
+    {'num': 4,  'key': 'execution',      'label': 'Travaux en cours',       'pct': 50,  'icon': '🔧', 'service': 'technique'},
+    {'num': 5,  'key': 'travaux_fin',    'label': 'Travaux terminés',       'pct': 65,  'icon': '🏁', 'service': 'technique'},
+    {'num': 6,  'key': 'qc_valide',      'label': 'Contrôle qualité validé','pct': 75,  'icon': '🔍', 'service': 'coordination'},
+    {'num': 7,  'key': 'livre',          'label': 'Livré au client',        'pct': 85,  'icon': '🚚', 'service': 'coordination'},
+    {'num': 8,  'key': 'solde',          'label': 'Soldé',                  'pct': 92,  'icon': '💰', 'service': 'comptabilite'},
+    {'num': 9,  'key': 'contrat_traite', 'label': 'Contrat entretien traité','pct': 96, 'icon': '📋', 'service': 'commercial'},
+    {'num': 10, 'key': 'cloture',        'label': 'Projet clôturé',         'pct': 100, 'icon': '🏆', 'service': 'coordination'},
+]
+
+# Mapping statut → infos étape
+PROJECT_STATUS_INFO = {s['key']: s for s in PROJECT_STEPS}
+# Statuts spéciaux (non séquentiels)
+PROJECT_STATUS_INFO['qc_rejete'] = {'num': 6, 'key': 'qc_rejete', 'label': 'Contrôle qualité rejeté', 'pct': 50, 'icon': '❌', 'service': 'coordination'}
+PROJECT_STATUS_INFO['attente_solde'] = {'num': 8, 'key': 'attente_solde', 'label': 'En attente de solde', 'pct': 88, 'icon': '⏳', 'service': 'comptabilite'}
+PROJECT_STATUS_INFO['contrat_oui'] = {'num': 9, 'key': 'contrat_oui', 'label': 'Contrat accepté', 'pct': 96, 'icon': '✅', 'service': 'commercial'}
+PROJECT_STATUS_INFO['contrat_non'] = {'num': 9, 'key': 'contrat_non', 'label': 'Contrat refusé', 'pct': 96, 'icon': '🚫', 'service': 'commercial'}
+
+
+def _project_log(project_id, event_type, from_status=None, to_status=None, comment=''):
+    """Trace une action dans l'historique d'un projet."""
+    try:
+        u = get_user_by_id(session.get('user_id')) if 'user_id' in session else None
+        actor_id = u['id'] if u else None
+        actor_name = u['full_name'] if u else 'Système'
+    except:
+        actor_id, actor_name = None, 'Système'
+    conn = _gdb()
+    conn.execute("""INSERT INTO wf_project_history
+        (project_id, event_type, from_status, to_status, actor_id, actor_name, comment)
+        VALUES (?,?,?,?,?,?,?)""",
+        (project_id, event_type, from_status, to_status, actor_id, actor_name, comment))
+    conn.commit(); conn.close()
+
+
+def _project_notify(project_id, target_roles, title, message, link=None, target_user_id=None):
+    """Crée une notification ciblée pour des rôles (ou un utilisateur).
+    
+    target_roles : liste ['comptabilite', 'rh'] OU None (si target_user_id fourni)
+    Crée aussi un message dans le chat interne (canal général).
+    """
+    conn = _gdb()
+    
+    # 1. Notifications par rôle (badge dashboard)
+    if target_roles:
+        for role in target_roles:
+            conn.execute("""INSERT INTO wf_project_notifications
+                (project_id, target_role, title, message, link)
+                VALUES (?,?,?,?,?)""",
+                (project_id, role, title, message, link))
+    if target_user_id:
+        conn.execute("""INSERT INTO wf_project_notifications
+            (project_id, target_user_id, title, message, link)
+            VALUES (?,?,?,?,?)""",
+            (project_id, target_user_id, title, message, link))
+    
+    # 2. Message dans le chat interne (canal général)
+    try:
+        admin_user = conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
+        if admin_user:
+            chat_msg = f"🔔 [Projet #{project_id}] {title} — {message}"
+            if link:
+                chat_msg += f" — Voir : {link}"
+            conn.execute("""INSERT INTO messages (sender_id, channel, content)
+                VALUES (?, 'general', ?)""", (admin_user['id'], chat_msg))
+    except Exception as _e:
+        pass
+    
+    conn.commit(); conn.close()
+    
+    # 3. Email (best-effort, non bloquant)
+    try:
+        if target_roles:
+            _conn2 = _gdb()
+            users_to_email = []
+            for role in target_roles:
+                rows = _conn2.execute(
+                    "SELECT email, full_name FROM users WHERE role=? AND email IS NOT NULL AND email != ''",
+                    (role,)).fetchall()
+                users_to_email.extend([dict(r) for r in rows])
+            _conn2.close()
+            # Si module mail dispo, envoyer
+            if users_to_email:
+                try:
+                    _send_project_email(users_to_email, title, message, link)
+                except: pass
+    except: pass
+
+
+def _send_project_email(users, title, message, link=None):
+    """Envoie un email aux utilisateurs (best-effort).
+    Utilise la fonction d'envoi mail existante si dispo, sinon ne fait rien."""
+    try:
+        # Si app.py a déjà un helper send_mail / send_email, l'utiliser
+        for u in users:
+            email = u.get('email')
+            if not email: continue
+            body = f"Bonjour {u.get('full_name','')},\n\n{message}\n"
+            if link:
+                body += f"\nLien : {link}\n"
+            body += "\n--\nWannyGest — RAMYA Technologie"
+            # Tentative via fonction globale send_email_html ou send_mail
+            for fn_name in ('send_email_html', 'send_mail', '_send_email'):
+                fn = globals().get(fn_name)
+                if fn:
+                    try:
+                        fn(email, f"[WannyGest] {title}", body)
+                        break
+                    except: pass
+    except: pass
+
+
+def get_project_notifications_for_user(user):
+    """Retourne les notifications projet non lues pour un utilisateur (selon son rôle)."""
+    if not user: return []
+    role = user.get('role', '')
+    uid = user.get('id')
+    conn = _gdb()
+    try:
+        rows = conn.execute("""SELECT n.*, p.reference as project_ref, p.title as project_title
+            FROM wf_project_notifications n
+            LEFT JOIN wf_projects p ON n.project_id = p.id
+            WHERE n.is_read = 0 AND (n.target_role = ? OR n.target_user_id = ? OR ? = 'admin')
+            ORDER BY n.created_at DESC LIMIT 50""",
+            (role, uid, role)).fetchall()
+    except:
+        rows = []
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _gen_project_reference():
+    """Génère une référence projet PRJ-YYYYMM-XXX."""
+    from datetime import datetime as _dt
+    import secrets as _s
+    prefix = f"PRJ-{_dt.now().strftime('%Y%m')}"
+    return f"{prefix}-{_s.token_hex(2).upper()}"
+
+
+def _auto_create_project_if_needed(devis_id, invoice_id=None, acompte_amount=0):
+    """Crée automatiquement un projet quand un devis est signé ET un acompte enregistré.
+    Appelé depuis les routes de signature devis / paiement facture.
+    Retourne le projet créé (ou None si conditions pas remplies / projet déjà existant)."""
+    conn = _gdb()
+    
+    # Vérifier qu'aucun projet n'existe déjà pour ce devis
+    existing = conn.execute("SELECT id FROM wf_projects WHERE devis_id=?", (devis_id,)).fetchone()
+    if existing:
+        conn.close()
+        return None
+    
+    # Récupérer le devis
+    devis = conn.execute("SELECT * FROM devis WHERE id=?", (devis_id,)).fetchone()
+    if not devis:
+        conn.close()
+        return None
+    devis = dict(devis)
+    
+    # Le devis doit être signé/validé (status 'signe', 'valide' ou avoir signature_data)
+    is_signed = (devis.get('status') in ('signe', 'valide', 'envoye') 
+                 or devis.get('signature_data'))
+    if not is_signed:
+        conn.close()
+        return None
+    
+    # Créer le projet
+    ref = _gen_project_reference()
+    total = devis.get('total_ttc') or devis.get('total_ht') or 0
+    title = devis.get('objet') or f"Projet {devis.get('reference','')}"
+    
+    cur = conn.execute("""INSERT INTO wf_projects
+        (reference, client_id, client_name, devis_id, devis_reference, invoice_id,
+         title, description, total_amount, acompte_amount, solde_amount,
+         status, current_step, progress_pct, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (ref, devis.get('client_id'), devis.get('client_name'), devis_id,
+         devis.get('reference'), invoice_id,
+         title, devis.get('notes', '') or '',
+         float(total), float(acompte_amount or 0), float(total) - float(acompte_amount or 0),
+         'valide', 1, 10, session.get('user_id') if 'user_id' in session else None))
+    pid = cur.lastrowid
+    conn.commit(); conn.close()
+    
+    _project_log(pid, 'creation', None, 'valide',
+        f"Projet créé automatiquement depuis devis {devis.get('reference')} (acompte {acompte_amount:,.0f} FCFA)")
+    _project_notify(pid, ['coordinateur', 'admin'],
+        f"Nouveau projet validé : {title}",
+        f"Le projet {ref} est validé (devis signé + acompte enregistré). À préparer.",
+        f"/projects/{pid}")
+    
+    return pid
+
+
+def _project_advance(project_id, to_status, comment=''):
+    """Fait avancer un projet d'une étape (avec validation).
+    Met à jour status, current_step, progress_pct + log + notifications."""
+    info = PROJECT_STATUS_INFO.get(to_status)
+    if not info: return False, "Étape inconnue"
+    
+    conn = _gdb()
+    row = conn.execute("SELECT status, title, reference FROM wf_projects WHERE id=?", (project_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "Projet introuvable"
+    from_status = row['status']
+    title = row['title']
+    ref = row['reference']
+    
+    # Mise à jour
+    extra_sql = ""
+    extra_params = []
+    if to_status == 'travaux_fin':
+        extra_sql = ", end_date_actual=?"
+        extra_params.append(datetime.now().strftime('%Y-%m-%d'))
+    elif to_status == 'qc_valide':
+        extra_sql = ", qc_validated_at=?, qc_validated_by=?"
+        extra_params.extend([datetime.now().strftime('%Y-%m-%d %H:%M'), session.get('user_id')])
+    elif to_status == 'qc_rejete':
+        extra_sql = ", qc_rejected_count = COALESCE(qc_rejected_count, 0) + 1"
+    elif to_status == 'livre':
+        extra_sql = ", delivery_date=?"
+        extra_params.append(datetime.now().strftime('%Y-%m-%d'))
+    elif to_status == 'cloture':
+        extra_sql = ", cloture_at=?, cloture_by=?"
+        extra_params.extend([datetime.now().strftime('%Y-%m-%d %H:%M'), session.get('user_id')])
+    
+    conn.execute(f"UPDATE wf_projects SET status=?, current_step=?, progress_pct=?{extra_sql} WHERE id=?",
+        [to_status, info['num'], info['pct']] + extra_params + [project_id])
+    conn.commit(); conn.close()
+    
+    _project_log(project_id, 'transition', from_status, to_status, comment)
+    
+    # Notifications selon nouveau statut
+    notif_map = {
+        'preparation':    (['mg', 'magasinier'],           "Préparation matériel demandée",     "Vérifier la disponibilité du matériel et réserver les ressources."),
+        'planifie':       (['technicien', 'coordinateur'], "Projet planifié",                   "Le projet est planifié, fiche de planification disponible."),
+        'execution':      (['technicien'],                 "Travaux à exécuter",                "Vous êtes affecté au projet — consultez le programme."),
+        'travaux_fin':    (['coordinateur'],               "Travaux terminés — Contrôle qualité","Procéder au contrôle qualité avant livraison."),
+        'qc_valide':      (['coordinateur', 'commercial'], "Contrôle qualité validé",           "Programmer la livraison au client."),
+        'qc_rejete':      (['technicien'],                 "Contrôle qualité rejeté",           "Reprendre les travaux selon les observations."),
+        'livre':          (['comptabilite'],               "Projet livré — Facturer le solde",  "Générer la facture de solde et suivre le paiement."),
+        'attente_solde':  (['comptabilite'],               "Solde en attente",                  "Relancer le client pour le paiement du solde."),
+        'solde':          (['commercial'],                 "Projet soldé — Proposer contrat",   "Proposer un contrat d'entretien au client."),
+        'contrat_oui':    (['coordinateur'],               "Contrat d'entretien accepté",       "Le client accepte le contrat d'entretien."),
+        'contrat_non':    (['coordinateur'],               "Contrat d'entretien refusé",        "Le client refuse le contrat d'entretien."),
+        'cloture':        (['admin', 'coordinateur'],      "Projet clôturé",                    "Le projet est officiellement clôturé."),
+    }
+    if to_status in notif_map:
+        roles, n_title, n_msg = notif_map[to_status]
+        _project_notify(project_id, roles,
+            f"{n_title} — {title}",
+            f"{n_msg} (Réf. {ref})",
+            f"/projects/{project_id}")
+    
+    return True, "OK"
+
+
+def get_project_by_id_full(pid):
+    """Récupère un projet avec ses relations (équipe, matériels, historique, rapports)."""
+    conn = _gdb()
+    p = conn.execute("SELECT * FROM wf_projects WHERE id=?", (pid,)).fetchone()
+    if not p:
+        conn.close()
+        return None
+    p = dict(p)
+    p['team'] = [dict(r) for r in conn.execute(
+        "SELECT pt.*, u.full_name, u.username FROM wf_project_team pt "
+        "LEFT JOIN users u ON pt.user_id = u.id WHERE pt.project_id=?", (pid,)).fetchall()]
+    p['materials'] = [dict(r) for r in conn.execute(
+        "SELECT * FROM wf_project_materials WHERE project_id=? ORDER BY id", (pid,)).fetchall()]
+    p['history'] = [dict(r) for r in conn.execute(
+        "SELECT * FROM wf_project_history WHERE project_id=? ORDER BY created_at DESC", (pid,)).fetchall()]
+    p['progress_reports'] = [dict(r) for r in conn.execute(
+        "SELECT * FROM wf_project_progress WHERE project_id=? ORDER BY created_at DESC", (pid,)).fetchall()]
+    p['coordinator'] = None
+    if p.get('coordinator_id'):
+        coord = conn.execute("SELECT id, full_name, username, email FROM users WHERE id=?",
+            (p['coordinator_id'],)).fetchone()
+        if coord: p['coordinator'] = dict(coord)
+    conn.close()
+    return p
+
+
 def get_recharge_alerts():
     """Retourne les recharges en alerte (échéance dans <= alert_days_before jours, ou en retard).
     Le rappel reste actif tant que la recharge n'est pas confirmée (status='actif')."""
@@ -11143,6 +11489,528 @@ def installations_export_pdf():
     fname = f"cartographie_{periode}_{_dt.now().strftime('%Y%m%d')}.pdf"
     return Response(buf.getvalue(), mimetype='application/pdf',
                    headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+
+# ==================== v84 : ROUTES MODULE PROJETS ====================
+
+@app.route('/projects')
+@project_access_required
+def projects_list():
+    """Liste/dashboard des projets — vue coordinateur."""
+    status_filter = request.args.get('status', '').strip()
+    conn = _gdb()
+    sql = """SELECT p.*, u.full_name as coordinator_name
+             FROM wf_projects p
+             LEFT JOIN users u ON p.coordinator_id = u.id"""
+    params = []
+    if status_filter == 'actifs':
+        sql += " WHERE p.status NOT IN ('cloture')"
+    elif status_filter:
+        sql += " WHERE p.status = ?"
+        params.append(status_filter)
+    sql += " ORDER BY p.created_at DESC"
+    projects = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    
+    # Stats
+    stats = {
+        'total': conn.execute("SELECT COUNT(*) FROM wf_projects").fetchone()[0],
+        'actifs': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status NOT IN ('cloture')").fetchone()[0],
+        'cloture': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='cloture'").fetchone()[0],
+        'execution': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='execution'").fetchone()[0],
+        'qc_attente': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='travaux_fin'").fetchone()[0],
+        'solde_attente': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status IN ('livre','attente_solde')").fetchone()[0],
+    }
+    conn.close()
+    
+    # Enrichir avec info étape
+    for p in projects:
+        info = PROJECT_STATUS_INFO.get(p['status'], {})
+        p['step_label'] = info.get('label', p['status'])
+        p['step_icon'] = info.get('icon', '📋')
+        p['step_pct'] = info.get('pct', p.get('progress_pct') or 0)
+    
+    return render_template('projects.html', page='projects',
+        projects=projects, stats=stats, status_filter=status_filter,
+        steps=PROJECT_STEPS)
+
+
+@app.route('/projects/create', methods=['GET', 'POST'])
+@project_access_required
+def projects_create():
+    """Création manuelle d'un projet (en plus de l'auto)."""
+    if request.method == 'POST':
+        title = request.form.get('title', '').strip()
+        if not title:
+            flash("Titre du projet requis", "error")
+            return redirect('/projects/create')
+        
+        conn = _gdb()
+        devis_id = request.form.get('devis_id') or None
+        devis_ref = ''
+        if devis_id:
+            d = conn.execute("SELECT reference, total_ttc FROM devis WHERE id=?", (devis_id,)).fetchone()
+            if d:
+                devis_ref = d['reference']
+        
+        client_id = request.form.get('client_id') or None
+        client_name = request.form.get('client_name', '').strip()
+        if client_id and not client_name:
+            row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+            if row: client_name = row['name']
+        
+        ref = _gen_project_reference()
+        total = float(request.form.get('total_amount', 0) or 0)
+        acompte = float(request.form.get('acompte_amount', 0) or 0)
+        coord_id = request.form.get('coordinator_id') or session.get('user_id')
+        
+        cur = conn.execute("""INSERT INTO wf_projects
+            (reference, client_id, client_name, devis_id, devis_reference,
+             title, description, total_amount, acompte_amount, solde_amount,
+             status, current_step, progress_pct, coordinator_id, created_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ref, client_id, client_name, devis_id, devis_ref,
+             title, request.form.get('description', ''),
+             total, acompte, total - acompte,
+             'valide', 1, 10, coord_id, session.get('user_id')))
+        pid = cur.lastrowid
+        conn.commit(); conn.close()
+        
+        _project_log(pid, 'creation_manuelle', None, 'valide',
+            f"Projet créé manuellement par {get_user_by_id(session['user_id'])['full_name']}")
+        _project_notify(pid, ['coordinateur', 'admin'],
+            f"Nouveau projet : {title}",
+            f"Projet {ref} créé manuellement. À préparer.",
+            f"/projects/{pid}")
+        
+        flash(f"✅ Projet {ref} créé", "success")
+        return redirect(f'/projects/{pid}')
+    
+    # GET : formulaire
+    conn = _gdb()
+    clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+    devis_list = [dict(r) for r in conn.execute(
+        "SELECT id, reference, client_name, total_ttc, status FROM devis "
+        "WHERE id NOT IN (SELECT devis_id FROM wf_projects WHERE devis_id IS NOT NULL) "
+        "ORDER BY created_at DESC LIMIT 100").fetchall()]
+    users_coord = [dict(r) for r in conn.execute(
+        "SELECT id, full_name, username FROM users WHERE role IN ('admin','coordinateur','dg','directeur') ORDER BY full_name").fetchall()]
+    conn.close()
+    return render_template('project_create.html', page='projects',
+        clients=clients, devis_list=devis_list, coordinators=users_coord)
+
+
+@app.route('/projects/<int:pid>')
+@project_access_required
+def project_detail(pid):
+    """Page détaillée d'un projet avec workflow visuel."""
+    p = get_project_by_id_full(pid)
+    if not p:
+        flash("Projet introuvable", "error")
+        return redirect('/projects')
+    
+    # Stats étape courante
+    info = PROJECT_STATUS_INFO.get(p['status'], {})
+    p['step_label'] = info.get('label', p['status'])
+    p['step_icon'] = info.get('icon', '📋')
+    
+    # Techniciens disponibles
+    conn = _gdb()
+    available_techs = [dict(r) for r in conn.execute(
+        "SELECT id, full_name, username, role FROM users "
+        "WHERE role IN ('technicien','tech_chef','chef_chantier') "
+        "AND COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
+    # MG équipements pour réservation
+    mg_equips = [dict(r) for r in conn.execute(
+        "SELECT id, nom, reference, stock_actuel, unite FROM mg_equipements "
+        "WHERE COALESCE(statut,'actif')='actif' ORDER BY nom LIMIT 200").fetchall()]
+    conn.close()
+    
+    return render_template('project_detail.html', page='projects',
+        project=p, steps=PROJECT_STEPS, status_info=PROJECT_STATUS_INFO,
+        available_techs=available_techs, mg_equips=mg_equips)
+
+
+@app.route('/projects/<int:pid>/advance', methods=['POST'])
+@project_access_required
+def project_advance(pid):
+    """Fait avancer un projet vers le statut suivant (avec validation)."""
+    to_status = request.form.get('to_status', '').strip()
+    comment = request.form.get('comment', '').strip()
+    
+    # Validations contextuelles
+    conn = _gdb()
+    p = conn.execute("SELECT status, current_step FROM wf_projects WHERE id=?", (pid,)).fetchone()
+    if not p:
+        conn.close()
+        flash("Projet introuvable", "error")
+        return redirect('/projects')
+    current = p['status']
+    
+    # Vérifier transitions autorisées
+    valid_transitions = {
+        'valide':       ['preparation'],
+        'preparation':  ['planifie'],
+        'planifie':     ['execution'],
+        'execution':    ['travaux_fin'],
+        'travaux_fin':  ['qc_valide', 'qc_rejete'],
+        'qc_rejete':    ['execution'],
+        'qc_valide':    ['livre'],
+        'livre':        ['attente_solde', 'solde'],
+        'attente_solde':['solde'],
+        'solde':        ['contrat_oui', 'contrat_non'],
+        'contrat_oui':  ['cloture'],
+        'contrat_non':  ['cloture'],
+    }
+    allowed_next = valid_transitions.get(current, [])
+    if to_status not in allowed_next:
+        conn.close()
+        flash(f"Transition non autorisée : {current} → {to_status}", "error")
+        return redirect(f'/projects/{pid}')
+    
+    # Validations spéciales par étape
+    if to_status == 'planifie':
+        # Vérifier que l'équipe + date début sont définis
+        team_count = conn.execute("SELECT COUNT(*) FROM wf_project_team WHERE project_id=?", (pid,)).fetchone()[0]
+        start_date = conn.execute("SELECT start_date FROM wf_projects WHERE id=?", (pid,)).fetchone()['start_date']
+        if team_count == 0 or not start_date:
+            conn.close()
+            flash("Impossible de planifier : au moins 1 technicien + date de début requis", "error")
+            return redirect(f'/projects/{pid}')
+    
+    conn.close()
+    
+    ok, msg = _project_advance(pid, to_status, comment)
+    if ok:
+        flash(f"✅ Projet avancé : {PROJECT_STATUS_INFO[to_status]['label']}", "success")
+    else:
+        flash(f"Erreur : {msg}", "error")
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/plan', methods=['POST'])
+@project_access_required
+def project_set_plan(pid):
+    """Enregistre la planification : date début, fin prévue, coordinateur."""
+    conn = _gdb()
+    conn.execute("""UPDATE wf_projects SET
+        start_date=?, end_date_planned=?, coordinator_id=COALESCE(?, coordinator_id)
+        WHERE id=?""",
+        (request.form.get('start_date', '').strip() or None,
+         request.form.get('end_date_planned', '').strip() or None,
+         request.form.get('coordinator_id') or None,
+         pid))
+    conn.commit(); conn.close()
+    _project_log(pid, 'planification', None, None,
+        f"Planning : {request.form.get('start_date','')} → {request.form.get('end_date_planned','')}")
+    flash("📅 Planning enregistré", "success")
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/team/add', methods=['POST'])
+@project_access_required
+def project_team_add(pid):
+    """Affecte un technicien au projet."""
+    user_id = request.form.get('user_id')
+    role = request.form.get('role', 'technicien').strip()
+    if not user_id:
+        flash("Technicien requis", "error")
+        return redirect(f'/projects/{pid}')
+    conn = _gdb()
+    try:
+        conn.execute("INSERT INTO wf_project_team (project_id, user_id, role) VALUES (?,?,?)",
+            (pid, int(user_id), role))
+        conn.commit()
+        u = conn.execute("SELECT full_name FROM users WHERE id=?", (user_id,)).fetchone()
+        nm = u['full_name'] if u else f"User#{user_id}"
+        flash(f"✅ {nm} affecté au projet", "success")
+        _project_log(pid, 'team_add', None, None, f"{nm} affecté ({role})")
+        _project_notify(pid, None, "Vous êtes affecté à un projet",
+            f"Consultez le projet dans votre dashboard.",
+            f"/projects/{pid}", target_user_id=int(user_id))
+    except Exception as e:
+        flash(f"Déjà affecté ou erreur : {e}", "warning")
+    conn.close()
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/team/<int:tid>/remove')
+@project_access_required
+def project_team_remove(pid, tid):
+    conn = _gdb()
+    conn.execute("DELETE FROM wf_project_team WHERE id=? AND project_id=?", (tid, pid))
+    conn.commit(); conn.close()
+    flash("Membre retiré", "success")
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/material/add', methods=['POST'])
+@project_access_required
+def project_material_add(pid):
+    """Ajoute un matériel à réserver au MG."""
+    name = request.form.get('material_name', '').strip()
+    if not name:
+        flash("Nom du matériel requis", "error")
+        return redirect(f'/projects/{pid}')
+    qty = int(request.form.get('quantity', 1) or 1)
+    
+    conn = _gdb()
+    mg_id = request.form.get('mg_equipement_id') or None
+    available = 0
+    if mg_id:
+        row = conn.execute("SELECT stock_actuel, nom FROM mg_equipements WHERE id=?", (mg_id,)).fetchone()
+        if row:
+            stock = row['stock_actuel'] or 0
+            available = 1 if stock >= qty else 0
+            if not name: name = row['nom']
+    
+    conn.execute("""INSERT INTO wf_project_materials
+        (project_id, material_name, quantity, unite, mg_equipement_id, available, notes)
+        VALUES (?,?,?,?,?,?,?)""",
+        (pid, name, qty, request.form.get('unite', 'unité'),
+         int(mg_id) if mg_id else None, available, request.form.get('notes', '')))
+    conn.commit(); conn.close()
+    flash(f"📦 Matériel '{name}' x{qty} ajouté", "success")
+    _project_log(pid, 'material_add', None, None, f"Matériel '{name}' x{qty}")
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/material/<int:mid>/reserve')
+@project_access_required
+def project_material_reserve(mid, pid):
+    """Bascule la réservation d'un matériel (MG)."""
+    conn = _gdb()
+    conn.execute("UPDATE wf_project_materials SET reserved=1, available=1 WHERE id=? AND project_id=?",
+        (mid, pid))
+    conn.commit(); conn.close()
+    flash("Matériel réservé", "success")
+    _project_log(pid, 'material_reserve', None, None, f"Matériel #{mid} réservé")
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/material/<int:mid>/delete')
+@project_access_required
+def project_material_delete(pid, mid):
+    conn = _gdb()
+    conn.execute("DELETE FROM wf_project_materials WHERE id=? AND project_id=?", (mid, pid))
+    conn.commit(); conn.close()
+    flash("Matériel retiré", "success")
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/progress', methods=['POST'])
+@project_access_required
+def project_progress_add(pid):
+    """Le technicien ajoute un rapport d'avancement."""
+    pct = int(request.form.get('progress_pct', 0) or 0)
+    desc = request.form.get('description', '').strip()
+    is_final = 1 if request.form.get('is_final') else 0
+    
+    user = get_user_by_id(session.get('user_id', 0))
+    conn = _gdb()
+    conn.execute("""INSERT INTO wf_project_progress
+        (project_id, user_id, user_name, progress_pct, description, is_final)
+        VALUES (?,?,?,?,?,?)""",
+        (pid, user['id'] if user else None,
+         user['full_name'] if user else 'Anonyme',
+         pct, desc, is_final))
+    conn.commit(); conn.close()
+    
+    _project_log(pid, 'progress', None, None,
+        f"Rapport d'avancement ({pct}%) : {desc[:80]}" + (" [FIN]" if is_final else ""))
+    
+    # Si is_final → passer en travaux_fin
+    if is_final:
+        _project_advance(pid, 'travaux_fin',
+            f"Travaux signalés terminés par {user['full_name'] if user else 'tech'}")
+        flash("🏁 Travaux signalés terminés — coordinateur notifié pour contrôle qualité", "success")
+    else:
+        flash(f"✅ Rapport d'avancement enregistré ({pct}%)", "success")
+    
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/contract-decision', methods=['POST'])
+@project_access_required
+def project_contract_decision(pid):
+    """Le client accepte/refuse le contrat d'entretien."""
+    decision = request.form.get('decision', '').strip()
+    if decision not in ('oui', 'non'):
+        flash("Décision invalide", "error")
+        return redirect(f'/projects/{pid}')
+    
+    conn = _gdb()
+    conn.execute("UPDATE wf_projects SET contract_decision=?, contract_decision_at=? WHERE id=?",
+        (decision, datetime.now().strftime('%Y-%m-%d %H:%M'), pid))
+    conn.commit(); conn.close()
+    
+    to_status = 'contrat_oui' if decision == 'oui' else 'contrat_non'
+    _project_advance(pid, to_status, f"Décision contrat : {decision}")
+    flash(f"📋 Contrat d'entretien : {'accepté' if decision == 'oui' else 'refusé'}", "success")
+    return redirect(f'/projects/{pid}')
+
+
+@app.route('/projects/<int:pid>/fiche-planification.pdf')
+@project_access_required
+def project_fiche_pdf(pid):
+    """Génère la fiche de planification imprimable du projet."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from flask import Response
+    import io as _io
+    
+    p = get_project_by_id_full(pid)
+    if not p:
+        flash("Projet introuvable", "error")
+        return redirect('/projects')
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm,
+                            topMargin=12*mm, bottomMargin=12*mm)
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888'); ORANGE = HexColor('#e8672a')
+    
+    h = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=15, textColor=TEAL, alignment=TA_CENTER, spaceAfter=2*mm)
+    sub = ParagraphStyle('sub', fontSize=8, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)
+    section = ParagraphStyle('sec', fontName='Helvetica-Bold', fontSize=11, textColor=TEAL, spaceAfter=3*mm, spaceBefore=4*mm)
+    n = ParagraphStyle('n', fontSize=9)
+    hw = ParagraphStyle('hw', fontName='Helvetica-Bold', fontSize=8, textColor=white, alignment=TA_CENTER)
+    tc = ParagraphStyle('tc', fontSize=8, alignment=TA_CENTER)
+    tl = ParagraphStyle('tl', fontSize=8)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+        ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
+    story.append(Paragraph("<b>FICHE DE PLANIFICATION DE PROJET</b>", h))
+    story.append(Paragraph(f"Référence : {p['reference']} — Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
+    
+    # Bloc client
+    story.append(Paragraph("👤 INFORMATIONS CLIENT", section))
+    cli_data = [
+        [Paragraph("<b>Client</b>", n), Paragraph(p.get('client_name', '-') or '-', n)],
+        [Paragraph("<b>Référence devis</b>", n), Paragraph(p.get('devis_reference', '-') or '-', n)],
+        [Paragraph("<b>Montant total</b>", n), Paragraph(f"{p.get('total_amount', 0):,.0f} FCFA", n)],
+        [Paragraph("<b>Acompte</b>", n), Paragraph(f"{p.get('acompte_amount', 0):,.0f} FCFA", n)],
+    ]
+    t = Table(cli_data, colWidths=[45*mm, 137*mm])
+    t.setStyle(TableStyle([('BOX',(0,0),(-1,-1),0.4,GREY),
+        ('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+        ('BACKGROUND',(0,0),(0,-1),HexColor('#f8faf9'))]))
+    story.append(t)
+    
+    # Projet
+    story.append(Paragraph("📋 DESCRIPTION DU PROJET", section))
+    story.append(Paragraph(f"<b>{p['title']}</b>", ParagraphStyle('t1', fontName='Helvetica-Bold', fontSize=10, spaceAfter=2*mm)))
+    if p.get('description'):
+        story.append(Paragraph(p['description'], n))
+    story.append(Spacer(1, 3*mm))
+    
+    # Planning
+    story.append(Paragraph("📅 PLANNING", section))
+    plan_data = [
+        [Paragraph("<b>Date de début</b>", n), Paragraph(p.get('start_date', '-') or '-', n)],
+        [Paragraph("<b>Date de fin prévisionnelle</b>", n), Paragraph(p.get('end_date_planned', '-') or '-', n)],
+        [Paragraph("<b>Coordinateur</b>", n), Paragraph(p.get('coordinator', {}).get('full_name', '-') if p.get('coordinator') else '-', n)],
+    ]
+    t = Table(plan_data, colWidths=[45*mm, 137*mm])
+    t.setStyle(TableStyle([('BOX',(0,0),(-1,-1),0.4,GREY),
+        ('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+        ('BACKGROUND',(0,0),(0,-1),HexColor('#f8faf9'))]))
+    story.append(t)
+    
+    # Équipe
+    story.append(Paragraph("👷 ÉQUIPE TECHNIQUE AFFECTÉE", section))
+    if p['team']:
+        team_data = [[Paragraph(h_, hw) for h_ in ['#', 'Nom', 'Rôle']]]
+        for i, t_ in enumerate(p['team'], 1):
+            team_data.append([Paragraph(str(i), tc),
+                              Paragraph(t_.get('full_name') or t_.get('username', '-'), tl),
+                              Paragraph(t_.get('role', '-'), tc)])
+        tab = Table(team_data, colWidths=[12*mm, 110*mm, 60*mm])
+        tab.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('BOX',(0,0),(-1,-1),0.4,GREY),('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[white, HexColor('#f8faf9')])]))
+        story.append(tab)
+    else:
+        story.append(Paragraph("<i>Aucun technicien affecté pour l'instant</i>", n))
+    
+    # Matériel
+    story.append(Paragraph("📦 MATÉRIEL PRÉVU", section))
+    if p['materials']:
+        mat_data = [[Paragraph(h_, hw) for h_ in ['#', 'Désignation', 'Quantité', 'Unité', 'Disponible']]]
+        for i, m in enumerate(p['materials'], 1):
+            disp = '✅ Oui' if m.get('available') else '⚠ Non'
+            mat_data.append([Paragraph(str(i), tc),
+                             Paragraph(m['material_name'], tl),
+                             Paragraph(str(m.get('quantity', 1)), tc),
+                             Paragraph(m.get('unite', 'unité'), tc),
+                             Paragraph(disp, tc)])
+        tab = Table(mat_data, colWidths=[12*mm, 85*mm, 25*mm, 30*mm, 30*mm])
+        tab.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),TEAL),
+            ('BOX',(0,0),(-1,-1),0.4,GREY),('INNERGRID',(0,0),(-1,-1),0.3,HexColor('#ddd')),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1),[white, HexColor('#f8faf9')])]))
+        story.append(tab)
+    else:
+        story.append(Paragraph("<i>Aucun matériel défini</i>", n))
+    
+    # Signatures
+    story.append(Spacer(1, 14*mm))
+    sig_data = [
+        [Paragraph("<b>Coordinateur</b><br/><br/><br/>_______________________", ParagraphStyle('sig', fontSize=8, alignment=TA_CENTER)),
+         Paragraph("<b>Chef d'équipe</b><br/><br/><br/>_______________________", ParagraphStyle('sig', fontSize=8, alignment=TA_CENTER)),
+         Paragraph("<b>Client</b><br/><br/><br/>_______________________", ParagraphStyle('sig', fontSize=8, alignment=TA_CENTER))],
+    ]
+    t = Table(sig_data, colWidths=[60*mm, 60*mm, 62*mm])
+    t.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP')]))
+    story.append(t)
+    
+    doc.build(story)
+    buf.seek(0)
+    
+    try:
+        log_activity(session.get('user_id'),
+                    get_user_by_id(session['user_id'])['full_name'],
+                    'Projet', f"Export fiche planification {p['reference']}",
+                    request.remote_addr)
+    except: pass
+    
+    fname = f"fiche_planification_{p['reference']}.pdf"
+    return Response(buf.getvalue(), mimetype='application/pdf',
+                   headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+
+@app.route('/projects/notifications/mark-read/<int:nid>')
+@project_access_required
+def project_notif_mark_read(nid):
+    """Marque une notification comme lue."""
+    conn = _gdb()
+    conn.execute("UPDATE wf_project_notifications SET is_read=1, read_at=? WHERE id=?",
+        (datetime.now().strftime('%Y-%m-%d %H:%M'), nid))
+    conn.commit()
+    # Récupérer le lien pour rediriger
+    row = conn.execute("SELECT link FROM wf_project_notifications WHERE id=?", (nid,)).fetchone()
+    conn.close()
+    if row and row['link']:
+        return redirect(row['link'])
+    return redirect('/projects')
+
+
+@app.route('/projects/notifications/mark-all-read')
+@project_access_required
+def project_notif_mark_all_read():
+    """Marque toutes mes notifications projet comme lues."""
+    u = get_user_by_id(session['user_id'])
+    if not u:
+        return redirect('/projects')
+    conn = _gdb()
+    conn.execute("""UPDATE wf_project_notifications SET is_read=1, read_at=?
+        WHERE is_read=0 AND (target_role=? OR target_user_id=?)""",
+        (datetime.now().strftime('%Y-%m-%d %H:%M'), u['role'], u['id']))
+    conn.commit(); conn.close()
+    flash("Notifications marquées comme lues", "success")
+    return redirect('/projects')
 
 
 @app.route('/it/recharge')

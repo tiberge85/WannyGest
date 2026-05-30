@@ -4773,6 +4773,147 @@ def migrate_v74():
     conn.commit(); conn.close()
 
 
+def migrate_v75():
+    """v84 : Module suivi du cycle de vie des projets.
+    
+    Workflow en 10 étapes (statut TEXT) :
+        1. 'valide'        - Projet validé (devis signé + 1er acompte)
+        2. 'preparation'   - Préparation en cours (MG)
+        3. 'planifie'      - Planifié (date, équipes, matériel)
+        4. 'execution'     - Travaux en cours
+        5. 'travaux_fin'   - Travaux terminés
+        6. 'qc_valide' / 'qc_rejete' - Contrôle qualité validé / rejeté → retour étape 4
+        7. 'livre'         - Livré au client
+        8. 'attente_solde' / 'solde' - En attente / payé
+        9. 'contrat_oui' / 'contrat_non' - Contrat entretien accepté/refusé
+        10. 'cloture'      - Projet clôturé
+    """
+    conn = get_db()
+    
+    # Table principale des projets
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS wf_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT UNIQUE,
+            client_id INTEGER,
+            client_name TEXT,
+            devis_id INTEGER,
+            devis_reference TEXT,
+            invoice_id INTEGER,
+            title TEXT NOT NULL,
+            description TEXT,
+            total_amount REAL DEFAULT 0,
+            acompte_amount REAL DEFAULT 0,
+            solde_amount REAL DEFAULT 0,
+            status TEXT DEFAULT 'valide',
+            current_step INTEGER DEFAULT 1,
+            progress_pct INTEGER DEFAULT 0,
+            coordinator_id INTEGER,
+            start_date TEXT,
+            end_date_planned TEXT,
+            end_date_actual TEXT,
+            delivery_date TEXT,
+            qc_validated_at TEXT,
+            qc_validated_by INTEGER,
+            qc_rejected_count INTEGER DEFAULT 0,
+            solde_invoice_id INTEGER,
+            contract_decision TEXT,
+            contract_decision_at TEXT,
+            cloture_at TEXT,
+            cloture_by INTEGER,
+            notes TEXT,
+            created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (client_id) REFERENCES clients(id),
+            FOREIGN KEY (devis_id) REFERENCES devis(id),
+            FOREIGN KEY (coordinator_id) REFERENCES users(id)
+        )
+    ''')
+    
+    # Historique (timeline) des transitions
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS wf_project_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            event_type TEXT,
+            from_status TEXT,
+            to_status TEXT,
+            actor_id INTEGER,
+            actor_name TEXT,
+            comment TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES wf_projects(id)
+        )
+    ''')
+    
+    # Notifications inter-services
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS wf_project_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            target_role TEXT,
+            target_user_id INTEGER,
+            title TEXT,
+            message TEXT,
+            link TEXT,
+            is_read INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            read_at TEXT,
+            FOREIGN KEY (project_id) REFERENCES wf_projects(id)
+        )
+    ''')
+    
+    # Matériels réservés
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS wf_project_materials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            material_name TEXT NOT NULL,
+            quantity INTEGER DEFAULT 1,
+            unite TEXT DEFAULT 'unité',
+            mg_equipement_id INTEGER,
+            reserved INTEGER DEFAULT 0,
+            available INTEGER DEFAULT 0,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES wf_projects(id),
+            FOREIGN KEY (mg_equipement_id) REFERENCES mg_equipements(id)
+        )
+    ''')
+    
+    # Équipes affectées
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS wf_project_team (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            role TEXT DEFAULT 'technicien',
+            assigned_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES wf_projects(id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(project_id, user_id)
+        )
+    ''')
+    
+    # Rapports d'avancement des techniciens
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS wf_project_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            user_id INTEGER,
+            user_name TEXT,
+            progress_pct INTEGER DEFAULT 0,
+            description TEXT,
+            photos_json TEXT,
+            is_final INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES wf_projects(id)
+        )
+    ''')
+    
+    conn.commit(); conn.close()
+
+
 def mg_get_fournisseur_dashboard(fournisseur_id=None):
     """Tableau de bord fournisseur :
     - total_commandes : somme des commandes du fournisseur
