@@ -16,184 +16,199 @@
 
 <div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#0d47a1">
     💡 Tableau exhaustif inspiré de la feuille Excel <strong>"Budget Mensuel Détaillé"</strong>. Cliquez sur le nom d'un mois en en-tête pour éditer l'effectif et la masse salariale.
+    {% if month_keys is not defined %}<br>↔️ Faites défiler horizontalement pour voir tous les mois.{% endif %}
 </div>
 
 <div class="card">
     <div class="card-body" style="padding:0;overflow-x:auto">
-        <table style="width:100%;min-width:1200px;font-size:11px;border-collapse:collapse">
+        <table style="width:100%;min-width:1400px;font-size:11px;border-collapse:collapse">
             <thead>
                 <tr style="background:linear-gradient(90deg,#1A7A6D,#0f5a51);color:#fff">
-                    <th style="padding:10px 8px;text-align:left;min-width:280px;position:sticky;left:0;background:#1A7A6D;z-index:2">RUBRIQUES</th>
+                    <th style="padding:12px 10px;text-align:left;min-width:240px;background:#1A7A6D">RUBRIQUES</th>
                     {% for m in range(1, 13) %}
-                    <th style="padding:10px 8px;text-align:right;min-width:85px">
-                        <a href="/rh/budget/monthly/{{ year }}/{{ m }}" style="color:#fff;text-decoration:none">{{ mois_court[m] }}</a>
+                    <th style="padding:12px 6px;text-align:center;min-width:80px;background:#1A7A6D;border-left:1px solid rgba(255,255,255,0.15)">
+                        <a href="/rh/budget/monthly/{{ year }}/{{ m }}" style="color:#fff;text-decoration:none;font-size:12px;font-weight:700">{{ mois_court[m] }}</a>
                     </th>
                     {% endfor %}
-                    <th style="padding:10px 8px;text-align:right;background:#0f5a51;min-width:100px">TOTAL ANNUEL</th>
+                    <th style="padding:12px 8px;text-align:center;background:#0f5a51;min-width:110px;border-left:2px solid #fff">TOTAL ANNUEL</th>
                 </tr>
             </thead>
             <tbody>
                 <!-- ▌ 1. MOUVEMENTS D'EFFECTIFS -->
                 <tr style="background:#eaf3f0">
-                    <td colspan="14" style="padding:8px 12px;font-weight:800;color:#1A7A6D;font-size:12px;letter-spacing:0.5px">▌ 1. MOUVEMENTS D'EFFECTIFS</td>
+                    <td colspan="14" style="padding:10px 12px;font-weight:800;color:#1A7A6D;font-size:12px;letter-spacing:0.5px">▌ 1. MOUVEMENTS D'EFFECTIFS</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee">
-                    <td style="padding:7px 12px;position:sticky;left:0;background:#fff;z-index:1">Effectif début de mois</td>
+                    <td style="padding:7px 12px">Effectif début de mois</td>
                     {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ m.effectif_debut or '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:7px 8px;background:#fff3e0;font-weight:700">-</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:6px 12px 6px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Recrutements du mois</td>
+                    <td style="padding:6px 12px 6px 30px;font-size:10px;color:#666">↳ Recrutements du mois</td>
                     {% for m in months_data %}<td style="text-align:right;padding:6px 8px;color:#2e7d32;font-size:10px">{{ m.nb_recrutements or '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:6px 8px;background:#fff3e0;color:#2e7d32;font-weight:700">{{ totals.nb_recrutements }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:6px 12px 6px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Départs du mois</td>
+                    <td style="padding:6px 12px 6px 30px;font-size:10px;color:#666">↳ Départs du mois</td>
                     {% for m in months_data %}<td style="text-align:right;padding:6px 8px;color:#c53030;font-size:10px">{{ m.departs or '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:6px 8px;background:#fff3e0;color:#c53030;font-weight:700">{{ totals.departs }}</td>
                 </tr>
                 <tr style="border-bottom:2px solid #1A7A6D;background:#eaf3f0">
-                    <td style="padding:8px 12px;font-weight:700;position:sticky;left:0;background:#eaf3f0;z-index:1">Effectif fin de mois</td>
+                    <td style="padding:8px 12px;font-weight:700">Effectif fin de mois</td>
                     {% for m in months_data %}<td style="text-align:right;padding:8px;font-weight:700">{{ m.effectif_fin or '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:8px;background:#fff3e0;font-weight:800;color:#1A7A6D">{{ months_data|map(attribute='effectif_fin')|max }}</td>
                 </tr>
 
                 <!-- ▌ 2. MASSE SALARIALE -->
                 <tr style="background:#fff3e0">
-                    <td colspan="14" style="padding:8px 12px;font-weight:800;color:#e8672a;font-size:12px;letter-spacing:0.5px">▌ 2. MASSE SALARIALE</td>
+                    <td colspan="14" style="padding:10px 12px;font-weight:800;color:#e8672a;font-size:12px;letter-spacing:0.5px">▌ 2. MASSE SALARIALE</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee">
-                    <td style="padding:7px 12px;position:sticky;left:0;background:#fff;z-index:1">Masse salariale brute</td>
+                    <td style="padding:7px 12px">Masse salariale brute</td>
                     {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ '{:,.0f}'.format(m.masse_salariale).replace(',', ' ') if m.masse_salariale else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:7px 8px;background:#fff3e0;font-weight:700">{{ '{:,.0f}'.format(totals.masse_salariale).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Employés déclarés CNPS</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Employés déclarés CNPS</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ m.employes_declares or '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:600">-</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ CNPS patronal 17% (sur déclarés)</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ CNPS patronal 17% (sur déclarés)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.cnps).replace(',', ' ') if m.cnps else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.cnps).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Taxe d'Apprentissage (TA) 0,4%</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Taxe d'Apprentissage (TA) 0,4%</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.ta).replace(',', ' ') if m.ta else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.ta).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ FDFP (Formation Pro) 1,2%</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ FDFP (Formation Pro) 1,2%</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.fdfp).replace(',', ' ') if m.fdfp else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.fdfp).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ ITS patronal (Impôt) 1,5%</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ ITS patronal (Impôt) 1,5%</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.its).replace(',', ' ') if m.its else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.its).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#fff8e1">
-                    <td style="padding:7px 12px;font-weight:700;position:sticky;left:0;background:#fff8e1;z-index:1">TOTAL CHARGES PATRONALES</td>
+                    <td style="padding:7px 12px;font-weight:700">TOTAL CHARGES PATRONALES</td>
                     {% for m in months_data %}<td style="text-align:right;padding:7px 8px;font-weight:600">{{ '{:,.0f}'.format(m.charges_patronales).replace(',', ' ') if m.charges_patronales else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:7px 8px;background:#fff3e0;font-weight:800">{{ '{:,.0f}'.format(totals.charges_patronales).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:2px solid #e8672a;background:#fff3e0">
-                    <td style="padding:9px 12px;font-weight:800;color:#e8672a;position:sticky;left:0;background:#fff3e0;z-index:1">COÛT TOTAL SALARIAL (brut + charges)</td>
+                    <td style="padding:9px 12px;font-weight:800;color:#e8672a">COÛT TOTAL SALARIAL (brut + charges)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:9px 8px;font-weight:800;color:#e8672a">{{ '{:,.0f}'.format(m.cout_salarial_total).replace(',', ' ') if m.cout_salarial_total else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:9px 8px;background:#ffe0b2;font-weight:800;color:#b8561f">{{ '{:,.0f}'.format(totals.cout_salarial_total).replace(',', ' ') }}</td>
                 </tr>
 
                 <!-- ▌ 3. BUDGET RECRUTEMENT -->
                 <tr style="background:#e3f2fd">
-                    <td colspan="14" style="padding:8px 12px;font-weight:800;color:#1976d2;font-size:12px;letter-spacing:0.5px">▌ 3. BUDGET RECRUTEMENT</td>
+                    <td colspan="14" style="padding:10px 12px;font-weight:800;color:#1976d2;font-size:12px;letter-spacing:0.5px">▌ 3. BUDGET RECRUTEMENT</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee">
-                    <td style="padding:7px 12px;position:sticky;left:0;background:#fff;z-index:1">Nombre de recrutements</td>
+                    <td style="padding:7px 12px">Nombre de recrutements</td>
                     {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ m.nb_recrutements or '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:7px 8px;background:#fff3e0;font-weight:700">{{ totals.nb_recrutements }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Coûts d'annonce & sourcing</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Coûts d'annonce & sourcing</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.cout_annonce).replace(',', ' ') if m.cout_annonce else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.cout_annonce).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Frais de sélection (10% salaire brut)</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Frais de sélection (10% salaire brut)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.frais_selection).replace(',', ' ') if m.frais_selection else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.frais_selection).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Coûts d'intégration &amp; formation initiale</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Coûts d'intégration &amp; formation initiale</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.cout_integration).replace(',', ' ') if m.cout_integration else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.cout_integration).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:2px solid #1976d2;background:#e3f2fd">
-                    <td style="padding:9px 12px;font-weight:800;color:#1565c0;position:sticky;left:0;background:#e3f2fd;z-index:1">TOTAL BUDGET RECRUTEMENT</td>
+                    <td style="padding:9px 12px;font-weight:800;color:#1565c0">TOTAL BUDGET RECRUTEMENT</td>
                     {% for m in months_data %}<td style="text-align:right;padding:9px 8px;font-weight:800;color:#1565c0">{{ '{:,.0f}'.format(m.total_recrutement).replace(',', ' ') if m.total_recrutement else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:9px 8px;background:#bbdefb;font-weight:800;color:#0d47a1">{{ '{:,.0f}'.format(totals.total_recrutement).replace(',', ' ') }}</td>
                 </tr>
 
                 <!-- ▌ 4. BUDGET FORMATION -->
                 <tr style="background:#f3e5f5">
-                    <td colspan="14" style="padding:8px 12px;font-weight:800;color:#7b1fa2;font-size:12px;letter-spacing:0.5px">▌ 4. BUDGET FORMATION</td>
+                    <td colspan="14" style="padding:10px 12px;font-weight:800;color:#7b1fa2;font-size:12px;letter-spacing:0.5px">▌ 4. BUDGET FORMATION</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Base: masse salariale brute</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Base: masse salariale brute</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.masse_salariale).replace(',', ' ') if m.masse_salariale else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.masse_salariale).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Taux appliqué: 0,75% (recommandé 0,5%-1%)</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Taux appliqué: 0,75% (recommandé 0,5%-1%)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">0,75%</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px">-</td>
                 </tr>
                 <tr style="border-bottom:2px solid #7b1fa2;background:#f3e5f5">
-                    <td style="padding:9px 12px;font-weight:800;color:#7b1fa2;position:sticky;left:0;background:#f3e5f5;z-index:1">TOTAL BUDGET FORMATION (0,75%)</td>
+                    <td style="padding:9px 12px;font-weight:800;color:#7b1fa2">TOTAL BUDGET FORMATION (0,75%)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:9px 8px;font-weight:800;color:#7b1fa2">{{ '{:,.0f}'.format(m.formation).replace(',', ' ') if m.formation else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:9px 8px;background:#e1bee7;font-weight:800;color:#4a148c">{{ '{:,.0f}'.format(totals.formation).replace(',', ' ') }}</td>
                 </tr>
 
                 <!-- ▌ 5. FRAIS ANNEXES -->
                 <tr style="background:#fff9c4">
-                    <td colspan="14" style="padding:8px 12px;font-weight:800;color:#f57f17;font-size:12px;letter-spacing:0.5px">▌ 5. FRAIS ANNEXES &amp; CONSOLIDATION</td>
+                    <td colspan="14" style="padding:10px 12px;font-weight:800;color:#f57f17;font-size:12px;letter-spacing:0.5px">▌ 5. FRAIS ANNEXES &amp; CONSOLIDATION</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Logiciel SIRH (23 USD × 600 FCFA)</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Logiciel SIRH (23 USD × 600 FCFA)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.sirh).replace(',', ' ') }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.sirh).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Médecine du travail</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Médecine du travail</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.medecine).replace(',', ' ') }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.medecine).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Autres frais RH (primes de mission)</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Autres frais RH (primes de mission)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.autres_frais).replace(',', ' ') }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.autres_frais).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:1px solid #eee;background:#f8faf9">
-                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666;position:sticky;left:0;background:#f8faf9;z-index:1">↳ Marge de sécurité (3% masse salariale)</td>
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Marge de sécurité (3% masse salariale)</td>
                     {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.marge).replace(',', ' ') if m.marge else '-' }}</td>{% endfor %}
                     <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(totals.marge).replace(',', ' ') }}</td>
                 </tr>
                 <tr style="border-bottom:2px solid #f57f17;background:#fff9c4">
-                    <td style="padding:9px 12px;font-weight:800;color:#f57f17;position:sticky;left:0;background:#fff9c4;z-index:1">TOTAL FRAIS ANNEXES</td>
+                    <td style="padding:9px 12px;font-weight:800;color:#f57f17">TOTAL FRAIS ANNEXES</td>
                     {% for m in months_data %}<td style="text-align:right;padding:9px 8px;font-weight:800;color:#f57f17">{{ '{:,.0f}'.format(m.total_frais_annexes).replace(',', ' ') }}</td>{% endfor %}
                     <td style="text-align:right;padding:9px 8px;background:#fff59d;font-weight:800;color:#e65100">{{ '{:,.0f}'.format(totals.total_frais_annexes).replace(',', ' ') }}</td>
                 </tr>
 
                 <!-- ▌ 6. TOTAL GÉNÉRAL -->
                 <tr style="background:linear-gradient(90deg,#1A7A6D,#0f5a51);color:#fff">
-                    <td colspan="14" style="padding:8px 12px;font-weight:800;font-size:13px;letter-spacing:0.5px">▌ 6. TOTAL GÉNÉRAL BUDGET RH</td>
+                    <td colspan="14" style="padding:10px 12px;font-weight:800;font-size:13px;letter-spacing:0.5px">▌ 6. TOTAL GÉNÉRAL BUDGET RH</td>
                 </tr>
                 <tr style="background:linear-gradient(90deg,#1A7A6D,#0f5a51);color:#fff">
-                    <td style="padding:12px;font-weight:800;font-size:13px;position:sticky;left:0;background:#1A7A6D;z-index:1">TOTAL BUDGET RH MENSUEL</td>
-                    {% for m in months_data %}<td style="text-align:right;padding:12px 8px;font-weight:800;font-size:13px">{{ '{:,.0f}'.format(m.total_budget).replace(',', ' ') }}</td>{% endfor %}
-                    <td style="text-align:right;padding:12px 8px;background:#0f5a51;font-weight:800;font-size:14px">{{ '{:,.0f}'.format(totals.total_budget).replace(',', ' ') }}</td>
+                    <td style="padding:14px 12px;font-weight:800;font-size:13px">TOTAL BUDGET RH MENSUEL</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:14px 8px;font-weight:800;font-size:13px">{{ '{:,.0f}'.format(m.total_budget).replace(',', ' ') }}</td>{% endfor %}
+                    <td style="text-align:right;padding:14px 8px;background:#0f5a51;font-weight:800;font-size:14px">{{ '{:,.0f}'.format(totals.total_budget).replace(',', ' ') }}</td>
                 </tr>
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- Mini cartes mois pour rappel — visible toujours -->
+<div style="margin-top:14px">
+    <div style="font-size:11px;color:#666;text-transform:uppercase;font-weight:600;margin-bottom:6px">📅 Accès rapide par mois</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px">
+        {% for m in months_data %}
+        <a href="/rh/budget/monthly/{{ year }}/{{ m.month }}" style="text-decoration:none;background:#fff;border:1.5px solid #ddd;border-radius:8px;padding:10px 8px;text-align:center;color:#1A7A6D;font-weight:700;font-size:12px;transition:all 0.2s" onmouseover="this.style.borderColor='#1A7A6D';this.style.background='#eaf3f0'" onmouseout="this.style.borderColor='#ddd';this.style.background='#fff'">
+            <div style="font-size:13px;font-weight:800">{{ mois_fr[m.month] }}</div>
+            <div style="font-size:10px;color:#888;margin-top:2px">{{ m.effectif_fin or 0 }} pers.</div>
+            <div style="font-size:11px;color:#e8672a;margin-top:2px;font-weight:700">{{ '{:,.0f}'.format(m.total_budget).replace(',', ' ') if m.total_budget else '-' }}</div>
+        </a>
+        {% endfor %}
     </div>
 </div>
 
