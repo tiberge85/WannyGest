@@ -1,0 +1,1766 @@
+[
+  {
+    "reference": "ADP",
+    "designation": "ADAPTATEUR",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 500.0
+  },
+  {
+    "reference": "AMP3C",
+    "designation": "AMPOULE 3 COULEURS",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 4200.0
+  },
+  {
+    "reference": "ATT",
+    "designation": "ATTACHE",
+    "categorie": "CLOTURE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 4000.0
+  },
+  {
+    "reference": "BAG",
+    "designation": "BAGUE",
+    "categorie": "CLOTURE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 6000.0
+  },
+  {
+    "reference": "BCR2M",
+    "designation": "BARRE DE CREMAILLERE 2M",
+    "categorie": "PORTAIL AUTO",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 30000.0
+  },
+  {
+    "reference": "BOBCR",
+    "designation": "BOBINE CARREE",
+    "categorie": "CLOTURE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 30000.0
+  },
+  {
+    "reference": "BDR200",
+    "designation": "BOITE DE DERIVATION 200",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 5000.0
+  },
+  {
+    "reference": "BET100",
+    "designation": "BOITE ETANCHE 100X100",
+    "categorie": "ELECTRICITE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 600.0
+  },
+  {
+    "reference": "BBLA",
+    "designation": "BOMBE BLANCHE",
+    "categorie": "DIVERS",
+    "unite": "PAIRES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 2000.0
+  },
+  {
+    "reference": "BPALL",
+    "designation": "BOUTON POUSSOIR ALLURE",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "BPENC",
+    "designation": "BOUTON POUSSOIR EN CASTRE",
+    "categorie": "ELECTRICITE",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 15000.0
+  },
+  {
+    "reference": "BPINX",
+    "designation": "BOUTON POUSSOIR INOX",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 8000.0
+  },
+  {
+    "reference": "BPPOR",
+    "designation": "BOUTON POUSSOIR PORTAIL",
+    "categorie": "PORTAIL AUTO",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "BUZ12",
+    "designation": "BUZZER 12V",
+    "categorie": "ALARME",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 1,
+    "prix_unitaire": 2500.0
+  },
+  {
+    "reference": "CABHT",
+    "designation": "CABLE HAUT TENSION",
+    "categorie": "CLOTURE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 3,
+    "prix_unitaire": 40000.0
+  },
+  {
+    "reference": "CHDMI",
+    "designation": "CABLE HDMI 1.5M",
+    "categorie": "RESEAU",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 10,
+    "prix_unitaire": 2500.0
+  },
+  {
+    "reference": "CHT4C",
+    "designation": "CABLE HT 4 CARRE",
+    "categorie": "CLOTURE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 50000.0
+  },
+  {
+    "reference": "CINX",
+    "designation": "CABLE INOX",
+    "categorie": "CLOTURE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 1500000.0
+  },
+  {
+    "reference": "CR25",
+    "designation": "CABLE RESEAU 25% CUIVRE",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 40000.0
+  },
+  {
+    "reference": "CRCAT6",
+    "designation": "CABLE RESEAU CAFFAC CAT 6A",
+    "categorie": "RESEAU",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 2,
+    "prix_unitaire": 120.0
+  },
+  {
+    "reference": "CRCAT7",
+    "designation": "CABLE RESEAU CATEGORIE 7B",
+    "categorie": "RESEAU",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 250000.0
+  },
+  {
+    "reference": "CRSUR",
+    "designation": "CABLE RESEAU SUR TOURNET",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 40000.0
+  },
+  {
+    "reference": "CRVLA",
+    "designation": "CABLE RESEAU VELANI CAT 6A 500M",
+    "categorie": "RESEAU",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 115000.0
+  },
+  {
+    "reference": "CTH4P",
+    "designation": "CABLE TH4 CARRE PLASTICABLE",
+    "categorie": "CLOTURE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 3,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "CAMFD",
+    "designation": "CAMERA CHAMBRE FROIDE MINI DOME 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 40000.0
+  },
+  {
+    "reference": "CAFA2",
+    "designation": "CAMERA FIXE ANALOG HYBRID 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 1,
+    "prix_unitaire": 13000.0
+  },
+  {
+    "reference": "CAFA4",
+    "designation": "CAMERA FIXE ANALOG HYBRID 4MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "CFIP4",
+    "designation": "CAMERA FIXE IP COLOR VU 4MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 6,
+    "prix_unitaire": 42000.0
+  },
+  {
+    "reference": "CFIDET",
+    "designation": "CAMERA FIXE IP DETECTEUR 4MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 9,
+    "prix_unitaire": 47000.0
+  },
+  {
+    "reference": "CFIP2",
+    "designation": "CAMERA FIXE IP HYBRID LIGHT 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 18,
+    "prix_unitaire": 27000.0
+  },
+  {
+    "reference": "CFIPM2",
+    "designation": "CAMERA FIXE IP HYBRID DET 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "CMD360",
+    "designation": "CAMERA MINI DOME 360",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "CMDA2",
+    "designation": "CAMERA MINI DOME ANALOG 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 1,
+    "prix_unitaire": 13000.0
+  },
+  {
+    "reference": "CMDA5",
+    "designation": "CAMERA MINI DOME ANALOG 5MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "CMDC4",
+    "designation": "CAMERA MINI DOME IP COLOR VU 4MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 3,
+    "prix_unitaire": 42000.0
+  },
+  {
+    "reference": "CMDI2",
+    "designation": "CAMERA MINI DOME IP HYBRID DET 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "CMDI2B",
+    "designation": "CAMERA MINI DOME IP HYBRID 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 13,
+    "prix_unitaire": 27000.0
+  },
+  {
+    "reference": "CSOL2",
+    "designation": "CAMERA SOLAIRE MINI DOME 2MP",
+    "categorie": "CCTV",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 120000.0
+  },
+  {
+    "reference": "CRF",
+    "designation": "CARTE RECONNAISSANCE FACIALE",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 500.0
+  },
+  {
+    "reference": "CMERK",
+    "designation": "CENTRALE MERLIN + CLAVIER",
+    "categorie": "ALARME",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 150000.0
+  },
+  {
+    "reference": "CHG12",
+    "designation": "CHARGEUR 12V",
+    "categorie": "ALIMENTATION",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 4000.0
+  },
+  {
+    "reference": "CHV10",
+    "designation": "CHEVILLE N10",
+    "categorie": "DIVERS",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "CLAVMER",
+    "designation": "CLAVIER MERLIN",
+    "categorie": "ALARME",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 2,
+    "prix_unitaire": 30000.0
+  },
+  {
+    "reference": "CLAVMK",
+    "designation": "CLAVIER MINI KEY BOARD",
+    "categorie": "ALARME",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "CWIFI",
+    "designation": "CLE WIFI POUR ORDINATEUR",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 6000.0
+  },
+  {
+    "reference": "COFF4",
+    "designation": "COFFRET ALIMENTATION 4 PORT",
+    "categorie": "ALIMENTATION",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 2,
+    "prix_unitaire": 5000.0
+  },
+  {
+    "reference": "COFF16",
+    "designation": "COFFRET ALIMENTATION 16 PORT",
+    "categorie": "ALIMENTATION",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 13000.0
+  },
+  {
+    "reference": "COFF8",
+    "designation": "COFFRET ALIMENTATION 8 PORT",
+    "categorie": "ALIMENTATION",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 7000.0
+  },
+  {
+    "reference": "INF4U",
+    "designation": "COFFRET INFORMATIQUE 4U",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 37000.0
+  },
+  {
+    "reference": "INF6U",
+    "designation": "COFFRET INFORMATIQUE 6U",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 48000.0
+  },
+  {
+    "reference": "COMB",
+    "designation": "COMBINE",
+    "categorie": "VISIOPHONE",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 12500.0
+  },
+  {
+    "reference": "CRJ11",
+    "designation": "CONNECTEUR RJ11",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "CTRLP",
+    "designation": "CONTROL PANEL",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "CVGA",
+    "designation": "CORDON VGA / ADAPTATEUR",
+    "categorie": "DIVERS",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 8000.0
+  },
+  {
+    "reference": "CORN",
+    "designation": "CORNIERE",
+    "categorie": "CLOTURE",
+    "unite": "PAIRES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "DCOUP",
+    "designation": "DISQUE A COUPER",
+    "categorie": "OUTILLAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "DMEL",
+    "designation": "DISQUE A MELER",
+    "categorie": "OUTILLAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 2000.0
+  },
+  {
+    "reference": "DD1T",
+    "designation": "DISQUE DUR 1 TERRA",
+    "categorie": "STOCKAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "DD10T",
+    "designation": "DISQUE DUR 10 TERRA",
+    "categorie": "STOCKAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 120000.0
+  },
+  {
+    "reference": "DD2T",
+    "designation": "DISQUE DUR 2 TERRA",
+    "categorie": "STOCKAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "DD3T",
+    "designation": "DISQUE DUR 3 TERRA",
+    "categorie": "STOCKAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 50000.0
+  },
+  {
+    "reference": "DD4T",
+    "designation": "DISQUE DUR 4 TERRA",
+    "categorie": "STOCKAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 60000.0
+  },
+  {
+    "reference": "DD6T",
+    "designation": "DISQUE DUR 6 TERRA",
+    "categorie": "STOCKAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 85000.0
+  },
+  {
+    "reference": "DDIAM",
+    "designation": "DISQUE EN DIAMANT",
+    "categorie": "OUTILLAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 5000.0
+  },
+  {
+    "reference": "DN25",
+    "designation": "DOMINO N25",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 1500.0
+  },
+  {
+    "reference": "DN10",
+    "designation": "DOMINO N10",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 1200.0
+  },
+  {
+    "reference": "DN25G",
+    "designation": "DOMINO N25 GRAND",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 2500.0
+  },
+  {
+    "reference": "DN16",
+    "designation": "DOMINO N16",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 1500.0
+  },
+  {
+    "reference": "DVENT",
+    "designation": "DOUBLE VENTOUSE",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "DPN10",
+    "designation": "DPN 10 ET 16A",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 3500.0
+  },
+  {
+    "reference": "DPNLG",
+    "designation": "DPN LEGRAND",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 4000.0
+  },
+  {
+    "reference": "DPNRL",
+    "designation": "DPN SUR RAIL MONOVARISTE",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 20000.0
+  },
+  {
+    "reference": "DVR16V2",
+    "designation": "DVR 16 VOIE 2MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 65000.0
+  },
+  {
+    "reference": "DVR16V4",
+    "designation": "DVR 16 VOIE 4MP/5MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 110000.0
+  },
+  {
+    "reference": "DVR32V2",
+    "designation": "DVR 32 VOIE 2MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 160000.0
+  },
+  {
+    "reference": "DVR32V4",
+    "designation": "DVR 32 VOIE 4MP/5MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 240000.0
+  },
+  {
+    "reference": "DVR4V2",
+    "designation": "DVR 4 VOIE 2MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "DVR4V4",
+    "designation": "DVR 4 VOIE 4MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 50000.0
+  },
+  {
+    "reference": "DVR8V2",
+    "designation": "DVR 8 VOIE 2MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "DVR8V4",
+    "designation": "DVR 8 VOIE 4MP",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 55000.0
+  },
+  {
+    "reference": "ECRMST",
+    "designation": "ECRAN MASTER",
+    "categorie": "VISIOPHONE",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "EMB",
+    "designation": "EMBASSE",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 4000.0
+  },
+  {
+    "reference": "EX120",
+    "designation": "EXTENDER 120M",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 50000.0
+  },
+  {
+    "reference": "EX150",
+    "designation": "EXTENDER 150M",
+    "categorie": "RESEAU",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 65000.0
+  },
+  {
+    "reference": "EX30",
+    "designation": "EXTENDER 30M",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "EX60",
+    "designation": "EXTENDER 60M",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "FAC",
+    "designation": "FACE ACCES CONTROL",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "FPBB",
+    "designation": "FERME PORTE BLEU-BLANC",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 70000.0
+  },
+  {
+    "reference": "FPF4",
+    "designation": "FERME PORTE F4",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "FPF5",
+    "designation": "FERME PORTE F5",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 45000.0
+  },
+  {
+    "reference": "FALI",
+    "designation": "FICHE ALIMENTATION",
+    "categorie": "ELECTRICITE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "FACT",
+    "designation": "FINGERPRINT ACCESS CONTROL",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "FOT",
+    "designation": "FOTON",
+    "categorie": "CLOTURE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 50000.0
+  },
+  {
+    "reference": "GACH",
+    "designation": "GACHE ELECTRIQUE",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 15000.0
+  },
+  {
+    "reference": "GFD25",
+    "designation": "GAINE FLEXIVE D25",
+    "categorie": "ELECTRICITE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "GFD32",
+    "designation": "GAINE FLEXIVE D32",
+    "categorie": "ELECTRICITE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 27000.0
+  },
+  {
+    "reference": "GFD11",
+    "designation": "GAINE FLEXIVE DIAMETRE 11",
+    "categorie": "ELECTRICITE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 21500.0
+  },
+  {
+    "reference": "GMET",
+    "designation": "GAINE METALLIQUE",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 4,
+    "prix_unitaire": 18000.0
+  },
+  {
+    "reference": "GOU1",
+    "designation": "GOULOTTE 1 PASSAGE",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "GOU2",
+    "designation": "GOULOTTE 2 PASSAGE",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 1500.0
+  },
+  {
+    "reference": "GOU3",
+    "designation": "GOULOTTE 3 PASSAGE",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 2000.0
+  },
+  {
+    "reference": "GOU4",
+    "designation": "GOULOTTE 4 PASSAGE",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 3000.0
+  },
+  {
+    "reference": "G4060",
+    "designation": "GOULOTTE 40X60",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 3500.0
+  },
+  {
+    "reference": "G60100",
+    "designation": "GOULOTTE 60X100",
+    "categorie": "ELECTRICITE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 5500.0
+  },
+  {
+    "reference": "GSOL",
+    "designation": "GOULOTTE DE SOL",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 7000.0
+  },
+  {
+    "reference": "GYRO",
+    "designation": "GYROPHARE",
+    "categorie": "ALARME",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "INDT",
+    "designation": "INDICATEUR DE TENSION",
+    "categorie": "ELECTRICITE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 2,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "KMD20",
+    "designation": "KIT DE MOTEUR D20",
+    "categorie": "PORTAIL AUTO",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 650000.0
+  },
+  {
+    "reference": "KBVC",
+    "designation": "KIT BRAS VERAIN CENTURION",
+    "categorie": "PORTAIL AUTO",
+    "unite": "PAQUETS",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 630000.0
+  },
+  {
+    "reference": "KMD10",
+    "designation": "KIT DE MOTEUR D10",
+    "categorie": "PORTAIL AUTO",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 2,
+    "prix_unitaire": 600000.0
+  },
+  {
+    "reference": "KMD5",
+    "designation": "KIT DE MOTEUR D5",
+    "categorie": "PORTAIL AUTO",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 410000.0
+  },
+  {
+    "reference": "KIMP",
+    "designation": "KIT IMPRIMANTE SECRETARIAT",
+    "categorie": "DIVERS",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 129000.0
+  },
+  {
+    "reference": "KSEN",
+    "designation": "KIT SENTRY",
+    "categorie": "ALARME",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 20000.0
+  },
+  {
+    "reference": "KVIP",
+    "designation": "KIT VISIOPHONE IP",
+    "categorie": "VISIOPHONE",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 3,
+    "prix_unitaire": 100000.0
+  },
+  {
+    "reference": "KVIA",
+    "designation": "KIT VISIOPHONE ANALOGIQUE",
+    "categorie": "VISIOPHONE",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 55000.0
+  },
+  {
+    "reference": "LFAC",
+    "designation": "LECTEUR FACIAL",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 100000.0
+  },
+  {
+    "reference": "LFB2",
+    "designation": "LECTEUR FACIAL BIOMETRIE 2EN1",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 100000.0
+  },
+  {
+    "reference": "LF10",
+    "designation": "LECTEUR FACIAL 10 APPARTEMENTS",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "MOCEI",
+    "designation": "MO CLOTURE ELEC INTERIEUR",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 18000.0
+  },
+  {
+    "reference": "MOCEA",
+    "designation": "MO CLOTURE ELEC ABIDJAN",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 15000.0
+  },
+  {
+    "reference": "MOCAA",
+    "designation": "MO CONTROLE ACCES ABIDJAN",
+    "categorie": "MAIN OEUVRE",
+    "unite": "ROULEAU",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "MOCAI",
+    "designation": "MO CONTROLE ACCES INTERIEUR",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "MOPIA",
+    "designation": "MO POIGNEE INTELL ABIDJAN",
+    "categorie": "MAIN OEUVRE",
+    "unite": "PIECES",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "MOPII",
+    "designation": "MO POIGNEE INTELL INTERIEUR",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "MOPAA",
+    "designation": "MO PORTAIL AUTO ABIDJAN",
+    "categorie": "MAIN OEUVRE",
+    "unite": "UNITES",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 15000.0
+  },
+  {
+    "reference": "MOPAI",
+    "designation": "MO PORTAIL AUTO INTERIEUR",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 18000.0
+  },
+  {
+    "reference": "MOPVA",
+    "designation": "MO PORTIER VIDEO ABIDJAN",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 9500.0
+  },
+  {
+    "reference": "MOPVI",
+    "designation": "MO PORTIER VIDEO INTERIEUR",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 19000.0
+  },
+  {
+    "reference": "MOVSA",
+    "designation": "MO VIDEO SURVEILLANCE ABIDJAN",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 12500.0
+  },
+  {
+    "reference": "MOVSI",
+    "designation": "MO VIDEO SURVEILLANCE INT",
+    "categorie": "MAIN OEUVRE",
+    "unite": "HEURE",
+    "seuil_alerte": 0,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "MECH8",
+    "designation": "MECHE N8",
+    "categorie": "OUTILLAGE",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "MLEW",
+    "designation": "MEGAMAN LED WALLAM",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "MREXT",
+    "designation": "MI WIFI RANGER EXTENDER PRO",
+    "categorie": "RESEAU",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 18,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "MH1X2",
+    "designation": "MULTIPLICATEUR HDMI 1X2",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 15000.0
+  },
+  {
+    "reference": "MH1X4",
+    "designation": "MULTIPLICATEUR HDMI 1X4",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 20000.0
+  },
+  {
+    "reference": "MH1X8",
+    "designation": "MULTIPLICATEUR HDMI 1X8",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "MH8P",
+    "designation": "MULTIPLICATEUR HDMI 8 PORT",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 40000.0
+  },
+  {
+    "reference": "MULT3",
+    "designation": "MULTIPRISE 3 TROUS",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 2500.0
+  },
+  {
+    "reference": "NRV32P",
+    "designation": "NRV 32 VOIE POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 260000.0
+  },
+  {
+    "reference": "NVR16P",
+    "designation": "NVR 16 VOIE POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 195000.0
+  },
+  {
+    "reference": "NVR8NP",
+    "designation": "NVR 08 VOIE NON POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 4,
+    "prix_unitaire": 55000.0
+  },
+  {
+    "reference": "NV16NP",
+    "designation": "NVR 16 VOIE NON POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 85000.0
+  },
+  {
+    "reference": "NV32NP",
+    "designation": "NVR 32 VOIE NON POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 4,
+    "prix_unitaire": 140000.0
+  },
+  {
+    "reference": "NVR4NP",
+    "designation": "NVR 4 VOIE NON POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 50000.0
+  },
+  {
+    "reference": "NVR4P",
+    "designation": "NVR 4 VOIE POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 65000.0
+  },
+  {
+    "reference": "NV64NP",
+    "designation": "NVR 64 VOIE NON POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 450000.0
+  },
+  {
+    "reference": "NVR8NP2",
+    "designation": "NVR 8 VOIE NON POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 55000.0
+  },
+  {
+    "reference": "NVR8P",
+    "designation": "NVR 8 VOIE POE",
+    "categorie": "ENREGISTREUR",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 120000.0
+  },
+  {
+    "reference": "ON1K",
+    "designation": "ONDULEUR 1000 VA",
+    "categorie": "ALIMENTATION",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 34500.0
+  },
+  {
+    "reference": "ON15K",
+    "designation": "ONDULEUR 15000 VA",
+    "categorie": "ALIMENTATION",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 45000.0
+  },
+  {
+    "reference": "ONHIK",
+    "designation": "ONDULEUR HIKVISION 2000VA",
+    "categorie": "ALIMENTATION",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 75000.0
+  },
+  {
+    "reference": "PDAN",
+    "designation": "PANNEAU DE DANGER",
+    "categorie": "CLOTURE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 2,
+    "prix_unitaire": 1500.0
+  },
+  {
+    "reference": "PRIP",
+    "designation": "PLATINE DE RUE IP 4 PORTS",
+    "categorie": "VISIOPHONE",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 90000.0
+  },
+  {
+    "reference": "PLT1",
+    "designation": "PLATRE 1KG",
+    "categorie": "DIVERS",
+    "unite": "KILO",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 500.0
+  },
+  {
+    "reference": "PAPRO",
+    "designation": "POINT ACCES UAP-AC-PRO WIFI",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 2,
+    "stock_initial": 12,
+    "prix_unitaire": 125000.0
+  },
+  {
+    "reference": "PCON",
+    "designation": "PONT CONNECTEUR",
+    "categorie": "RESEAU",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 500.0
+  },
+  {
+    "reference": "PRJ45",
+    "designation": "PRISE SIMPLE RJ45",
+    "categorie": "RESEAU",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 3000.0
+  },
+  {
+    "reference": "PTEL",
+    "designation": "PRISE TELEPHONIQUE",
+    "categorie": "ELECTRICITE",
+    "unite": "PIECES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 2500.0
+  },
+  {
+    "reference": "RECT",
+    "designation": "RECEPTEUR + 2 TELECOMMANDES",
+    "categorie": "PORTAIL AUTO",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 15000.0
+  },
+  {
+    "reference": "REPWF",
+    "designation": "REPETEUR WIFI AVEC RJ45",
+    "categorie": "RESEAU",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 18000.0
+  },
+  {
+    "reference": "RESS",
+    "designation": "RESSORT",
+    "categorie": "PORTAIL AUTO",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 2,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "SERP",
+    "designation": "SERRURE DE PORTE",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 2,
+    "prix_unitaire": 15000.0
+  },
+  {
+    "reference": "SERE",
+    "designation": "SERRURE ELECTRIQUE PARFAITE",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 2,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "SHER",
+    "designation": "SHERLO",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "SIR",
+    "designation": "SIRENE",
+    "categorie": "ALARME",
+    "unite": "UNITES",
+    "seuil_alerte": 5,
+    "stock_initial": 36,
+    "prix_unitaire": 5000.0
+  },
+  {
+    "reference": "SMAC",
+    "designation": "SMART ACCES CONTROLE",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 2,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "SMLG",
+    "designation": "SMART LOCK GATEWAY",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 2,
+    "stock_initial": 20,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "SMTV",
+    "designation": "SMART TV BOX",
+    "categorie": "DIVERS",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 40000.0
+  },
+  {
+    "reference": "SMWK",
+    "designation": "SMART SWITCH KAKI",
+    "categorie": "CONTROLE ACCES",
+    "unite": "CARTON",
+    "seuil_alerte": 2,
+    "stock_initial": 12,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "SANG",
+    "designation": "SUPPORT D ANGLE",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 5,
+    "stock_initial": 44,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SD8R",
+    "designation": "SUPPORT DROIT 8 BOBINE RIVES",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 5,
+    "stock_initial": 36,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SI10R",
+    "designation": "SUPPORT INCLINE 10 RIVES",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 7,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SD10NR",
+    "designation": "SUPPORT DROIT 10 NON RIVES",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SD8NR",
+    "designation": "SUPPORT DROIT 8 NON RIVES",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SI10NR",
+    "designation": "SUPPORT INCLINE 10 NON RIVES",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "SCLOT",
+    "designation": "SUPPORT DE CLOTURE PAR UNITE",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 0,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SD10R",
+    "designation": "SUPPORT DROIT 10 BOBINES RIVES",
+    "categorie": "CLOTURE",
+    "unite": "PIECES",
+    "seuil_alerte": 5,
+    "stock_initial": 24,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SI8R",
+    "designation": "SUPPORT INCLINE 8 BOBINE RIVES",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 3,
+    "stock_initial": 7,
+    "prix_unitaire": 1000.0
+  },
+  {
+    "reference": "SRAM",
+    "designation": "SUPPORT RURAL AMOVIBLE",
+    "categorie": "CLOTURE",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 8000.0
+  },
+  {
+    "reference": "SW16P",
+    "designation": "SWITCH 16 PORT POE SMART MANAGED",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 5,
+    "prix_unitaire": 105000.0
+  },
+  {
+    "reference": "SW4P",
+    "designation": "SWITCH 4 PORT POE GIGABIT MANAGED",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 25000.0
+  },
+  {
+    "reference": "SW8P",
+    "designation": "SWITCH 8 PORT POE SMART MANAGED",
+    "categorie": "RESEAU",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 3,
+    "prix_unitaire": 40000.0
+  },
+  {
+    "reference": "SWSL",
+    "designation": "SWITCH SMART LIFE STARTS",
+    "categorie": "RESEAU",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "TABG",
+    "designation": "TABLETTE GALAXY A9 9 POUCES",
+    "categorie": "DIVERS",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 85000.0
+  },
+  {
+    "reference": "TELC",
+    "designation": "TELECOMMANDE PORTAIL AUTO",
+    "categorie": "PORTAIL AUTO",
+    "unite": "UNITES",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "TV32",
+    "designation": "TELEVISION 32 POUCES",
+    "categorie": "DIVERS",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 55000.0
+  },
+  {
+    "reference": "TYPH",
+    "designation": "TYPHON TP 8X50 100PCS",
+    "categorie": "CLOTURE",
+    "unite": "PAQUETS",
+    "seuil_alerte": 2,
+    "stock_initial": 1,
+    "prix_unitaire": 7000.0
+  },
+  {
+    "reference": "UPSP",
+    "designation": "USINE PROD SUPPORT PROGALVA",
+    "categorie": "CLOTURE",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 83190.0
+  },
+  {
+    "reference": "VEN180",
+    "designation": "VENTOUSE 180KG",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 35000.0
+  },
+  {
+    "reference": "VEN280",
+    "designation": "VENTOUSE 280KG",
+    "categorie": "CONTROLE ACCES",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 70000.0
+  },
+  {
+    "reference": "VEN350",
+    "designation": "VENTOUSE 350KG",
+    "categorie": "CONTROLE ACCES",
+    "unite": "UNITES",
+    "seuil_alerte": 1,
+    "stock_initial": 0,
+    "prix_unitaire": 100000.0
+  },
+  {
+    "reference": "VEN500",
+    "designation": "VENTOUSE 500KG",
+    "categorie": "CONTROLE ACCES",
+    "unite": "PIECES",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 90000.0
+  },
+  {
+    "reference": "VICOR",
+    "designation": "VICE EN OR",
+    "categorie": "OUTILLAGE",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 2,
+    "prix_unitaire": 5000.0
+  },
+  {
+    "reference": "VICFO",
+    "designation": "VICE FOREUSE",
+    "categorie": "OUTILLAGE",
+    "unite": "CARTON",
+    "seuil_alerte": 1,
+    "stock_initial": 1,
+    "prix_unitaire": 10000.0
+  },
+  {
+    "reference": "WDC",
+    "designation": "WIRELESS DOOR CONTACT",
+    "categorie": "ALARME",
+    "unite": "CARTON",
+    "seuil_alerte": 2,
+    "stock_initial": 2,
+    "prix_unitaire": 0.0
+  },
+  {
+    "reference": "TOTAL VALEUR STOCK INITIAL",
+    "designation": "",
+    "categorie": "",
+    "unite": "UNITE",
+    "seuil_alerte": 2,
+    "stock_initial": 0,
+    "prix_unitaire": 0
+  }
+]

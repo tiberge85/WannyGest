@@ -638,6 +638,42 @@ except Exception as _e:
     print(f"[v92-Stock] Erreur init Stock : {_e}", flush=True)
 
 
+# ==================== v97 : SEED 196 ARTICLES RAMYA depuis stock_articles_seed.json ====================
+# Charge le catalogue RAMYA (ADAPTATEUR, CABLE, CAMERA, etc.) si la table est vide
+try:
+    import json as _json
+    import os as _os
+    from models import get_db as _v97_db
+    _v97_conn = _v97_db()
+    # Vérifier si la table est vide
+    _nb_existing = _v97_conn.execute("SELECT COUNT(*) FROM mg_stock_articles").fetchone()[0]
+    if _nb_existing == 0:
+        _seed_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'stock_articles_seed.json')
+        if _os.path.exists(_seed_path):
+            with open(_seed_path, 'r', encoding='utf-8') as _sf:
+                _articles = _json.load(_sf)
+            _count = 0
+            for _a in _articles:
+                try:
+                    _v97_conn.execute("""INSERT OR IGNORE INTO mg_stock_articles 
+                        (reference, designation, categorie, unite, seuil_alerte, stock_initial, prix_unitaire, created_at, updated_at)
+                        VALUES (?,?,?,?,?,?,?,datetime('now'),datetime('now'))""",
+                        (_a['reference'], _a['designation'], _a.get('categorie',''),
+                         _a.get('unite','UNITE'), _a.get('seuil_alerte', 2),
+                         _a.get('stock_initial', 0), _a.get('prix_unitaire', 0)))
+                    _count += 1
+                except: pass
+            _v97_conn.commit()
+            print(f"[v97-Seed] {_count} articles RAMYA chargés dans le catalogue", flush=True)
+        else:
+            print(f"[v97-Seed] Fichier seed non trouvé : {_seed_path}", flush=True)
+    else:
+        print(f"[v97-Seed] Catalogue déjà initialisé ({_nb_existing} articles)", flush=True)
+    _v97_conn.close()
+except Exception as _e:
+    print(f"[v97-Seed] Erreur seed articles : {_e}", flush=True)
+
+
 # ==================== v92 : MODULE SUIVI DES CRÉANCES CLIENTS ====================
 # Inspiré du fichier TABLEAU_DE_BORD_CREANCE_CLIENT.xlsx
 try:

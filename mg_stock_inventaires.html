@@ -45,41 +45,57 @@
 
 <div class="card">
     <div class="card-body" style="padding:0;overflow-x:auto">
-        <table style="width:100%;font-size:11px;min-width:1300px;border-collapse:collapse">
-            <thead style="background:#1A7A6D;color:#fff">
+        <table style="width:100%;font-size:11px;min-width:1400px;border-collapse:collapse">
+            <thead>
                 <tr>
-                    <th style="padding:10px;text-align:left;min-width:80px">Réf.</th>
-                    <th style="padding:10px;text-align:left;min-width:180px">Désignation</th>
-                    <th style="padding:10px;text-align:left;min-width:110px">Catégorie</th>
-                    <th style="padding:10px;text-align:center">Unité</th>
-                    <th style="padding:10px;text-align:right" title="Seuil d'alerte">Seuil</th>
-                    <th style="padding:10px;text-align:right" title="Stock initial">Stock init.</th>
-                    <th style="padding:10px;text-align:right">P.U. (FCFA)</th>
-                    <th style="padding:10px;text-align:right" title="Valeur initiale">Total initial</th>
-                    <th style="padding:10px;text-align:right;background:#2e7d32" title="Total entrées">Total entrées</th>
-                    <th style="padding:10px;text-align:right;background:#c53030" title="Total sorties">Total sorties</th>
-                    <th style="padding:10px;text-align:right;background:#0f5a51" title="Stock initial + entrées - sorties">Stock actuel</th>
-                    <th style="padding:10px;text-align:right;background:#0f5a51">Valeur actuelle</th>
-                    <th style="padding:10px;text-align:center">Alerte</th>
+                    <th style="padding:14px 10px;text-align:left;min-width:80px;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Réf.</th>
+                    <th style="padding:14px 10px;text-align:left;min-width:180px;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Désignation</th>
+                    <th style="padding:14px 10px;text-align:left;min-width:110px;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Catégorie</th>
+                    <th style="padding:14px 10px;text-align:center;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Unité</th>
+                    <th style="padding:14px 10px;text-align:right;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800" title="Seuil d'alerte">Seuil</th>
+                    <th style="padding:14px 10px;text-align:right;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800" title="Stock initial">Stock init.</th>
+                    <th style="padding:14px 10px;text-align:right;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">P.U. (FCFA)</th>
+                    <th style="padding:14px 10px;text-align:right;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800" title="Valeur initiale">Total initial</th>
+                    {# v97 : En-têtes Entrées/Sorties avec couleurs distinctes et bordures séparatrices #}
+                    <th style="padding:14px 10px;text-align:right;background:#2e7d32;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff;text-shadow:1px 1px 2px rgba(0,0,0,0.3)" title="Total entrées">📥 Entrées</th>
+                    <th style="padding:14px 10px;text-align:right;background:#c53030;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff;text-shadow:1px 1px 2px rgba(0,0,0,0.3)" title="Total sorties">📤 Sorties</th>
+                    <th style="padding:14px 10px;text-align:right;background:#0f5a51;color:#fff;font-size:13px;font-weight:900;border-left:3px solid #fff;text-shadow:1px 1px 2px rgba(0,0,0,0.3)" title="Stock initial + entrées - sorties">Stock actuel</th>
+                    <th style="padding:14px 10px;text-align:right;background:#0f5a51;color:#fff;font-size:12px;font-weight:800">Valeur actuelle</th>
+                    <th style="padding:14px 10px;text-align:center;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Alerte</th>
                 </tr>
             </thead>
             <tbody>
             {% for a in articles %}
-            <tr style="border-bottom:1px solid #eee;{% if a.alerte == 'EPUISE' %}background:#ffebee{% elif a.alerte == 'FAIBLE' %}background:#fff3e0{% endif %}">
-                <td style="padding:7px 10px;font-family:monospace;font-weight:600">{{ a.reference }}</td>
-                <td style="padding:7px 10px"><strong>{{ a.designation }}</strong></td>
-                <td style="padding:7px 10px;font-size:10px;color:#666">{{ a.categorie or '-' }}</td>
-                <td style="text-align:center;padding:7px 10px;font-size:10px">{{ a.unite or 'UNITE' }}</td>
-                <td style="text-align:right;padding:7px 10px">{{ a.seuil_alerte or '-' }}</td>
-                <td style="text-align:right;padding:7px 10px;color:#888">{{ a.stock_initial or 0 }}</td>
-                <td style="text-align:right;padding:7px 10px">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
-                <td style="text-align:right;padding:7px 10px;color:#888">{{ '{:,.0f}'.format(a.total_initial_value).replace(',', ' ') }}</td>
-                <td style="text-align:right;padding:7px 10px;color:#2e7d32;font-weight:700">+{{ a.total_entrees }}</td>
-                <td style="text-align:right;padding:7px 10px;color:#c53030;font-weight:700">−{{ a.total_sorties }}</td>
-                <td style="text-align:right;padding:7px 10px;font-weight:800;font-size:14px;color:{{ a.alerte_color }}">{{ a.stock_actuel }}</td>
-                <td style="text-align:right;padding:7px 10px;font-weight:700">{{ '{:,.0f}'.format(a.valeur_actuelle).replace(',', ' ') }}</td>
-                <td style="text-align:center;padding:7px 10px">
-                    <span style="background:{{ a.alerte_color }};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">{{ a.alerte_label }}</span>
+            {# v97 : Lignes alerte EPUISE/FAIBLE avec fonds PLEINS et textes BLANCS pour contraste maximal #}
+            {% if a.alerte == 'EPUISE' %}{% set row_bg = '#c53030' %}{% set row_txt = '#fff' %}{% set row_txt_soft = 'rgba(255,255,255,0.85)' %}
+            {% elif a.alerte == 'FAIBLE' %}{% set row_bg = '#F29F2F' %}{% set row_txt = '#fff' %}{% set row_txt_soft = 'rgba(255,255,255,0.85)' %}
+            {% else %}{% set row_bg = '' %}{% set row_txt = '#222' %}{% set row_txt_soft = '#666' %}
+            {% endif %}
+            <tr style="border-bottom:1px solid #eee;{% if row_bg %}background:{{ row_bg }};color:{{ row_txt }}{% endif %}">
+                <td style="padding:9px 10px;font-family:monospace;font-weight:700;{% if row_bg %}color:{{ row_txt }}{% endif %}">{{ a.reference }}</td>
+                <td style="padding:9px 10px;{% if row_bg %}color:{{ row_txt }}{% endif %}"><strong>{{ a.designation }}</strong></td>
+                <td style="padding:9px 10px;font-size:10px;{% if row_bg %}color:{{ row_txt_soft }}{% else %}color:#666{% endif %}">{{ a.categorie or '-' }}</td>
+                <td style="text-align:center;padding:9px 10px;font-size:10px;{% if row_bg %}color:{{ row_txt }};font-weight:600{% endif %}">{{ a.unite or 'UNITE' }}</td>
+                <td style="text-align:right;padding:9px 10px;{% if row_bg %}color:{{ row_txt }};font-weight:700{% endif %}">{{ a.seuil_alerte or '-' }}</td>
+                <td style="text-align:right;padding:9px 10px;{% if row_bg %}color:{{ row_txt_soft }}{% else %}color:#888{% endif %}">{{ a.stock_initial or 0 }}</td>
+                <td style="text-align:right;padding:9px 10px;{% if row_bg %}color:{{ row_txt }};font-weight:600{% endif %}">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:9px 10px;{% if row_bg %}color:{{ row_txt_soft }}{% else %}color:#888{% endif %}">{{ '{:,.0f}'.format(a.total_initial_value).replace(',', ' ') }}</td>
+                {# Entrées : fond vert pastel hors alerte / fond plein pour alerte #}
+                <td style="text-align:right;padding:9px 10px;font-weight:800;font-size:13px;{% if row_bg %}color:#fff;background:rgba(46,125,50,0.4){% else %}color:#2e7d32;background:#e8f5e9{% endif %}">+{{ a.total_entrees }}</td>
+                {# Sorties : fond rouge pastel hors alerte / fond plein pour alerte #}
+                <td style="text-align:right;padding:9px 10px;font-weight:800;font-size:13px;{% if row_bg %}color:#fff;background:rgba(197,48,48,0.4){% else %}color:#c53030;background:#ffebee{% endif %}">−{{ a.total_sorties }}</td>
+                {# Stock actuel : encadré avec gros chiffre #}
+                <td style="text-align:right;padding:9px 10px;font-weight:900;font-size:16px;{% if row_bg %}color:#fff;background:rgba(0,0,0,0.2){% else %}color:{{ a.alerte_color }};background:#f0f7f5{% endif %}">{{ a.stock_actuel }}</td>
+                <td style="text-align:right;padding:9px 10px;font-weight:700;{% if row_bg %}color:{{ row_txt }}{% endif %}">{{ '{:,.0f}'.format(a.valeur_actuelle).replace(',', ' ') }}</td>
+                <td style="text-align:center;padding:9px 10px">
+                    {# Badge alerte : fond blanc semi-transparent si ligne colorée, sinon fond plein #}
+                    {% if a.alerte == 'EPUISE' %}
+                    <span style="background:#fff;color:#c53030;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:900;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,0.2)">⛔ ÉPUISÉ</span>
+                    {% elif a.alerte == 'FAIBLE' %}
+                    <span style="background:#fff;color:#e8672a;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:900;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,0.2)">⚠ FAIBLE</span>
+                    {% else %}
+                    <span style="background:#2e7d32;color:#fff;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:800;white-space:nowrap">✓ OK</span>
+                    {% endif %}
                 </td>
             </tr>
             {% else %}
@@ -87,21 +103,40 @@
             {% endfor %}
             </tbody>
             {% if articles %}
-            <tfoot style="background:#0f5a51;color:#fff;font-weight:700">
-                <tr>
-                    <td colspan="5" style="padding:12px;text-align:right">TOTAUX</td>
-                    <td style="text-align:right;padding:12px">{{ totaux.total_initial }}</td>
+            <tfoot>
+                <tr style="background:#0f5a51;color:#fff;font-weight:800">
+                    <td colspan="5" style="padding:14px;text-align:right;font-size:13px">TOTAUX</td>
+                    <td style="text-align:right;padding:14px;font-size:13px">{{ totaux.total_initial }}</td>
                     <td></td>
-                    <td style="text-align:right;padding:12px">{{ '{:,.0f}'.format(totaux.total_initial_value).replace(',', ' ') }}</td>
-                    <td style="text-align:right;padding:12px;background:#2e7d32">+{{ totaux.total_entrees }}</td>
-                    <td style="text-align:right;padding:12px;background:#c53030">−{{ totaux.total_sorties }}</td>
-                    <td style="text-align:right;padding:12px;font-size:14px">{{ totaux.total_actuel }}</td>
-                    <td style="text-align:right;padding:12px;font-size:13px">{{ '{:,.0f}'.format(totaux.total_valeur_actuelle).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:14px;font-size:13px">{{ '{:,.0f}'.format(totaux.total_initial_value).replace(',', ' ') }}</td>
+                    <td style="text-align:right;padding:14px;background:#2e7d32;font-size:14px;border-left:2px solid #fff;text-shadow:1px 1px 2px rgba(0,0,0,0.3)">+{{ totaux.total_entrees }}</td>
+                    <td style="text-align:right;padding:14px;background:#c53030;font-size:14px;border-left:2px solid #fff;text-shadow:1px 1px 2px rgba(0,0,0,0.3)">−{{ totaux.total_sorties }}</td>
+                    <td style="text-align:right;padding:14px;font-size:15px;border-left:3px solid #fff">{{ totaux.total_actuel }}</td>
+                    <td style="text-align:right;padding:14px;font-size:14px">{{ '{:,.0f}'.format(totaux.total_valeur_actuelle).replace(',', ' ') }}</td>
                     <td></td>
                 </tr>
             </tfoot>
             {% endif %}
         </table>
+    </div>
+</div>
+
+{# Légende des couleurs #}
+<div style="margin-top:14px;background:#f8faf9;padding:12px;border-radius:8px;border:1px solid #ddd">
+    <div style="font-size:11px;color:#666;text-transform:uppercase;font-weight:700;margin-bottom:8px;letter-spacing:0.5px">📖 Légende des alertes</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px">
+        <div style="display:flex;align-items:center;gap:6px">
+            <span style="display:inline-block;width:14px;height:14px;background:#c53030;border-radius:3px"></span>
+            <span><strong style="color:#c53030">⛔ ÉPUISÉ</strong> : stock = 0, à recommander d'urgence</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+            <span style="display:inline-block;width:14px;height:14px;background:#F29F2F;border-radius:3px"></span>
+            <span><strong style="color:#e8672a">⚠ FAIBLE</strong> : stock inférieur ou égal au seuil d'alerte</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+            <span style="display:inline-block;width:14px;height:14px;background:#2e7d32;border-radius:3px"></span>
+            <span><strong style="color:#2e7d32">✓ OK</strong> : stock suffisant</span>
+        </div>
     </div>
 </div>
 {% endblock %}
