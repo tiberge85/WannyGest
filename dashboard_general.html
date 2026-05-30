@@ -33,6 +33,8 @@
 
 {% include '_project_notifs.html' %}
 
+{% include '_my_projects_widget.html' %}
+
 {% set total_alertes = (data.alertes_caisse or 0) + (data.virements_attente or 0) + (data.absences_alertes or 0) + (data.conges_attente or 0) + (data.compta_brouillard or 0) %}
 {% if total_alertes > 0 %}
 <div class="dg-section-title">🚨 Alertes & actions à traiter <span style="background:#c53030;color:#fff;padding:1px 8px;border-radius:10px;font-size:10px">{{ total_alertes }}</span></div>

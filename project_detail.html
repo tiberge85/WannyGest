@@ -10,6 +10,12 @@
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
         <a href="/projects/{{ project.id }}/fiche-planification.pdf" target="_blank" class="btn btn-sm" style="background:#1976d2;color:#fff">📄 Fiche planification</a>
+        {# v87 : Suppression projet clôturé (admin uniquement) #}
+        {% if project.status == 'cloture' and current_user and current_user.role == 'admin' %}
+        <form method="post" action="/projects/{{ project.id }}/delete" style="display:inline" onsubmit="return confirm('⚠️ ATTENTION : Cette suppression est DÉFINITIVE. Toutes les données du projet (historique, notifications, matériels, équipe, rapports) seront effacées.\n\nConfirmer la suppression du projet {{ project.reference }} ?');">
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff">🗑️ Supprimer (admin)</button>
+        </form>
+        {% endif %}
         <a href="/projects" class="btn btn-outline btn-sm">← Liste</a>
     </div>
 </div>

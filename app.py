@@ -674,6 +674,106 @@ def project_access_required(f):
     return decorated
 
 
+# v87 : Helper - liste des projets actifs où l'utilisateur est impliqué
+# avec indicateur "c'est votre tour" selon le service responsable de l'étape actuelle
+def _get_my_active_projects(user_id, user_role):
+    """Retourne les projets actifs (non clôturés) où l'utilisateur a un rôle à jouer.
+    Pour chaque projet, ajoute 'my_turn' = True si c'est à ce rôle d'agir maintenant."""
+    # Mapping étape → rôles concernés (ceux qui doivent agir)
+    STEP_ACTORS = {
+        'valide':       ['commercial', 'admin', 'dg', 'directeur'],
+        'demarre':      ['coordinateur', 'gestionnaire_projet', 'resp_projet', 'admin'],
+        'preparation':  ['mg', 'magasinier', 'moyens_generaux', 'admin'],
+        'planifie':     ['coordinateur', 'gestionnaire_projet', 'resp_projet', 'admin'],
+        'execution':    ['technicien', 'tech_chef', 'chef_chantier', 'centre_technique', 'admin'],
+        'travaux_fin':  ['coordinateur', 'gestionnaire_projet', 'resp_projet', 'admin'],
+        'qc_valide':    ['coordinateur', 'gestionnaire_projet', 'resp_projet', 'admin'],
+        'qc_rejete':    ['technicien', 'tech_chef', 'centre_technique', 'admin'],
+        'livre':        ['comptabilite', 'comptable', 'admin'],
+        'attente_solde':['comptabilite', 'comptable', 'admin'],
+        'solde':        ['commercial', 'admin'],
+        'contrat_oui':  ['commercial', 'admin'],
+        'contrat_non':  ['commercial', 'admin'],
+    }
+    
+    try:
+        from models import get_db as _g
+        conn = _g()
+        # Tous projets non clôturés (admin/dg/directeur voient tout, les autres : leur tour ou impliqués)
+        if user_role in ('admin', 'dg', 'directeur'):
+            rows = conn.execute("""
+                SELECT id, reference, title, client_name, status, current_step, progress_pct, 
+                       coordinator_id, created_by, start_date, end_date_planned
+                FROM wf_projects WHERE status != 'cloture'
+                ORDER BY 
+                    CASE WHEN status IN ('execution','travaux_fin','planifie') THEN 1 
+                         WHEN status IN ('valide','demarre','preparation') THEN 2
+                         ELSE 3 END,
+                    created_at DESC LIMIT 30
+            """).fetchall()
+        else:
+            # Projets où l'utilisateur est : coordinateur, créateur, ou membre d'équipe
+            # OU dont l'étape actuelle concerne son rôle
+            rows = conn.execute("""
+                SELECT DISTINCT p.id, p.reference, p.title, p.client_name, p.status, p.current_step,
+                                p.progress_pct, p.coordinator_id, p.created_by,
+                                p.start_date, p.end_date_planned
+                FROM wf_projects p
+                LEFT JOIN wf_project_team t ON t.project_id = p.id
+                WHERE p.status != 'cloture'
+                  AND (p.coordinator_id = ? OR p.created_by = ? OR t.user_id = ?)
+                ORDER BY p.created_at DESC LIMIT 30
+            """, (user_id, user_id, user_id)).fetchall()
+        
+        projects = []
+        for r in rows:
+            p = dict(r)
+            # Enrichir avec step info
+            info = PROJECT_STATUS_INFO.get(p['status'], {})
+            p['step_label'] = info.get('label', p['status'])
+            p['step_icon'] = info.get('icon', '📋')
+            p['service_label'] = info.get('service_label', '')
+            p['color'] = info.get('color', '#888')
+            p['next_label'] = info.get('next_label', '')
+            # C'est mon tour si mon rôle est dans les acteurs de l'étape courante
+            actors = STEP_ACTORS.get(p['status'], [])
+            p['my_turn'] = (user_role in actors) or (user_role == 'admin')
+            projects.append(p)
+        
+        # Pour les non-admin, ajouter aussi les projets où c'est leur tour (même si pas dans équipe)
+        if user_role not in ('admin', 'dg', 'directeur'):
+            # Quels statuts concernent ce rôle ?
+            relevant_statuses = [st for st, actors in STEP_ACTORS.items() if user_role in actors]
+            if relevant_statuses:
+                placeholders = ','.join('?' * len(relevant_statuses))
+                already_ids = [p['id'] for p in projects]
+                ids_filter = f"AND id NOT IN ({','.join('?'*len(already_ids))})" if already_ids else ""
+                extra = conn.execute(f"""
+                    SELECT id, reference, title, client_name, status, current_step, progress_pct,
+                           coordinator_id, created_by, start_date, end_date_planned
+                    FROM wf_projects WHERE status IN ({placeholders}) {ids_filter}
+                    ORDER BY created_at DESC LIMIT 20
+                """, list(relevant_statuses) + already_ids).fetchall()
+                for r in extra:
+                    p = dict(r)
+                    info = PROJECT_STATUS_INFO.get(p['status'], {})
+                    p['step_label'] = info.get('label', p['status'])
+                    p['step_icon'] = info.get('icon', '📋')
+                    p['service_label'] = info.get('service_label', '')
+                    p['color'] = info.get('color', '#888')
+                    p['next_label'] = info.get('next_label', '')
+                    p['my_turn'] = True
+                    projects.append(p)
+        
+        conn.close()
+        # Trier : mon tour d'abord
+        projects.sort(key=lambda x: (not x.get('my_turn'), x.get('current_step', 0)))
+        return projects[:15]
+    except Exception as e:
+        print(f"[_get_my_active_projects] erreur : {e}", flush=True)
+        return []
+
+
 @app.context_processor
 def inject_globals():
     """Injecte les variables globales dans tous les templates."""
@@ -781,6 +881,17 @@ def inject_globals():
             except:
                 ctx['project_notifs'] = []
                 ctx['project_notifs_count'] = 0
+            
+            # v87 : Liste des projets où l'utilisateur est impliqué (pour widget dashboard)
+            try:
+                _mp_projects = _get_my_active_projects(user['id'], user['role'])
+                ctx['my_projects'] = _mp_projects
+                ctx['my_projects_count'] = len(_mp_projects)
+                ctx['my_projects_action_required'] = len([p for p in _mp_projects if p.get('my_turn')])
+            except Exception as _e_mp:
+                ctx['my_projects'] = []
+                ctx['my_projects_count'] = 0
+                ctx['my_projects_action_required'] = 0
             if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
                     from models import get_db as _gdb
@@ -11008,9 +11119,10 @@ def _auto_create_project_if_needed(devis_id, invoice_id=None, acompte_amount=0):
     
     _project_log(pid, 'creation', None, 'valide',
         f"Projet créé automatiquement depuis devis {devis.get('reference')} (acompte {acompte_amount:,.0f} FCFA)")
-    _project_notify(pid, ['coordinateur', 'admin'],
-        f"Nouveau projet validé : {title}",
-        f"Le projet {ref} est validé (devis signé + acompte enregistré). À préparer.",
+    # v87 : Notification large à tous les acteurs potentiels du projet
+    _project_notify(pid, ['admin', 'dg', 'directeur', 'coordinateur', 'gestionnaire_projet', 'resp_projet', 'commercial'],
+        f"🆕 Nouveau projet validé : {title}",
+        f"Le projet {ref} est validé (devis signé + acompte {acompte_amount:,.0f} FCFA). Un coordinateur doit prendre en charge le démarrage.",
         f"/projects/{pid}")
     
     return pid
@@ -11055,21 +11167,23 @@ def _project_advance(project_id, to_status, comment=''):
     
     _project_log(project_id, 'transition', from_status, to_status, comment)
     
-    # v86 : Notifications selon nouveau workflow (chaque étape notifie le service suivant)
+    # v87 : Notifications enrichies — chaque transition notifie le service responsable
+    # ET les acteurs annexes (coordinateurs au sens large)
+    COORD_ROLES = ['coordinateur', 'gestionnaire_projet', 'resp_projet']
     notif_map = {
-        'demarre':        (['mg', 'magasinier'],           "🚀 Démarrage validé — Préparer le matériel",  "Le coordinateur a validé le démarrage. Vérifier la disponibilité du matériel et préparer les ressources."),
-        'preparation':    (['mg', 'magasinier'],           "📦 Préparation matériel demandée",            "Lister et réserver le matériel nécessaire au projet."),
-        'planifie':       (['technicien', 'tech_chef', 'chef_chantier'], "📅 Projet planifié — Travaux à venir", "Vous êtes affecté à ce projet. Consultez la fiche de planification."),
-        'execution':      (['technicien', 'tech_chef'],    "🔧 Travaux à exécuter maintenant",            "Démarrer les travaux selon le programme défini."),
-        'travaux_fin':    (['coordinateur'],               "🏁 Travaux terminés — Contrôle qualité requis","Procéder au contrôle qualité avant livraison au client."),
-        'qc_valide':      (['coordinateur'],               "🔍 Contrôle qualité validé — Programmer livraison","Le contrôle qualité est validé. Programmer le rendez-vous de livraison avec le client."),
-        'qc_rejete':      (['technicien', 'tech_chef'],    "❌ Contrôle qualité rejeté — Reprise requise", "Le contrôle qualité a été rejeté. Reprendre les travaux selon les observations du coordinateur."),
-        'livre':          (['comptabilite', 'comptable'],  "🚚 Projet livré — Facturer le solde",         "La livraison est effectuée (BL + ABE signés). Générer la facture du solde et suivre le paiement."),
-        'attente_solde':  (['comptabilite', 'comptable'],  "⏳ Solde en attente de paiement",             "Relancer le client pour le paiement du solde du projet."),
-        'solde':          (['commercial'],                 "💰 Projet soldé — Proposer contrat entretien", "Le solde est encaissé. Proposer un contrat d'entretien au client."),
-        'contrat_oui':    (['commercial', 'coordinateur'], "✅ Contrat entretien accepté",                "Le client accepte le contrat d'entretien. Procéder à la clôture du projet."),
-        'contrat_non':    (['commercial', 'coordinateur'], "🚫 Contrat entretien refusé",                 "Le client refuse le contrat d'entretien. Procéder à la clôture du projet."),
-        'cloture':        (['admin', 'coordinateur', 'commercial'], "🏆 Projet clôturé",                  "Le projet est officiellement clôturé. Archivage disponible."),
+        'demarre':        (['mg', 'magasinier'] + COORD_ROLES,   "🚀 Démarrage validé — Préparer le matériel",  "Le coordinateur a validé le démarrage. Vérifier la disponibilité du matériel et préparer les ressources."),
+        'preparation':    (['mg', 'magasinier'] + COORD_ROLES,   "📦 Préparation matériel demandée",            "Lister et réserver le matériel nécessaire au projet."),
+        'planifie':       (['technicien', 'tech_chef', 'chef_chantier', 'centre_technique'] + COORD_ROLES, "📅 Projet planifié — Travaux à venir", "Vous êtes affecté à ce projet. Consultez la fiche de planification."),
+        'execution':      (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "🔧 Travaux à exécuter maintenant", "Démarrer les travaux selon le programme défini."),
+        'travaux_fin':    (COORD_ROLES,                          "🏁 Travaux terminés — Contrôle qualité requis","Procéder au contrôle qualité avant livraison au client."),
+        'qc_valide':      (COORD_ROLES,                          "🔍 Contrôle qualité validé — Programmer livraison","Le contrôle qualité est validé. Programmer le rendez-vous de livraison avec le client."),
+        'qc_rejete':      (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "❌ Contrôle qualité rejeté — Reprise requise", "Le contrôle qualité a été rejeté. Reprendre les travaux selon les observations du coordinateur."),
+        'livre':          (['comptabilite', 'comptable'] + COORD_ROLES, "🚚 Projet livré — Facturer le solde",   "La livraison est effectuée (BL + ABE signés). Générer la facture du solde et suivre le paiement."),
+        'attente_solde':  (['comptabilite', 'comptable'] + COORD_ROLES, "⏳ Solde en attente de paiement",       "Relancer le client pour le paiement du solde du projet."),
+        'solde':          (['commercial'] + COORD_ROLES,         "💰 Projet soldé — Proposer contrat entretien", "Le solde est encaissé. Proposer un contrat d'entretien au client."),
+        'contrat_oui':    (['commercial'] + COORD_ROLES,         "✅ Contrat entretien accepté",                "Le client accepte le contrat d'entretien. Procéder à la clôture du projet."),
+        'contrat_non':    (['commercial'] + COORD_ROLES,         "🚫 Contrat entretien refusé",                 "Le client refuse le contrat d'entretien. Procéder à la clôture du projet."),
+        'cloture':        (['admin', 'commercial', 'dg', 'directeur'] + COORD_ROLES, "🏆 Projet clôturé",         "Le projet est officiellement clôturé. Archivage disponible."),
     }
     if to_status in notif_map:
         roles, n_title, n_msg = notif_map[to_status]
@@ -11621,12 +11735,22 @@ def projects_create():
         
         _project_log(pid, 'creation_manuelle', None, 'valide',
             f"Projet créé manuellement par {get_user_by_id(session['user_id'])['full_name']}")
-        _project_notify(pid, ['coordinateur', 'admin'],
-            f"Nouveau projet : {title}",
-            f"Projet {ref} créé manuellement. À préparer.",
+        # v87 : Notification à tous les acteurs potentiels — le coordinateur prend la suite
+        _project_notify(pid, ['admin', 'dg', 'directeur', 'coordinateur', 'gestionnaire_projet', 'resp_projet', 'commercial'],
+            f"🆕 Nouveau projet à démarrer : {title}",
+            f"Le projet {ref} vient d'être créé{f' (client : {client_name})' if client_name else ''}. Le coordinateur doit prendre en charge le démarrage.",
             f"/projects/{pid}")
+        # Notif spécifique au coordinateur désigné (si défini)
+        if coord_id:
+            try:
+                _project_notify(pid, [], 
+                    f"🎯 Vous êtes affecté(e) au projet {ref}",
+                    f"Vous avez été désigné(e) coordinateur du projet \"{title}\". Validez le démarrage pour notifier les Moyens Généraux.",
+                    f"/projects/{pid}",
+                    target_user_id=int(coord_id))
+            except: pass
         
-        flash(f"✅ Projet {ref} créé", "success")
+        flash(f"✅ Projet {ref} créé — Notifications envoyées à tous les acteurs", "success")
         return redirect(f'/projects/{pid}')
     
     # GET : formulaire
@@ -11643,10 +11767,49 @@ def projects_create():
         clients=clients, devis_list=devis_list, coordinators=users_coord)
 
 
+# v87 : Suppression d'un projet clôturé (admin uniquement)
+@app.route('/projects/<int:pid>/delete', methods=['POST'])
+@permission_required('admin')
+def project_delete(pid):
+    """Suppression DÉFINITIVE d'un projet clôturé. Réservé aux admins.
+    Supprime aussi : history, notifications, materials, team, progress reports."""
+    conn = _gdb()
+    p = conn.execute("SELECT status, reference, title FROM wf_projects WHERE id=?", (pid,)).fetchone()
+    if not p:
+        conn.close()
+        flash("Projet introuvable", "error")
+        return redirect('/projects')
+    
+    if p['status'] != 'cloture':
+        conn.close()
+        flash("⚠️ Seuls les projets clôturés peuvent être supprimés", "error")
+        return redirect(f'/projects/{pid}')
+    
+    ref = p['reference']
+    title = p['title']
+    
+    # Suppression en cascade
+    for tbl in ['wf_project_notifications', 'wf_project_history', 'wf_project_materials',
+                'wf_project_team', 'wf_project_progress']:
+        try: conn.execute(f"DELETE FROM {tbl} WHERE project_id=?", (pid,))
+        except: pass
+    conn.execute("DELETE FROM wf_projects WHERE id=?", (pid,))
+    conn.commit(); conn.close()
+    
+    # Trace l'action dans logs généraux
+    try:
+        from models import log_activity
+        log_activity(session.get('user_id'), 'project_delete',
+            f"Suppression projet clôturé {ref} ({title})")
+    except: pass
+    
+    flash(f"🗑️ Projet {ref} supprimé définitivement", "success")
+    return redirect('/projects')
+
+
 @app.route('/projects/<int:pid>')
 @project_access_required
 def project_detail(pid):
-    """Page détaillée d'un projet avec workflow visuel."""
     p = get_project_by_id_full(pid)
     if not p:
         flash("Projet introuvable", "error")

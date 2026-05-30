@@ -253,7 +253,7 @@
                     {% if 'proforma' in permissions %}<a href="/devis" class="{% if page == 'devis' %}active{% endif %}">Devis / Proformas</a>{% endif %}
                     {% if 'proforma' in permissions %}<a href="/devis/templates" class="{% if page == 'devis_tpl' %}active{% endif %}">Modèles de devis</a>{% endif %}
                     {% if 'contrats' in permissions %}<a href="/contrats" class="{% if page == 'contrats' %}active{% endif %}">Contrats</a>{% endif %}
-                    <a href="/projects" class="{% if page == 'projects' %}active{% endif %}" style="position:relative">🗂️ Projets{% if project_notifs_count and project_notifs_count > 0 %} <span style="background:#1976d2;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ project_notifs_count }}</span>{% endif %}</a>
+                    <a href="/projects" class="{% if page == 'projects' %}active{% endif %}" style="position:relative">🗺️ Roadmap{% if project_notifs_count and project_notifs_count > 0 %} <span style="background:#1976d2;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ project_notifs_count }}</span>{% endif %}</a>
                 </div>
             </div>
             {% endif %}

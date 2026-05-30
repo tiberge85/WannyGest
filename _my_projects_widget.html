@@ -1,0 +1,63 @@
+{# v87 : Widget "Mes projets actifs" — à inclure sur les dashboards
+   Variables attendues du contexte : my_projects, my_projects_count, my_projects_action_required, current_user #}
+{% if my_projects and my_projects|length > 0 %}
+<div class="card" style="margin-bottom:16px;border-left:4px solid {% if my_projects_action_required and my_projects_action_required > 0 %}#e8672a{% else %}#1A7A6D{% endif %}">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0;color:#1A7A6D;font-size:15px">
+            🗺️ Roadmap — Projets actifs ({{ my_projects_count }})
+            {% if my_projects_action_required and my_projects_action_required > 0 %}
+                <span style="background:#e8672a;color:#fff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-left:6px;animation:pulseV87 1.5s infinite">⚡ {{ my_projects_action_required }} à traiter</span>
+            {% endif %}
+        </h3>
+        <a href="/projects" class="btn btn-outline btn-sm" style="font-size:11px">Voir tous →</a>
+    </div>
+    <div class="card-body" style="padding:0">
+        <div style="max-height:480px;overflow-y:auto">
+        {% for p in my_projects %}
+        <a href="/projects/{{ p.id }}" style="display:block;text-decoration:none;color:inherit;padding:12px 16px;border-bottom:1px solid #eee;
+            {% if p.my_turn %}background:linear-gradient(90deg,#fff3e0 0%,#fff 30%);border-left:4px solid #e8672a{% else %}border-left:4px solid {{ p.color }}{% endif %}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <strong style="font-size:13px;color:#1a3a5c">{{ p.title }}</strong>
+                        {% if p.my_turn %}
+                            <span style="background:#e8672a;color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">⚡ À VOUS D'AGIR</span>
+                        {% endif %}
+                    </div>
+                    <div style="margin-top:3px;font-size:11px;color:#888">
+                        <span style="font-family:monospace;color:#1A7A6D">{{ p.reference }}</span>
+                        {% if p.client_name %} · 👤 {{ p.client_name }}{% endif %}
+                    </div>
+                    <div style="margin-top:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                        <span style="background:{{ p.color }};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">
+                            {{ p.step_icon }} Étape {{ p.current_step }}/9 — {{ p.step_label }}
+                        </span>
+                        {% if p.service_label %}
+                            <span style="font-size:10px;color:#666">{{ p.service_label }}</span>
+                        {% endif %}
+                    </div>
+                    {% if p.my_turn and p.next_label %}
+                    <div style="margin-top:4px;font-size:11px;color:#b8561f;font-weight:600">
+                        👉 {{ p.next_label }}
+                    </div>
+                    {% endif %}
+                </div>
+                <div style="text-align:right;min-width:80px">
+                    <div style="font-size:18px;font-weight:800;color:{{ p.color }}">{{ p.progress_pct or 0 }}%</div>
+                    <div style="background:#e0e0e0;height:5px;border-radius:3px;overflow:hidden;margin-top:3px">
+                        <div style="background:{{ p.color }};height:100%;width:{{ p.progress_pct or 0 }}%"></div>
+                    </div>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+        </div>
+    </div>
+</div>
+<style>
+@keyframes pulseV87 {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+</style>
+{% endif %}
