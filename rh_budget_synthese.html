@@ -1,0 +1,248 @@
+{% extends "base.html" %}{% block title %}WannyGest - Synthèse Annuelle {{ year }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📊 Synthèse Annuelle {{ year }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Récapitulatif consolidé annuel + indicateurs clés
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+        <a href="/rh/budget/detail?year={{ year }}" class="btn btn-outline btn-sm">📅 Budget mensuel détaillé</a>
+        <a href="/rh/budget/suivi?year={{ year }}" class="btn btn-outline btn-sm">📈 Suivi réel</a>
+        <a href="/rh/budget/export-pdf?year={{ year }}" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff">📄 Export PDF</a>
+    </div>
+</div>
+
+<!-- KPI Carrousel -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:18px">
+    <div style="background:linear-gradient(135deg,#1A7A6D 0%,#0f5a51 100%);color:#fff;padding:16px;border-radius:10px">
+        <div style="font-size:11px;text-transform:uppercase;opacity:0.85;font-weight:600">💰 Budget RH total {{ year }}</div>
+        <div style="font-size:24px;font-weight:800;margin-top:4px">{{ '{:,.0f}'.format(indicateurs.total_budget_annuel).replace(',', ' ') }}</div>
+        <div style="font-size:10px;opacity:0.85;margin-top:2px">FCFA</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#1976d2 0%,#0d47a1 100%);color:#fff;padding:16px;border-radius:10px">
+        <div style="font-size:11px;text-transform:uppercase;opacity:0.85;font-weight:600">👥 Effectif moyen</div>
+        <div style="font-size:24px;font-weight:800;margin-top:4px">{{ '{:.1f}'.format(indicateurs.effectif_moyen) }}</div>
+        <div style="font-size:10px;opacity:0.85;margin-top:2px">personnes (min {{ indicateurs.effectif_min }} · max {{ indicateurs.effectif_max }})</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#e8672a 0%,#b8561f 100%);color:#fff;padding:16px;border-radius:10px">
+        <div style="font-size:11px;text-transform:uppercase;opacity:0.85;font-weight:600">💼 Masse salariale annuelle</div>
+        <div style="font-size:24px;font-weight:800;margin-top:4px">{{ '{:,.0f}'.format(indicateurs.total_masse).replace(',', ' ') }}</div>
+        <div style="font-size:10px;opacity:0.85;margin-top:2px">FCFA ({{ '{:.1f}'.format(indicateurs.pct_masse_dans_total) }}% du budget)</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#7b1fa2 0%,#4a148c 100%);color:#fff;padding:16px;border-radius:10px">
+        <div style="font-size:11px;text-transform:uppercase;opacity:0.85;font-weight:600">📊 Coût moyen / collab</div>
+        <div style="font-size:24px;font-weight:800;margin-top:4px">{{ '{:,.0f}'.format(indicateurs.cout_moyen_collab).replace(',', ' ') }}</div>
+        <div style="font-size:10px;opacity:0.85;margin-top:2px">FCFA / mois / personne</div>
+    </div>
+</div>
+
+<!-- Récapitulatif annuel des postes budgétaires -->
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📋 Récapitulatif annuel des postes budgétaires</h3></div>
+    <div class="card-body" style="padding:0;overflow-x:auto">
+        <table style="width:100%;font-size:12px;border-collapse:collapse;min-width:1000px">
+            <thead style="background:#1A7A6D;color:#fff">
+                <tr>
+                    <th style="padding:10px;text-align:left;min-width:250px">POSTES BUDGÉTAIRES</th>
+                    {% for m in range(1, 13) %}<th style="padding:10px;text-align:right;min-width:75px">{{ mois_court[m] }}</th>{% endfor %}
+                    <th style="padding:10px;text-align:right;background:#0f5a51;min-width:110px">TOTAL ANNUEL</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:7px 12px">Effectif fin de mois</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ m.effectif_fin or '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:7px 8px;background:#eaf3f0;font-weight:700">{{ '{:.1f}'.format(indicateurs.effectif_moyen) }} (moy.)</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:7px 12px">Masse salariale brute</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ '{:,.0f}'.format(m.masse_salariale).replace(',', ' ') if m.masse_salariale else '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:7px 8px;background:#eaf3f0;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_masse).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:7px 12px">Total charges patronales</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ '{:,.0f}'.format(m.charges_patronales).replace(',', ' ') if m.charges_patronales else '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:7px 8px;background:#eaf3f0;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_charges).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee;background:#fff3e0">
+                    <td style="padding:7px 12px;font-weight:700;color:#e8672a">Coût salarial total</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:7px 8px;font-weight:600">{{ '{:,.0f}'.format(m.cout_salarial_total).replace(',', ' ') if m.cout_salarial_total else '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:7px 8px;background:#ffe0b2;font-weight:800;color:#b8561f">{{ '{:,.0f}'.format(indicateurs.total_salarial).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:7px 12px">Budget recrutement</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ '{:,.0f}'.format(m.total_recrutement).replace(',', ' ') if m.total_recrutement else '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:7px 8px;background:#eaf3f0;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_recrutement).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee;background:#f8faf9">
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Dont coûts d'intégration</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.cout_integration).replace(',', ' ') if m.cout_integration else '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_integration).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:7px 12px">Budget formation (0,75%)</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ '{:,.0f}'.format(m.formation).replace(',', ' ') if m.formation else '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:7px 8px;background:#eaf3f0;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_formation).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:7px 12px">Frais annexes totaux</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:7px 8px">{{ '{:,.0f}'.format(m.total_frais_annexes).replace(',', ' ') }}</td>{% endfor %}
+                    <td style="text-align:right;padding:7px 8px;background:#eaf3f0;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_frais_annexes).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee;background:#f8faf9">
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Dont SIRH</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.sirh).replace(',', ' ') }}</td>{% endfor %}
+                    <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_sirh).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee;background:#f8faf9">
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Dont médecine du travail</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.medecine).replace(',', ' ') }}</td>{% endfor %}
+                    <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_medecine).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee;background:#f8faf9">
+                    <td style="padding:5px 12px 5px 30px;font-size:10px;color:#666">↳ Dont marge de sécurité (3%)</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:5px 8px;font-size:10px">{{ '{:,.0f}'.format(m.marge).replace(',', ' ') if m.marge else '-' }}</td>{% endfor %}
+                    <td style="text-align:right;padding:5px 8px;background:#fff3e0;font-size:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_marge).replace(',', ' ') }}</td>
+                </tr>
+                <tr style="background:linear-gradient(90deg,#1A7A6D,#0f5a51);color:#fff">
+                    <td style="padding:11px 12px;font-weight:800;font-size:13px">TOTAL BUDGET RH MENSUEL</td>
+                    {% for m in months_data %}<td style="text-align:right;padding:11px 8px;font-weight:800">{{ '{:,.0f}'.format(m.total_budget).replace(',', ' ') }}</td>{% endfor %}
+                    <td style="text-align:right;padding:11px 8px;background:#0f5a51;font-weight:800;font-size:14px">{{ '{:,.0f}'.format(indicateurs.total_budget_annuel).replace(',', ' ') }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Répartition % -->
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📊 Répartition du budget total par composante</h3></div>
+    <div class="card-body">
+        <!-- Barre de répartition -->
+        <div style="display:flex;height:50px;border-radius:10px;overflow:hidden;margin-bottom:14px;box-shadow:0 2px 4px rgba(0,0,0,0.1)">
+            {% if indicateurs.pct_salarial > 0 %}<div style="background:#1A7A6D;flex:{{ indicateurs.pct_salarial }};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700">{{ '{:.1f}'.format(indicateurs.pct_salarial) }}%</div>{% endif %}
+            {% if indicateurs.pct_recrutement > 0 %}<div style="background:#1976d2;flex:{{ indicateurs.pct_recrutement }};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700">{{ '{:.1f}'.format(indicateurs.pct_recrutement) }}%</div>{% endif %}
+            {% if indicateurs.pct_formation > 0 %}<div style="background:#7b1fa2;flex:{{ indicateurs.pct_formation }};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700">{{ '{:.1f}'.format(indicateurs.pct_formation) }}%</div>{% endif %}
+            {% if indicateurs.pct_frais_annexes > 0 %}<div style="background:#f57f17;flex:{{ indicateurs.pct_frais_annexes }};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700">{{ '{:.1f}'.format(indicateurs.pct_frais_annexes) }}%</div>{% endif %}
+        </div>
+        <!-- Légende détaillée -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px">
+            <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#eaf3f0;border-radius:6px">
+                <span style="width:16px;height:16px;background:#1A7A6D;border-radius:3px"></span>
+                <div style="flex:1">
+                    <div style="font-size:12px;font-weight:700">Coût salarial total</div>
+                    <div style="font-size:10px;color:#666">{{ '{:.1f}'.format(indicateurs.pct_salarial) }}% — {{ '{:,.0f}'.format(indicateurs.total_salarial).replace(',', ' ') }} F</div>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#e3f2fd;border-radius:6px">
+                <span style="width:16px;height:16px;background:#1976d2;border-radius:3px"></span>
+                <div style="flex:1">
+                    <div style="font-size:12px;font-weight:700">Recrutement</div>
+                    <div style="font-size:10px;color:#666">{{ '{:.1f}'.format(indicateurs.pct_recrutement) }}% — {{ '{:,.0f}'.format(indicateurs.total_recrutement).replace(',', ' ') }} F</div>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#f3e5f5;border-radius:6px">
+                <span style="width:16px;height:16px;background:#7b1fa2;border-radius:3px"></span>
+                <div style="flex:1">
+                    <div style="font-size:12px;font-weight:700">Formation</div>
+                    <div style="font-size:10px;color:#666">{{ '{:.1f}'.format(indicateurs.pct_formation) }}% — {{ '{:,.0f}'.format(indicateurs.total_formation).replace(',', ' ') }} F</div>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#fff9c4;border-radius:6px">
+                <span style="width:16px;height:16px;background:#f57f17;border-radius:3px"></span>
+                <div style="flex:1">
+                    <div style="font-size:12px;font-weight:700">Frais annexes</div>
+                    <div style="font-size:10px;color:#666">{{ '{:.1f}'.format(indicateurs.pct_frais_annexes) }}% — {{ '{:,.0f}'.format(indicateurs.total_frais_annexes).replace(',', ' ') }} F</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Indicateurs clés -->
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">🎯 Indicateurs clés du semestre/année</h3></div>
+    <div class="card-body">
+        <table style="width:100%;font-size:13px">
+            <tbody>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Budget RH total {{ year }}</td>
+                    <td style="text-align:right;padding:10px;font-weight:800;color:#1A7A6D">{{ '{:,.0f}'.format(indicateurs.total_budget_annuel).replace(',', ' ') }} FCFA</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Masse salariale totale annuelle</td>
+                    <td style="text-align:right;padding:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_masse).replace(',', ' ') }} FCFA</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Effectif moyen sur la période</td>
+                    <td style="text-align:right;padding:10px;font-weight:700">{{ '{:.1f}'.format(indicateurs.effectif_moyen) }} personnes</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Coût moyen mensuel par collaborateur</td>
+                    <td style="text-align:right;padding:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.cout_moyen_collab).replace(',', ' ') }} FCFA</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Nombre total de recrutements prévus</td>
+                    <td style="text-align:right;padding:10px;font-weight:700;color:#2e7d32">{{ indicateurs.nb_recrutements_total }} personnes</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Nombre total de départs</td>
+                    <td style="text-align:right;padding:10px;font-weight:700;color:#c53030">{{ indicateurs.nb_departs_total }} personnes</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Coût total des intégrations</td>
+                    <td style="text-align:right;padding:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_integration).replace(',', ' ') }} FCFA</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Budget formation total</td>
+                    <td style="text-align:right;padding:10px;font-weight:700">{{ '{:,.0f}'.format(indicateurs.total_formation).replace(',', ' ') }} FCFA</td>
+                </tr>
+                <tr style="border-bottom:1px solid #eee">
+                    <td style="padding:10px;color:#555">Part de la masse salariale dans le budget total</td>
+                    <td style="text-align:right;padding:10px;font-weight:700;color:#e8672a">{{ '{:.1f}'.format(indicateurs.pct_masse_dans_total) }}%</td>
+                </tr>
+                <tr>
+                    <td style="padding:10px;color:#555">Période active (mois avec données)</td>
+                    <td style="text-align:right;padding:10px;font-weight:700">{{ indicateurs.nb_mois_actifs }} mois</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Suivi Réel vs Budget -->
+{% if indicateurs.real_total %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid {% if indicateurs.ecart_total < 0 %}#2e7d32{% elif indicateurs.ecart_total > 0 %}#c53030{% else %}#888{% endif %}">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📈 Suivi Réel vs Prévisionnel</h3></div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+            <div>
+                <div style="font-size:11px;color:#666;text-transform:uppercase">Réel saisi total</div>
+                <div style="font-size:20px;font-weight:800;color:#1A7A6D">{{ '{:,.0f}'.format(indicateurs.real_total).replace(',', ' ') }} F</div>
+                <div style="font-size:11px;color:#888">sur {{ indicateurs.nb_mois_real }} mois</div>
+            </div>
+            <div>
+                <div style="font-size:11px;color:#666;text-transform:uppercase">Budget prévu</div>
+                <div style="font-size:20px;font-weight:800;color:#888">{{ '{:,.0f}'.format(indicateurs.total_budget_annuel).replace(',', ' ') }} F</div>
+            </div>
+            <div>
+                <div style="font-size:11px;color:#666;text-transform:uppercase">Écart total</div>
+                <div style="font-size:20px;font-weight:800;color:{% if indicateurs.ecart_total < 0 %}#2e7d32{% elif indicateurs.ecart_total > 0 %}#c53030{% else %}#888{% endif %}">{{ '{:+,.0f}'.format(indicateurs.ecart_total).replace(',', ' ') }} F</div>
+                <div style="font-size:11px;color:#888">{% if indicateurs.ecart_total < 0 %}✅ Économie{% elif indicateurs.ecart_total > 0 %}⚠️ Dépassement{% endif %}</div>
+            </div>
+            <div>
+                <div style="font-size:11px;color:#666;text-transform:uppercase">Taux de consommation</div>
+                <div style="font-size:20px;font-weight:800;color:#e8672a">{{ '{:.1f}'.format(indicateurs.taux_consommation) }}%</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div style="background:#fff3cd;border-left:4px solid #e8672a;padding:14px;border-radius:8px;margin-bottom:14px;color:#856404;font-size:13px">
+    📌 Aucune donnée réelle saisie pour {{ year }}.
+    <a href="/rh/budget/suivi?year={{ year }}" style="color:#1A7A6D;font-weight:700;margin-left:8px">→ Saisir le réel maintenant</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -10749,6 +10749,135 @@ def rh_budget_export_pdf():
         headers={'Content-Disposition': f'attachment; filename="Budget_RH_{year}.pdf"'})
 
 
+# ==================== v91 : Budget Mensuel Détaillé + Synthèse Annuelle ====================
+
+@app.route('/rh/budget/detail')
+@permission_required('rh_budget_view')
+def rh_budget_detail():
+    """Vue Budget Mensuel Détaillé — chaque mois avec toutes ses sous-rubriques.
+    Inspiré de la feuille 'Budget Mensuel Détaillé' du fichier source RAMYA."""
+    year = int(request.args.get('year', datetime.now().year))
+    params = _get_rh_budget_params(year)
+    months_data = [_compute_monthly_budget(year, m, params) for m in range(1, 13)]
+    
+    # Totaux annuels par rubrique
+    totals = {
+        'masse_salariale': sum(m['masse_salariale'] for m in months_data),
+        'cnps': sum(m['cnps'] for m in months_data),
+        'ta': sum(m['ta'] for m in months_data),
+        'fdfp': sum(m['fdfp'] for m in months_data),
+        'its': sum(m['its'] for m in months_data),
+        'charges_patronales': sum(m['charges_patronales'] for m in months_data),
+        'cout_salarial_total': sum(m['cout_salarial_total'] for m in months_data),
+        'cout_annonce': sum(m['cout_annonce'] for m in months_data),
+        'frais_selection': sum(m['frais_selection'] for m in months_data),
+        'cout_integration': sum(m['cout_integration'] for m in months_data),
+        'total_recrutement': sum(m['total_recrutement'] for m in months_data),
+        'formation': sum(m['formation'] for m in months_data),
+        'sirh': sum(m['sirh'] for m in months_data),
+        'medecine': sum(m['medecine'] for m in months_data),
+        'autres_frais': sum(m['autres_frais'] for m in months_data),
+        'marge': sum(m['marge'] for m in months_data),
+        'total_frais_annexes': sum(m['total_frais_annexes'] for m in months_data),
+        'total_budget': sum(m['total_budget'] for m in months_data),
+        'nb_recrutements': sum(m['nb_recrutements'] for m in months_data),
+        'departs': sum(m['departs'] for m in months_data),
+    }
+    
+    return render_template('rh_budget_detail.html', page='rh_budget',
+        year=year, months_data=months_data, totals=totals,
+        params=params, mois_fr=MOIS_FR, mois_court=MOIS_FR_COURT)
+
+
+@app.route('/rh/budget/synthese')
+@permission_required('rh_budget_view')
+def rh_budget_synthese():
+    """Synthèse Annuelle — récap consolidé + indicateurs clés + répartition.
+    Inspiré de la feuille 'Synthèse Annuelle' du fichier source RAMYA."""
+    year = int(request.args.get('year', datetime.now().year))
+    params = _get_rh_budget_params(year)
+    months_data = [_compute_monthly_budget(year, m, params) for m in range(1, 13)]
+    
+    # Filtrer uniquement les mois avec des données saisies (effectif_fin > 0 ou masse > 0)
+    months_with_data = [m for m in months_data if m['effectif_fin'] or m['masse_salariale']]
+    nb_mois_actifs = len(months_with_data)
+    
+    # Totaux et indicateurs
+    total_masse = sum(m['masse_salariale'] for m in months_data)
+    total_charges = sum(m['charges_patronales'] for m in months_data)
+    total_salarial = sum(m['cout_salarial_total'] for m in months_data)
+    total_recrutement = sum(m['total_recrutement'] for m in months_data)
+    total_integration = sum(m['cout_integration'] for m in months_data)
+    total_formation = sum(m['formation'] for m in months_data)
+    total_frais_annexes = sum(m['total_frais_annexes'] for m in months_data)
+    total_sirh = sum(m['sirh'] for m in months_data)
+    total_medecine = sum(m['medecine'] for m in months_data)
+    total_marge = sum(m['marge'] for m in months_data)
+    total_budget_annuel = sum(m['total_budget'] for m in months_data)
+    
+    # Effectif moyen sur les mois actifs
+    effectif_moyen = sum(m['effectif_fin'] for m in months_with_data) / max(1, nb_mois_actifs)
+    
+    # Recrutements totaux
+    nb_recrutements_total = sum(m['nb_recrutements'] for m in months_data)
+    nb_departs_total = sum(m['departs'] for m in months_data)
+    
+    # Effectif min/max
+    eff_min = min((m['effectif_fin'] for m in months_with_data), default=0)
+    eff_max = max((m['effectif_fin'] for m in months_with_data), default=0)
+    
+    # Coût moyen par collaborateur (par mois)
+    cout_moyen_collab = (total_masse / max(1, effectif_moyen) / max(1, nb_mois_actifs)) if nb_mois_actifs and effectif_moyen else 0
+    
+    # Répartition en %
+    def _pct(val): return (val / total_budget_annuel * 100) if total_budget_annuel > 0 else 0
+    
+    # Réel total saisi
+    real_total = sum((m['real_total'] or 0) for m in months_data)
+    real_masse = sum((m['real_masse_salariale'] or 0) for m in months_data)
+    months_with_real = [m for m in months_data if m['real_total']]
+    
+    indicateurs = {
+        'year': year,
+        # Totaux
+        'total_masse': total_masse,
+        'total_charges': total_charges,
+        'total_salarial': total_salarial,
+        'total_recrutement': total_recrutement,
+        'total_integration': total_integration,
+        'total_formation': total_formation,
+        'total_frais_annexes': total_frais_annexes,
+        'total_sirh': total_sirh,
+        'total_medecine': total_medecine,
+        'total_marge': total_marge,
+        'total_budget_annuel': total_budget_annuel,
+        # Effectif
+        'effectif_moyen': effectif_moyen,
+        'effectif_min': eff_min,
+        'effectif_max': eff_max,
+        'nb_mois_actifs': nb_mois_actifs,
+        'nb_recrutements_total': nb_recrutements_total,
+        'nb_departs_total': nb_departs_total,
+        'cout_moyen_collab': cout_moyen_collab,
+        # Répartition %
+        'pct_salarial': _pct(total_salarial),
+        'pct_recrutement': _pct(total_recrutement),
+        'pct_formation': _pct(total_formation),
+        'pct_frais_annexes': _pct(total_frais_annexes),
+        'pct_masse_dans_total': _pct(total_masse),
+        # Réel
+        'real_total': real_total,
+        'real_masse': real_masse,
+        'ecart_total': real_total - total_budget_annuel if real_total else 0,
+        'nb_mois_real': len(months_with_real),
+        'taux_consommation': (real_total / total_budget_annuel * 100) if real_total and total_budget_annuel > 0 else 0,
+    }
+    
+    return render_template('rh_budget_synthese.html', page='rh_budget',
+        year=year, months_data=months_data, indicateurs=indicateurs,
+        mois_fr=MOIS_FR, mois_court=MOIS_FR_COURT)
+
+
 # ==================== FIN MODULE BUDGET RH v90 ====================
 
 @app.route('/rh/contrats-rh')
