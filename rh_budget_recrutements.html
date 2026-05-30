@@ -6,8 +6,12 @@
             Liste des recrutements prévus avec coût d'intégration, annonce et sélection
         </p>
     </div>
-    <div style="display:flex;gap:6px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
         <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+        <a href="/rh/budget/hypotheses?year={{ year }}" class="btn btn-outline btn-sm">⚙️ Hypothèses</a>
+        <a href="/rh/budget/detail?year={{ year }}" class="btn btn-outline btn-sm">📅 Budget Mensuel Détaillé</a>
+        <a href="/rh/budget/synthese?year={{ year }}" class="btn btn-outline btn-sm">📊 Synthèse Annuelle</a>
+        <a href="/rh/budget/suivi?year={{ year }}" class="btn btn-outline btn-sm">📈 Suivi Réel vs Budget</a>
         <button onclick="document.getElementById('addRM').classList.add('active')" class="btn btn-primary btn-sm">+ Nouveau recrutement</button>
     </div>
 </div>

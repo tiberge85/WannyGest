@@ -6,7 +6,13 @@
             Saisissez les montants RÉELS de chaque mois. Les écarts sont calculés automatiquement (Réel − Budget).
         </p>
     </div>
-    <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+        <a href="/rh/budget/hypotheses?year={{ year }}" class="btn btn-outline btn-sm">⚙️ Hypothèses</a>
+        <a href="/rh/budget/detail?year={{ year }}" class="btn btn-outline btn-sm">📅 Budget Mensuel Détaillé</a>
+        <a href="/rh/budget/synthese?year={{ year }}" class="btn btn-outline btn-sm">📊 Synthèse Annuelle</a>
+        <a href="/rh/budget/recrutements?year={{ year }}" class="btn btn-outline btn-sm">👤 Recrutements</a>
+    </div>
 </div>
 
 <div style="background:#fff3cd;border-left:4px solid #e8672a;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#856404">
