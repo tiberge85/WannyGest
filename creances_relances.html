@@ -51,7 +51,12 @@
                     {% else %}<span style="color:#888;font-style:italic">Jamais relancé</span>{% endif %}
                 </td>
                 <td style="text-align:right;padding:7px 10px">
-                    <button onclick="addRelance({{ c.id }}, {{ c.niveau_relance|tojson }}, {{ c.num_facture|tojson }}, {{ c.client_name|tojson }})" class="btn btn-sm btn-primary" style="font-size:11px">📞 Relancer</button>
+                    <button type="button" class="btn-add-relance btn btn-sm btn-primary" 
+                        data-id="{{ c.id }}"
+                        data-niveau="{{ c.niveau_relance }}"
+                        data-facture="{{ c.num_facture }}"
+                        data-client="{{ c.client_name }}"
+                        style="font-size:11px">📞 Relancer</button>
                 </td>
             </tr>
             {% else %}
@@ -106,5 +111,18 @@ function addRelance(id, niveau, facture, client) {
     document.querySelector('input[name="date_relance"]').value = new Date().toISOString().split('T')[0];
     document.getElementById('relModal').classList.add('active');
 }
+// v97-fix : attach event listeners via data attributes (avoids onclick quote-escaping bug)
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.btn-add-relance').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            addRelance(
+                this.dataset.id,
+                this.dataset.niveau || 'Relance 1',
+                this.dataset.facture || '',
+                this.dataset.client || ''
+            );
+        });
+    });
+});
 </script>
 {% endblock %}

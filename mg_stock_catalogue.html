@@ -42,7 +42,15 @@
                 <td style="text-align:right;padding:7px 10px;font-weight:600">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
                 <td style="text-align:right;padding:7px 10px;font-weight:700;color:#e8672a">{{ '{:,.0f}'.format(a.total_initial).replace(',', ' ') }}</td>
                 <td style="padding:7px 10px;text-align:right;white-space:nowrap">
-                    <button onclick="editArt({{ a.id }}, {{ a.designation|tojson }}, {{ (a.categorie or '')|tojson }}, {{ (a.unite or 'UNITE')|tojson }}, {{ a.seuil_alerte or 2 }}, {{ a.prix_unitaire or 0 }}, {{ (a.notes or '')|tojson }})" class="btn btn-sm" style="color:#1976d2">✏️</button>
+                    <button type="button" class="btn-edit-art btn btn-sm" 
+                        data-id="{{ a.id }}"
+                        data-designation="{{ a.designation|e }}"
+                        data-categorie="{{ a.categorie or '' }}"
+                        data-unite="{{ a.unite or 'UNITE' }}"
+                        data-seuil="{{ a.seuil_alerte or 2 }}"
+                        data-prix="{{ a.prix_unitaire or 0 }}"
+                        data-notes="{{ a.notes or '' }}"
+                        style="color:#1976d2">✏️</button>
                     <form method="post" action="/mg/stock/article/{{ a.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer {{ a.reference }} ?');">
                         <button type="submit" class="btn btn-sm" style="color:#c53030">🗑️</button>
                     </form>
@@ -118,5 +126,21 @@ function editArt(id, designation, categorie, unite, seuil, prix, notes) {
     document.getElementById('ed_notes').value = notes;
     document.getElementById('editArtModal').classList.add('active');
 }
+// v97-fix : attach event listeners via data attributes (avoids onclick quote-escaping bug)
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.btn-edit-art').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            editArt(
+                this.dataset.id,
+                this.dataset.designation || '',
+                this.dataset.categorie || '',
+                this.dataset.unite || 'UNITE',
+                parseInt(this.dataset.seuil) || 2,
+                parseFloat(this.dataset.prix) || 0,
+                this.dataset.notes || ''
+            );
+        });
+    });
+});
 </script>
 {% endblock %}

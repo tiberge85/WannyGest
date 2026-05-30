@@ -143,7 +143,13 @@
                 </td>
                 <td style="text-align:center;padding:7px 10px;font-size:10px">{{ c.mode_paiement or '-' }}</td>
                 <td style="text-align:right;padding:7px 10px;white-space:nowrap">
-                    <button onclick="editCr({{ c.id }}, {{ (c.montant_paye or 0) }}, {{ (c.statut or 'en_cours')|tojson }}, {{ (c.mode_paiement or '')|tojson }}, {{ (c.commentaire or '')|tojson }})" class="btn btn-sm" style="color:#1976d2">✏️</button>
+                    <button type="button" class="btn-edit-cr btn btn-sm"
+                        data-id="{{ c.id }}"
+                        data-paye="{{ c.montant_paye or 0 }}"
+                        data-statut="{{ c.statut or 'en_cours' }}"
+                        data-mode="{{ c.mode_paiement or '' }}"
+                        data-com="{{ c.commentaire or '' }}"
+                        style="color:#1976d2">✏️</button>
                     <form method="post" action="/comptabilite/creances/{{ c.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer {{ c.num_facture }} ?');">
                         <button type="submit" class="btn btn-sm" style="color:#c53030">🗑️</button>
                     </form>
@@ -228,6 +234,20 @@ function editCr(id, paye, statut, mode, com) {
     document.getElementById('ec_com').value = com;
     document.getElementById('editCrModal').classList.add('active');
 }
+// v97-fix : attach event listeners via data attributes (avoids onclick quote-escaping bug)
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.btn-edit-cr').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            editCr(
+                this.dataset.id,
+                parseFloat(this.dataset.paye) || 0,
+                this.dataset.statut || 'en_cours',
+                this.dataset.mode || '',
+                this.dataset.com || ''
+            );
+        });
+    });
+});
 document.querySelector('input[name="date_facture"]').value = new Date().toISOString().split('T')[0];
 </script>
 {% endblock %}
