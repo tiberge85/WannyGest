@@ -1511,8 +1511,8 @@ def dashboard_general():
     data['interventions_today'] = _safe_p("SELECT COUNT(*) FROM resp_projet_interventions WHERE date_planifiee=?", (today_str,)) if 'resp_projet_interventions' in tables else 0
     
     # ========== INFORMATIQUE ==========
-    data['projets'] = _safe("SELECT COUNT(*) FROM wf_projects") if 'projects' in tables else 0
-    data['projets_actifs'] = _safe("SELECT COUNT(*) FROM wf_projects WHERE status IN ('en_cours','planifie')") if 'projects' in tables else 0
+    data['projets'] = _safe("SELECT COUNT(*) FROM projects") if 'projects' in tables else 0
+    data['projets_actifs'] = _safe("SELECT COUNT(*) FROM projects WHERE status IN ('en_cours','planifie')") if 'projects' in tables else 0
     data['tickets'] = _safe("SELECT COUNT(*) FROM tickets") if 'tickets' in tables else 0
     data['tickets_ouverts'] = _safe("SELECT COUNT(*) FROM tickets WHERE status IN ('ouvert','en_cours')") if 'tickets' in tables else 0
     data['parc_count'] = _safe("SELECT COUNT(*) FROM it_assets") if 'it_assets' in tables else 0
@@ -2179,7 +2179,7 @@ def client_profile(cid):
     try: data['tickets'] = [dict(r) for r in conn.execute("SELECT * FROM tickets WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
     except: data['tickets'] = []
     # Projets
-    try: data['projets'] = [dict(r) for r in conn.execute("SELECT * FROM wf_projects WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
+    try: data['projets'] = [dict(r) for r in conn.execute("SELECT * FROM projects WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
     except: data['projets'] = []
     # Attachments
     try: data['attachments'] = [dict(r) for r in conn.execute("SELECT * FROM client_attachments WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
@@ -7593,7 +7593,7 @@ def intervention_fiche(iid):
         inter['tech_info'] = dict(tech) if tech else {}
     # Project info
     if inter.get('project_id'):
-        proj = conn.execute("SELECT name FROM wf_projects WHERE id=?", (inter['project_id'],)).fetchone()
+        proj = conn.execute("SELECT name FROM projects WHERE id=?", (inter['project_id'],)).fetchone()
         inter['project_name'] = proj['name'] if proj else ''
     # Equipment
     equips = []
@@ -8990,7 +8990,7 @@ def interventions_list():
     conn = _gdb()
     interventions = [dict(r) for r in conn.execute(
         "SELECT * FROM interventions ORDER BY scheduled_date DESC, id DESC").fetchall()]
-    projects = [dict(r) for r in conn.execute("SELECT id, name FROM wf_projects ORDER BY name").fetchall()]
+    projects = [dict(r) for r in conn.execute("SELECT id, name FROM projects ORDER BY name").fetchall()]
     clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
     technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin') ORDER BY full_name").fetchall()]
     # Marquer les interventions comme "vues" pour réinitialiser le badge (persisté BDD)
@@ -9754,7 +9754,7 @@ def gestion_livraisons():
 @permission_required('resp_projet')
 def resp_projet_dashboard():
     conn = _gdb()
-    projects = [dict(r) for r in conn.execute("SELECT * FROM wf_projects ORDER BY created_at DESC").fetchall()]
+    projects = [dict(r) for r in conn.execute("SELECT * FROM projects ORDER BY created_at DESC").fetchall()]
     tasks = [dict(r) for r in conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()]
     
     # KPIs
@@ -9773,7 +9773,7 @@ def resp_projet_dashboard():
     
     # Recent tasks
     recent = [dict(r) for r in conn.execute("""SELECT t.*, p.name as project_name, u.full_name as assignee 
-        FROM tasks t LEFT JOIN wf_projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
+        FROM tasks t LEFT JOIN projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
         ORDER BY t.created_at DESC LIMIT 10""").fetchall()]
     
     # Deadlines this week
@@ -9781,7 +9781,7 @@ def resp_projet_dashboard():
     today = datetime.now().date()
     week_end = (today + timedelta(days=6)).strftime('%Y-%m-%d')
     deadlines = [dict(r) for r in conn.execute("""SELECT t.*, p.name as project_name 
-        FROM tasks t LEFT JOIN wf_projects p ON t.project_id=p.id 
+        FROM tasks t LEFT JOIN projects p ON t.project_id=p.id 
         WHERE t.due_date <= ? AND t.status != 'termine' ORDER BY t.due_date""",
         (week_end,)).fetchall()]
     
@@ -9834,7 +9834,7 @@ def resp_projet_list():
     projects = [dict(r) for r in conn.execute("""SELECT p.*, u.full_name as manager_name,
         (SELECT COUNT(*) FROM tasks WHERE project_id=p.id) as task_count,
         (SELECT COUNT(*) FROM tasks WHERE project_id=p.id AND status='termine') as task_done
-        FROM wf_projects p LEFT JOIN users u ON p.manager_id=u.id ORDER BY p.created_at DESC""").fetchall()]
+        FROM projects p LEFT JOIN users u ON p.manager_id=u.id ORDER BY p.created_at DESC""").fetchall()]
     users = get_all_users()
     clients = get_all_clients()
     conn.close()
@@ -9924,9 +9924,9 @@ def resp_projet_planning():
     next_m = month + 1; next_y = year
     if next_m > 12: next_m = 1; next_y += 1
     
-    projects = [dict(r) for r in conn.execute("SELECT * FROM wf_projects WHERE start_date IS NOT NULL AND start_date != '' ORDER BY start_date").fetchall()]
+    projects = [dict(r) for r in conn.execute("SELECT * FROM projects WHERE start_date IS NOT NULL AND start_date != '' ORDER BY start_date").fetchall()]
     tasks = [dict(r) for r in conn.execute("""SELECT t.*, p.name as project_name, u.full_name as assigned_name 
-        FROM tasks t LEFT JOIN wf_projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
+        FROM tasks t LEFT JOIN projects p ON t.project_id=p.id LEFT JOIN users u ON t.assigned_to=u.id
         WHERE t.due_date IS NOT NULL AND t.due_date != '' ORDER BY t.due_date""").fetchall()]
     conn.close()
     
@@ -11498,36 +11498,61 @@ def installations_export_pdf():
 def projects_list():
     """Liste/dashboard des projets — vue coordinateur."""
     status_filter = request.args.get('status', '').strip()
-    conn = _gdb()
-    sql = """SELECT p.*, u.full_name as coordinator_name
-             FROM wf_projects p
-             LEFT JOIN users u ON p.coordinator_id = u.id"""
-    params = []
-    if status_filter == 'actifs':
-        sql += " WHERE p.status NOT IN ('cloture')"
-    elif status_filter:
-        sql += " WHERE p.status = ?"
-        params.append(status_filter)
-    sql += " ORDER BY p.created_at DESC"
-    projects = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    projects = []
+    stats = {'total': 0, 'actifs': 0, 'cloture': 0, 'execution': 0, 'qc_attente': 0, 'solde_attente': 0}
     
-    # Stats
-    stats = {
-        'total': conn.execute("SELECT COUNT(*) FROM wf_projects").fetchone()[0],
-        'actifs': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status NOT IN ('cloture')").fetchone()[0],
-        'cloture': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='cloture'").fetchone()[0],
-        'execution': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='execution'").fetchone()[0],
-        'qc_attente': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='travaux_fin'").fetchone()[0],
-        'solde_attente': conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status IN ('livre','attente_solde')").fetchone()[0],
-    }
-    conn.close()
+    try:
+        conn = _gdb()
+        # S'assurer que les tables existent (filet de sécurité)
+        try:
+            from models import migrate_v75
+            migrate_v75()
+        except: pass
+        
+        sql = """SELECT p.*, u.full_name as coordinator_name
+                 FROM wf_projects p
+                 LEFT JOIN users u ON p.coordinator_id = u.id"""
+        params = []
+        if status_filter == 'actifs':
+            sql += " WHERE p.status NOT IN ('cloture')"
+        elif status_filter:
+            sql += " WHERE p.status = ?"
+            params.append(status_filter)
+        sql += " ORDER BY p.created_at DESC"
+        try:
+            projects = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        except Exception as e:
+            print(f"[projects_list] Erreur SELECT projets : {e}", flush=True)
+            projects = []
+        
+        # Stats (chaque requête isolée)
+        try: stats['total'] = conn.execute("SELECT COUNT(*) FROM wf_projects").fetchone()[0]
+        except: pass
+        try: stats['actifs'] = conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status NOT IN ('cloture')").fetchone()[0]
+        except: pass
+        try: stats['cloture'] = conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='cloture'").fetchone()[0]
+        except: pass
+        try: stats['execution'] = conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='execution'").fetchone()[0]
+        except: pass
+        try: stats['qc_attente'] = conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status='travaux_fin'").fetchone()[0]
+        except: pass
+        try: stats['solde_attente'] = conn.execute("SELECT COUNT(*) FROM wf_projects WHERE status IN ('livre','attente_solde')").fetchone()[0]
+        except: pass
+        conn.close()
+    except Exception as e:
+        print(f"[projects_list] Erreur globale : {e}", flush=True)
     
-    # Enrichir avec info étape
+    # Enrichir avec info étape (sans crasher si statut inconnu)
     for p in projects:
-        info = PROJECT_STATUS_INFO.get(p['status'], {})
-        p['step_label'] = info.get('label', p['status'])
-        p['step_icon'] = info.get('icon', '📋')
-        p['step_pct'] = info.get('pct', p.get('progress_pct') or 0)
+        try:
+            info = PROJECT_STATUS_INFO.get(p.get('status') or '', {})
+            p['step_label'] = info.get('label', p.get('status') or 'Statut inconnu')
+            p['step_icon'] = info.get('icon', '📋')
+            p['step_pct'] = info.get('pct', p.get('progress_pct') or 0)
+        except:
+            p['step_label'] = p.get('status') or '?'
+            p['step_icon'] = '📋'
+            p['step_pct'] = 0
     
     return render_template('projects.html', page='projects',
         projects=projects, stats=stats, status_filter=status_filter,

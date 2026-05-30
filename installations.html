@@ -1,4 +1,7 @@
 {% extends "base.html" %}{% block title %}WannyGest - Cartographie{% endblock %}{% block content %}
+{# v85 : pré-calcul des interventions par installation (utilisé pour carte + tableau) #}
+{% set int_count = {} %}
+{% for it in interventions %}{% set _ = int_count.update({it.installation_id: int_count.get(it.installation_id, 0) + 1}) %}{% endfor %}
 <div class="page-header"><h1>🗺️ Cartographie des installations</h1>
 <div style="display:flex;gap:6px;flex-wrap:wrap">
     <a href="/installations/export-pdf?periode={{ periode }}" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff">📄 Rapport PDF</a>
@@ -59,35 +62,167 @@
 </div></div>
 {% endif %}
 
-<!-- Carte (Leaflet) -->
-{% set installations_with_coords = installations|selectattr('latitude')|selectattr('longitude')|list %}
-{% if installations_with_coords %}
+<!-- v85 : Carte dynamique (Leaflet) - toujours affichée -->
 <div class="card" style="margin-bottom:16px"><div class="card-body">
-    <h3 style="margin:0 0 10px;color:#1A7A6D">🗺️ Carte interactive</h3>
-    <div id="mapInstall" style="height:380px;border-radius:8px;border:1px solid #ddd"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <h3 style="margin:0;color:#1A7A6D">🗺️ Carte dynamique des installations</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px">
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:14px;height:14px;border-radius:50%;background:#c53030;display:inline-block"></span> Forte activité (5+ int.)</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:14px;height:14px;border-radius:50%;background:#e8672a;display:inline-block"></span> Activité modérée (2-4)</span>
+            <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:14px;height:14px;border-radius:50%;background:#1A7A6D;display:inline-block"></span> Récent (0-1)</span>
+        </div>
+    </div>
+    <div id="mapInstall" style="height:480px;border-radius:8px;border:1px solid #ddd"></div>
+    <p style="font-size:11px;color:#888;margin:8px 0 0">
+        💡 Cliquez sur un marqueur pour voir les détails du site. Les installations sans coordonnées GPS sont géocodées approximativement par leur zone.
+    </p>
 </div></div>
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    var map = L.map('mapInstall').setView([7.5, -5.5], 6); // Centre CI
+    if (typeof L === 'undefined') { console.error('Leaflet non chargé'); return; }
+    
+    // v85 : Table de géocodage par zone (Côte d'Ivoire principales)
+    var ZONES_GPS = {
+        'cocody': [5.347, -3.987], 'plateau': [5.323, -4.024], 'yopougon': [5.343, -4.090],
+        'abobo': [5.408, -4.043], 'adjame': [5.354, -4.022], 'treichville': [5.286, -4.001],
+        'marcory': [5.298, -3.997], 'koumassi': [5.301, -3.954], 'port-bouet': [5.260, -3.926],
+        'attecoube': [5.345, -4.066], 'bingerville': [5.355, -3.890], 'songon': [5.350, -4.180],
+        'anyama': [5.494, -4.052], 'riviera': [5.380, -3.957],
+        // Villes principales
+        'abidjan': [5.345, -4.024], 'bouake': [7.690, -5.030], 'yamoussoukro': [6.827, -5.290],
+        'san-pedro': [4.748, -6.636], 'daloa': [6.877, -6.450], 'korhogo': [9.458, -5.629],
+        'man': [7.412, -7.554], 'gagnoa': [6.131, -5.951], 'divo': [5.840, -5.358],
+        'grand-bassam': [5.196, -3.738], 'dabou': [5.323, -4.378], 'tiassale': [5.898, -4.823],
+        'aboisso': [5.467, -3.207], 'agboville': [5.928, -4.213],
+    };
+    var DEFAULT_CI = [7.54, -5.55];  // Centre Côte d'Ivoire
+    
+    function geocodeZone(zone) {
+        if (!zone) return null;
+        var z = zone.toString().trim().toLowerCase().replace(/[\s_]+/g, '-');
+        // Recherche exacte
+        if (ZONES_GPS[z]) return ZONES_GPS[z];
+        // Recherche partielle (contient)
+        for (var k in ZONES_GPS) {
+            if (z.indexOf(k) >= 0 || k.indexOf(z) >= 0) return ZONES_GPS[k];
+        }
+        return null;
+    }
+    
+    var map = L.map('mapInstall').setView(DEFAULT_CI, 7);
+    
+    // Couche OSM
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap', maxZoom: 18
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
     }).addTo(map);
-    var bounds = [];
-    {% for inst in installations_with_coords %}
-    (function() {
-        var lat = {{ inst.latitude }};
-        var lng = {{ inst.longitude }};
-        var marker = L.marker([lat, lng]).addTo(map);
-        marker.bindPopup("<b>{{ inst.site_name|replace('"','&quot;') }}</b><br>{{ inst.client_name|replace('"','&quot;') or '-' }}<br>📍 {{ inst.zone or '-' }}<br>🔧 {{ inst.equipment_count or 0 }} équipement(s)");
-        bounds.push([lat, lng]);
-    })();
+    
+    // Données installations (côté JS)
+    var installations = [
+    {% for inst in installations %}
+        {
+            id: {{ inst.id }},
+            name: {{ inst.site_name|tojson }},
+            client: {{ (inst.client_name or '-')|tojson }},
+            zone: {{ (inst.zone or '')|tojson }},
+            address: {{ (inst.address or '')|tojson }},
+            equipment_count: {{ inst.equipment_count or 0 }},
+            equipment_type: {{ (inst.equipment_type or '')|tojson }},
+            interventions: {{ int_count.get(inst.id, 0) if int_count else 0 }},
+            lat: {{ inst.latitude or 'null' }},
+            lng: {{ inst.longitude or 'null' }},
+            install_date: {{ (inst.install_date or '')|tojson }}
+        }{% if not loop.last %},{% endif %}
     {% endfor %}
-    if (bounds.length > 0) map.fitBounds(bounds, {padding: [30, 30]});
+    ];
+    
+    var bounds = [];
+    var ungeocodedCount = 0;
+    
+    installations.forEach(function(inst) {
+        var coords = null;
+        var isApprox = false;
+        
+        // 1. Priorité aux coordonnées exactes
+        if (inst.lat && inst.lng) {
+            coords = [inst.lat, inst.lng];
+        } else if (inst.zone) {
+            // 2. Géocodage par zone
+            coords = geocodeZone(inst.zone);
+            isApprox = !!coords;
+        }
+        if (!coords && inst.address) {
+            // 3. Géocodage par adresse (premier mot)
+            var firstWord = inst.address.split(/[,\s]/)[0];
+            coords = geocodeZone(firstWord);
+            isApprox = !!coords;
+        }
+        
+        if (!coords) {
+            ungeocodedCount++;
+            return;
+        }
+        
+        // Couleur selon nombre d'interventions
+        var color = '#1A7A6D';  // récent
+        if (inst.interventions >= 5) color = '#c53030';
+        else if (inst.interventions >= 2) color = '#e8672a';
+        
+        // Marqueur circulaire coloré
+        var marker = L.circleMarker(coords, {
+            radius: 8 + Math.min(inst.equipment_count, 12),
+            fillColor: color,
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: isApprox ? 0.6 : 0.85,
+            dashArray: isApprox ? '4,4' : null
+        }).addTo(map);
+        
+        // Popup
+        var popupHtml =
+            '<div style="font-size:12px;min-width:180px">' +
+                '<strong style="color:#1A7A6D;font-size:13px">🏗️ ' + inst.name + '</strong>' +
+                '<div style="margin:6px 0;padding-top:6px;border-top:1px solid #eee">' +
+                    '👤 <b>Client :</b> ' + (inst.client || '-') + '<br>' +
+                    '📍 <b>Zone :</b> ' + (inst.zone || '-') + (isApprox ? ' <em>(approx.)</em>' : '') + '<br>' +
+                    (inst.address ? '📌 ' + inst.address + '<br>' : '') +
+                    '🔧 <b>Équipements :</b> ' + inst.equipment_count + (inst.equipment_type ? ' (' + inst.equipment_type + ')' : '') + '<br>' +
+                    '🛠️ <b>Interventions :</b> <span style="color:' + color + ';font-weight:700">' + inst.interventions + '</span>' +
+                    (inst.install_date ? '<br>📅 Installé le ' + inst.install_date : '') +
+                '</div>' +
+            '</div>';
+        marker.bindPopup(popupHtml);
+        marker.bindTooltip(inst.name, {permanent: false, direction: 'top'});
+        bounds.push(coords);
+    });
+    
+    if (bounds.length > 0) {
+        if (bounds.length === 1) {
+            map.setView(bounds[0], 12);
+        } else {
+            map.fitBounds(bounds, {padding: [40, 40], maxZoom: 13});
+        }
+    }
+    
+    if (ungeocodedCount > 0) {
+        var info = L.control({position: 'topright'});
+        info.onAdd = function() {
+            var div = L.DomUtil.create('div', 'info');
+            div.style.cssText = 'background:#fff3cd;padding:6px 10px;border-radius:6px;border-left:3px solid #e8672a;font-size:11px;color:#856404';
+            div.innerHTML = '⚠️ ' + ungeocodedCount + ' installation(s) sans coordonnées GPS';
+            return div;
+        };
+        info.addTo(map);
+    }
+    
+    // Forcer un resize après affichage (correction bug carte vide)
+    setTimeout(function() { map.invalidateSize(); }, 200);
 });
 </script>
-{% endif %}
 
 <!-- Liste installations -->
 <div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
@@ -99,8 +234,6 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="table-wrap"><table id="instTable">
     <thead><tr><th>Site</th><th>Client</th><th>Zone</th><th>Adresse</th><th>Équipements</th><th>Date install.</th><th>Interventions</th><th>Actions</th></tr></thead>
     <tbody>
-    {% set int_count = {} %}
-    {% for it in interventions %}{% set _ = int_count.update({it.installation_id: int_count.get(it.installation_id, 0) + 1}) %}{% endfor %}
     {% for inst in installations %}
     <tr>
         <td><strong>{{ inst.site_name }}</strong>{% if inst.equipment_type %}<br><span style="font-size:10px;color:#888">{{ inst.equipment_type }}</span>{% endif %}</td>
