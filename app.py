@@ -411,10 +411,8 @@ try:
     
     # Nouvelles permissions Roadmap
     V89_PERMS = {
-        # Coordination (3 rôles = même fonction métier)
-        'coordinateur':         ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
+        # v101 : Fusionné — uniquement gestionnaire_projet (coordinateur/resp_projet retirés)
         'gestionnaire_projet':  ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
-        'resp_projet':          ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
         # Commercial : créer projets + clôture + contrat
         'commercial':           ['roadmap_view', 'project_create', 'project_close', 'project_contract'],
         # Centre technique : exécute + rapporte
@@ -794,8 +792,6 @@ try:
         'dg':               ['field_report_view_all', 'field_report_analyze'],
         'directeur':        ['field_report_view_all', 'field_report_analyze'],
         'gestionnaire_projet': ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform', 'field_report_close'],
-        'coordinateur':     ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform'],
-        'resp_projet':      ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform'],
         'commercial':       ['field_report_create', 'field_report_view_all'],
         'technicien':       ['field_report_create', 'field_report_view_mine'],
         'tech_chef':        ['field_report_create', 'field_report_view_all'],
@@ -840,6 +836,15 @@ try:
         except: pass
     if nb_migrated > 0:
         print(f"[v100-Roles] {nb_migrated} utilisateur(s) migré(s) vers 'gestionnaire_projet'", flush=True)
+    
+    # v101 : Supprimer les permissions des rôles obsolètes (coordinateur, resp_projet)
+    # Ces rôles ne doivent plus apparaître dans la matrice — leurs perms sont déjà sur gestionnaire_projet
+    try:
+        deleted = _v100_conn.execute(
+            "DELETE FROM permissions WHERE role IN ('coordinateur', 'resp_projet')").rowcount or 0
+        if deleted > 0:
+            print(f"[v101-Cleanup] {deleted} permissions obsolètes supprimées (coordinateur/resp_projet)", flush=True)
+    except: pass
     
     # 2. Ajouter colonnes validation_compta sur achats_demandes
     table_exists = _v100_conn.execute(
@@ -1051,11 +1056,7 @@ try:
         defaults = ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat']
         merged = list(set(existing + defaults))
         update_role_permissions('technicien', merged)
-    if 'centre_technique' not in _grp('resp_projet'):
-        existing = _grp('resp_projet')
-        defaults = ['dashboard', 'resp_projet', 'resp_projet_edit', 'projets', 'informatique', 'centre_technique', 'clients', 'visites', 'rapports_j', 'chat']
-        merged = list(set(existing + defaults))
-        update_role_permissions('resp_projet', merged)
+    # v101 : Bloc resp_projet désactivé — ce rôle est obsolète, remplacé par gestionnaire_projet
 except: pass
 
 from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
@@ -1598,6 +1599,18 @@ def inject_globals():
                     }
             except Exception as _e_fr:
                 pass
+            
+            # v101 : Badge "Demandes MG à valider" pour comptables
+            try:
+                _user_perms = ctx.get('permissions', [])
+                if 'mg_compta_validate' in _user_perms or 'admin' in _user_perms or user['role'] in ('comptable', 'comptabilite', 'admin', 'dg', 'directeur'):
+                    from models import get_db as _cmgdb
+                    _cmg = _cmgdb()
+                    ctx['compta_demandes_pending'] = _cmg.execute(
+                        "SELECT COUNT(*) FROM achats_demandes WHERE compta_status='a_valider'").fetchone()[0]
+                    _cmg.close()
+            except Exception:
+                ctx['compta_demandes_pending'] = 0
             
             if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
@@ -21726,16 +21739,49 @@ def mg_demandes_add():
 @app.route('/mg/demandes/<int:did>/valider/<action>')
 @permission_required_any('mg_valider', 'admin')
 def mg_demandes_valider(did, action):
-    """Valider ou refuser une demande. action ∈ {validee, refusee}."""
+    """Valider ou refuser une demande. action ∈ {validee, refusee}.
+    v101: si validée, envoie automatiquement à la Comptabilité pour validation budgétaire."""
     if action not in ('validee', 'refusee', 'en_attente'):
         flash("Action invalide", "error")
         return redirect('/mg/demandes')
     conn = _gdb()
+    row = conn.execute("SELECT reference FROM achats_demandes WHERE id=?", (did,)).fetchone()
+    ref = row['reference'] if row else f'#{did}'
+    
     conn.execute("""UPDATE achats_demandes SET status=?, approved_by=?, approved_at=?
                     WHERE id=?""",
                  (action, session['user_id'], datetime.now().isoformat(), did))
-    conn.commit(); conn.close()
-    flash(f"Demande {action}", "success")
+    
+    # v101 : auto-envoi à la compta lors de la validation MG
+    if action == 'validee':
+        # Calculer montant estimé depuis les items si possible
+        total_items_row = conn.execute("""SELECT COALESCE(SUM(quantity * COALESCE(estimated_price,0)), 0) as total
+            FROM achats_demande_items WHERE demande_id=?""", (did,)).fetchone()
+        montant_calc = float(total_items_row['total'] or 0) if total_items_row else 0
+        
+        conn.execute("""UPDATE achats_demandes SET 
+            compta_status='a_valider',
+            compta_visible_at=datetime('now'),
+            compta_montant_estime=COALESCE(compta_montant_estime, ?)
+            WHERE id=? AND compta_visible_at IS NULL""", 
+            (montant_calc if montant_calc > 0 else None, did))
+    conn.commit()
+    
+    # Notifier les comptables si validée
+    if action == 'validee':
+        try:
+            users = conn.execute("""SELECT id, full_name FROM users 
+                WHERE role IN ('comptable','comptabilite','dg','directeur','admin') AND is_active=1""").fetchall()
+            for u in users:
+                try: notify(u['id'], f"💰 Nouvelle demande MG {ref} à valider budgétairement")
+                except: pass
+        except: pass
+    
+    conn.close()
+    if action == 'validee':
+        flash(f"✅ Demande {ref} validée et transmise à la Comptabilité", "success")
+    else:
+        flash(f"Demande {ref} {action}", "success")
     return redirect('/mg/demandes')
 
 
