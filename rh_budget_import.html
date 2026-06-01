@@ -1,0 +1,88 @@
+{% extends "base.html" %}{% block title %}WannyGest - Importer Budget RH Excel{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📥 Importer un Budget RH depuis Excel</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Chargez un fichier Excel pour pré-remplir le budget mensuel de l'année {{ year }}
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/rh/budget?year={{ year }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+        <a href="/rh/budget/template-excel?year={{ year }}" class="btn btn-sm" style="background:#1976d2;color:#fff">📄 Télécharger le modèle</a>
+    </div>
+</div>
+
+<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#0d47a1">
+    <strong style="font-size:14px">📖 Comment importer ?</strong>
+    <ol style="margin:8px 0 0 18px;line-height:1.7">
+        <li>Téléchargez le <a href="/rh/budget/template-excel?year={{ year }}" style="color:#1976d2;font-weight:700">📄 modèle Excel vierge</a></li>
+        <li>Remplissez les <strong>cellules vertes</strong> (effectif, recrutements, départs, masse salariale, employés CNPS) pour chaque mois</li>
+        <li>Sauvegardez le fichier en format <strong>.xlsx</strong></li>
+        <li>Sélectionnez le fichier ci-dessous et cliquez sur <strong>Importer</strong></li>
+    </ol>
+    <p style="margin:10px 0 0;font-size:12px;color:#1565c0">
+        💡 Le système reconnaît automatiquement vos libellés : "Effectif début de mois", "Masse salariale brute", "Recrutements du mois", "Départs du mois", "Employés déclarés CNPS"...
+    </p>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📂 Sélection du fichier</h3></div>
+    <div class="card-body">
+        <form method="post" action="/rh/budget/import-excel" enctype="multipart/form-data">
+            <input type="hidden" name="year" value="{{ year }}">
+            
+            <div class="form-group">
+                <label style="font-weight:700;display:block;margin-bottom:6px">Fichier Excel (.xlsx, .xls)</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required 
+                    style="padding:10px;border:2px dashed #1A7A6D;border-radius:8px;width:100%;cursor:pointer;background:#f8faf9">
+            </div>
+            
+            <div class="form-group">
+                <label style="font-weight:700;display:block;margin-bottom:6px">Année cible</label>
+                <select name="year" style="padding:8px 12px;border:1.5px solid #ddd;border-radius:7px;font-weight:600">
+                    <option value="{{ year - 1 }}">{{ year - 1 }}</option>
+                    <option value="{{ year }}" selected>{{ year }}</option>
+                    <option value="{{ year + 1 }}">{{ year + 1 }}</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer">
+                    <input type="checkbox" name="overwrite" value="1" style="width:18px;height:18px">
+                    <span>⚠️ <strong>Écraser</strong> les données existantes (sinon, seules les cellules vides seront remplies)</span>
+                </label>
+            </div>
+            
+            <div style="background:#fff3cd;border-left:4px solid #e8672a;padding:10px;border-radius:6px;font-size:12px;color:#856404;margin-bottom:14px">
+                ⚠️ <strong>Important</strong> : par défaut, l'import ne remplit que les mois <em>vides</em> en base. Cochez "Écraser" pour remplacer les données déjà saisies.
+            </div>
+            
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <a href="/rh/budget?year={{ year }}" class="btn btn-outline">Annuler</a>
+                <button type="submit" class="btn btn-primary">📥 Importer le budget</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div style="margin-top:14px;background:#f8faf9;padding:14px;border-radius:8px;border:1px solid #ddd">
+    <div style="font-size:12px;color:#666;font-weight:700;margin-bottom:8px">📋 Rubriques importables (libellés reconnus automatiquement)</div>
+    <table style="width:100%;font-size:12px;background:#fff;border-radius:6px;overflow:hidden">
+        <thead><tr style="background:#1A7A6D;color:#fff">
+            <th style="text-align:left;padding:8px">Rubrique Excel</th>
+            <th style="text-align:left;padding:8px">Champ BDD</th>
+            <th style="text-align:left;padding:8px">Description</th>
+        </tr></thead>
+        <tbody>
+            <tr style="border-bottom:1px solid #eee"><td style="padding:8px">"Effectif début de mois" ou "Effectif initial"</td><td style="padding:8px;font-family:monospace">effectif_debut</td><td style="padding:8px">Nombre de personnes au 1er du mois</td></tr>
+            <tr style="border-bottom:1px solid #eee;background:#f8faf9"><td style="padding:8px">"Recrutements du mois" ou "Nb recrutements"</td><td style="padding:8px;font-family:monospace">nb_recrutements</td><td style="padding:8px">Nouvelles embauches du mois</td></tr>
+            <tr style="border-bottom:1px solid #eee"><td style="padding:8px">"Départs du mois" ou "Départs"</td><td style="padding:8px;font-family:monospace">departs</td><td style="padding:8px">Démissions, fins de contrat, licenciements</td></tr>
+            <tr style="border-bottom:1px solid #eee;background:#f8faf9"><td style="padding:8px">"Masse salariale brute" ou "Salaires bruts"</td><td style="padding:8px;font-family:monospace">masse_salariale</td><td style="padding:8px">Total des salaires bruts (FCFA)</td></tr>
+            <tr><td style="padding:8px">"Employés déclarés CNPS" ou "Déclarés CNPS"</td><td style="padding:8px;font-family:monospace">employes_declares</td><td style="padding:8px">Nombre déclarés (utilisé pour calculer CNPS, TA, FDFP, ITS)</td></tr>
+        </tbody>
+    </table>
+    <p style="font-size:11px;color:#888;margin-top:10px;font-style:italic">
+        Les champs calculés (CNPS 17%, TA 0,4%, formation, marge, etc.) sont automatiquement recalculés par le système après import à partir des hypothèses.
+    </p>
+</div>
+{% endblock %}

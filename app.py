@@ -11104,6 +11104,604 @@ def rh_budget_synthese():
         mois_fr=MOIS_FR, mois_court=MOIS_FR_COURT)
 
 
+# ==================== v98 : IMPORT/EXPORT EXCEL Budget RH ====================
+
+@app.route('/rh/budget/export-excel')
+@permission_required('rh_budget_view')
+def rh_budget_export_excel():
+    """Export Excel multi-feuilles du Budget RH annuel.
+    5 feuilles : Hypothèses, Budget Mensuel Détaillé, Synthèse Annuelle, Suivi Réel, Recrutements."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from flask import Response
+    import io as _io
+    
+    year = int(request.args.get('year', datetime.now().year))
+    params = _get_rh_budget_params(year)
+    conn = _gdb()
+    
+    # Préparer les styles
+    TEAL = "FF1A7A6D"
+    ORANGE_LIGHT = "FFF29F2F"
+    ORANGE_DARK = "FFE8672A"
+    TEAL_DARK = "FF0F5A51"
+    WHITE = "FFFFFFFF"
+    LIGHT_GREY = "FFF8FAF9"
+    
+    bold_white = Font(bold=True, color=WHITE, size=11)
+    bold_white_lg = Font(bold=True, color=WHITE, size=13)
+    bold_black = Font(bold=True, size=11)
+    normal = Font(size=10)
+    
+    fill_teal = PatternFill('solid', fgColor=TEAL)
+    fill_teal_dark = PatternFill('solid', fgColor=TEAL_DARK)
+    fill_orange_light = PatternFill('solid', fgColor=ORANGE_LIGHT)
+    fill_orange_dark = PatternFill('solid', fgColor=ORANGE_DARK)
+    fill_grey = PatternFill('solid', fgColor=LIGHT_GREY)
+    
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    right = Alignment(horizontal='right', vertical='center')
+    left = Alignment(horizontal='left', vertical='center')
+    
+    thin = Side(border_style='thin', color='FFCCCCCC')
+    border_all = Border(left=thin, right=thin, top=thin, bottom=thin)
+    
+    wb = Workbook()
+    wb.remove(wb.active)  # Remove default sheet
+    
+    # ========== FEUILLE 1 : HYPOTHÈSES ==========
+    ws1 = wb.create_sheet("Hypothèses")
+    ws1.column_dimensions['A'].width = 50
+    ws1.column_dimensions['B'].width = 25
+    ws1.column_dimensions['C'].width = 45
+    
+    # En-tête
+    ws1.merge_cells('A1:C1')
+    ws1['A1'] = f"HYPOTHÈSES BUDGET RH {year} — RAMYA TECHNOLOGIE"
+    ws1['A1'].font = bold_white_lg
+    ws1['A1'].fill = fill_teal
+    ws1['A1'].alignment = center
+    ws1.row_dimensions[1].height = 35
+    
+    headers = ['Paramètre', 'Valeur', 'Description']
+    for col, h in enumerate(headers, 1):
+        cell = ws1.cell(row=3, column=col, value=h)
+        cell.font = bold_white; cell.fill = fill_teal_dark; cell.alignment = center; cell.border = border_all
+    
+    row = 4
+    PARAM_LABELS = {
+        'cnps_employer_rate': ('Taux CNPS patronal', 'Charge patronale CNPS (sur déclarés)'),
+        'cnps_salarial_rate': ('Taux CNPS salarial', 'Pour information'),
+        'ta_rate': ('Taux Taxe d\'Apprentissage', 'TA appliquée sur masse salariale'),
+        'fdfp_rate': ('Taux FDFP', 'Fonds de Développement de la Formation Professionnelle'),
+        'its_rate': ('Taux ITS patronal', 'Impôt sur les Traitements et Salaires'),
+        'sirh_usd': ('Coût SIRH (USD/mois)', 'Logiciel de gestion RH'),
+        'usd_xof_rate': ('Taux de change USD-FCFA', 'Conversion devise'),
+        'medecine_travail': ('Médecine du travail (FCFA/mois)', 'Frais médicaux mensuels'),
+        'autres_frais_rh': ('Autres frais RH (FCFA/mois)', 'Primes de mission, divers'),
+        'marge_securite_rate': ('Marge de sécurité', 'Marge sur masse salariale'),
+        'formation_rate': ('Taux Formation', 'Budget formation sur masse salariale'),
+        'cout_annonce_default': ('Coût annonce recrutement (FCFA)', 'Par recrutement'),
+        'frais_selection_rate': ('Frais sélection', 'Pourcentage du salaire brut'),
+    }
+    for key, (label, desc) in PARAM_LABELS.items():
+        param = params.get(key)
+        if isinstance(param, dict):
+            val = param.get('param_value') if param.get('param_value') is not None else param.get('param_text', '')
+        else:
+            val = param if param is not None else ''
+        ws1.cell(row=row, column=1, value=label).font = normal
+        ws1.cell(row=row, column=1).border = border_all
+        ws1.cell(row=row, column=2, value=val).font = bold_black
+        ws1.cell(row=row, column=2).alignment = right
+        ws1.cell(row=row, column=2).border = border_all
+        ws1.cell(row=row, column=3, value=desc).font = Font(size=9, italic=True, color='FF666666')
+        ws1.cell(row=row, column=3).border = border_all
+        if row % 2 == 0: 
+            for c in range(1, 4): ws1.cell(row=row, column=c).fill = fill_grey
+        row += 1
+    
+    # ========== FEUILLE 2 : BUDGET MENSUEL DÉTAILLÉ ==========
+    ws2 = wb.create_sheet("Budget Mensuel Détaillé")
+    
+    # Calculer les données mensuelles
+    months_data = []
+    for m in range(1, 13):
+        data = _compute_monthly_budget(year, m, params)
+        months_data.append(data)
+    
+    ws2.column_dimensions['A'].width = 45
+    for col in range(2, 15):
+        ws2.column_dimensions[get_column_letter(col)].width = 14
+    
+    # Titre
+    ws2.merge_cells('A1:N1')
+    ws2['A1'] = f"BUDGET MENSUEL DÉTAILLÉ {year}"
+    ws2['A1'].font = bold_white_lg
+    ws2['A1'].fill = fill_teal
+    ws2['A1'].alignment = center
+    ws2.row_dimensions[1].height = 35
+    
+    # En-têtes
+    mois_noms = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+    headers_row = ['RUBRIQUES'] + mois_noms + ['TOTAL ANNUEL']
+    for col, h in enumerate(headers_row, 1):
+        cell = ws2.cell(row=3, column=col, value=h)
+        cell.font = bold_white
+        if col == 1: cell.fill = fill_teal
+        elif col == 14: cell.fill = fill_teal_dark
+        else: cell.fill = fill_orange_light if (col-1) % 2 == 1 else fill_orange_dark
+        cell.alignment = center; cell.border = border_all
+    ws2.row_dimensions[3].height = 30
+    
+    # Lignes : rubrique → clé dans months_data
+    rubriques = [
+        ('— MOUVEMENTS D\'EFFECTIFS —', None, 'section'),
+        ('Effectif début de mois', 'effectif_debut', 'data'),
+        ('Recrutements du mois', 'nb_recrutements', 'data'),
+        ('Départs du mois', 'departs', 'data'),
+        ('Effectif fin de mois', 'effectif_fin', 'data_bold'),
+        ('— MASSE SALARIALE —', None, 'section'),
+        ('Masse salariale brute', 'masse_salariale', 'data'),
+        ('Employés déclarés CNPS', 'employes_declares', 'data'),
+        ('CNPS patronal 17%', 'cnps', 'data'),
+        ('Taxe d\'Apprentissage 0,4%', 'ta', 'data'),
+        ('FDFP 1,2%', 'fdfp', 'data'),
+        ('ITS patronal 1,5%', 'its', 'data'),
+        ('TOTAL CHARGES PATRONALES', 'charges_patronales', 'data_bold'),
+        ('COÛT SALARIAL TOTAL', 'cout_salarial_total', 'data_bold'),
+        ('— BUDGET RECRUTEMENT —', None, 'section'),
+        ('Coût annonce & sourcing', 'cout_annonce', 'data'),
+        ('Frais de sélection', 'frais_selection', 'data'),
+        ('Coût intégration', 'cout_integration', 'data'),
+        ('TOTAL BUDGET RECRUTEMENT', 'total_recrutement', 'data_bold'),
+        ('— BUDGET FORMATION —', None, 'section'),
+        ('Budget Formation', 'formation', 'data_bold'),
+        ('— FRAIS ANNEXES —', None, 'section'),
+        ('SIRH', 'sirh', 'data'),
+        ('Médecine du travail', 'medecine', 'data'),
+        ('Autres frais RH', 'autres_frais', 'data'),
+        ('Marge de sécurité', 'marge', 'data'),
+        ('TOTAL FRAIS ANNEXES', 'total_frais_annexes', 'data_bold'),
+        ('— TOTAL GÉNÉRAL —', None, 'section'),
+        ('TOTAL BUDGET RH MENSUEL', 'total_budget', 'data_total'),
+    ]
+    
+    r = 4
+    for label, key, typ in rubriques:
+        if typ == 'section':
+            ws2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+            cell = ws2.cell(row=r, column=1, value=label)
+            cell.font = Font(bold=True, color=WHITE, size=11); cell.fill = fill_teal
+            cell.alignment = Alignment(horizontal='left', vertical='center', indent=1)
+            ws2.row_dimensions[r].height = 22
+        else:
+            ws2.cell(row=r, column=1, value=label).font = bold_black if typ in ('data_bold', 'data_total') else normal
+            ws2.cell(row=r, column=1).alignment = left
+            ws2.cell(row=r, column=1).border = border_all
+            total = 0
+            for m_idx, m_data in enumerate(months_data):
+                val = m_data.get(key, 0) or 0
+                cell = ws2.cell(row=r, column=2+m_idx, value=val)
+                cell.alignment = right
+                cell.border = border_all
+                cell.number_format = '#,##0'
+                if typ == 'data_bold':
+                    cell.font = bold_black
+                elif typ == 'data_total':
+                    cell.font = Font(bold=True, color=WHITE, size=11)
+                    cell.fill = fill_teal_dark
+                else:
+                    cell.font = normal
+                total += val
+            # Colonne total
+            tot_cell = ws2.cell(row=r, column=14, value=total)
+            tot_cell.alignment = right
+            tot_cell.border = border_all
+            tot_cell.number_format = '#,##0'
+            tot_cell.font = Font(bold=True, color=WHITE if typ == 'data_total' else 'FF1A7A6D', size=11)
+            tot_cell.fill = fill_teal_dark if typ == 'data_total' else fill_grey
+        r += 1
+    
+    # Geler la 1ère colonne et les 3 premières lignes
+    ws2.freeze_panes = 'B4'
+    
+    # ========== FEUILLE 3 : SYNTHÈSE ANNUELLE ==========
+    ws3 = wb.create_sheet("Synthèse Annuelle")
+    ws3.column_dimensions['A'].width = 40
+    ws3.column_dimensions['B'].width = 22
+    ws3.column_dimensions['C'].width = 22
+    
+    ws3.merge_cells('A1:C1')
+    ws3['A1'] = f"SYNTHÈSE ANNUELLE BUDGET RH {year}"
+    ws3['A1'].font = bold_white_lg
+    ws3['A1'].fill = fill_teal
+    ws3['A1'].alignment = center
+    ws3.row_dimensions[1].height = 35
+    
+    syn_headers = ['Poste budgétaire', 'Montant annuel (FCFA)', '% du total']
+    for col, h in enumerate(syn_headers, 1):
+        cell = ws3.cell(row=3, column=col, value=h)
+        cell.font = bold_white; cell.fill = fill_teal_dark; cell.alignment = center; cell.border = border_all
+    
+    # Calculer totaux annuels
+    total_masse = sum(m.get('masse_salariale', 0) or 0 for m in months_data)
+    total_charges = sum(m.get('charges_patronales', 0) or 0 for m in months_data)
+    total_cout_sal = sum(m.get('cout_salarial_total', 0) or 0 for m in months_data)
+    total_recrutement = sum(m.get('total_recrutement', 0) or 0 for m in months_data)
+    total_formation = sum(m.get('formation', 0) or 0 for m in months_data)
+    total_frais = sum(m.get('total_frais_annexes', 0) or 0 for m in months_data)
+    total_budget = sum(m.get('total_budget', 0) or 0 for m in months_data)
+    
+    rows_syn = [
+        ('Masse salariale brute annuelle', total_masse),
+        ('Total charges patronales (CNPS+TA+FDFP+ITS)', total_charges),
+        ('COÛT SALARIAL TOTAL', total_cout_sal),
+        ('Budget Recrutement', total_recrutement),
+        ('Budget Formation', total_formation),
+        ('Frais annexes (SIRH, Médecine, Autres, Marge)', total_frais),
+        ('TOTAL BUDGET RH ANNUEL', total_budget),
+    ]
+    r = 4
+    for label, val in rows_syn:
+        is_total = label == 'TOTAL BUDGET RH ANNUEL'
+        ws3.cell(row=r, column=1, value=label).font = bold_black if is_total else normal
+        ws3.cell(row=r, column=1).border = border_all
+        c2 = ws3.cell(row=r, column=2, value=val)
+        c2.font = bold_black if is_total else normal; c2.alignment = right; c2.border = border_all
+        c2.number_format = '#,##0 "FCFA"'
+        pct = (val / total_budget * 100) if total_budget > 0 else 0
+        c3 = ws3.cell(row=r, column=3, value=pct/100)
+        c3.font = normal; c3.alignment = right; c3.border = border_all
+        c3.number_format = '0.0%'
+        if is_total:
+            for col in range(1, 4):
+                ws3.cell(row=r, column=col).fill = fill_orange_light
+                ws3.cell(row=r, column=col).font = Font(bold=True, color=WHITE, size=11)
+        elif r % 2 == 0:
+            for col in range(1, 4): ws3.cell(row=r, column=col).fill = fill_grey
+        r += 1
+    
+    # ========== FEUILLE 4 : SUIVI RÉEL vs BUDGET ==========
+    ws4 = wb.create_sheet("Suivi Réel vs Budget")
+    ws4.column_dimensions['A'].width = 18
+    for col in range(2, 9):
+        ws4.column_dimensions[get_column_letter(col)].width = 17
+    
+    ws4.merge_cells('A1:H1')
+    ws4['A1'] = f"SUIVI RÉEL vs BUDGET {year}"
+    ws4['A1'].font = bold_white_lg
+    ws4['A1'].fill = fill_teal
+    ws4['A1'].alignment = center
+    ws4.row_dimensions[1].height = 35
+    
+    suivi_headers = ['Mois', 'Budget Total', 'Réel Masse Sal.', 'Réel Charges', 'Réel Total', 'Écart', 'Écart %', 'Statut']
+    for col, h in enumerate(suivi_headers, 1):
+        cell = ws4.cell(row=3, column=col, value=h)
+        cell.font = bold_white; cell.fill = fill_teal_dark; cell.alignment = center; cell.border = border_all
+    
+    r = 4
+    for m_idx, m_data in enumerate(months_data):
+        # Récupérer le réel saisi
+        real = conn.execute("""SELECT real_masse_salariale, real_charges_patronales, real_total 
+            FROM rh_budget_monthly WHERE year=? AND month=?""", (year, m_idx+1)).fetchone()
+        budget_total = m_data.get('total_budget', 0) or 0
+        real_ms = (real['real_masse_salariale'] or 0) if real else 0
+        real_ch = (real['real_charges_patronales'] or 0) if real else 0
+        real_tot = (real['real_total'] or 0) if real else 0
+        ecart = real_tot - budget_total if real_tot else 0
+        ecart_pct = (ecart / budget_total * 100) if budget_total > 0 and real_tot else 0
+        statut = '✅ Saisi' if real_tot else '⏳ À saisir'
+        
+        ws4.cell(row=r, column=1, value=mois_noms[m_idx]).font = bold_black
+        ws4.cell(row=r, column=2, value=budget_total).number_format = '#,##0'
+        ws4.cell(row=r, column=3, value=real_ms).number_format = '#,##0'
+        ws4.cell(row=r, column=4, value=real_ch).number_format = '#,##0'
+        ws4.cell(row=r, column=5, value=real_tot).number_format = '#,##0'
+        ws4.cell(row=r, column=6, value=ecart).number_format = '#,##0'
+        ws4.cell(row=r, column=7, value=ecart_pct/100).number_format = '0.0%'
+        ws4.cell(row=r, column=8, value=statut)
+        for col in range(1, 9):
+            ws4.cell(row=r, column=col).border = border_all
+            ws4.cell(row=r, column=col).alignment = right if col > 1 else left
+        if r % 2 == 0:
+            for col in range(1, 9): ws4.cell(row=r, column=col).fill = fill_grey
+        r += 1
+    
+    # ========== FEUILLE 5 : RECRUTEMENTS ==========
+    ws5 = wb.create_sheet("Recrutements")
+    cols_widths = [20, 8, 25, 18, 16, 16, 16, 16, 18]
+    for col, w in enumerate(cols_widths, 1):
+        ws5.column_dimensions[get_column_letter(col)].width = w
+    
+    ws5.merge_cells('A1:I1')
+    ws5['A1'] = f"DÉTAIL DES RECRUTEMENTS {year}"
+    ws5['A1'].font = bold_white_lg
+    ws5['A1'].fill = fill_teal
+    ws5['A1'].alignment = center
+    ws5.row_dimensions[1].height = 35
+    
+    rec_headers = ['Mois prévu', 'Année', 'Poste', 'Salaire brut (FCFA)', 'Coût annonce', 'Frais sélection', 'Coût intégration', 'Coût TOTAL', 'Statut']
+    for col, h in enumerate(rec_headers, 1):
+        cell = ws5.cell(row=3, column=col, value=h)
+        cell.font = bold_white; cell.fill = fill_teal_dark; cell.alignment = center; cell.border = border_all
+    
+    recruits = conn.execute("SELECT * FROM rh_budget_recruits WHERE year=? ORDER BY month, id", (year,)).fetchall()
+    r = 4
+    for rec in recruits:
+        ws5.cell(row=r, column=1, value=mois_noms[(rec['month'] or 1) - 1])
+        ws5.cell(row=r, column=2, value=rec['year'])
+        ws5.cell(row=r, column=3, value=rec['poste'] or '')
+        ws5.cell(row=r, column=4, value=rec['salaire_brut'] or 0).number_format = '#,##0'
+        ws5.cell(row=r, column=5, value=rec['cout_annonce'] or 0).number_format = '#,##0'
+        ws5.cell(row=r, column=6, value=rec['frais_selection'] or 0).number_format = '#,##0'
+        ws5.cell(row=r, column=7, value=rec['cout_integration'] or 0).number_format = '#,##0'
+        ws5.cell(row=r, column=8, value=rec['cout_total'] or 0).number_format = '#,##0'
+        ws5.cell(row=r, column=8).font = bold_black
+        ws5.cell(row=r, column=9, value=rec['statut'] or 'Prévu')
+        for col in range(1, 10):
+            ws5.cell(row=r, column=col).border = border_all
+            ws5.cell(row=r, column=col).alignment = right if col in (4,5,6,7,8) else left
+        if r % 2 == 0:
+            for col in range(1, 10): ws5.cell(row=r, column=col).fill = fill_grey
+        r += 1
+    if not recruits:
+        ws5.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+        ws5.cell(row=r, column=1, value="Aucun recrutement enregistré").alignment = center
+    
+    conn.close()
+    
+    # Sauvegarder en buffer
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="Budget_RH_{year}_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx"'})
+
+
+@app.route('/rh/budget/template-excel')
+@permission_required('rh_budget_view')
+def rh_budget_template_excel():
+    """Template Excel vierge pour servir de modèle d'import."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from flask import Response
+    import io as _io
+    
+    year = int(request.args.get('year', datetime.now().year))
+    TEAL = "FF1A7A6D"
+    ORANGE = "FFF29F2F"
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Budget Mensuel"
+    
+    # Largeurs
+    ws.column_dimensions['A'].width = 38
+    for col in range(2, 14):
+        ws.column_dimensions[get_column_letter(col)].width = 13
+    
+    # Titre
+    ws.merge_cells('A1:M1')
+    ws['A1'] = f"MODÈLE D'IMPORT BUDGET RH — Année {year}"
+    ws['A1'].font = Font(bold=True, color="FFFFFFFF", size=14)
+    ws['A1'].fill = PatternFill('solid', fgColor=TEAL)
+    ws['A1'].alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[1].height = 30
+    
+    # Note
+    ws.merge_cells('A2:M2')
+    ws['A2'] = "Remplissez les cellules vertes. Ne modifiez pas les noms de lignes (colonne A) ni l'ordre. Sauvegardez puis importez via /rh/budget."
+    ws['A2'].font = Font(italic=True, size=10, color="FF666666")
+    ws['A2'].alignment = Alignment(horizontal='center')
+    ws.row_dimensions[2].height = 25
+    
+    # En-têtes mois
+    mois = ['RUBRIQUE', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+    for col, h in enumerate(mois, 1):
+        cell = ws.cell(row=4, column=col, value=h)
+        cell.font = Font(bold=True, color="FFFFFFFF", size=11)
+        cell.fill = PatternFill('solid', fgColor=ORANGE if col > 1 else TEAL)
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[4].height = 28
+    
+    # Lignes à remplir (clés EXACTES qui seront détectées à l'import)
+    lignes_import = [
+        ('Effectif debut de mois', None),
+        ('Recrutements du mois', None),
+        ('Departs du mois', None),
+        ('Masse salariale brute', 'FCFA'),
+        ('Employes declares CNPS', None),
+    ]
+    
+    fill_green = PatternFill('solid', fgColor="FFE8F5E9")
+    thin = Side(border_style='thin', color='FFCCCCCC')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    
+    r = 5
+    for label, unit in lignes_import:
+        cell_a = ws.cell(row=r, column=1, value=label)
+        cell_a.font = Font(bold=True, size=10)
+        cell_a.alignment = Alignment(horizontal='left', vertical='center')
+        cell_a.border = border
+        for col in range(2, 14):
+            cell = ws.cell(row=r, column=col, value=0)
+            cell.alignment = Alignment(horizontal='right', vertical='center')
+            cell.fill = fill_green
+            cell.border = border
+            cell.number_format = '#,##0'
+        ws.row_dimensions[r].height = 22
+        r += 1
+    
+    # Légende
+    r += 1
+    ws.cell(row=r, column=1, value="📖 LÉGENDE :").font = Font(bold=True, size=11, color="FF1A7A6D")
+    r += 1
+    ws.cell(row=r, column=1, value="• Effectif debut de mois : nombre de personnes au 1er du mois")
+    r += 1
+    ws.cell(row=r, column=1, value="• Recrutements du mois : nouvelles embauches prévues")
+    r += 1
+    ws.cell(row=r, column=1, value="• Departs du mois : démissions, fins de contrat, licenciements")
+    r += 1
+    ws.cell(row=r, column=1, value="• Masse salariale brute : total des salaires en FCFA")
+    r += 1
+    ws.cell(row=r, column=1, value="• Employes declares CNPS : nombre déclarés (utilisé pour calculer les charges)")
+    
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="Modele_Budget_RH_{year}.xlsx"'})
+
+
+@app.route('/rh/budget/import-excel', methods=['GET', 'POST'])
+@permission_required('rh_budget_edit')
+def rh_budget_import_excel():
+    """Import d'un fichier Excel pour pré-remplir le Budget RH."""
+    if request.method == 'GET':
+        year = int(request.args.get('year', datetime.now().year))
+        return render_template('rh_budget_import.html', page='rh_budget', year=year)
+    
+    # POST : traiter l'upload
+    if 'file' not in request.files:
+        flash("Aucun fichier sélectionné", "error")
+        return redirect(request.url)
+    f = request.files['file']
+    if not f.filename:
+        flash("Aucun fichier sélectionné", "error")
+        return redirect(request.url)
+    if not f.filename.lower().endswith(('.xlsx', '.xls')):
+        flash("Format invalide. Utilisez .xlsx ou .xls", "error")
+        return redirect(request.url)
+    
+    year = int(request.form.get('year', datetime.now().year))
+    overwrite = request.form.get('overwrite') == '1'
+    
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(f, data_only=True)
+        # Prendre la 1ère feuille (ou "Budget Mensuel" si présente)
+        ws = wb['Budget Mensuel'] if 'Budget Mensuel' in wb.sheetnames else wb.active
+        
+        # Détecter les lignes par nom dans colonne A
+        # Mapping flexible (avec ou sans accents) entre noms Excel et clés BDD
+        LABEL_MAP = {
+            'effectif debut de mois': 'effectif_debut',
+            'effectif début de mois': 'effectif_debut',
+            'effectif initial': 'effectif_debut',
+            'recrutements du mois': 'recrutements',
+            'recrutements': 'recrutements',
+            'nb recrutements': 'recrutements',
+            'departs du mois': 'departs',
+            'départs du mois': 'departs',
+            'departs': 'departs',
+            'masse salariale brute': 'masse_salariale',
+            'masse salariale': 'masse_salariale',
+            'salaires bruts': 'masse_salariale',
+            'employes declares cnps': 'employes_declares_cnps',
+            'employés déclarés cnps': 'employes_declares_cnps',
+            'declares cnps': 'employes_declares_cnps',
+        }
+        
+        # Scanner toutes les lignes
+        imported_data = {m: {} for m in range(1, 13)}
+        rows_found = []
+        for row in ws.iter_rows(min_row=1, values_only=False):
+            cell_a = row[0]
+            if not cell_a.value: continue
+            label_raw = str(cell_a.value).strip().lower()
+            # Ignorer les lignes de légende, titres, descriptions
+            if label_raw.startswith('•') or label_raw.startswith('-') or label_raw.startswith('📖'):
+                continue
+            if 'modèle' in label_raw or 'remplissez' in label_raw or label_raw == 'rubrique':
+                continue
+            # Trouver la clé BDD correspondante
+            db_key = None
+            for label_match, key in LABEL_MAP.items():
+                if label_match == label_raw or (len(label_raw) < 60 and (label_match in label_raw or label_raw in label_match)):
+                    db_key = key
+                    break
+            if not db_key: continue
+            
+            # Extraire les 12 valeurs des mois
+            row_values = []
+            for col_idx in range(1, 13):  # colonnes 2 à 13 (Jan-Déc)
+                try:
+                    val = row[col_idx].value
+                    if val is None: row_values.append(0)
+                    elif isinstance(val, (int, float)): row_values.append(float(val))
+                    else:
+                        # Tenter parsing string
+                        try: row_values.append(float(str(val).replace(' ', '').replace(',', '.')))
+                        except: row_values.append(0)
+                except: row_values.append(0)
+            
+            # Ne pas écraser avec des 0 — ne mettre à jour QUE si on a au moins une valeur non nulle
+            if not any(v for v in row_values):
+                continue
+            
+            for m_idx, v in enumerate(row_values):
+                # Ne pas écraser une valeur déjà importée par un 0
+                if db_key not in imported_data[m_idx+1] or v != 0:
+                    imported_data[m_idx+1][db_key] = v
+            rows_found.append(f"{label_raw} → {db_key}")
+        
+        if not rows_found:
+            flash("⚠️ Aucune rubrique reconnue dans le fichier. Vérifiez que les libellés correspondent au modèle.", "error")
+            return redirect(request.url)
+        
+        # Persister en BDD
+        conn = _gdb()
+        try:
+            count_updated = 0
+            for m in range(1, 13):
+                data = imported_data[m]
+                if not data: continue
+                # Vérifier si la ligne existe
+                existing = conn.execute("SELECT id FROM rh_budget_monthly WHERE year=? AND month=?", (year, m)).fetchone()
+                if existing and not overwrite:
+                    # Ne pas écraser : ne mettre à jour QUE les colonnes vides
+                    cur = conn.execute("""SELECT effectif_debut, recrutements, departs, masse_salariale, employes_declares_cnps
+                        FROM rh_budget_monthly WHERE year=? AND month=?""", (year, m)).fetchone()
+                    fields = []
+                    vals = []
+                    for col, key in [('effectif_debut','effectif_debut'),('recrutements','recrutements'),
+                                     ('departs','departs'),('masse_salariale','masse_salariale'),
+                                     ('employes_declares_cnps','employes_declares_cnps')]:
+                        if not cur[col] and key in data:
+                            fields.append(f"{col}=?")
+                            vals.append(data[key])
+                    if fields:
+                        vals.extend([year, m])
+                        conn.execute(f"UPDATE rh_budget_monthly SET {','.join(fields)}, updated_at=datetime('now') WHERE year=? AND month=?", vals)
+                        count_updated += 1
+                else:
+                    # Insérer ou écraser
+                    conn.execute("""INSERT OR REPLACE INTO rh_budget_monthly 
+                        (year, month, effectif_debut, recrutements, departs, masse_salariale, employes_declares_cnps, updated_at)
+                        VALUES (?,?,?,?,?,?,?,datetime('now'))""",
+                        (year, m, 
+                         data.get('effectif_debut', 0),
+                         data.get('recrutements', 0),
+                         data.get('departs', 0),
+                         data.get('masse_salariale', 0),
+                         data.get('employes_declares_cnps', 0)))
+                    count_updated += 1
+            conn.commit()
+        finally:
+            conn.close()
+        
+        flash(f"✅ Import réussi : {count_updated} mois mis à jour ({len(rows_found)} rubriques reconnues)", "success")
+        return redirect(f'/rh/budget/detail?year={year}')
+    except Exception as e:
+        flash(f"❌ Erreur lors de l'import : {e}", "error")
+        return redirect(request.url)
+
+
 # ==================== FIN MODULE BUDGET RH v90 ====================
 
 
