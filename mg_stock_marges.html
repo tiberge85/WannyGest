@@ -1,0 +1,80 @@
+{% extends "base.html" %}{% block title %}WannyGest - Marges Prix de Vente{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>⚙️ Marges Prix de Vente</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Configurez les pourcentages de marge appliqués au prix d'achat pour chaque type de client
+        </p>
+    </div>
+    <a href="/mg/stock/marchandise" class="btn btn-outline btn-sm">← Marchandise</a>
+</div>
+
+<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#0d47a1">
+    <strong>📖 Comment ça fonctionne ?</strong>
+    <ul style="margin:8px 0 0 18px;line-height:1.7">
+        <li>Chaque article a un <strong>prix d'achat</strong> (P.U.) saisi par le magasinier</li>
+        <li>Les 3 <strong>prix de vente</strong> sont calculés automatiquement :<br>
+            <code style="background:#fff;padding:2px 6px;border-radius:4px;color:#0d47a1">Prix de vente = Prix d'achat × (1 + Marge / 100)</code>
+        </li>
+        <li>Modifier une marge ci-dessous et cocher "Recalculer" pour appliquer aux articles existants</li>
+    </ul>
+</div>
+
+<form method="post" action="/mg/stock/marges">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px">
+{% for m in marges %}
+{% set color = '#1976d2' if m.type_client == 'particulier' else ('#e8672a' if m.type_client == 'pme' else '#7b1fa2') %}
+{% set bg_light = '#e3f2fd' if m.type_client == 'particulier' else ('#fff3e0' if m.type_client == 'pme' else '#f3e5f5') %}
+<div class="card" style="border-top:4px solid {{ color }}">
+    <div class="card-header" style="background:{{ bg_light }};border-bottom:1px solid #eee">
+        <h3 style="margin:0;color:{{ color }};font-size:15px">{{ m.label }}</h3>
+    </div>
+    <div class="card-body">
+        <p style="font-size:12px;color:#666;margin:0 0 12px;min-height:34px">{{ m.description }}</p>
+        <div class="form-group">
+            <label style="font-weight:700;font-size:13px;color:{{ color }}">Marge appliquée (%)</label>
+            <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" name="marge_{{ m.type_client }}" value="{{ m.marge_pct }}" 
+                    min="0" max="500" step="0.5" required
+                    style="padding:10px 12px;border:2px solid {{ color }};border-radius:7px;flex:1;font-size:16px;font-weight:800;color:{{ color }};text-align:right">
+                <span style="font-size:18px;font-weight:800;color:{{ color }}">%</span>
+            </div>
+        </div>
+        <!-- Exemple de calcul -->
+        <div style="background:{{ bg_light }};padding:10px;border-radius:6px;font-size:11px;color:#555;margin-top:10px">
+            <div style="font-weight:700;margin-bottom:4px;color:{{ color }}">📊 Exemple sur prix d'achat moyen ({{ '{:,.0f}'.format(prix_moyen).replace(',', ' ') }} FCFA) :</div>
+            <div>{{ '{:,.0f}'.format(prix_moyen).replace(',', ' ') }} × (1 + {{ m.marge_pct }}/100) = 
+                <strong style="color:{{ color }};font-size:14px">{{ '{:,.0f}'.format(prix_moyen * (1 + (m.marge_pct or 0)/100)).replace(',', ' ') }} FCFA</strong>
+            </div>
+        </div>
+        <div style="margin-top:8px;font-size:10px;color:#888">
+            Dernière modification : {{ m.updated_at[:16] if m.updated_at else '-' }}
+        </div>
+    </div>
+</div>
+{% endfor %}
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                <input type="checkbox" name="recompute_all" value="1" checked style="width:18px;height:18px">
+                <div>
+                    <div style="font-weight:700;color:#1A7A6D">🔄 Recalculer les prix de vente pour les {{ nb_articles }} articles existants</div>
+                    <div style="font-size:11px;color:#666">Si décoché, seuls les nouveaux articles utiliseront les nouvelles marges</div>
+                </div>
+            </label>
+            <div style="display:flex;gap:8px">
+                <a href="/mg/stock/marchandise" class="btn btn-outline">Annuler</a>
+                <button type="submit" class="btn btn-primary">💾 Enregistrer les marges</button>
+            </div>
+        </div>
+    </div>
+</div>
+</form>
+
+<div style="margin-top:18px;background:#fff3cd;border-left:4px solid #e8672a;padding:14px;border-radius:8px;font-size:12px;color:#856404">
+    <strong>⚠️ Important</strong> : modifier les marges puis cocher "Recalculer" écrasera les prix de vente personnalisés que vous auriez pu saisir manuellement. Pour ajuster un seul article, modifiez son prix d'achat depuis le catalogue Marchandise.
+</div>
+{% endblock %}

@@ -1,0 +1,127 @@
+{% extends "base.html" %}{% block title %}WannyGest - Remontée {{ report.reference }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📢 {{ report.reference }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Créée le {{ report.created_at[:16] if report.created_at else '-' }} · par <strong>{{ report.auteur_name or 'Anonyme' }}</strong>
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="background:{{ report.priorite_color }};color:#fff;padding:6px 12px;border-radius:14px;font-weight:700;font-size:12px">{{ report.priorite_label }}</span>
+        <span style="background:{{ report.statut_color }};color:#fff;padding:6px 12px;border-radius:14px;font-weight:700;font-size:12px">{{ report.statut_label }}</span>
+        <a href="/field-reports" class="btn btn-outline btn-sm">← Liste</a>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px">
+    <!-- Colonne principale -->
+    <div>
+        <div class="card" style="margin-bottom:14px">
+            <div class="card-header" style="background:#1A7A6D;color:#fff"><h3 style="margin:0;color:#fff;font-size:14px">📋 Information</h3></div>
+            <div class="card-body">
+                <table style="width:100%;font-size:13px">
+                    <tr><td style="padding:8px;color:#666;width:160px;vertical-align:top">Type</td><td style="padding:8px"><strong>{{ report.type_label }}</strong></td></tr>
+                    <tr><td style="padding:8px;color:#666;vertical-align:top">Client</td><td style="padding:8px"><strong>{{ report.client_name }}</strong></td></tr>
+                    {% if report.site_name %}<tr><td style="padding:8px;color:#666;vertical-align:top">Site</td><td style="padding:8px">📍 {{ report.site_name }}{% if report.site_address %}<br><span style="font-size:11px;color:#888">{{ report.site_address }}</span>{% endif %}</td></tr>{% endif %}
+                    <tr><td style="padding:8px;color:#666;vertical-align:top">Date constat</td><td style="padding:8px">{{ report.date_constat[:10] if report.date_constat else '-' }}</td></tr>
+                    <tr><td style="padding:8px;color:#666;vertical-align:top">Description</td><td style="padding:8px;line-height:1.6;background:#f8faf9;border-left:3px solid #1A7A6D;padding-left:12px">{{ report.description|replace('\n','<br>')|safe }}</td></tr>
+                </table>
+            </div>
+        </div>
+        
+        {% if report.analyse_notes %}
+        <div class="card" style="margin-bottom:14px;border-left:4px solid #7b1fa2">
+            <div class="card-header"><h3 style="margin:0;color:#7b1fa2;font-size:14px">🔍 Notes d'analyse</h3></div>
+            <div class="card-body">
+                <p style="font-size:13px;line-height:1.6">{{ report.analyse_notes|replace('\n','<br>')|safe }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if report.decision %}
+        <div class="card" style="margin-bottom:14px;border-left:4px solid #0f5a51">
+            <div class="card-header"><h3 style="margin:0;color:#0f5a51;font-size:14px">✅ Décision prise</h3></div>
+            <div class="card-body">
+                <p style="font-size:13px"><strong>Action :</strong> {{ report.statut_label }}</p>
+                <p style="font-size:12px;color:#666">Décision prise par <strong>{{ report.decision_by_name or '-' }}</strong> le {{ report.decision_date[:16] if report.decision_date else '-' }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Actions -->
+        {% set is_open = report.statut not in ('transformee_projet', 'transformee_intervention', 'transformee_opportunite', 'classee') %}
+        {% if is_open and ('field_report_analyze' in permissions or 'admin' in permissions) %}
+        <div class="card" style="margin-bottom:14px;border-left:4px solid #7b1fa2">
+            <div class="card-header"><h3 style="margin:0;color:#7b1fa2;font-size:14px">🔍 Analyser cette remontée</h3></div>
+            <div class="card-body">
+                <form method="post" action="/field-reports/{{ report.id }}/analyze">
+                    <div class="form-group">
+                        <label>Notes d'analyse</label>
+                        <textarea name="analyse_notes" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" 
+                            placeholder="Vos observations, contacts effectués, contexte technique...">{{ report.analyse_notes or '' }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="background:#7b1fa2">🔍 Mettre en analyse</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if is_open and ('field_report_transform' in permissions or 'admin' in permissions) %}
+        <div class="card" style="margin-bottom:14px;border:2px solid #1A7A6D">
+            <div class="card-header" style="background:#1A7A6D;color:#fff"><h3 style="margin:0;color:#fff;font-size:14px">🎯 Transformer cette remontée</h3></div>
+            <div class="card-body">
+                <p style="font-size:12px;color:#666;margin-bottom:14px">Choisissez l'action à entreprendre. Cette décision sera notifiée automatiquement au service concerné.</p>
+                <form method="post" action="/field-reports/{{ report.id }}/transform">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px">
+                        <label style="background:#0f5a51;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                            <input type="radio" name="decision" value="projet" style="margin-right:6px">
+                            🎯 → Projet<br><span style="font-size:11px;font-weight:400">Vers le module Projet</span>
+                        </label>
+                        <label style="background:#e8672a;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                            <input type="radio" name="decision" value="intervention" style="margin-right:6px">
+                            🛠️ → Intervention<br><span style="font-size:11px;font-weight:400">Vers le Centre Technique</span>
+                        </label>
+                        <label style="background:#1565c0;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                            <input type="radio" name="decision" value="opportunite" style="margin-right:6px">
+                            💼 → Opportunité<br><span style="font-size:11px;font-weight:400">Vers le Commercial</span>
+                        </label>
+                        {% if 'field_report_close' in permissions or 'admin' in permissions %}
+                        <label style="background:#888;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                            <input type="radio" name="decision" value="classer" style="margin-right:6px">
+                            📁 Classer<br><span style="font-size:11px;font-weight:400">Sans suite</span>
+                        </label>
+                        {% endif %}
+                    </div>
+                    <div class="form-group">
+                        <label>Notes de décision</label>
+                        <textarea name="decision_notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"
+                            placeholder="Justification de la décision, prochaine action..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">✅ Valider la décision</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Sidebar : historique -->
+    <div>
+        <div class="card">
+            <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📜 Historique des actions</h3></div>
+            <div class="card-body" style="padding:0">
+                {% for h in history %}
+                <div style="padding:12px;border-bottom:1px solid #eee;font-size:12px">
+                    <div style="font-weight:700;color:#1A7A6D;margin-bottom:3px">{{ h.action }}</div>
+                    {% if h.action_details %}<div style="color:#666;font-size:11px;margin-bottom:4px">{{ h.action_details }}</div>{% endif %}
+                    <div style="color:#888;font-size:10px">
+                        👤 {{ h.user_name or 'Système' }} · 🕒 {{ h.created_at[:16] if h.created_at else '-' }}
+                    </div>
+                </div>
+                {% else %}
+                <p style="padding:14px;text-align:center;color:#888;font-size:12px">Aucune action enregistrée</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

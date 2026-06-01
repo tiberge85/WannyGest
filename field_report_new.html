@@ -1,0 +1,98 @@
+{% extends "base.html" %}{% block title %}WannyGest - Nouvelle Remontée{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📢 Nouvelle Remontée d'Information</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Remontez un besoin, une panne ou une opportunité observée chez un client
+        </p>
+    </div>
+    <a href="/field-reports" class="btn btn-outline btn-sm">← Liste</a>
+</div>
+
+<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#0d47a1">
+    <strong>💡 Pourquoi remonter une information ?</strong><br>
+    Chaque collaborateur (technicien, commercial, coordinateur) peut signaler une opportunité ou un besoin observé sur le terrain. 
+    Le <strong>Gestionnaire de Projet</strong> analysera votre remontée et la transformera en projet, intervention ou opportunité commerciale.
+</div>
+
+<form method="post" action="/field-reports/new">
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">🏢 Client & Site</h3></div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Client (sélection rapide)</label>
+                <select name="client_id" id="client_select" onchange="syncClient()">
+                    <option value="">-- Choisir un client existant --</option>
+                    {% for c in clients %}<option value="{{ c.id }}" data-name="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Ou saisir un nom de client *</label>
+                <input type="text" name="client_name" id="client_name" placeholder="Nom du client" required>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Nom du site</label>
+                <input type="text" name="site_name" placeholder="Ex: Siège social Cocody">
+            </div>
+            <div class="form-group" style="flex:2">
+                <label>Adresse du site</label>
+                <input type="text" name="site_address" placeholder="Ex: Boulevard Latrille, Cocody, Abidjan">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📋 Information remontée</h3></div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group" style="flex:2">
+                <label>Type d'information *</label>
+                <select name="type_info" required>
+                    {% for tk, tv in types.items() %}<option value="{{ tk }}" {% if tk == 'besoin' %}selected{% endif %}>{{ tv }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Niveau de priorité *</label>
+                <select name="priorite" required>
+                    {% for pk, pv in priorities.items() %}<option value="{{ pk }}" {% if pk == 'moyen' %}selected{% endif %}>{{ pv[0] }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Date du constat *</label>
+                <input type="date" name="date_constat" required value="">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Description détaillée *</label>
+            <textarea name="description" rows="6" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:7px;font-family:inherit" 
+                placeholder="Décrivez précisément l'information remontée : contexte, observations, attentes du client, opportunité commerciale potentielle, etc."></textarea>
+        </div>
+    </div>
+</div>
+
+<div style="background:#fff3cd;border-left:4px solid #e8672a;padding:12px;border-radius:6px;font-size:12px;color:#856404;margin-bottom:14px">
+    📨 <strong>Notification automatique</strong> : dès validation, le Gestionnaire de Projet, le Coordinateur et la Direction recevront une notification de votre remontée.
+</div>
+
+<div style="display:flex;gap:8px;justify-content:flex-end">
+    <a href="/field-reports" class="btn btn-outline">Annuler</a>
+    <button type="submit" class="btn btn-primary">📢 Envoyer la remontée</button>
+</div>
+</form>
+
+<script>
+function syncClient() {
+    const sel = document.getElementById('client_select');
+    if (sel.value) {
+        const name = sel.options[sel.selectedIndex].dataset.name;
+        document.getElementById('client_name').value = name;
+    }
+}
+// Date du jour par défaut
+document.querySelector('input[name="date_constat"]').value = new Date().toISOString().split('T')[0];
+</script>
+{% endblock %}

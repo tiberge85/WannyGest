@@ -1,0 +1,97 @@
+{% extends "base.html" %}{% block title %}WannyGest - Remontées d'Informations{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📢 Remontées d'Informations Terrain</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Centralisation des observations terrain · {{ stats.total }} remontée(s) au total
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if 'field_report_view_all' in permissions or 'admin' in permissions %}
+        <a href="/field-reports/dashboard" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📊 Tableau de bord</a>
+        {% endif %}
+        {% if 'field_report_create' in permissions or 'admin' in permissions %}
+        <a href="/field-reports/new" class="btn btn-primary btn-sm">+ Nouvelle remontée</a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- KPI -->
+{% if 'field_report_view_all' in permissions or 'admin' in permissions %}
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card"><div class="stat-icon" style="background:#1976d2;color:#fff">📥</div><div class="stat-info">
+        <div class="stat-num">{{ stats.recue }}</div><div class="stat-label">Reçues</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#7b1fa2;color:#fff">🔍</div><div class="stat-info">
+        <div class="stat-num">{{ stats.en_analyse }}</div><div class="stat-label">En analyse</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#0f5a51;color:#fff">🎯</div><div class="stat-info">
+        <div class="stat-num">{{ stats.projets }}</div><div class="stat-label">→ Projets</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#e8672a;color:#fff">🛠️</div><div class="stat-info">
+        <div class="stat-num">{{ stats.interventions }}</div><div class="stat-label">→ Interventions</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#1565c0;color:#fff">💼</div><div class="stat-info">
+        <div class="stat-num">{{ stats.opportunites }}</div><div class="stat-label">→ Opportunités</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#888;color:#fff">📁</div><div class="stat-info">
+        <div class="stat-num">{{ stats.classees }}</div><div class="stat-label">Classées</div></div></div>
+</div>
+{% endif %}
+
+<!-- Filtres -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px">
+    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" name="q" value="{{ q }}" placeholder="🔍 Recherche (client, site, description, auteur...)" 
+            style="padding:8px 12px;border:1.5px solid #1A7A6D;border-radius:7px;flex:1;min-width:260px">
+        <select name="statut" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Tous statuts</option>
+            {% for sk, sv in statuts.items() %}<option value="{{ sk }}" {% if sk == statut_filter %}selected{% endif %}>{{ sv[0] }}</option>{% endfor %}
+        </select>
+        <select name="priorite" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Toutes priorités</option>
+            {% for pk, pv in priorities.items() %}<option value="{{ pk }}" {% if pk == priorite_filter %}selected{% endif %}>{{ pv[0] }}</option>{% endfor %}
+        </select>
+        <select name="type" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Tous types</option>
+            {% for tk, tv in types.items() %}<option value="{{ tk }}" {% if tk == type_filter %}selected{% endif %}>{{ tv }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+        {% if q or statut_filter or priorite_filter or type_filter %}<a href="/field-reports" class="btn btn-outline btn-sm">↻ Reset</a>{% endif %}
+        <span style="margin-left:auto;font-size:11px;color:#888">{{ reports|length }} résultat(s)</span>
+    </form>
+</div></div>
+
+<div class="card">
+    <div class="card-body" style="padding:0;overflow-x:auto">
+        <table style="width:100%;font-size:11px;min-width:1100px;border-collapse:collapse">
+            <thead>
+                <tr>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-weight:800">Référence</th>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-weight:800">Client / Site</th>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-weight:800">Type</th>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-weight:800">Description</th>
+                    <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-weight:800">Priorité</th>
+                    <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-weight:800">Statut</th>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-weight:800">Auteur</th>
+                    <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-weight:800">Date</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in reports %}
+            <tr style="border-bottom:1px solid #eee;cursor:pointer" onclick="window.location='/field-reports/{{ r.id }}'">
+                <td style="padding:9px 8px;font-family:monospace;font-weight:700;color:#1A7A6D">{{ r.reference }}</td>
+                <td style="padding:9px 8px"><strong>{{ r.client_name }}</strong>{% if r.site_name %}<br><span style="font-size:10px;color:#666">📍 {{ r.site_name }}</span>{% endif %}</td>
+                <td style="padding:9px 8px">{{ r.type_label }}</td>
+                <td style="padding:9px 8px;max-width:260px"><span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:11px;color:#555">{{ r.description }}</span></td>
+                <td style="text-align:center;padding:9px 8px"><span style="background:{{ r.priorite_color }};color:#fff;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">{{ r.priorite_label }}</span></td>
+                <td style="text-align:center;padding:9px 8px"><span style="background:{{ r.statut_color }};color:#fff;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap">{{ r.statut_label }}</span></td>
+                <td style="padding:9px 8px;font-size:11px;color:#666">{{ r.auteur_name or '-' }}</td>
+                <td style="text-align:center;padding:9px 8px;font-size:10px;color:#888;white-space:nowrap">{{ r.date_constat[:10] if r.date_constat else '-' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" style="padding:30px;text-align:center;color:#888">
+                {% if q or statut_filter or priorite_filter or type_filter %}🔍 Aucun résultat. <a href="/field-reports" style="color:#1A7A6D">Réinitialiser</a>
+                {% else %}Aucune remontée d'information. {% if 'field_report_create' in permissions %}<a href="/field-reports/new" style="color:#1A7A6D">Créer la première</a>{% endif %}{% endif %}
+            </td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

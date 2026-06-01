@@ -220,6 +220,9 @@
             {% endif %}
             {% endif %}
             <a href="/notifications" class="{% if page == 'notifications' %}active{% endif %}" style="position:relative">🔔 Notifications{% if notif_count %} <span class="badge">{{ notif_count }}</span>{% endif %}</a>
+            {% if 'field_report_create' in permissions or 'field_report_view_all' in permissions or 'field_report_view_mine' in permissions or 'admin' in permissions %}
+            <a href="/field-reports" class="{% if page == 'field_reports' %}active{% endif %}" style="background:linear-gradient(135deg,#7b1fa2,#4a148c);color:#fff !important;font-weight:600">📢 Remontées d'informations</a>
+            {% endif %}
             {% if 'dashboard_general' in permissions %}
             <a href="/dashboard-general" class="{% if page == 'dashboard_general' %}active{% endif %}">🌐 Tableau de bord général</a>
             {% endif %}

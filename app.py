@@ -674,6 +674,157 @@ except Exception as _e:
     print(f"[v97-Seed] Erreur seed articles : {_e}", flush=True)
 
 
+# ==================== v99 : Prix de vente automatiques + Marges paramétrables ====================
+try:
+    from models import get_db as _v99a_db
+    _v99a_conn = _v99a_db()
+    # Ajouter colonnes prix de vente sur mg_stock_articles
+    for col, default in [
+        ('prix_vente_particulier', 0),
+        ('prix_vente_pme', 0),
+        ('prix_vente_grande_entreprise', 0),
+    ]:
+        try:
+            _v99a_conn.execute(f"ALTER TABLE mg_stock_articles ADD COLUMN {col} REAL DEFAULT {default}")
+        except: pass  # Colonne existe déjà
+    
+    # Table des marges paramétrables
+    _v99a_conn.execute("""CREATE TABLE IF NOT EXISTS mg_stock_marges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type_client TEXT UNIQUE NOT NULL,
+        marge_pct REAL NOT NULL DEFAULT 0,
+        label TEXT,
+        description TEXT,
+        updated_at TEXT,
+        updated_by INTEGER
+    )""")
+    DEFAULT_MARGES = [
+        ('particulier', 50.0, '👤 Particulier', 'Marge appliquée pour les ventes aux particuliers (clients individuels)'),
+        ('pme', 30.0, '🏢 PME / TPE', 'Marge pour les Petites et Moyennes Entreprises'),
+        ('grande_entreprise', 20.0, '🏛️ Grande Entreprise', 'Marge pour les Grandes Entreprises / Comptes-clés'),
+    ]
+    for type_c, marge, label, desc in DEFAULT_MARGES:
+        try:
+            _v99a_conn.execute("""INSERT OR IGNORE INTO mg_stock_marges 
+                (type_client, marge_pct, label, description, updated_at) VALUES (?,?,?,?,datetime('now'))""",
+                (type_c, marge, label, desc))
+        except: pass
+    
+    # Recalculer les prix de vente pour TOUS les articles (uniquement ceux où prix_vente=0)
+    marges = {row['type_client']: row['marge_pct'] for row in 
+              _v99a_conn.execute("SELECT type_client, marge_pct FROM mg_stock_marges").fetchall()}
+    if marges:
+        pp = marges.get('particulier', 50) / 100
+        pe = marges.get('pme', 30) / 100
+        pg = marges.get('grande_entreprise', 20) / 100
+        _v99a_conn.execute(f"""UPDATE mg_stock_articles SET 
+            prix_vente_particulier = ROUND(prix_unitaire * (1 + {pp}), 0),
+            prix_vente_pme = ROUND(prix_unitaire * (1 + {pe}), 0),
+            prix_vente_grande_entreprise = ROUND(prix_unitaire * (1 + {pg}), 0)
+            WHERE COALESCE(prix_vente_particulier, 0) = 0""")
+    
+    _v99a_conn.commit()
+    _v99a_conn.close()
+    print("[v99-Marges] Prix de vente + marges paramétrables initialisés", flush=True)
+except Exception as _e:
+    print(f"[v99-Marges] Erreur : {_e}", flush=True)
+
+
+# ==================== v99 : MODULE REMONTÉES D'INFORMATIONS TERRAIN ====================
+try:
+    from models import get_db as _v99b_db
+    _v99b_conn = _v99b_db()
+    
+    # Table principale des remontées
+    _v99b_conn.execute("""CREATE TABLE IF NOT EXISTS field_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference TEXT UNIQUE,
+        client_id INTEGER,
+        client_name TEXT,
+        site_name TEXT,
+        site_address TEXT,
+        type_info TEXT NOT NULL,
+        description TEXT NOT NULL,
+        priorite TEXT DEFAULT 'moyen',
+        date_constat TEXT NOT NULL,
+        auteur_id INTEGER,
+        auteur_name TEXT,
+        statut TEXT DEFAULT 'recue',
+        analyse_notes TEXT,
+        decision TEXT,
+        decision_date TEXT,
+        decision_by INTEGER,
+        decision_by_name TEXT,
+        linked_project_id INTEGER,
+        linked_intervention_id INTEGER,
+        linked_devis_id INTEGER,
+        created_at TEXT,
+        updated_at TEXT
+    )""")
+    
+    # Pièces jointes
+    _v99b_conn.execute("""CREATE TABLE IF NOT EXISTS field_reports_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id INTEGER NOT NULL,
+        filename TEXT,
+        filepath TEXT,
+        filesize INTEGER,
+        mimetype TEXT,
+        uploaded_by INTEGER,
+        uploaded_at TEXT,
+        FOREIGN KEY (report_id) REFERENCES field_reports(id)
+    )""")
+    
+    # Historique d'actions
+    _v99b_conn.execute("""CREATE TABLE IF NOT EXISTS field_reports_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        action_details TEXT,
+        user_id INTEGER,
+        user_name TEXT,
+        created_at TEXT,
+        FOREIGN KEY (report_id) REFERENCES field_reports(id)
+    )""")
+    
+    # Permissions v99 — remontées d'informations
+    # Tous les utilisateurs peuvent CRÉER une remontée (terrain)
+    V99_PERMS_FIELD = {
+        'admin':            ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform', 'field_report_close'],
+        'dg':               ['field_report_view_all', 'field_report_analyze'],
+        'directeur':        ['field_report_view_all', 'field_report_analyze'],
+        'gestionnaire_projet': ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform', 'field_report_close'],
+        'coordinateur':     ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform'],
+        'resp_projet':      ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform'],
+        'commercial':       ['field_report_create', 'field_report_view_all'],
+        'technicien':       ['field_report_create', 'field_report_view_mine'],
+        'tech_chef':        ['field_report_create', 'field_report_view_all'],
+        'centre_technique': ['field_report_create', 'field_report_view_all'],
+        'mg':               ['field_report_create', 'field_report_view_mine'],
+        'rh':               ['field_report_create', 'field_report_view_mine'],
+        'comptable':        ['field_report_create', 'field_report_view_mine'],
+        'comptabilite':     ['field_report_create', 'field_report_view_mine'],
+        'magasinier':       ['field_report_create', 'field_report_view_mine'],
+        'concierge':        ['field_report_create'],
+    }
+    # Permissions stock_marges
+    V99_PERMS_FIELD['admin'] += ['stock_marges_edit']
+    V99_PERMS_FIELD['mg'] = V99_PERMS_FIELD.get('mg', []) + ['stock_marges_edit']
+    V99_PERMS_FIELD['comptable'] = V99_PERMS_FIELD.get('comptable', []) + ['stock_marges_edit']
+    V99_PERMS_FIELD['comptabilite'] = V99_PERMS_FIELD.get('comptabilite', []) + ['stock_marges_edit']
+    
+    for role, perms in V99_PERMS_FIELD.items():
+        for perm in perms:
+            try: _v99b_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    _v99b_conn.commit()
+    _v99b_conn.close()
+    print("[v99-Field] Tables Remontées Informations + permissions initialisées", flush=True)
+except Exception as _e:
+    print(f"[v99-Field] Erreur : {_e}", flush=True)
+
+
 # ==================== v92 : MODULE SUIVI DES CRÉANCES CLIENTS ====================
 # Inspiré du fichier TABLEAU_DE_BORD_CREANCE_CLIENT.xlsx
 try:
@@ -807,7 +958,11 @@ try:
                    'rh_budget_view', 'rh_budget_edit', 'rh_budget_real',
                    # v92 : Gestion de Stock + Suivi Créances
                    'stock_view', 'stock_edit', 'stock_in', 'stock_out', 'stock_inventory', 'stock_export',
-                   'creances_view', 'creances_edit', 'creances_relance', 'creances_export'])
+                   'creances_view', 'creances_edit', 'creances_relance', 'creances_export',
+                   # v99 : Marges stock + Remontées Informations
+                   'stock_marges_edit',
+                   'field_report_create', 'field_report_view_all', 'field_report_analyze',
+                   'field_report_transform', 'field_report_close'])
     from models import get_role_permissions as _grp
     if not _grp('concierge'):
         update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
@@ -945,6 +1100,15 @@ PERM_CATEGORIES = {
         ('stock_out', 'Enregistrer sorties de stock'),
         ('stock_inventory', 'Réaliser un inventaire physique'),
         ('stock_export', 'Exporter PDF/Excel du stock'),
+        ('stock_marges_edit', 'Modifier les marges prix de vente (v99)'),
+    ],
+    'Remontées d\'Informations Terrain (v99)': [
+        ('field_report_create', 'Créer une remontée d\'information'),
+        ('field_report_view_mine', 'Voir uniquement ses propres remontées'),
+        ('field_report_view_all', 'Voir toutes les remontées'),
+        ('field_report_analyze', 'Analyser une remontée'),
+        ('field_report_transform', 'Transformer en projet/intervention/opportunité'),
+        ('field_report_close', 'Classer sans suite'),
     ],
     'Suivi Créances Clients (v92)': [
         ('creances_view', 'Voir le suivi des créances'),
@@ -11837,18 +12001,135 @@ def mg_stock_inventaires():
 @app.route('/mg/stock/catalogue')
 @permission_required('stock_view')
 def mg_stock_catalogue():
-    """Marchandise (Catalogue) — articles du stock avec stock initial.
-    Inspiré de la feuille 'Marchandise' du fichier GESTION_DE_STOCK.xlsx"""
+    """Marchandise (Catalogue) — recherche, filtres, pagination, prix de vente auto."""
     conn = _gdb()
-    articles = [dict(r) for r in conn.execute("SELECT * FROM mg_stock_articles ORDER BY designation").fetchall()]
-    categories = sorted(set(a['categorie'] for a in articles if a.get('categorie')))
-    # Calculer le total pour chaque article (stock_initial × prix_unitaire)
-    for a in articles:
+    
+    # Récupérer les marges actuelles pour info
+    marges = {row['type_client']: row['marge_pct'] for row in 
+              conn.execute("SELECT type_client, marge_pct FROM mg_stock_marges").fetchall()}
+    
+    # Récupérer tous les articles
+    all_articles = [dict(r) for r in conn.execute("SELECT * FROM mg_stock_articles ORDER BY designation").fetchall()]
+    
+    # Recherche & filtres
+    q = request.args.get('q', '').strip().lower()
+    cat_filter = request.args.get('cat', '').strip()
+    sort = request.args.get('sort', 'designation')  # designation, prix, categorie, reference
+    
+    articles = all_articles
+    if q:
+        articles = [a for a in articles if 
+                    q in (a.get('reference') or '').lower() or 
+                    q in (a.get('designation') or '').lower() or
+                    q in (a.get('categorie') or '').lower() or
+                    q in (a.get('notes') or '').lower()]
+    if cat_filter:
+        articles = [a for a in articles if (a.get('categorie') or '') == cat_filter]
+    
+    # Tri
+    if sort == 'prix':
+        articles = sorted(articles, key=lambda a: -(a.get('prix_unitaire') or 0))
+    elif sort == 'reference':
+        articles = sorted(articles, key=lambda a: a.get('reference') or '')
+    elif sort == 'categorie':
+        articles = sorted(articles, key=lambda a: (a.get('categorie') or '', a.get('designation') or ''))
+    # par défaut désignation
+    
+    # Pagination
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 30))
+    if per_page not in (20, 30, 50, 100, 200): per_page = 30
+    nb_total = len(articles)
+    nb_pages = max(1, (nb_total + per_page - 1) // per_page)
+    page = max(1, min(page, nb_pages))
+    start = (page - 1) * per_page
+    end = start + per_page
+    articles_page = articles[start:end]
+    
+    # Calculer le total et stats
+    for a in articles_page:
         a['total_initial'] = (a.get('stock_initial') or 0) * (a.get('prix_unitaire') or 0)
-    total_catalogue = sum(a['total_initial'] for a in articles)
+    
+    total_catalogue = sum((a.get('stock_initial') or 0) * (a.get('prix_unitaire') or 0) for a in all_articles)
+    categories = sorted(set(a['categorie'] for a in all_articles if a.get('categorie')))
+    
     conn.close()
     return render_template('mg_stock_catalogue.html', page='mg_stock_marchandise',
-        articles=articles, categories=categories, total_catalogue=total_catalogue)
+        articles=articles_page, categories=categories, total_catalogue=total_catalogue,
+        marges=marges, q=q, cat_filter=cat_filter, sort=sort,
+        nb_total=nb_total, nb_total_all=len(all_articles), page_num=page, nb_pages=nb_pages, per_page=per_page,
+        start=start+1, end=min(end, nb_total))
+
+
+def _recompute_article_prices(conn, article_id=None):
+    """Recalcule les prix de vente d'un ou tous les articles selon les marges."""
+    marges = {row['type_client']: row['marge_pct'] for row in 
+              conn.execute("SELECT type_client, marge_pct FROM mg_stock_marges").fetchall()}
+    pp = marges.get('particulier', 50) / 100
+    pe = marges.get('pme', 30) / 100
+    pg = marges.get('grande_entreprise', 20) / 100
+    if article_id:
+        conn.execute(f"""UPDATE mg_stock_articles SET 
+            prix_vente_particulier = ROUND(prix_unitaire * (1 + {pp}), 0),
+            prix_vente_pme = ROUND(prix_unitaire * (1 + {pe}), 0),
+            prix_vente_grande_entreprise = ROUND(prix_unitaire * (1 + {pg}), 0)
+            WHERE id=?""", (article_id,))
+    else:
+        conn.execute(f"""UPDATE mg_stock_articles SET 
+            prix_vente_particulier = ROUND(prix_unitaire * (1 + {pp}), 0),
+            prix_vente_pme = ROUND(prix_unitaire * (1 + {pe}), 0),
+            prix_vente_grande_entreprise = ROUND(prix_unitaire * (1 + {pg}), 0)""")
+
+
+@app.route('/mg/stock/marges', methods=['GET', 'POST'])
+@permission_required('stock_marges_edit')
+def mg_stock_marges():
+    """Paramétrage des marges de prix de vente par type de client."""
+    conn = _gdb()
+    if request.method == 'POST':
+        try:
+            for type_c in ('particulier', 'pme', 'grande_entreprise'):
+                marge = request.form.get(f'marge_{type_c}', '').strip().replace(',', '.')
+                if marge:
+                    marge_val = float(marge)
+                    conn.execute("""UPDATE mg_stock_marges SET marge_pct=?, updated_at=datetime('now'), updated_by=?
+                        WHERE type_client=?""", (marge_val, session.get('user_id'), type_c))
+            conn.commit()
+            
+            # Recalculer les prix de vente de TOUS les articles
+            recompute_all = request.form.get('recompute_all') == '1'
+            if recompute_all:
+                _recompute_article_prices(conn)
+                conn.commit()
+                nb = conn.execute("SELECT COUNT(*) FROM mg_stock_articles").fetchone()[0]
+                flash(f"✅ Marges mises à jour et prix de vente recalculés pour {nb} articles", "success")
+            else:
+                flash("✅ Marges mises à jour (les prix existants ne sont pas modifiés)", "success")
+        except Exception as e:
+            flash(f"Erreur : {e}", "error")
+        finally:
+            conn.close()
+        return redirect('/mg/stock/marges')
+    
+    marges = [dict(r) for r in conn.execute("SELECT * FROM mg_stock_marges ORDER BY id").fetchall()]
+    # Exemple de calcul sur un article au prix moyen
+    nb_articles = conn.execute("SELECT COUNT(*) FROM mg_stock_articles").fetchone()[0]
+    prix_moyen = conn.execute("SELECT AVG(prix_unitaire) FROM mg_stock_articles WHERE prix_unitaire>0").fetchone()[0] or 1000
+    conn.close()
+    return render_template('mg_stock_marges.html', page='mg_stock_marges',
+        marges=marges, nb_articles=nb_articles, prix_moyen=prix_moyen)
+
+
+@app.route('/mg/stock/article/<int:aid>/recompute-prices', methods=['POST'])
+@permission_required('stock_edit')
+def mg_stock_article_recompute_prices(aid):
+    """Recalcule les prix de vente d'un article."""
+    conn = _gdb()
+    _recompute_article_prices(conn, aid)
+    conn.commit()
+    conn.close()
+    flash("✅ Prix de vente recalculés selon les marges actuelles", "success")
+    return redirect(request.referrer or '/mg/stock/marchandise')
 
 
 @app.route('/mg/stock/article/add', methods=['POST'])
@@ -11870,8 +12151,11 @@ def mg_stock_article_add():
              int(request.form.get('stock_initial','0') or 0),
              float(request.form.get('prix_unitaire','0').replace(',','.') or 0),
              request.form.get('notes','')))
+        # v99 : recalculer les prix de vente
+        new_id = conn.execute("SELECT id FROM mg_stock_articles WHERE reference=?", (ref,)).fetchone()[0]
+        _recompute_article_prices(conn, new_id)
         conn.commit(); conn.close()
-        flash(f"✅ Article {ref} ajouté", "success")
+        flash(f"✅ Article {ref} ajouté (prix de vente calculés automatiquement)", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect('/mg/stock/catalogue')
@@ -11891,11 +12175,13 @@ def mg_stock_article_edit(aid):
              int(request.form.get('seuil_alerte','2') or 2),
              float(request.form.get('prix_unitaire','0').replace(',','.') or 0),
              request.form.get('notes',''), aid))
+        # v99 : recalculer les prix de vente après modification du prix unitaire
+        _recompute_article_prices(conn, aid)
         conn.commit(); conn.close()
-        flash("✅ Article modifié", "success")
+        flash("✅ Article modifié (prix de vente recalculés)", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
-    return redirect('/mg/stock/catalogue')
+    return redirect(request.referrer or '/mg/stock/catalogue')
 
 
 @app.route('/mg/stock/article/<int:aid>/delete', methods=['POST'])
@@ -12580,6 +12866,367 @@ def creances_export_pdf():
 
 
 # ==================== FIN MODULE SUIVI CRÉANCES ====================
+
+
+# ==================== v99 : MODULE REMONTÉES D'INFORMATIONS TERRAIN ====================
+
+FIELD_REPORT_TYPES = {
+    'besoin': '💡 Besoin identifié',
+    'panne': '🔧 Panne constatée',
+    'extension': '➕ Extension possible',
+    'nouveau_projet': '🆕 Nouveau projet potentiel',
+    'contrat_entretien': '📝 Contrat d\'entretien à proposer',
+    'mise_a_niveau': '⬆️ Mise à niveau d\'installation',
+    'reclamation': '⚠️ Réclamation client',
+    'autre': '📌 Autre',
+}
+
+FIELD_REPORT_PRIORITIES = {
+    'faible': ('🟢 Faible', '#2e7d32'),
+    'moyen': ('🟡 Moyen', '#f9a825'),
+    'eleve': ('🟠 Élevé', '#e8672a'),
+    'urgent': ('🔴 Urgent', '#c53030'),
+}
+
+FIELD_REPORT_STATUTS = {
+    'recue': ('📥 Reçue', '#1976d2'),
+    'en_analyse': ('🔍 En analyse', '#7b1fa2'),
+    'transformee_projet': ('🎯 → Projet', '#0f5a51'),
+    'transformee_intervention': ('🛠️ → Intervention', '#e8672a'),
+    'transformee_opportunite': ('💼 → Opportunité', '#1565c0'),
+    'classee': ('📁 Classée', '#888'),
+}
+
+
+def _gen_field_report_ref():
+    """Génère une référence RI-AAAAMM-XXXX."""
+    conn = _gdb()
+    now = datetime.now()
+    prefix = f"RI-{now.strftime('%Y%m')}-"
+    last = conn.execute("SELECT reference FROM field_reports WHERE reference LIKE ? ORDER BY id DESC LIMIT 1",
+                        (prefix + '%',)).fetchone()
+    if last:
+        try: num = int(last['reference'].split('-')[-1]) + 1
+        except: num = 1
+    else: num = 1
+    conn.close()
+    return f"{prefix}{num:04d}"
+
+
+def _field_report_log(report_id, action, details=None):
+    """Enregistre une action dans l'historique."""
+    conn = _gdb()
+    user = get_user_by_id(session.get('user_id')) if session.get('user_id') else None
+    conn.execute("""INSERT INTO field_reports_history 
+        (report_id, action, action_details, user_id, user_name, created_at)
+        VALUES (?,?,?,?,?,datetime('now'))""",
+        (report_id, action, details, 
+         session.get('user_id'), user['full_name'] if user else 'Système'))
+    conn.commit()
+    conn.close()
+
+
+def _field_report_notify(report_id, action):
+    """Envoie une notification aux rôles concernés (gestionnaire_projet, coordinateur)."""
+    try:
+        conn = _gdb()
+        report = conn.execute("SELECT * FROM field_reports WHERE id=?", (report_id,)).fetchone()
+        if not report: return
+        # Trouver les utilisateurs des rôles cibles
+        users = conn.execute("""SELECT id, full_name FROM users 
+            WHERE role IN ('gestionnaire_projet', 'coordinateur', 'resp_projet', 'admin') 
+            AND is_active=1""").fetchall()
+        conn.close()
+        msg = f"📢 Nouvelle remontée {report['reference']} ({FIELD_REPORT_PRIORITIES.get(report['priorite'], ('?',))[0]}) - {report['client_name']}"
+        if action == 'created':
+            msg = f"📢 Nouvelle remontée d'information {report['reference']} - {report['client_name']} ({FIELD_REPORT_TYPES.get(report['type_info'], '?')})"
+        elif action == 'transformed':
+            msg = f"✅ Remontée {report['reference']} transformée ({report['decision'] or 'action'})"
+        # Notifier via la fonction existante de notification
+        try:
+            for u in users:
+                # Tentative avec différentes signatures
+                try: notify(u['id'], msg, '/field-reports/{}'.format(report_id))
+                except:
+                    try: notify(u['id'], msg)
+                    except: pass
+        except: pass
+    except Exception as e:
+        print(f"[v99-Field] Notif error: {e}", flush=True)
+
+
+def _filter_field_reports(reports, statut=None, priorite=None, type_info=None, q=None):
+    """Filtre les remontées."""
+    if statut: reports = [r for r in reports if r['statut'] == statut]
+    if priorite: reports = [r for r in reports if r['priorite'] == priorite]
+    if type_info: reports = [r for r in reports if r['type_info'] == type_info]
+    if q:
+        ql = q.lower()
+        reports = [r for r in reports if 
+                   ql in (r.get('client_name') or '').lower() or
+                   ql in (r.get('site_name') or '').lower() or
+                   ql in (r.get('description') or '').lower() or
+                   ql in (r.get('reference') or '').lower() or
+                   ql in (r.get('auteur_name') or '').lower()]
+    return reports
+
+
+@app.route('/field-reports')
+@permission_required_any('field_report_view_all', 'field_report_view_mine', 'field_report_create')
+def field_reports_list():
+    """Liste des remontées d'informations avec filtres."""
+    conn = _gdb()
+    user_id = session.get('user_id')
+    perms = session.get('permissions', [])
+    
+    # Si pas view_all, montrer uniquement les siennes
+    if 'field_report_view_all' in perms or 'admin' in perms:
+        rows = conn.execute("SELECT * FROM field_reports ORDER BY created_at DESC LIMIT 500").fetchall()
+    elif 'field_report_view_mine' in perms:
+        rows = conn.execute("SELECT * FROM field_reports WHERE auteur_id=? ORDER BY created_at DESC LIMIT 200", (user_id,)).fetchall()
+    else:
+        rows = []
+    reports = [dict(r) for r in rows]
+    
+    # Stats par statut (tous)
+    all_rows = conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall() if ('field_report_view_all' in perms or 'admin' in perms) else []
+    stats_statut = {row['statut']: row['nb'] for row in all_rows}
+    stats = {
+        'recue': stats_statut.get('recue', 0),
+        'en_analyse': stats_statut.get('en_analyse', 0),
+        'transformees': sum(stats_statut.get(s, 0) for s in ('transformee_projet', 'transformee_intervention', 'transformee_opportunite')),
+        'projets': stats_statut.get('transformee_projet', 0),
+        'interventions': stats_statut.get('transformee_intervention', 0),
+        'opportunites': stats_statut.get('transformee_opportunite', 0),
+        'classees': stats_statut.get('classee', 0),
+        'total': sum(stats_statut.values()),
+    }
+    conn.close()
+    
+    # Filtres URL
+    statut = request.args.get('statut', '').strip()
+    priorite = request.args.get('priorite', '').strip()
+    type_info = request.args.get('type', '').strip()
+    q = request.args.get('q', '').strip()
+    reports = _filter_field_reports(reports, statut, priorite, type_info, q)
+    
+    # Enrichir affichage
+    for r in reports:
+        sl = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))
+        pl = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))
+        r['statut_label'] = sl[0]; r['statut_color'] = sl[1]
+        r['priorite_label'] = pl[0]; r['priorite_color'] = pl[1]
+        r['type_label'] = FIELD_REPORT_TYPES.get(r['type_info'], r['type_info'])
+    
+    return render_template('field_reports_list.html', page='field_reports',
+        reports=reports, stats=stats,
+        types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
+        statut_filter=statut, priorite_filter=priorite, type_filter=type_info, q=q)
+
+
+@app.route('/field-reports/new', methods=['GET', 'POST'])
+@permission_required('field_report_create')
+def field_report_new():
+    """Création d'une remontée d'information."""
+    if request.method == 'GET':
+        conn = _gdb()
+        clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+        conn.close()
+        return render_template('field_report_new.html', page='field_reports',
+            clients=clients, types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES)
+    
+    # POST
+    client_id = request.form.get('client_id', '').strip()
+    client_name = request.form.get('client_name', '').strip()
+    type_info = request.form.get('type_info', 'autre')
+    description = request.form.get('description', '').strip()
+    priorite = request.form.get('priorite', 'moyen')
+    date_constat = request.form.get('date_constat') or datetime.now().strftime('%Y-%m-%d')
+    site_name = request.form.get('site_name', '').strip()
+    site_address = request.form.get('site_address', '').strip()
+    
+    if not description:
+        flash("Description requise", "error")
+        return redirect('/field-reports/new')
+    
+    user = get_user_by_id(session.get('user_id')) if session.get('user_id') else None
+    
+    # Si client_id mais pas client_name, récupérer le nom
+    if client_id and not client_name:
+        conn = _gdb()
+        row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        if row: client_name = row['name']
+        conn.close()
+    
+    ref = _gen_field_report_ref()
+    try:
+        conn = _gdb()
+        cur = conn.execute("""INSERT INTO field_reports 
+            (reference, client_id, client_name, site_name, site_address, type_info,
+             description, priorite, date_constat, auteur_id, auteur_name, statut,
+             created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,'recue',datetime('now'),datetime('now'))""",
+            (ref, int(client_id) if client_id and client_id.isdigit() else None,
+             client_name or 'Non spécifié', site_name, site_address, type_info,
+             description, priorite, date_constat,
+             session.get('user_id'),
+             user['full_name'] if user else 'Anonyme'))
+        report_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        
+        _field_report_log(report_id, 'Création', f"Type: {FIELD_REPORT_TYPES.get(type_info, type_info)}, Priorité: {priorite}")
+        _field_report_notify(report_id, 'created')
+        
+        flash(f"✅ Remontée {ref} enregistrée et notifications envoyées", "success")
+        return redirect(f'/field-reports/{report_id}')
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+        return redirect('/field-reports/new')
+
+
+@app.route('/field-reports/<int:rid>')
+@permission_required_any('field_report_view_all', 'field_report_view_mine', 'field_report_create')
+def field_report_detail(rid):
+    """Détail d'une remontée."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM field_reports WHERE id=?", (rid,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Remontée introuvable", "error")
+        return redirect('/field-reports')
+    report = dict(row)
+    
+    # Permissions de vue
+    user_id = session.get('user_id')
+    perms = session.get('permissions', [])
+    if ('field_report_view_all' not in perms and 'admin' not in perms 
+        and report['auteur_id'] != user_id):
+        conn.close()
+        flash("Accès refusé", "error")
+        return redirect('/field-reports')
+    
+    # Enrichir
+    sl = FIELD_REPORT_STATUTS.get(report['statut'], (report['statut'], '#888'))
+    pl = FIELD_REPORT_PRIORITIES.get(report['priorite'], (report['priorite'], '#888'))
+    report['statut_label'] = sl[0]; report['statut_color'] = sl[1]
+    report['priorite_label'] = pl[0]; report['priorite_color'] = pl[1]
+    report['type_label'] = FIELD_REPORT_TYPES.get(report['type_info'], report['type_info'])
+    
+    # Historique
+    history = [dict(r) for r in conn.execute(
+        "SELECT * FROM field_reports_history WHERE report_id=? ORDER BY created_at DESC", (rid,)).fetchall()]
+    
+    # Pièces jointes
+    files = [dict(r) for r in conn.execute(
+        "SELECT * FROM field_reports_files WHERE report_id=? ORDER BY uploaded_at DESC", (rid,)).fetchall()]
+    
+    conn.close()
+    return render_template('field_report_detail.html', page='field_reports',
+        report=report, history=history, files=files,
+        types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS)
+
+
+@app.route('/field-reports/<int:rid>/analyze', methods=['POST'])
+@permission_required('field_report_analyze')
+def field_report_analyze(rid):
+    """Marquer comme en cours d'analyse + ajouter notes."""
+    notes = request.form.get('analyse_notes', '').strip()
+    try:
+        conn = _gdb()
+        conn.execute("""UPDATE field_reports SET statut='en_analyse', analyse_notes=?, updated_at=datetime('now') 
+            WHERE id=?""", (notes, rid))
+        conn.commit()
+        conn.close()
+        _field_report_log(rid, 'Mise en analyse', notes[:200] if notes else None)
+        flash("✅ Remontée mise en analyse", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect(f'/field-reports/{rid}')
+
+
+@app.route('/field-reports/<int:rid>/transform', methods=['POST'])
+@permission_required('field_report_transform')
+def field_report_transform(rid):
+    """Transformer en projet, intervention ou opportunité."""
+    decision = request.form.get('decision', '').strip()  # 'projet', 'intervention', 'opportunite'
+    notes = request.form.get('decision_notes', '').strip()
+    
+    if decision not in ('projet', 'intervention', 'opportunite', 'classer'):
+        flash("Décision invalide", "error")
+        return redirect(f'/field-reports/{rid}')
+    
+    statut_map = {
+        'projet': 'transformee_projet',
+        'intervention': 'transformee_intervention',
+        'opportunite': 'transformee_opportunite',
+        'classer': 'classee',
+    }
+    new_statut = statut_map[decision]
+    
+    user = get_user_by_id(session.get('user_id')) if session.get('user_id') else None
+    try:
+        conn = _gdb()
+        conn.execute("""UPDATE field_reports SET statut=?, decision=?, decision_date=datetime('now'),
+            decision_by=?, decision_by_name=?, updated_at=datetime('now') WHERE id=?""",
+            (new_statut, decision, session.get('user_id'),
+             user['full_name'] if user else None, rid))
+        conn.commit()
+        conn.close()
+        action_label = {
+            'projet': 'Transformée en projet',
+            'intervention': 'Transformée en intervention',
+            'opportunite': 'Transformée en opportunité commerciale',
+            'classer': 'Classée sans suite',
+        }[decision]
+        _field_report_log(rid, action_label, notes[:200] if notes else None)
+        _field_report_notify(rid, 'transformed')
+        flash(f"✅ {action_label}", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect(f'/field-reports/{rid}')
+
+
+@app.route('/field-reports/dashboard')
+@permission_required_any('field_report_view_all', 'admin')
+def field_reports_dashboard():
+    """Tableau de bord des remontées d'informations."""
+    conn = _gdb()
+    # Stats par statut
+    stats_statut = {row['statut']: row['nb'] for row in 
+                    conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall()}
+    # Stats par priorité
+    stats_priorite = {row['priorite']: row['nb'] for row in 
+                      conn.execute("SELECT priorite, COUNT(*) as nb FROM field_reports GROUP BY priorite").fetchall()}
+    # Stats par type
+    stats_type = {row['type_info']: row['nb'] for row in 
+                  conn.execute("SELECT type_info, COUNT(*) as nb FROM field_reports GROUP BY type_info").fetchall()}
+    # Top contributeurs
+    top_auteurs = [dict(r) for r in conn.execute(
+        """SELECT auteur_name, COUNT(*) as nb FROM field_reports 
+        GROUP BY auteur_id, auteur_name ORDER BY nb DESC LIMIT 10""").fetchall()]
+    # Dernières 10
+    recentes = [dict(r) for r in conn.execute(
+        "SELECT * FROM field_reports ORDER BY created_at DESC LIMIT 10").fetchall()]
+    for r in recentes:
+        r['statut_label'] = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))[0]
+        r['priorite_label'] = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))[0]
+        r['type_label'] = FIELD_REPORT_TYPES.get(r['type_info'], r['type_info'])
+    
+    total = sum(stats_statut.values()) or 1
+    nb_urgent = stats_priorite.get('urgent', 0)
+    nb_eleve = stats_priorite.get('eleve', 0)
+    nb_a_traiter = stats_statut.get('recue', 0) + stats_statut.get('en_analyse', 0)
+    conn.close()
+    
+    return render_template('field_reports_dashboard.html', page='field_reports_dashboard',
+        stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
+        top_auteurs=top_auteurs, recentes=recentes,
+        types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
+        total=total, nb_urgent=nb_urgent, nb_eleve=nb_eleve, nb_a_traiter=nb_a_traiter)
+
+
+# ==================== FIN MODULE REMONTÉES INFORMATIONS ====================
 
 @app.route('/rh/contrats-rh')
 @permission_required('fichiers')

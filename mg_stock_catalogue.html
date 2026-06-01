@@ -2,7 +2,7 @@
 <div class="page-header" style="flex-wrap:wrap;gap:10px">
     <div><h1>📋 Marchandise — Catalogue Articles</h1>
         <p style="color:#666;font-size:12px;margin:4px 0 0">
-            Référentiel des produits avec stock initial et prix unitaire {% if total_catalogue %}— Valeur catalogue : <strong>{{ '{:,.0f}'.format(total_catalogue).replace(',', ' ') }} FCFA</strong>{% endif %}
+            {{ nb_total_all }} article(s) au catalogue · Valeur stock initial : <strong style="color:#e8672a">{{ '{:,.0f}'.format(total_catalogue).replace(',', ' ') }} FCFA</strong>
         </p>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -10,62 +10,153 @@
         <a href="/mg/stock/entrees" class="btn btn-outline btn-sm">📥 Entrées</a>
         <a href="/mg/stock/sorties" class="btn btn-outline btn-sm">📤 Sorties</a>
         <a href="/mg/stock/inventaires" class="btn btn-outline btn-sm">📦 Inventaires</a>
+        {% if 'stock_marges_edit' in permissions or 'admin' in permissions %}
+        <a href="/mg/stock/marges" class="btn btn-sm" style="background:#7b1fa2;color:#fff">⚙️ Marges prix vente</a>
+        {% endif %}
         <button onclick="document.getElementById('addArt').classList.add('active')" class="btn btn-primary btn-sm">+ Nouvel article</button>
     </div>
 </div>
 
+<!-- Bannière marges -->
+{% if marges %}
+<div style="background:linear-gradient(90deg,#7b1fa2 0%,#4a148c 100%);color:#fff;padding:12px 16px;border-radius:10px;margin-bottom:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+    <div style="font-weight:700;font-size:13px">💰 Marges actuelles sur prix de vente :</div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px">
+        <span>👤 Particulier : <strong>+{{ marges.particulier or 50 }}%</strong></span>
+        <span>🏢 PME : <strong>+{{ marges.pme or 30 }}%</strong></span>
+        <span>🏛️ Grande Entreprise : <strong>+{{ marges.grande_entreprise or 20 }}%</strong></span>
+        {% if 'stock_marges_edit' in permissions or 'admin' in permissions %}
+        <a href="/mg/stock/marges" style="color:#fff;text-decoration:underline;font-weight:600">⚙️ Modifier</a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Barre de recherche & filtres -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px">
+    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <div style="flex:1;min-width:240px;position:relative">
+            <input type="text" name="q" value="{{ q }}" placeholder="🔍 Rechercher (référence, désignation, catégorie, notes...)" 
+                style="padding:10px 12px 10px 38px;border:1.5px solid #1A7A6D;border-radius:7px;width:100%;font-size:13px" autofocus>
+            <span style="position:absolute;left:12px;top:10px;font-size:14px">🔎</span>
+        </div>
+        <select name="cat" style="padding:9px 10px;border:1.5px solid #ddd;border-radius:7px;min-width:140px">
+            <option value="">Toutes catégories</option>
+            {% for c in categories %}<option value="{{ c }}" {% if c == cat_filter %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select>
+        <select name="sort" style="padding:9px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="designation" {% if sort == 'designation' %}selected{% endif %}>Tri : Désignation A→Z</option>
+            <option value="reference" {% if sort == 'reference' %}selected{% endif %}>Tri : Référence A→Z</option>
+            <option value="categorie" {% if sort == 'categorie' %}selected{% endif %}>Tri : Catégorie</option>
+            <option value="prix" {% if sort == 'prix' %}selected{% endif %}>Tri : Prix décroissant</option>
+        </select>
+        <select name="per_page" style="padding:9px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="20" {% if per_page == 20 %}selected{% endif %}>20 / page</option>
+            <option value="30" {% if per_page == 30 %}selected{% endif %}>30 / page</option>
+            <option value="50" {% if per_page == 50 %}selected{% endif %}>50 / page</option>
+            <option value="100" {% if per_page == 100 %}selected{% endif %}>100 / page</option>
+            <option value="200" {% if per_page == 200 %}selected{% endif %}>Tout (200)</option>
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+        {% if q or cat_filter or sort != 'designation' %}<a href="/mg/stock/marchandise" class="btn btn-outline btn-sm">↻ Réinitialiser</a>{% endif %}
+    </form>
+    {% if nb_total > 0 %}
+    <div style="margin-top:8px;font-size:11px;color:#888">
+        {% if q or cat_filter %}<strong style="color:#1A7A6D">{{ nb_total }} résultat(s)</strong> sur {{ nb_total_all }} articles · {% endif %}
+        Affichage {{ start }} → {{ end }} sur {{ nb_total }}
+    </div>
+    {% endif %}
+</div></div>
+
 <div class="card">
     <div class="card-body" style="padding:0;overflow-x:auto">
-        <table style="width:100%;font-size:12px;min-width:900px">
-            <thead style="background:#1A7A6D;color:#fff">
+        <table style="width:100%;font-size:11px;min-width:1300px;border-collapse:collapse">
+            <thead>
                 <tr>
-                    <th style="padding:10px;text-align:left">Référence</th>
-                    <th style="padding:10px;text-align:left">Désignation</th>
-                    <th style="padding:10px;text-align:left">Catégorie</th>
-                    <th style="padding:10px;text-align:center">Unité</th>
-                    <th style="padding:10px;text-align:right">Seuil</th>
-                    <th style="padding:10px;text-align:right">Stock initial</th>
-                    <th style="padding:10px;text-align:right">P.U. (FCFA)</th>
-                    <th style="padding:10px;text-align:right">Total initial</th>
-                    <th></th>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Référence</th>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Désignation</th>
+                    <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Catégorie</th>
+                    <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Unité</th>
+                    <th style="padding:12px 8px;text-align:right;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Stock</th>
+                    <th style="padding:12px 8px;text-align:right;background:#0f5a51;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff" title="Prix d'achat (entrant)">P.U. Achat</th>
+                    <th style="padding:12px 8px;text-align:right;background:#1976d2;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff" title="Prix de vente Particulier">👤 P.V. Partic.</th>
+                    <th style="padding:12px 8px;text-align:right;background:#e8672a;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff" title="Prix de vente PME">🏢 P.V. PME</th>
+                    <th style="padding:12px 8px;text-align:right;background:#7b1fa2;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff" title="Prix de vente Grande Entreprise">🏛️ P.V. G.E.</th>
+                    <th style="padding:12px 8px;background:#1A7A6D;color:#fff"></th>
                 </tr>
             </thead>
             <tbody>
             {% for a in articles %}
             <tr style="border-bottom:1px solid #eee">
-                <td style="padding:7px 10px;font-family:monospace;font-weight:600">{{ a.reference }}</td>
-                <td style="padding:7px 10px"><strong>{{ a.designation }}</strong>{% if a.notes %}<br><span style="font-size:10px;color:#888">{{ a.notes }}</span>{% endif %}</td>
-                <td style="padding:7px 10px;color:#666">{{ a.categorie or '-' }}</td>
-                <td style="text-align:center;padding:7px 10px">{{ a.unite or 'UNITE' }}</td>
-                <td style="text-align:right;padding:7px 10px">{{ a.seuil_alerte or '-' }}</td>
-                <td style="text-align:right;padding:7px 10px">{{ a.stock_initial or 0 }}</td>
-                <td style="text-align:right;padding:7px 10px;font-weight:600">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
-                <td style="text-align:right;padding:7px 10px;font-weight:700;color:#e8672a">{{ '{:,.0f}'.format(a.total_initial).replace(',', ' ') }}</td>
-                <td style="padding:7px 10px;text-align:right;white-space:nowrap">
+                <td style="padding:7px 8px;font-family:monospace;font-weight:700;color:#1A7A6D">{{ a.reference }}</td>
+                <td style="padding:7px 8px"><strong>{{ a.designation }}</strong>{% if a.notes %}<br><span style="font-size:10px;color:#888">{{ a.notes }}</span>{% endif %}</td>
+                <td style="padding:7px 8px;color:#666;font-size:10px">{{ a.categorie or '-' }}</td>
+                <td style="text-align:center;padding:7px 8px;font-size:10px">{{ a.unite or 'UNITE' }}</td>
+                <td style="text-align:right;padding:7px 8px;font-weight:600">{{ a.stock_initial or 0 }}</td>
+                <td style="text-align:right;padding:7px 8px;background:#f0f7f5;font-weight:700;color:#0f5a51">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 8px;background:#e3f2fd;font-weight:700;color:#1565c0">{{ '{:,.0f}'.format(a.prix_vente_particulier or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 8px;background:#fff3e0;font-weight:700;color:#b8561f">{{ '{:,.0f}'.format(a.prix_vente_pme or 0).replace(',', ' ') }}</td>
+                <td style="text-align:right;padding:7px 8px;background:#f3e5f5;font-weight:700;color:#4a148c">{{ '{:,.0f}'.format(a.prix_vente_grande_entreprise or 0).replace(',', ' ') }}</td>
+                <td style="padding:7px 8px;text-align:right;white-space:nowrap">
                     <button type="button" class="btn-edit-art btn btn-sm" 
                         data-id="{{ a.id }}"
+                        data-reference="{{ a.reference|e }}"
                         data-designation="{{ a.designation|e }}"
                         data-categorie="{{ a.categorie or '' }}"
                         data-unite="{{ a.unite or 'UNITE' }}"
                         data-seuil="{{ a.seuil_alerte or 2 }}"
                         data-prix="{{ a.prix_unitaire or 0 }}"
                         data-notes="{{ a.notes or '' }}"
-                        style="color:#1976d2">✏️</button>
+                        style="color:#1976d2" title="Modifier">✏️</button>
+                    <form method="post" action="/mg/stock/article/{{ a.id }}/recompute-prices" style="display:inline" title="Recalculer prix de vente">
+                        <button type="submit" class="btn btn-sm" style="color:#7b1fa2">🔄</button>
+                    </form>
                     <form method="post" action="/mg/stock/article/{{ a.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer {{ a.reference }} ?');">
                         <button type="submit" class="btn btn-sm" style="color:#c53030">🗑️</button>
                     </form>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="9" style="padding:30px;text-align:center;color:#888">Aucun article. Cliquez sur "+ Nouvel article" pour commencer.</td></tr>
+            <tr><td colspan="10" style="padding:30px;text-align:center;color:#888">
+                {% if q or cat_filter %}🔍 Aucun résultat pour ces critères. <a href="/mg/stock/marchandise" style="color:#1A7A6D">Réinitialiser</a>
+                {% else %}Aucun article. Cliquez sur "+ Nouvel article" pour commencer.{% endif %}
+            </td></tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
 
+<!-- Pagination -->
+{% if nb_pages > 1 %}
+<div style="margin-top:14px;display:flex;justify-content:center;gap:4px;flex-wrap:wrap;font-size:12px">
+    {% if page_num > 1 %}
+    <a href="?q={{ q }}&cat={{ cat_filter }}&sort={{ sort }}&per_page={{ per_page }}&page=1" class="btn btn-outline btn-sm">« 1ère</a>
+    <a href="?q={{ q }}&cat={{ cat_filter }}&sort={{ sort }}&per_page={{ per_page }}&page={{ page_num - 1 }}" class="btn btn-outline btn-sm">‹ Précédent</a>
+    {% endif %}
+    
+    {% set start_p = [page_num - 2, 1]|max %}
+    {% set end_p = [page_num + 2, nb_pages]|min %}
+    {% for p in range(start_p, end_p + 1) %}
+    {% if p == page_num %}
+    <span class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-weight:700">{{ p }}</span>
+    {% else %}
+    <a href="?q={{ q }}&cat={{ cat_filter }}&sort={{ sort }}&per_page={{ per_page }}&page={{ p }}" class="btn btn-outline btn-sm">{{ p }}</a>
+    {% endif %}
+    {% endfor %}
+    
+    {% if page_num < nb_pages %}
+    <a href="?q={{ q }}&cat={{ cat_filter }}&sort={{ sort }}&per_page={{ per_page }}&page={{ page_num + 1 }}" class="btn btn-outline btn-sm">Suivant ›</a>
+    <a href="?q={{ q }}&cat={{ cat_filter }}&sort={{ sort }}&per_page={{ per_page }}&page={{ nb_pages }}" class="btn btn-outline btn-sm">Dernière »</a>
+    {% endif %}
+</div>
+<div style="text-align:center;margin-top:8px;font-size:11px;color:#888">
+    Page {{ page_num }} / {{ nb_pages }}
+</div>
+{% endif %}
+
 <!-- Modal ajout -->
-<div class="modal-bg" id="addArt"><div class="modal" style="max-width:600px"><h3>📦 Nouvel article</h3>
+<div class="modal-bg" id="addArt"><div class="modal" style="max-width:650px"><h3>📦 Nouvel article</h3>
 <form method="post" action="/mg/stock/article/add">
     <div class="form-row">
         <div class="form-group"><label>Référence *</label><input type="text" name="reference" required maxlength="20" placeholder="EX: ADP" style="text-transform:uppercase"></div>
@@ -87,7 +178,10 @@
     <div class="form-row">
         <div class="form-group"><label>Seuil alerte</label><input type="number" name="seuil_alerte" value="2" min="0"></div>
         <div class="form-group"><label>Stock initial</label><input type="number" name="stock_initial" value="0" min="0"></div>
-        <div class="form-group"><label>Prix unitaire (FCFA)</label><input type="number" name="prix_unitaire" value="0" min="0" step="100"></div>
+        <div class="form-group"><label>Prix d'achat (FCFA) *</label><input type="number" name="prix_unitaire" value="0" min="0" step="100" required></div>
+    </div>
+    <div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:10px;border-radius:6px;font-size:11px;color:#0d47a1;margin-bottom:12px">
+        💡 Les <strong>prix de vente</strong> (Particulier, PME, Grande Entreprise) seront calculés automatiquement selon les marges configurées.
     </div>
     <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -97,7 +191,8 @@
 </form></div></div>
 
 <!-- Modal édition -->
-<div class="modal-bg" id="editArtModal"><div class="modal" style="max-width:600px"><h3>✏️ Modifier l'article</h3>
+<div class="modal-bg" id="editArtModal"><div class="modal" style="max-width:650px">
+    <h3>✏️ Modifier l'article <span id="ed_ref_display" style="color:#1A7A6D;font-family:monospace"></span></h3>
 <form method="post" id="editForm">
     <div class="form-group"><label>Désignation</label><input type="text" name="designation" id="ed_designation" required></div>
     <div class="form-row">
@@ -106,7 +201,10 @@
     </div>
     <div class="form-row">
         <div class="form-group"><label>Seuil alerte</label><input type="number" name="seuil_alerte" id="ed_seuil" min="0"></div>
-        <div class="form-group"><label>Prix unitaire (FCFA)</label><input type="number" name="prix_unitaire" id="ed_prix" min="0" step="100"></div>
+        <div class="form-group"><label>Prix d'achat (FCFA)</label><input type="number" name="prix_unitaire" id="ed_prix" min="0" step="100"></div>
+    </div>
+    <div style="background:#fff3cd;border-left:4px solid #e8672a;padding:10px;border-radius:6px;font-size:11px;color:#856404;margin-bottom:12px">
+        ⚠️ Modifier le <strong>prix d'achat</strong> recalcule automatiquement les 3 prix de vente.
     </div>
     <div class="form-group"><label>Notes</label><textarea name="notes" id="ed_notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -116,8 +214,9 @@
 </form></div></div>
 
 <script>
-function editArt(id, designation, categorie, unite, seuil, prix, notes) {
+function editArt(id, ref, designation, categorie, unite, seuil, prix, notes) {
     document.getElementById('editForm').action = '/mg/stock/article/' + id + '/edit';
+    document.getElementById('ed_ref_display').textContent = ref;
     document.getElementById('ed_designation').value = designation;
     document.getElementById('ed_categorie').value = categorie;
     document.getElementById('ed_unite').value = unite;
@@ -126,18 +225,14 @@ function editArt(id, designation, categorie, unite, seuil, prix, notes) {
     document.getElementById('ed_notes').value = notes;
     document.getElementById('editArtModal').classList.add('active');
 }
-// v97-fix : attach event listeners via data attributes (avoids onclick quote-escaping bug)
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.btn-edit-art').forEach(function(btn) {
         btn.addEventListener('click', function() {
             editArt(
-                this.dataset.id,
-                this.dataset.designation || '',
-                this.dataset.categorie || '',
-                this.dataset.unite || 'UNITE',
-                parseInt(this.dataset.seuil) || 2,
-                parseFloat(this.dataset.prix) || 0,
-                this.dataset.notes || ''
+                this.dataset.id, this.dataset.reference || '',
+                this.dataset.designation || '', this.dataset.categorie || '',
+                this.dataset.unite || 'UNITE', parseInt(this.dataset.seuil) || 2,
+                parseFloat(this.dataset.prix) || 0, this.dataset.notes || ''
             );
         });
     });
