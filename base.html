@@ -391,8 +391,8 @@
                     {% endif %}
                     <a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>
                     <a href="/comptabilite/validation-paie" class="{% if page == 'compta_paie' %}active{% endif %}">💵 Validation paie</a>
-                    {% if 'mg_compta_validate' in permissions or 'admin' in permissions %}
-                    <a href="/comptabilite/demandes-mg" class="{% if page == 'compta_demandes_mg' %}active{% endif %}" style="position:relative">📋 Demandes MG à valider{% if compta_demandes_pending and compta_demandes_pending > 0 %} <span class="badge" style="background:#e8672a;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px;animation:pulse 1.5s infinite">{{ compta_demandes_pending }}</span>{% endif %}</a>
+                    {% if 'mg_compta_validate' in permissions or 'admin' in permissions or user_role in ('comptable','comptabilite','dg','directeur') %}
+                    <a href="/comptabilite/demandes-mg" class="{% if page == 'compta_demandes_mg' %}active{% endif %}" style="position:relative">📋 Demandes MG à valider{% if compta_demandes_pending and compta_demandes_pending > 0 %} <span class="badge" style="background:#e8672a;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ compta_demandes_pending }}</span>{% endif %}</a>
                     {% endif %}
                     {% endif %}
                     

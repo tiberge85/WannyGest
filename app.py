@@ -411,7 +411,7 @@ try:
     
     # Nouvelles permissions Roadmap
     V89_PERMS = {
-        # v101 : Fusionné — uniquement gestionnaire_projet (coordinateur/resp_projet retirés)
+        # Coordination (v102 : fusionné dans gestionnaire_projet uniquement)
         'gestionnaire_projet':  ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
         # Commercial : créer projets + clôture + contrat
         'commercial':           ['roadmap_view', 'project_create', 'project_close', 'project_contract'],
@@ -792,6 +792,7 @@ try:
         'dg':               ['field_report_view_all', 'field_report_analyze'],
         'directeur':        ['field_report_view_all', 'field_report_analyze'],
         'gestionnaire_projet': ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform', 'field_report_close'],
+        # v102 : 'coordinateur' et 'resp_projet' sont fusionnés dans 'gestionnaire_projet' — ne plus ajouter ici
         'commercial':       ['field_report_create', 'field_report_view_all'],
         'technicien':       ['field_report_create', 'field_report_view_mine'],
         'tech_chef':        ['field_report_create', 'field_report_view_all'],
@@ -837,13 +838,12 @@ try:
     if nb_migrated > 0:
         print(f"[v100-Roles] {nb_migrated} utilisateur(s) migré(s) vers 'gestionnaire_projet'", flush=True)
     
-    # v101 : Supprimer les permissions des rôles obsolètes (coordinateur, resp_projet)
-    # Ces rôles ne doivent plus apparaître dans la matrice — leurs perms sont déjà sur gestionnaire_projet
+    # v102 : Supprimer les permissions des rôles obsolètes (coordinateur, resp_projet)
     try:
         deleted = _v100_conn.execute(
             "DELETE FROM permissions WHERE role IN ('coordinateur', 'resp_projet')").rowcount or 0
         if deleted > 0:
-            print(f"[v101-Cleanup] {deleted} permissions obsolètes supprimées (coordinateur/resp_projet)", flush=True)
+            print(f"[v102-Cleanup] {deleted} permissions obsolètes supprimées (coordinateur/resp_projet)", flush=True)
     except: pass
     
     # 2. Ajouter colonnes validation_compta sur achats_demandes
@@ -990,6 +990,20 @@ except Exception as _e:
     print(f"[v92-Créances] Erreur init Créances : {_e}", flush=True)
 
 
+# v102 FINAL : Nettoyage ULTIME des permissions obsolètes (après toutes les inits)
+try:
+    from models import get_db as _v102_final_db
+    _v102f = _v102_final_db()
+    deleted = _v102f.execute(
+        "DELETE FROM permissions WHERE role IN ('coordinateur', 'resp_projet')").rowcount or 0
+    if deleted > 0:
+        print(f"[v102-Final] {deleted} permissions obsolètes supprimées définitivement (coordinateur/resp_projet)", flush=True)
+    _v102f.commit()
+    _v102f.close()
+except Exception as _e:
+    print(f"[v102-Final] Erreur cleanup : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -1056,7 +1070,9 @@ try:
         defaults = ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat']
         merged = list(set(existing + defaults))
         update_role_permissions('technicien', merged)
-    # v101 : Bloc resp_projet désactivé — ce rôle est obsolète, remplacé par gestionnaire_projet
+    if 'centre_technique' not in _grp('resp_projet'):
+        # v102 : 'resp_projet' fusionné dans 'gestionnaire_projet' — ne plus initialiser
+        pass
 except: pass
 
 from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
@@ -1600,17 +1616,17 @@ def inject_globals():
             except Exception as _e_fr:
                 pass
             
-            # v101 : Badge "Demandes MG à valider" pour comptables
+            # v102 : Badge "Demandes MG à valider" pour comptables/DG/directeur/admin
+            ctx['compta_demandes_pending'] = 0
             try:
-                _user_perms = ctx.get('permissions', [])
-                if 'mg_compta_validate' in _user_perms or 'admin' in _user_perms or user['role'] in ('comptable', 'comptabilite', 'admin', 'dg', 'directeur'):
+                if user['role'] in ('comptable', 'comptabilite', 'admin', 'dg', 'directeur'):
                     from models import get_db as _cmgdb
                     _cmg = _cmgdb()
                     ctx['compta_demandes_pending'] = _cmg.execute(
                         "SELECT COUNT(*) FROM achats_demandes WHERE compta_status='a_valider'").fetchone()[0]
                     _cmg.close()
             except Exception:
-                ctx['compta_demandes_pending'] = 0
+                pass
             
             if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
@@ -13002,7 +13018,10 @@ def creances_export_pdf():
 FIELD_REPORT_TYPES = {
     'besoin': '💡 Besoin identifié',
     'panne': '🔧 Panne constatée',
+    'depannage': '🛠️ Dépannage requis',
+    'entretien': '🧰 Entretien à effectuer',
     'extension': '➕ Extension possible',
+    'projet_neuf': '🏗️ Projet neuf',
     'nouveau_projet': '🆕 Nouveau projet potentiel',
     'contrat_entretien': '📝 Contrat d\'entretien à proposer',
     'mise_a_niveau': '⬆️ Mise à niveau d\'installation',
@@ -13056,32 +13075,75 @@ def _field_report_log(report_id, action, details=None):
 
 
 def _field_report_notify(report_id, action):
-    """Envoie une notification aux rôles concernés (gestionnaire_projet, coordinateur)."""
+    """v102 : Envoie des notifications BDD aux rôles concernés (gestionnaire_projet, admin, etc.)."""
     try:
         conn = _gdb()
         report = conn.execute("SELECT * FROM field_reports WHERE id=?", (report_id,)).fetchone()
-        if not report: return
-        # Trouver les utilisateurs des rôles cibles
-        users = conn.execute("""SELECT id, full_name FROM users 
-            WHERE role IN ('gestionnaire_projet', 'coordinateur', 'resp_projet', 'admin') 
-            AND is_active=1""").fetchall()
-        conn.close()
-        msg = f"📢 Nouvelle remontée {report['reference']} ({FIELD_REPORT_PRIORITIES.get(report['priorite'], ('?',))[0]}) - {report['client_name']}"
+        if not report:
+            conn.close()
+            return
+        report = dict(report)
+        
+        priorite_label = FIELD_REPORT_PRIORITIES.get(report['priorite'], ('?', '#888'))[0]
+        type_label = FIELD_REPORT_TYPES.get(report['type_info'], report['type_info'])
+        link = f"/field-reports/{report_id}"
+        
+        # Selon l'action, le message change
         if action == 'created':
-            msg = f"📢 Nouvelle remontée d'information {report['reference']} - {report['client_name']} ({FIELD_REPORT_TYPES.get(report['type_info'], '?')})"
+            title = f"📢 Nouvelle remontée d'information"
+            message = f"{report['reference']} — {report['client_name']} ({type_label}) · {priorite_label}"
+            # Cibler gestionnaire_projet + admin + dg + directeur
+            target_roles = ('gestionnaire_projet', 'admin', 'dg', 'directeur')
+        elif action == 'analyzed':
+            title = f"🔍 Remontée mise en analyse"
+            message = f"{report['reference']} — {report['client_name']}"
+            target_roles = ('gestionnaire_projet', 'admin', 'dg', 'directeur')
         elif action == 'transformed':
-            msg = f"✅ Remontée {report['reference']} transformée ({report['decision'] or 'action'})"
-        # Notifier via la fonction existante de notification
-        try:
-            for u in users:
-                # Tentative avec différentes signatures
-                try: notify(u['id'], msg, '/field-reports/{}'.format(report_id))
-                except:
-                    try: notify(u['id'], msg)
-                    except: pass
-        except: pass
+            title = f"✅ Remontée traitée"
+            decision = report.get('decision', 'action')
+            decision_label = {
+                'projet': 'transformée en Projet',
+                'intervention': 'transformée en Intervention (vers Centre Technique)',
+                'opportunite': 'transformée en Opportunité commerciale',
+                'classer': 'classée sans suite',
+            }.get(decision, decision)
+            message = f"{report['reference']} {decision_label}"
+            # Notifier l'auteur original + services concernés selon la décision
+            target_roles = ['admin', 'dg', 'directeur']
+            if decision == 'intervention':
+                target_roles += ['gestionnaire_projet', 'technicien', 'tech_chef', 'centre_technique']
+            elif decision == 'projet':
+                target_roles += ['gestionnaire_projet']
+            elif decision == 'opportunite':
+                target_roles += ['commercial', 'gestionnaire_projet']
+            else:
+                target_roles += ['gestionnaire_projet']
+        else:
+            title = f"📢 Remontée {report['reference']}"
+            message = f"{report['client_name']}"
+            target_roles = ('gestionnaire_projet', 'admin', 'dg', 'directeur')
+        
+        # Récupérer les destinataires
+        placeholders = ','.join(['?'] * len(target_roles))
+        users = conn.execute(f"""SELECT id FROM users 
+            WHERE role IN ({placeholders}) AND is_active=1""", tuple(target_roles)).fetchall()
+        
+        # Ajouter aussi l'auteur initial pour les actions transformed
+        target_user_ids = set([u['id'] for u in users])
+        if action == 'transformed' and report.get('auteur_id'):
+            target_user_ids.add(report['auteur_id'])
+        
+        # Créer les notifications directement en BDD
+        for uid in target_user_ids:
+            try:
+                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
+                    VALUES (?,?,?,?,?)""",
+                    (uid, 'field_report', title, message, link))
+            except: pass
+        conn.commit()
+        conn.close()
     except Exception as e:
-        print(f"[v99-Field] Notif error: {e}", flush=True)
+        print(f"[v102-Field] Notif error: {e}", flush=True)
 
 
 def _filter_field_reports(reports, statut=None, priorite=None, type_info=None, q=None):
@@ -13268,6 +13330,7 @@ def field_report_analyze(rid):
         conn.commit()
         conn.close()
         _field_report_log(rid, 'Mise en analyse', notes[:200] if notes else None)
+        _field_report_notify(rid, 'analyzed')
         flash("✅ Remontée mise en analyse", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
@@ -13342,7 +13405,8 @@ def field_reports_dashboard():
         r['priorite_label'] = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))[0]
         r['type_label'] = FIELD_REPORT_TYPES.get(r['type_info'], r['type_info'])
     
-    total = sum(stats_statut.values()) or 1
+    total = sum(stats_statut.values())  # v102 : total réel pour affichage
+    total_div = total or 1  # éviter division par zéro
     nb_urgent = stats_priorite.get('urgent', 0)
     nb_eleve = stats_priorite.get('eleve', 0)
     nb_a_traiter = stats_statut.get('recue', 0) + stats_statut.get('en_analyse', 0)
@@ -13352,7 +13416,7 @@ def field_reports_dashboard():
         stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
         top_auteurs=top_auteurs, recentes=recentes,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
-        total=total, nb_urgent=nb_urgent, nb_eleve=nb_eleve, nb_a_traiter=nb_a_traiter)
+        total=total, total_div=total_div, nb_urgent=nb_urgent, nb_eleve=nb_eleve, nb_a_traiter=nb_a_traiter)
 
 
 @app.route('/field-reports/<int:rid>/edit', methods=['GET', 'POST'])
@@ -21740,7 +21804,7 @@ def mg_demandes_add():
 @permission_required_any('mg_valider', 'admin')
 def mg_demandes_valider(did, action):
     """Valider ou refuser une demande. action ∈ {validee, refusee}.
-    v101: si validée, envoie automatiquement à la Comptabilité pour validation budgétaire."""
+    v102 : si validée, transmet automatiquement à la Comptabilité pour validation budgétaire."""
     if action not in ('validee', 'refusee', 'en_attente'):
         flash("Action invalide", "error")
         return redirect('/mg/demandes')
@@ -21752,9 +21816,8 @@ def mg_demandes_valider(did, action):
                     WHERE id=?""",
                  (action, session['user_id'], datetime.now().isoformat(), did))
     
-    # v101 : auto-envoi à la compta lors de la validation MG
+    # v102 : auto-envoi à la Comptabilité
     if action == 'validee':
-        # Calculer montant estimé depuis les items si possible
         total_items_row = conn.execute("""SELECT COALESCE(SUM(quantity * COALESCE(estimated_price,0)), 0) as total
             FROM achats_demande_items WHERE demande_id=?""", (did,)).fetchone()
         montant_calc = float(total_items_row['total'] or 0) if total_items_row else 0
@@ -21763,20 +21826,24 @@ def mg_demandes_valider(did, action):
             compta_status='a_valider',
             compta_visible_at=datetime('now'),
             compta_montant_estime=COALESCE(compta_montant_estime, ?)
-            WHERE id=? AND compta_visible_at IS NULL""", 
+            WHERE id=? AND (compta_visible_at IS NULL OR compta_status='en_attente')""", 
             (montant_calc if montant_calc > 0 else None, did))
-    conn.commit()
-    
-    # Notifier les comptables si validée
-    if action == 'validee':
+        
+        # Notifier les comptables
         try:
-            users = conn.execute("""SELECT id, full_name FROM users 
+            users_compta = conn.execute("""SELECT id FROM users 
                 WHERE role IN ('comptable','comptabilite','dg','directeur','admin') AND is_active=1""").fetchall()
-            for u in users:
-                try: notify(u['id'], f"💰 Nouvelle demande MG {ref} à valider budgétairement")
+            for u in users_compta:
+                try:
+                    conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
+                        VALUES (?,?,?,?,?)""",
+                        (u['id'], 'mg_demande', f"💰 Demande MG à valider",
+                         f"{ref} — Validation budgétaire requise",
+                         '/comptabilite/demandes-mg'))
                 except: pass
         except: pass
     
+    conn.commit()
     conn.close()
     if action == 'validee':
         flash(f"✅ Demande {ref} validée et transmise à la Comptabilité", "success")

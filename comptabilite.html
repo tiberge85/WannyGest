@@ -5,12 +5,12 @@
 {% include '_recharge_alert.html' %}
 {% include '_project_notifs.html' %}
 
-{# v101 : Alerte demandes MG à valider #}
+{# v102 : Alerte demandes MG à valider #}
 {% if compta_demandes_pending and compta_demandes_pending > 0 %}
-<div style="background:linear-gradient(90deg,#e8672a 0%,#b8561f 100%);color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(232,103,42,0.25)">
+<div style="background:linear-gradient(90deg,#e8672a 0%,#b8561f 100%);color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(232,103,42,0.25);flex-wrap:wrap;gap:10px">
     <div>
-        <div style="font-weight:800;font-size:15px;display:flex;align-items:center;gap:10px">
-            <span style="background:#fff;color:#e8672a;padding:4px 10px;border-radius:14px;font-weight:900;font-size:13px;animation:pulse 1.5s infinite">{{ compta_demandes_pending }}</span>
+        <div style="font-weight:800;font-size:15px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="background:#fff;color:#e8672a;padding:4px 10px;border-radius:14px;font-weight:900;font-size:13px">{{ compta_demandes_pending }}</span>
             💰 Demande{{ 's' if compta_demandes_pending > 1 else '' }} des Moyens Généraux à valider budgétairement
         </div>
         <div style="font-size:12px;opacity:0.9;margin-top:4px">Validation budgétaire requise avant exécution</div>
