@@ -8,6 +8,7 @@
 
 {# v88 : Widget Roadmap en haut — les coordinateurs voient TOUS les projets actifs #}
 {% include '_my_projects_widget.html' %}
+{% include '_field_reports_widget.html' %}
 
 {% set counts = (interv_summary.counts if interv_summary else {}) or {} %}
 {% set total_action = (counts.to_check or 0) + (counts.cq_done_no_date or 0) + (counts.client_proposed or 0) + (counts.ready_deliver or 0) %}

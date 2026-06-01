@@ -1,0 +1,151 @@
+{% extends "base.html" %}{% block title %}WannyGest - Demande {{ demande.reference }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>👁️ Prévisualisation Demande {{ demande.reference }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Émise le {{ demande.date or '-' }} · Département : <strong>{{ demande.department or '-' }}</strong>
+        </p>
+    </div>
+    <a href="/comptabilite/demandes-mg" class="btn btn-outline btn-sm">← Liste demandes</a>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px">
+    <!-- Colonne principale -->
+    <div>
+        <div class="card" style="margin-bottom:14px">
+            <div class="card-header" style="background:#1A7A6D;color:#fff">
+                <h3 style="margin:0;color:#fff;font-size:14px">📋 Informations de la demande</h3>
+            </div>
+            <div class="card-body">
+                <table style="width:100%;font-size:13px">
+                    <tr><td style="padding:8px;color:#666;width:200px">Référence</td><td style="padding:8px"><strong style="font-family:monospace;color:#1A7A6D">{{ demande.reference }}</strong></td></tr>
+                    <tr><td style="padding:8px;color:#666">Date de demande</td><td style="padding:8px">{{ demande.date or '-' }}</td></tr>
+                    <tr><td style="padding:8px;color:#666">Département</td><td style="padding:8px"><strong>{{ demande.department or '-' }}</strong></td></tr>
+                    <tr><td style="padding:8px;color:#666">Demandeur initial</td><td style="padding:8px">{{ demande.requester_full or demande.requester_name or '-' }}</td></tr>
+                    <tr><td style="padding:8px;color:#666">Niveau d'urgence</td><td style="padding:8px">
+                        {% set urg_color = {'normale':'#2e7d32','urgente':'#e8672a','tres_urgente':'#c53030'} %}
+                        <span style="background:{{ urg_color.get(demande.urgency, '#888') }};color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700">{{ demande.urgency or 'normale' }}</span>
+                    </td></tr>
+                    <tr><td style="padding:8px;color:#666;vertical-align:top">Description</td><td style="padding:8px;line-height:1.6;background:#f8faf9;border-left:3px solid #1A7A6D;padding-left:12px">{{ (demande.description or '-')|replace('\n','<br>')|safe }}</td></tr>
+                    {% if demande.notes %}<tr><td style="padding:8px;color:#666;vertical-align:top">Notes internes MG</td><td style="padding:8px;font-style:italic;color:#666">{{ demande.notes|replace('\n','<br>')|safe }}</td></tr>{% endif %}
+                </table>
+            </div>
+        </div>
+        
+        {% if items %}
+        <div class="card" style="margin-bottom:14px">
+            <div class="card-header" style="background:#0f5a51;color:#fff">
+                <h3 style="margin:0;color:#fff;font-size:14px">📦 Articles demandés ({{ items|length }})</h3>
+            </div>
+            <div class="card-body" style="padding:0;overflow-x:auto">
+                <table style="width:100%;font-size:12px">
+                    <thead style="background:#f8faf9">
+                        <tr>
+                            <th style="padding:10px;text-align:left">Désignation</th>
+                            <th style="padding:10px;text-align:center">Quantité</th>
+                            <th style="padding:10px;text-align:right">Prix unitaire</th>
+                            <th style="padding:10px;text-align:right">Total</th>
+                            <th style="padding:10px;text-align:left">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for it in items %}
+                    {% set total_it = (it.quantity or 0) * (it.estimated_price or 0) %}
+                    <tr style="border-top:1px solid #eee">
+                        <td style="padding:8px"><strong>{{ it.designation or '-' }}</strong></td>
+                        <td style="text-align:center;padding:8px">{{ it.quantity or '-' }}</td>
+                        <td style="text-align:right;padding:8px">{{ '{:,.0f}'.format(it.estimated_price or 0).replace(',', ' ') }}</td>
+                        <td style="text-align:right;padding:8px;font-weight:700">{{ '{:,.0f}'.format(total_it).replace(',', ' ') }}</td>
+                        <td style="padding:8px;font-size:11px;color:#666">{{ it.notes or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot style="background:#fff3e0">
+                        <tr><td colspan="3" style="padding:10px;text-align:right;font-weight:700">TOTAL DEMANDE</td>
+                            <td style="padding:10px;text-align:right;font-weight:900;color:#e8672a;font-size:14px">{{ '{:,.0f}'.format(total_items).replace(',', ' ') }} FCFA</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- État validation MG -->
+        {% if demande.status == 'validee' %}
+        <div class="card" style="margin-bottom:14px;border-left:4px solid #2e7d32">
+            <div class="card-header"><h3 style="margin:0;color:#2e7d32;font-size:13px">✅ Validation Moyens Généraux</h3></div>
+            <div class="card-body" style="font-size:12px">
+                Demande validée en interne MG{% if demande.approved_by_name %} par <strong>{{ demande.approved_by_name }}</strong>{% endif %}{% if demande.approved_at %} le {{ demande.approved_at[:16] }}{% endif %}
+                {% if demande.compta_notes %}<br><strong>Notes MG pour comptabilité :</strong><br><em>{{ demande.compta_notes }}</em>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Action Compta -->
+        {% if demande.compta_status == 'a_valider' %}
+        <div class="card" style="border:3px solid #e8672a">
+            <div class="card-header" style="background:#e8672a;color:#fff">
+                <h3 style="margin:0;color:#fff;font-size:14px">💰 Décision Comptabilité</h3>
+            </div>
+            <div class="card-body">
+                <p style="font-size:13px;color:#666;margin-bottom:14px">
+                    En tant que comptable, vous devez <strong>valider</strong> ou <strong>refuser</strong> cette demande budgétairement.
+                </p>
+                <form method="post" action="/comptabilite/demandes-mg/{{ demande.id }}/decision">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+                        <label style="background:#2e7d32;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                            <input type="radio" name="action" value="validee" style="margin-right:6px" required>
+                            ✅ VALIDER<br><span style="font-size:11px;font-weight:400">Budget approuvé</span>
+                        </label>
+                        <label style="background:#c53030;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                            <input type="radio" name="action" value="refusee" style="margin-right:6px" required onchange="document.getElementById('motif_block').style.display = 'block'">
+                            ❌ REFUSER<br><span style="font-size:11px;font-weight:400">Budget non disponible</span>
+                        </label>
+                    </div>
+                    <div class="form-group" id="motif_block" style="display:none">
+                        <label style="color:#c53030;font-weight:700">Motif du refus (obligatoire en cas de refus)</label>
+                        <textarea name="motif_refus" rows="2" style="width:100%;padding:8px;border:2px solid #c53030;border-radius:7px" placeholder="Ex: Budget de trésorerie insuffisant, à reporter au mois prochain..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Notes complémentaires (visibles par le MG)</label>
+                        <textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Ex: Validé sous réserve d'envoi facture du fournisseur..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">💾 Enregistrer la décision</button>
+                </form>
+            </div>
+        </div>
+        {% elif demande.compta_status == 'validee' %}
+        <div class="card" style="border-left:4px solid #2e7d32">
+            <div class="card-header"><h3 style="margin:0;color:#2e7d32;font-size:14px">✅ Validée par la Comptabilité</h3></div>
+            <div class="card-body" style="font-size:13px">
+                Validée par <strong>{{ demande.compta_user_name or '-' }}</strong> le {{ demande.compta_decision_at[:16] if demande.compta_decision_at else '-' }}<br>
+                {% if demande.compta_notes %}<br><strong>Notes :</strong> {{ demande.compta_notes }}{% endif %}
+            </div>
+        </div>
+        {% elif demande.compta_status == 'refusee' %}
+        <div class="card" style="border-left:4px solid #c53030">
+            <div class="card-header"><h3 style="margin:0;color:#c53030;font-size:14px">❌ Refusée par la Comptabilité</h3></div>
+            <div class="card-body" style="font-size:13px">
+                Refusée par <strong>{{ demande.compta_user_name or '-' }}</strong> le {{ demande.compta_decision_at[:16] if demande.compta_decision_at else '-' }}<br>
+                <strong>Motif :</strong> {{ demande.compta_refus_motif or '-' }}
+                {% if demande.compta_notes %}<br><strong>Notes :</strong> {{ demande.compta_notes }}{% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Sidebar : metadata -->
+    <div>
+        <div class="card">
+            <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📅 Chronologie</h3></div>
+            <div class="card-body" style="font-size:12px;line-height:1.6">
+                <p><strong>📨 Créée :</strong><br><span style="color:#666">{{ demande.created_at[:16] if demande.created_at else '-' }}</span></p>
+                {% if demande.approved_at %}<p><strong>✅ Validée MG :</strong><br><span style="color:#666">{{ demande.approved_at[:16] }}</span></p>{% endif %}
+                {% if demande.compta_visible_at %}<p><strong>💰 Reçue par Compta :</strong><br><span style="color:#666">{{ demande.compta_visible_at[:16] }}</span></p>{% endif %}
+                {% if demande.compta_decision_at %}<p><strong>🎯 Décision Compta :</strong><br><span style="color:#666">{{ demande.compta_decision_at[:16] }}</span></p>{% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

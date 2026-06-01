@@ -1,0 +1,59 @@
+{# v100 : Widget Remontées d'Informations pour gestionnaire de projet, admin, dg, directeur #}
+{% if 'field_report_view_all' in permissions or 'admin' in permissions %}
+{% if field_reports_summary %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid #7b1fa2;box-shadow:0 2px 6px rgba(123,31,162,0.15)">
+    <div class="card-header" style="background:linear-gradient(90deg,#7b1fa2 0%,#4a148c 100%);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:12px 16px">
+        <h3 style="margin:0;color:#fff;font-size:14px;font-weight:800">📢 Remontées d'Informations Terrain
+            {% if field_reports_summary.urgent_count > 0 %}
+            <span style="background:#c53030;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px;animation:pulse 1.5s infinite">{{ field_reports_summary.urgent_count }} URGENT</span>
+            {% endif %}
+        </h3>
+        <a href="/field-reports/dashboard" style="color:#fff;text-decoration:none;font-size:12px;font-weight:600">📊 Tableau de bord →</a>
+    </div>
+    <div class="card-body" style="padding:12px">
+        <!-- Mini-KPI -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:12px">
+            <a href="/field-reports?statut=recue" style="background:#e3f2fd;border-left:3px solid #1976d2;padding:8px 10px;border-radius:6px;text-decoration:none">
+                <div style="font-size:20px;font-weight:900;color:#1976d2">{{ field_reports_summary.recue }}</div>
+                <div style="font-size:10px;color:#1565c0;font-weight:600">📥 Reçues</div>
+            </a>
+            <a href="/field-reports?statut=en_analyse" style="background:#f3e5f5;border-left:3px solid #7b1fa2;padding:8px 10px;border-radius:6px;text-decoration:none">
+                <div style="font-size:20px;font-weight:900;color:#7b1fa2">{{ field_reports_summary.en_analyse }}</div>
+                <div style="font-size:10px;color:#4a148c;font-weight:600">🔍 En analyse</div>
+            </a>
+            <a href="/field-reports?priorite=urgent" style="background:#ffebee;border-left:3px solid #c53030;padding:8px 10px;border-radius:6px;text-decoration:none">
+                <div style="font-size:20px;font-weight:900;color:#c53030">{{ field_reports_summary.urgent_count }}</div>
+                <div style="font-size:10px;color:#c53030;font-weight:600">🔴 Urgent</div>
+            </a>
+            <a href="/field-reports?priorite=eleve" style="background:#fff3e0;border-left:3px solid #e8672a;padding:8px 10px;border-radius:6px;text-decoration:none">
+                <div style="font-size:20px;font-weight:900;color:#e8672a">{{ field_reports_summary.eleve_count }}</div>
+                <div style="font-size:10px;color:#b8561f;font-weight:600">🟠 Élevé</div>
+            </a>
+            <a href="/field-reports" style="background:#e8f5e9;border-left:3px solid #2e7d32;padding:8px 10px;border-radius:6px;text-decoration:none">
+                <div style="font-size:20px;font-weight:900;color:#2e7d32">{{ field_reports_summary.total }}</div>
+                <div style="font-size:10px;color:#1b5e20;font-weight:600">📊 Total</div>
+            </a>
+        </div>
+        
+        {% if field_reports_summary.to_treat %}
+        <div style="font-size:11px;color:#666;text-transform:uppercase;font-weight:700;margin-bottom:6px;letter-spacing:0.5px">⚡ À TRAITER EN PRIORITÉ</div>
+        <table style="width:100%;font-size:11px">
+            {% for r in field_reports_summary.to_treat %}
+            <tr style="border-bottom:1px solid #eee;cursor:pointer" onclick="window.location='/field-reports/{{ r.id }}'">
+                <td style="padding:7px 6px;font-family:monospace;font-weight:700;color:#7b1fa2">{{ r.reference }}</td>
+                <td style="padding:7px 6px"><strong>{{ r.client_name }}</strong>{% if r.site_name %}<br><span style="font-size:9px;color:#888">📍 {{ r.site_name }}</span>{% endif %}</td>
+                <td style="padding:7px 6px;font-size:10px;color:#666">{{ r.type_label[:30] }}</td>
+                <td style="padding:7px 6px;text-align:center"><span style="background:{{ r.priorite_color }};color:#fff;padding:2px 6px;border-radius:8px;font-size:9px;font-weight:700;white-space:nowrap">{{ r.priorite_label }}</span></td>
+                <td style="padding:7px 6px;text-align:center"><span style="background:{{ r.statut_color }};color:#fff;padding:2px 6px;border-radius:8px;font-size:9px;font-weight:700;white-space:nowrap">{{ r.statut_label }}</span></td>
+                <td style="padding:7px 6px;text-align:right;font-size:9px;color:#888;white-space:nowrap">{{ r.date_constat[:10] if r.date_constat else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <div style="text-align:center;padding:14px;color:#888;font-size:12px">✅ Aucune remontée en attente de traitement</div>
+        {% endif %}
+    </div>
+</div>
+<style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.7}}</style>
+{% endif %}
+{% endif %}

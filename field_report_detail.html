@@ -9,6 +9,18 @@
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <span style="background:{{ report.priorite_color }};color:#fff;padding:6px 12px;border-radius:14px;font-weight:700;font-size:12px">{{ report.priorite_label }}</span>
         <span style="background:{{ report.statut_color }};color:#fff;padding:6px 12px;border-radius:14px;font-weight:700;font-size:12px">{{ report.statut_label }}</span>
+        {% if 'field_report_print' in permissions or 'field_report_view_all' in permissions or 'admin' in permissions %}
+        <a href="/field-reports/{{ report.id }}/print" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff" title="Imprimer/PDF">🖨️ Imprimer</a>
+        {% endif %}
+        {% if 'field_report_edit' in permissions or 'admin' in permissions %}
+        <a href="/field-reports/{{ report.id }}/edit" class="btn btn-sm" style="background:#1976d2;color:#fff" title="Modifier">✏️ Modifier</a>
+        {% endif %}
+        {% if 'field_report_delete' in permissions or 'admin' in permissions %}
+        <form method="post" action="/field-reports/{{ report.id }}/delete" style="display:inline"
+            onsubmit="return confirm('⚠️ Supprimer définitivement {{ report.reference }} ?\n\nL\'historique et les pièces jointes seront aussi supprimés.');">
+            <button type="submit" class="btn btn-sm" style="background:#7b1fa2;color:#fff" title="Supprimer">🗑️ Supprimer</button>
+        </form>
+        {% endif %}
         <a href="/field-reports" class="btn btn-outline btn-sm">← Liste</a>
     </div>
 </div>

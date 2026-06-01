@@ -825,6 +825,70 @@ except Exception as _e:
     print(f"[v99-Field] Erreur : {_e}", flush=True)
 
 
+# ==================== v100 : Fusion rôles vers gestionnaire_projet + Validation Compta MG ====================
+try:
+    from models import get_db as _v100_db
+    _v100_conn = _v100_db()
+    
+    # 1. Migration des utilisateurs "coordinateur" et "resp_projet" vers "gestionnaire_projet"
+    nb_migrated = 0
+    for old_role in ('coordinateur', 'resp_projet'):
+        try:
+            res = _v100_conn.execute(
+                "UPDATE users SET role='gestionnaire_projet' WHERE role=?", (old_role,))
+            nb_migrated += res.rowcount or 0
+        except: pass
+    if nb_migrated > 0:
+        print(f"[v100-Roles] {nb_migrated} utilisateur(s) migré(s) vers 'gestionnaire_projet'", flush=True)
+    
+    # 2. Ajouter colonnes validation_compta sur achats_demandes
+    table_exists = _v100_conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='achats_demandes'").fetchone()
+    if table_exists:
+        for col_def in [
+            "compta_status TEXT DEFAULT 'en_attente'",
+            "compta_user_id INTEGER",
+            "compta_user_name TEXT",
+            "compta_decision_at TEXT",
+            "compta_notes TEXT",
+            "compta_refus_motif TEXT",
+            "compta_montant_estime REAL",
+            "compta_visible_at TEXT",
+        ]:
+            try:
+                _v100_conn.execute(f"ALTER TABLE achats_demandes ADD COLUMN {col_def}")
+            except: pass  # existe déjà
+    
+    # 3. Permissions v100
+    V100_PERMS = {
+        'admin':            ['field_report_edit', 'field_report_delete', 'field_report_print',
+                             'mg_compta_validate'],
+        'gestionnaire_projet': ['field_report_edit', 'field_report_delete', 'field_report_print'],
+        'comptable':        ['mg_compta_validate'],
+        'comptabilite':     ['mg_compta_validate'],
+        'dg':               ['mg_compta_validate', 'field_report_print'],
+        'directeur':        ['mg_compta_validate', 'field_report_print'],
+    }
+    for role, perms in V100_PERMS.items():
+        for perm in perms:
+            try: _v100_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+            except: pass
+    
+    # 4. Garantir que gestionnaire_projet a aussi toutes les perms field_report originales
+    GP_PERMS_ALL = ['field_report_create', 'field_report_view_all', 'field_report_view_mine',
+                    'field_report_analyze', 'field_report_transform', 'field_report_close',
+                    'field_report_edit', 'field_report_delete', 'field_report_print']
+    for perm in GP_PERMS_ALL:
+        try: _v100_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('gestionnaire_projet', ?)", (perm,))
+        except: pass
+    
+    _v100_conn.commit()
+    _v100_conn.close()
+    print("[v100] Migration rôles + permissions v100 OK", flush=True)
+except Exception as _e:
+    print(f"[v100] Erreur : {_e}", flush=True)
+
+
 # ==================== v92 : MODULE SUIVI DES CRÉANCES CLIENTS ====================
 # Inspiré du fichier TABLEAU_DE_BORD_CREANCE_CLIENT.xlsx
 try:
@@ -962,7 +1026,10 @@ try:
                    # v99 : Marges stock + Remontées Informations
                    'stock_marges_edit',
                    'field_report_create', 'field_report_view_all', 'field_report_analyze',
-                   'field_report_transform', 'field_report_close'])
+                   'field_report_transform', 'field_report_close',
+                   # v100 : Actions remontées + validation compta MG
+                   'field_report_edit', 'field_report_delete', 'field_report_print',
+                   'mg_compta_validate'])
     from models import get_role_permissions as _grp
     if not _grp('concierge'):
         update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
@@ -1109,6 +1176,12 @@ PERM_CATEGORIES = {
         ('field_report_analyze', 'Analyser une remontée'),
         ('field_report_transform', 'Transformer en projet/intervention/opportunité'),
         ('field_report_close', 'Classer sans suite'),
+        ('field_report_edit', 'Modifier une remontée (v100)'),
+        ('field_report_delete', 'Supprimer une remontée (v100)'),
+        ('field_report_print', 'Imprimer/Exporter PDF une remontée (v100)'),
+    ],
+    'Validation Comptable MG (v100)': [
+        ('mg_compta_validate', 'Valider/refuser les demandes Moyens Généraux côté Comptabilité'),
     ],
     'Suivi Créances Clients (v92)': [
         ('creances_view', 'Voir le suivi des créances'),
@@ -1483,6 +1556,49 @@ def inject_globals():
                 ctx['my_projects'] = []
                 ctx['my_projects_count'] = 0
                 ctx['my_projects_action_required'] = 0
+            
+            # v100 : Widget Remontées d'informations pour gestionnaire de projet
+            try:
+                _user_perms = ctx.get('permissions', [])
+                if 'field_report_view_all' in _user_perms or 'admin' in _user_perms or user['role'] in ('gestionnaire_projet', 'admin', 'dg', 'directeur'):
+                    from models import get_db as _frdb
+                    _fc = _frdb()
+                    # Stats globales
+                    _stats = {row['statut']: row['nb'] for row in 
+                             _fc.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall()}
+                    _prios = {row['priorite']: row['nb'] for row in 
+                             _fc.execute("SELECT priorite, COUNT(*) as nb FROM field_reports WHERE statut IN ('recue','en_analyse') GROUP BY priorite").fetchall()}
+                    # 5 plus urgents à traiter
+                    _to_treat_rows = _fc.execute("""SELECT * FROM field_reports 
+                        WHERE statut IN ('recue', 'en_analyse')
+                        ORDER BY 
+                            CASE priorite 
+                                WHEN 'urgent' THEN 1 
+                                WHEN 'eleve' THEN 2 
+                                WHEN 'moyen' THEN 3 
+                                ELSE 4 
+                            END, date_constat DESC LIMIT 5""").fetchall()
+                    _to_treat = []
+                    for _r in _to_treat_rows:
+                        _d = dict(_r)
+                        _pl = FIELD_REPORT_PRIORITIES.get(_d['priorite'], (_d['priorite'], '#888'))
+                        _sl = FIELD_REPORT_STATUTS.get(_d['statut'], (_d['statut'], '#888'))
+                        _d['priorite_label'] = _pl[0]; _d['priorite_color'] = _pl[1]
+                        _d['statut_label'] = _sl[0]; _d['statut_color'] = _sl[1]
+                        _d['type_label'] = FIELD_REPORT_TYPES.get(_d['type_info'], _d['type_info'])
+                        _to_treat.append(_d)
+                    _fc.close()
+                    ctx['field_reports_summary'] = {
+                        'recue': _stats.get('recue', 0),
+                        'en_analyse': _stats.get('en_analyse', 0),
+                        'urgent_count': _prios.get('urgent', 0),
+                        'eleve_count': _prios.get('eleve', 0),
+                        'total': sum(_stats.values()),
+                        'to_treat': _to_treat,
+                    }
+            except Exception as _e_fr:
+                pass
+            
             if user['role'] in ('admin', 'dg', 'directeur'):
                 try:
                     from models import get_db as _gdb
@@ -13226,6 +13342,207 @@ def field_reports_dashboard():
         total=total, nb_urgent=nb_urgent, nb_eleve=nb_eleve, nb_a_traiter=nb_a_traiter)
 
 
+@app.route('/field-reports/<int:rid>/edit', methods=['GET', 'POST'])
+@permission_required_any('field_report_edit', 'admin')
+def field_report_edit(rid):
+    """Modifier une remontée existante."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM field_reports WHERE id=?", (rid,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Remontée introuvable", "error")
+        return redirect('/field-reports')
+    
+    if request.method == 'POST':
+        try:
+            conn.execute("""UPDATE field_reports SET
+                client_name=?, site_name=?, site_address=?, type_info=?, description=?,
+                priorite=?, date_constat=?, updated_at=datetime('now')
+                WHERE id=?""",
+                (request.form.get('client_name', '').strip() or 'Non spécifié',
+                 request.form.get('site_name', '').strip(),
+                 request.form.get('site_address', '').strip(),
+                 request.form.get('type_info', 'autre'),
+                 request.form.get('description', '').strip(),
+                 request.form.get('priorite', 'moyen'),
+                 request.form.get('date_constat') or datetime.now().strftime('%Y-%m-%d'),
+                 rid))
+            conn.commit()
+            conn.close()
+            _field_report_log(rid, 'Modification', 'Données mises à jour')
+            flash("✅ Remontée modifiée avec succès", "success")
+            return redirect(f'/field-reports/{rid}')
+        except Exception as e:
+            conn.close()
+            flash(f"Erreur : {e}", "error")
+            return redirect(f'/field-reports/{rid}/edit')
+    
+    # GET : afficher le formulaire
+    report = dict(row)
+    clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+    conn.close()
+    return render_template('field_report_edit.html', page='field_reports',
+        report=report, clients=clients,
+        types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES)
+
+
+@app.route('/field-reports/<int:rid>/delete', methods=['POST'])
+@permission_required_any('field_report_delete', 'admin')
+def field_report_delete(rid):
+    """Supprimer une remontée et son historique/fichiers."""
+    try:
+        conn = _gdb()
+        row = conn.execute("SELECT reference, client_name FROM field_reports WHERE id=?", (rid,)).fetchone()
+        if not row:
+            conn.close()
+            flash("Remontée introuvable", "error")
+            return redirect('/field-reports')
+        ref = row['reference']
+        conn.execute("DELETE FROM field_reports_history WHERE report_id=?", (rid,))
+        conn.execute("DELETE FROM field_reports_files WHERE report_id=?", (rid,))
+        conn.execute("DELETE FROM field_reports WHERE id=?", (rid,))
+        conn.commit()
+        conn.close()
+        flash(f"🗑️ Remontée {ref} supprimée", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/field-reports')
+
+
+@app.route('/field-reports/<int:rid>/print')
+@permission_required_any('field_report_print', 'field_report_view_all', 'admin')
+def field_report_print(rid):
+    """Génère un PDF imprimable de la remontée."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from flask import Response
+    import io as _io
+    
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM field_reports WHERE id=?", (rid,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Remontée introuvable", "error")
+        return redirect('/field-reports')
+    report = dict(row)
+    history = [dict(r) for r in conn.execute(
+        "SELECT * FROM field_reports_history WHERE report_id=? ORDER BY created_at ASC", (rid,)).fetchall()]
+    conn.close()
+    
+    TEAL = HexColor('#1A7A6D'); GREY = HexColor('#888')
+    PURPLE = HexColor('#7b1fa2'); RED = HexColor('#c53030')
+    
+    pl = FIELD_REPORT_PRIORITIES.get(report['priorite'], (report['priorite'], '#888'))
+    sl = FIELD_REPORT_STATUTS.get(report['statut'], (report['statut'], '#888'))
+    
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+        leftMargin=15*mm, rightMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+    
+    h_co = ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=2*mm)
+    h_title = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=17, textColor=TEAL, alignment=TA_CENTER, spaceAfter=3*mm)
+    h_sub = ParagraphStyle('sub', fontSize=10, textColor=GREY, alignment=TA_CENTER, spaceAfter=8*mm)
+    h_section = ParagraphStyle('sec', fontName='Helvetica-Bold', fontSize=12, textColor=TEAL, spaceAfter=4*mm, spaceBefore=4*mm)
+    p_normal = ParagraphStyle('p', fontSize=10, textColor=HexColor('#222'), spaceAfter=2*mm, leading=14)
+    p_label = ParagraphStyle('lbl', fontSize=9, textColor=GREY, spaceAfter=1*mm)
+    
+    story = []
+    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION", h_co))
+    story.append(Paragraph(f"REMONTÉE D'INFORMATION TERRAIN", h_title))
+    story.append(Paragraph(f"Référence : <b>{report['reference']}</b> — Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", h_sub))
+    
+    # Tableau résumé
+    data_resume = [
+        ['Référence', report['reference']],
+        ['Date du constat', report['date_constat'][:10] if report['date_constat'] else '-'],
+        ['Client', report['client_name'] or '-'],
+        ['Site', report['site_name'] or '-'],
+        ['Adresse', report['site_address'] or '-'],
+        ['Type d\'information', FIELD_REPORT_TYPES.get(report['type_info'], report['type_info'])],
+        ['Priorité', pl[0]],
+        ['Statut', sl[0]],
+        ['Auteur', report['auteur_name'] or 'Anonyme'],
+        ['Créée le', report['created_at'][:16] if report['created_at'] else '-'],
+    ]
+    tab = Table(data_resume, colWidths=[55*mm, 110*mm])
+    tab.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), HexColor('#f8faf9')),
+        ('TEXTCOLOR', (0, 0), (0, -1), GREY),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.4, HexColor('#ddd')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(tab)
+    story.append(Spacer(1, 6*mm))
+    
+    # Description
+    story.append(Paragraph("Description détaillée", h_section))
+    desc = (report['description'] or '').replace('\n', '<br/>')
+    story.append(Paragraph(desc, p_normal))
+    
+    # Notes d'analyse
+    if report.get('analyse_notes'):
+        story.append(Paragraph("Notes d'analyse", h_section))
+        story.append(Paragraph(report['analyse_notes'].replace('\n', '<br/>'), p_normal))
+    
+    # Décision
+    if report.get('decision'):
+        story.append(Paragraph("Décision prise", h_section))
+        decision_label = {
+            'projet': 'Transformée en Projet',
+            'intervention': 'Transformée en Intervention',
+            'opportunite': 'Transformée en Opportunité commerciale',
+            'classer': 'Classée sans suite',
+        }.get(report['decision'], report['decision'])
+        story.append(Paragraph(f"<b>Action :</b> {decision_label}", p_normal))
+        story.append(Paragraph(f"<b>Par :</b> {report.get('decision_by_name') or '-'}", p_normal))
+        story.append(Paragraph(f"<b>Date :</b> {report.get('decision_date','-')[:16]}", p_normal))
+    
+    # Historique
+    if history:
+        story.append(Paragraph("Historique des actions", h_section))
+        hist_data = [['Date', 'Action', 'Auteur', 'Détails']]
+        for h in history:
+            hist_data.append([
+                (h['created_at'] or '')[:16],
+                h['action'] or '',
+                h['user_name'] or '-',
+                (h['action_details'] or '')[:80],
+            ])
+        hist_tab = Table(hist_data, colWidths=[30*mm, 45*mm, 35*mm, 55*mm], repeatRows=1)
+        hist_tab.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), TEAL),
+            ('TEXTCOLOR', (0, 0), (-1, 0), white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.3, HexColor('#ddd')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, HexColor('#f8faf9')]),
+        ]))
+        story.append(hist_tab)
+    
+    # Pied de page
+    story.append(Spacer(1, 10*mm))
+    story.append(Paragraph(
+        f"<i>Document généré automatiquement par WannyGest — RAMYA Technologie &amp; Innovation</i>",
+        ParagraphStyle('foot', fontSize=8, textColor=GREY, alignment=TA_CENTER)))
+    
+    doc.build(story)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype='application/pdf',
+        headers={'Content-Disposition': f'inline; filename="Remontee_{report["reference"]}.pdf"'})
+
+
 # ==================== FIN MODULE REMONTÉES INFORMATIONS ====================
 
 @app.route('/rh/contrats-rh')
@@ -21431,6 +21748,163 @@ def mg_demandes_delete(did):
     conn.commit(); conn.close()
     flash("Demande supprimée", "success")
     return redirect('/mg/demandes')
+
+
+# ==================== v100 : Workflow Demandes MG → Comptabilité ====================
+
+@app.route('/mg/demandes/<int:did>/envoyer-compta', methods=['POST'])
+@permission_required_any('mg_valider', 'admin')
+def mg_demande_envoyer_compta(did):
+    """Le responsable MG envoie une demande validée à la Comptabilité pour validation budgétaire."""
+    try:
+        montant = request.form.get('montant_estime', '').strip().replace(',', '.')
+        notes = request.form.get('notes_compta', '').strip()
+        conn = _gdb()
+        # Vérifier que la demande existe
+        row = conn.execute("SELECT id, reference, status FROM achats_demandes WHERE id=?", (did,)).fetchone()
+        if not row:
+            conn.close()
+            flash("Demande introuvable", "error")
+            return redirect('/mg/demandes')
+        # Marquer pour validation compta
+        conn.execute("""UPDATE achats_demandes SET 
+            compta_status='a_valider', 
+            compta_visible_at=datetime('now'),
+            compta_montant_estime=?,
+            compta_notes=?
+            WHERE id=?""", 
+            (float(montant) if montant else None, notes, did))
+        conn.commit()
+        # Notifier les comptables
+        try:
+            users = conn.execute("""SELECT id, full_name FROM users 
+                WHERE role IN ('comptable','comptabilite','dg','directeur','admin') AND is_active=1""").fetchall()
+            for u in users:
+                try: notify(u['id'], f"💰 Demande MG {row['reference']} en attente de validation budgétaire")
+                except: pass
+        except: pass
+        conn.close()
+        flash(f"✅ Demande {row['reference']} envoyée à la Comptabilité pour validation", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/mg/demandes')
+
+
+@app.route('/comptabilite/demandes-mg')
+@permission_required_any('mg_compta_validate', 'admin')
+def compta_demandes_mg():
+    """Tableau de bord Comptabilité — demandes MG à valider/visualiser."""
+    statut = request.args.get('statut', 'a_valider').strip()
+    conn = _gdb()
+    
+    # Toutes les demandes envoyées en compta (avec compta_status défini)
+    if statut == 'all':
+        rows = conn.execute("""SELECT d.*, u.username as requester_name, u.full_name as requester_full,
+            COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items,
+            COALESCE((SELECT SUM(quantity * COALESCE(estimated_price,0)) FROM achats_demande_items WHERE demande_id=d.id),0) as total_items
+            FROM achats_demandes d 
+            LEFT JOIN users u ON d.requested_by = u.id
+            WHERE d.compta_visible_at IS NOT NULL
+            ORDER BY d.compta_visible_at DESC""").fetchall()
+    else:
+        rows = conn.execute("""SELECT d.*, u.username as requester_name, u.full_name as requester_full,
+            COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items,
+            COALESCE((SELECT SUM(quantity * COALESCE(estimated_price,0)) FROM achats_demande_items WHERE demande_id=d.id),0) as total_items
+            FROM achats_demandes d 
+            LEFT JOIN users u ON d.requested_by = u.id
+            WHERE d.compta_status=? AND d.compta_visible_at IS NOT NULL
+            ORDER BY d.compta_visible_at DESC""", (statut,)).fetchall()
+    demandes = [dict(r) for r in rows]
+    
+    # Stats globales
+    stats = {
+        'a_valider': conn.execute("SELECT COUNT(*) FROM achats_demandes WHERE compta_status='a_valider'").fetchone()[0],
+        'validee': conn.execute("SELECT COUNT(*) FROM achats_demandes WHERE compta_status='validee'").fetchone()[0],
+        'refusee': conn.execute("SELECT COUNT(*) FROM achats_demandes WHERE compta_status='refusee'").fetchone()[0],
+    }
+    stats['total'] = stats['a_valider'] + stats['validee'] + stats['refusee']
+    
+    # Montant total estimé en attente
+    montant_attente = conn.execute("""SELECT COALESCE(SUM(compta_montant_estime), 0) 
+        FROM achats_demandes WHERE compta_status='a_valider'""").fetchone()[0]
+    
+    conn.close()
+    return render_template('compta_demandes_mg.html', page='compta_demandes_mg',
+        demandes=demandes, current_statut=statut, stats=stats, montant_attente=montant_attente)
+
+
+@app.route('/comptabilite/demandes-mg/<int:did>/preview')
+@permission_required_any('mg_compta_validate', 'admin')
+def compta_demande_mg_preview(did):
+    """Prévisualisation d'une demande MG côté Comptabilité avec tous les détails."""
+    conn = _gdb()
+    row = conn.execute("""SELECT d.*, u.username as requester_name, u.full_name as requester_full,
+        u2.full_name as approved_by_name
+        FROM achats_demandes d 
+        LEFT JOIN users u ON d.requested_by = u.id
+        LEFT JOIN users u2 ON d.approved_by = u2.id
+        WHERE d.id=?""", (did,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Demande introuvable", "error")
+        return redirect('/comptabilite/demandes-mg')
+    demande = dict(row)
+    
+    # Récupérer les items
+    items = [dict(r) for r in conn.execute("""SELECT * FROM achats_demande_items 
+        WHERE demande_id=? ORDER BY id""", (did,)).fetchall()]
+    total_items = sum((it.get('quantity') or 0) * (it.get('estimated_price') or 0) for it in items)
+    
+    conn.close()
+    return render_template('compta_demande_mg_preview.html', page='compta_demandes_mg',
+        demande=demande, items=items, total_items=total_items)
+
+
+@app.route('/comptabilite/demandes-mg/<int:did>/decision', methods=['POST'])
+@permission_required_any('mg_compta_validate', 'admin')
+def compta_demande_mg_decision(did):
+    """Valider ou refuser la demande côté Comptabilité."""
+    action = request.form.get('action', '').strip()
+    notes = request.form.get('notes', '').strip()
+    motif = request.form.get('motif_refus', '').strip()
+    
+    if action not in ('validee', 'refusee'):
+        flash("Action invalide", "error")
+        return redirect('/comptabilite/demandes-mg')
+    
+    user = get_user_by_id(session.get('user_id'))
+    try:
+        conn = _gdb()
+        row = conn.execute("SELECT id, reference, requested_by FROM achats_demandes WHERE id=?", (did,)).fetchone()
+        if not row:
+            conn.close()
+            flash("Demande introuvable", "error")
+            return redirect('/comptabilite/demandes-mg')
+        conn.execute("""UPDATE achats_demandes SET 
+            compta_status=?, compta_user_id=?, compta_user_name=?, compta_decision_at=datetime('now'),
+            compta_notes=?, compta_refus_motif=?
+            WHERE id=?""",
+            (action, session.get('user_id'),
+             user['full_name'] if user else 'Comptable',
+             notes, motif if action == 'refusee' else None, did))
+        conn.commit()
+        # Notifier le demandeur initial
+        if row['requested_by']:
+            try:
+                if action == 'validee':
+                    msg = f"✅ Demande MG {row['reference']} validée par la Comptabilité"
+                else:
+                    msg = f"❌ Demande MG {row['reference']} refusée par la Comptabilité : {motif[:80]}"
+                notify(row['requested_by'], msg)
+            except: pass
+        conn.close()
+        flash(f"✅ Demande {row['reference']} {'validée' if action == 'validee' else 'refusée'}", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/comptabilite/demandes-mg')
+
+
+# ==================== FIN v100 Workflow MG → Comptabilité ====================
 
 
 # === RÉCEPTIONS ===

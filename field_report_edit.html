@@ -1,0 +1,94 @@
+{% extends "base.html" %}{% block title %}WannyGest - Modifier {{ report.reference }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>✏️ Modifier la remontée {{ report.reference }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Créée le {{ report.created_at[:16] if report.created_at else '-' }} par {{ report.auteur_name or 'Anonyme' }}
+        </p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/field-reports/{{ report.id }}" class="btn btn-outline btn-sm">← Détail</a>
+        <a href="/field-reports" class="btn btn-outline btn-sm">📋 Liste</a>
+    </div>
+</div>
+
+<form method="post" action="/field-reports/{{ report.id }}/edit">
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">🏢 Client & Site</h3></div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Client (sélection rapide)</label>
+                <select name="client_id" id="client_select" onchange="syncClient()">
+                    <option value="">-- Choisir --</option>
+                    {% for c in clients %}<option value="{{ c.id }}" data-name="{{ c.name }}" {% if c.id == report.client_id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Nom du client *</label>
+                <input type="text" name="client_name" id="client_name" required value="{{ report.client_name }}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Nom du site</label>
+                <input type="text" name="site_name" value="{{ report.site_name or '' }}">
+            </div>
+            <div class="form-group" style="flex:2">
+                <label>Adresse du site</label>
+                <input type="text" name="site_address" value="{{ report.site_address or '' }}">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📋 Information</h3></div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group" style="flex:2">
+                <label>Type d'information *</label>
+                <select name="type_info" required>
+                    {% for tk, tv in types.items() %}<option value="{{ tk }}" {% if tk == report.type_info %}selected{% endif %}>{{ tv }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Priorité *</label>
+                <select name="priorite" required>
+                    {% for pk, pv in priorities.items() %}<option value="{{ pk }}" {% if pk == report.priorite %}selected{% endif %}>{{ pv[0] }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Date du constat *</label>
+                <input type="date" name="date_constat" required value="{{ report.date_constat[:10] if report.date_constat else '' }}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Description détaillée *</label>
+            <textarea name="description" rows="6" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:7px;font-family:inherit">{{ report.description }}</textarea>
+        </div>
+    </div>
+</div>
+
+<div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+    <form method="post" action="/field-reports/{{ report.id }}/delete" style="display:inline" 
+        onsubmit="return confirm('⚠️ Supprimer définitivement la remontée {{ report.reference }} ?\n\nCette action est irréversible et supprimera aussi l\'historique et les pièces jointes.');">
+        <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff">🗑️ Supprimer</button>
+    </form>
+    <div style="display:flex;gap:8px">
+        <a href="/field-reports/{{ report.id }}" class="btn btn-outline">Annuler</a>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer les modifications</button>
+    </div>
+</div>
+</form>
+
+<script>
+function syncClient() {
+    const sel = document.getElementById('client_select');
+    if (sel.value) {
+        const name = sel.options[sel.selectedIndex].dataset.name;
+        document.getElementById('client_name').value = name;
+    }
+}
+</script>
+{% endblock %}
