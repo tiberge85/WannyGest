@@ -6,6 +6,45 @@
 
 {% include '_my_projects_widget.html' %}
 
+{# v103 : Alertes Inventaire Stock #}
+{% if nb_stock_epuise > 0 or nb_stock_faible > 0 %}
+<div style="background:linear-gradient(90deg,#c53030 0%,#9c1818 100%);color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:16px;box-shadow:0 2px 8px rgba(197,48,48,0.25)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div>
+            <div style="font-weight:800;font-size:15px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                ⚠️ ALERTE INVENTAIRE STOCK
+                {% if nb_stock_epuise > 0 %}<span style="background:#fff;color:#c53030;padding:3px 10px;border-radius:12px;font-weight:900;font-size:12px">{{ nb_stock_epuise }} ÉPUISÉ{{ 'S' if nb_stock_epuise > 1 else '' }}</span>{% endif %}
+                {% if nb_stock_faible > 0 %}<span style="background:#fff3e0;color:#b8561f;padding:3px 10px;border-radius:12px;font-weight:900;font-size:12px">{{ nb_stock_faible }} FAIBLE{{ 'S' if nb_stock_faible > 1 else '' }}</span>{% endif %}
+            </div>
+            <div style="font-size:12px;opacity:0.9;margin-top:4px">Articles à recommander rapidement</div>
+        </div>
+        <a href="/mg/stock/inventaires" style="background:#fff;color:#c53030;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:800;font-size:13px">📦 Voir l'inventaire →</a>
+    </div>
+    
+    {% if stock_epuise %}
+    <div style="background:rgba(0,0,0,0.2);padding:10px;border-radius:8px;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;opacity:0.95">⛔ Articles ÉPUISÉS ({{ nb_stock_epuise }}) :</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+            {% for a in stock_epuise %}
+            <a href="/mg/stock/marchandise?q={{ a.reference }}" style="background:rgba(255,255,255,0.15);color:#fff;padding:4px 8px;border-radius:6px;text-decoration:none;font-size:11px"><strong>{{ a.reference }}</strong> {{ a.designation[:35] }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if stock_faible %}
+    <div style="background:rgba(0,0,0,0.15);padding:10px;border-radius:8px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;opacity:0.95">⚠️ Articles en stock FAIBLE ({{ nb_stock_faible }}) :</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+            {% for a in stock_faible %}
+            <a href="/mg/stock/marchandise?q={{ a.reference }}" style="background:rgba(255,255,255,0.15);color:#fff;padding:4px 8px;border-radius:6px;text-decoration:none;font-size:11px"><strong>{{ a.reference }}</strong> {{ a.designation[:30] }} <span style="opacity:0.85">({{ a.stock_actuel }} {{ a.unite or 'u' }})</span></a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- NOUVEAU v57 : Bandeau workflow visible -->
 <div style="background:linear-gradient(135deg,#e3f2fd 0%,#fff 100%);padding:14px;border-radius:10px;border-left:5px solid #1976d2;margin-bottom:16px">
     <strong style="color:#0d47a1">ℹ️ Comment fonctionne le workflow ?</strong>

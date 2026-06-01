@@ -984,6 +984,57 @@ function sortTable(tableId, colIndex, type){
         };
     }
 })();
+
+// v103 : Préservation de la position de scroll lors des changements d'onglets/filtres
+(function() {
+    'use strict';
+    var STORAGE_KEY = 'wg_scroll_' + window.location.pathname;
+    
+    // 1. Au chargement, restaurer la position de scroll
+    document.addEventListener('DOMContentLoaded', function() {
+        try {
+            var saved = sessionStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                var y = parseInt(saved, 10);
+                if (y > 0) {
+                    // Restaurer après un court délai pour que la page soit complètement rendue
+                    setTimeout(function() { window.scrollTo(0, y); }, 50);
+                }
+                sessionStorage.removeItem(STORAGE_KEY); // consommé une fois
+            }
+        } catch(e){}
+    });
+    
+    // 2. Avant soumission de formulaire GET (filtres, onchange→submit), sauvegarder la position
+    document.addEventListener('submit', function(e) {
+        try {
+            var form = e.target;
+            // Uniquement formulaires GET (filtres) — pas les POST destructifs
+            if (form.method && form.method.toLowerCase() === 'get') {
+                sessionStorage.setItem(STORAGE_KEY, String(window.scrollY || window.pageYOffset || 0));
+            }
+        } catch(e){}
+    }, true);
+    
+    // 3. Avant un clic sur lien interne (onglets de filtre, ?tab=X), sauvegarder
+    document.addEventListener('click', function(e) {
+        try {
+            var link = e.target.closest('a');
+            if (!link) return;
+            var href = link.getAttribute('href') || '';
+            // Liens internes qui changent juste les params (?tab, ?statut, ?from, etc.)
+            // On préserve si même chemin que la page courante
+            if (href && href.startsWith('?')) {
+                sessionStorage.setItem(STORAGE_KEY, String(window.scrollY || window.pageYOffset || 0));
+            } else if (href && href.indexOf('?') >= 0) {
+                var path = href.split('?')[0];
+                if (path === '' || path === window.location.pathname) {
+                    sessionStorage.setItem(STORAGE_KEY, String(window.scrollY || window.pageYOffset || 0));
+                }
+            }
+        } catch(e){}
+    }, true);
+})();
 </script>
 </body>
 </html>

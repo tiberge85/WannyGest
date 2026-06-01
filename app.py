@@ -1004,6 +1004,38 @@ except Exception as _e:
     print(f"[v102-Final] Erreur cleanup : {_e}", flush=True)
 
 
+# v103 : Backfill multicaisses → journal de caisse
+try:
+    from models import get_db as _v103_db
+    _v103 = _v103_db()
+    # Pour chaque opération multicaisse, vérifier qu'elle est dans tresorerie_mouvements
+    ops = _v103.execute("""SELECT co.id, co.type, co.amount, co.description, co.reference, co.created_by,
+            co.created_at, c.name as caisse_nom
+            FROM caisse_operations co 
+            LEFT JOIN caisses c ON co.caisse_id = c.id
+            WHERE co.type IN ('entree','sortie') 
+              AND co.reference IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM tresorerie_mouvements tm WHERE tm.reference = co.reference AND tm.type='caisse')""").fetchall()
+    nb_synced = 0
+    for op in ops:
+        try:
+            op_date = (op['created_at'] or '')[:10] or datetime.now().strftime('%Y-%m-%d')
+            _v103.execute("""INSERT INTO tresorerie_mouvements 
+                (type, sens, source, date, montant, libelle, reference, created_by, created_at)
+                VALUES ('caisse', ?, 'multicaisse', ?, ?, ?, ?, ?, datetime('now'))""",
+                (op['type'], op_date, op['amount'] or 0,
+                 f"[{op['caisse_nom'] or 'Caisse'}] {op['description'] or ''}",
+                 op['reference'], op['created_by']))
+            nb_synced += 1
+        except: pass
+    _v103.commit()
+    _v103.close()
+    if nb_synced > 0:
+        print(f"[v103-Sync] {nb_synced} opérations multicaisses synchronisées vers le journal de caisse", flush=True)
+except Exception as _e:
+    print(f"[v103-Sync] Erreur backfill : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -9821,32 +9853,64 @@ def compta_caisse_operation(cid):
     if amount <= 0: flash("Montant invalide","error"); conn.close(); return redirect(f'/comptabilite/caisses/{cid}')
     
     ref = f"OP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    descr = request.form.get('description','')
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    
+    # Récupérer nom caisse pour libellé journal
+    caisse_row = conn.execute("SELECT name FROM caisses WHERE id=?", (cid,)).fetchone()
+    caisse_name = caisse_row['name'] if caisse_row else f"Caisse #{cid}"
     
     if op_type == 'transfert_caisse':
         dest_id = int(request.form.get('dest_caisse_id',0) or 0)
         conn.execute("INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, source_caisse_id, dest_caisse_id, created_by) VALUES (?,'transfert',?,?,?,?,?,?,?)",
-            (cid, amount, request.form.get('description','Transfert inter-caisses'), ref, 'transfert', cid, dest_id, session['user_id']))
-        auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'), f"Transfert caisse {ref}", '580', '580', amount, ref)
+            (cid, amount, descr or 'Transfert inter-caisses', ref, 'transfert', cid, dest_id, session['user_id']))
+        auto_ecriture(conn, today_str, f"Transfert caisse {ref}", '580', '580', amount, ref)
+        # v103 : pas de sync journal car c'est un transfert interne (équilibré entre caisses)
     elif op_type == 'transfert_banque':
         bank_id = int(request.form.get('bank_account_id',0) or 0)
         conn.execute("INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, bank_account_id, created_by) VALUES (?,'sortie',?,?,?,?,?,?)",
-            (cid, amount, request.form.get('description','Versement banque'), ref, 'banque', bank_id, session['user_id']))
-        auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'), f"Versement banque {ref}", '521', '571', amount, ref)
+            (cid, amount, descr or 'Versement banque', ref, 'banque', bank_id, session['user_id']))
+        auto_ecriture(conn, today_str, f"Versement banque {ref}", '521', '571', amount, ref)
+        # v103 : sync vers journal de caisse comme sortie
+        _sync_caisse_op_to_journal(conn, 'sortie', today_str, amount, 
+            f"[{caisse_name}] {descr or 'Versement banque'}", ref, session.get('user_id'))
     else:
         conn.execute("INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, intervention_id, project_id, created_by) VALUES (?,?,?,?,?,?,?,?,?)",
-            (cid, op_type, amount, request.form.get('description',''), ref, request.form.get('category','divers'),
+            (cid, op_type, amount, descr, ref, request.form.get('category','divers'),
              int(request.form.get('intervention_id',0) or 0) or None,
              int(request.form.get('project_id',0) or 0) or None, session['user_id']))
         if op_type == 'entree':
-            auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'), f"Entrée caisse {ref}", '571', '758', amount, ref)
+            auto_ecriture(conn, today_str, f"Entrée caisse {ref}", '571', '758', amount, ref)
         else:
-            auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'), f"Sortie caisse {ref}", '658', '571', amount, ref)
+            auto_ecriture(conn, today_str, f"Sortie caisse {ref}", '658', '571', amount, ref)
+        # v103 : sync vers journal de caisse (tresorerie_mouvements)
+        _sync_caisse_op_to_journal(conn, op_type, today_str, amount,
+            f"[{caisse_name}] {descr}", ref, session.get('user_id'))
     
     conn.commit(); conn.close()
     user = get_user_by_id(session['user_id'])
     log_activity(session['user_id'], user['full_name'] if user else '?', 'Caisse', f"{op_type} {ref} — {amount:,.0f} F", request.remote_addr)
     flash(f"Opération {ref} enregistrée — {amount:,.0f} F", "success")
     return redirect(f'/comptabilite/caisses/{cid}')
+
+
+def _sync_caisse_op_to_journal(conn, sens, date, montant, libelle, ref, user_id):
+    """v103 : Synchronise une opération multi-caisses dans le journal de caisse (tresorerie_mouvements).
+    Crée un mouvement type='caisse' avec le bon sens (entree/sortie). Idempotent via reference."""
+    try:
+        # Vérifier si déjà inséré (idempotence par référence)
+        existing = conn.execute(
+            "SELECT id FROM tresorerie_mouvements WHERE reference=? AND type='caisse'",
+            (ref,)).fetchone()
+        if existing:
+            return
+        # Insérer le mouvement
+        conn.execute("""INSERT INTO tresorerie_mouvements 
+            (type, sens, source, date, montant, libelle, reference, created_by, created_at)
+            VALUES ('caisse', ?, 'multicaisse', ?, ?, ?, ?, ?, datetime('now'))""",
+            (sens, date, montant, libelle, ref, user_id))
+    except Exception as e:
+        print(f"[v103-Sync] Erreur sync journal: {e}", flush=True)
 
 
 # ======================== INTERVENTIONS ========================
@@ -14760,7 +14824,17 @@ def get_project_by_id_full(pid):
         "SELECT pt.*, u.full_name, u.username FROM wf_project_team pt "
         "LEFT JOIN users u ON pt.user_id = u.id WHERE pt.project_id=?", (pid,)).fetchall()]
     p['materials'] = [dict(r) for r in conn.execute(
-        "SELECT * FROM wf_project_materials WHERE project_id=? ORDER BY id", (pid,)).fetchall()]
+        """SELECT m.*, a.designation as article_designation, a.prix_unitaire as article_prix,
+                  COALESCE(a.stock_initial,0) 
+                    + COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=a.id),0)
+                    - COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=a.id),0) as stock_actuel
+           FROM wf_project_materials m 
+           LEFT JOIN mg_stock_articles a ON m.mg_equipement_id = a.id
+           WHERE m.project_id=? ORDER BY m.id""", (pid,)).fetchall()]
+    # v103 : recalculer "available" en temps réel selon stock_actuel vs quantity
+    for m in p['materials']:
+        if m.get('mg_equipement_id') and m.get('stock_actuel') is not None:
+            m['available'] = 1 if (m['stock_actuel'] or 0) >= (m['quantity'] or 0) else 0
     p['history'] = [dict(r) for r in conn.execute(
         "SELECT * FROM wf_project_history WHERE project_id=? ORDER BY created_at DESC", (pid,)).fetchall()]
     p['progress_reports'] = [dict(r) for r in conn.execute(
@@ -15379,10 +15453,16 @@ def project_detail(pid):
         "SELECT id, full_name, username, role FROM users "
         "WHERE role IN ('technicien','tech_chef','chef_chantier') "
         "AND COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
-    # MG équipements pour réservation
-    mg_equips = [dict(r) for r in conn.execute(
-        "SELECT id, nom, reference, stock_actuel, unite FROM mg_equipements "
-        "WHERE COALESCE(statut,'actif')='actif' ORDER BY nom LIMIT 200").fetchall()]
+    # v103 : utiliser mg_stock_articles (catalogue RAMYA 196 articles) au lieu de mg_equipements vide
+    mg_equips_raw = conn.execute(
+        """SELECT a.id, a.reference, a.designation as nom, a.unite, a.stock_initial,
+                  a.prix_unitaire, a.seuil_alerte, a.categorie,
+                  COALESCE(a.stock_initial,0) 
+                    + COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=a.id),0)
+                    - COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=a.id),0) as stock_actuel
+           FROM mg_stock_articles a
+           ORDER BY a.designation LIMIT 500""").fetchall()
+    mg_equips = [dict(r) for r in mg_equips_raw]
     conn.close()
     
     return render_template('project_detail.html', page='projects',
@@ -15516,27 +15596,44 @@ def project_team_remove(pid, tid):
 @app.route('/projects/<int:pid>/material/add', methods=['POST'])
 @project_access_required
 def project_material_add(pid):
-    """Ajoute un matériel à réserver au MG."""
+    """v103 : Ajoute un matériel — utilise mg_stock_articles (catalogue RAMYA)."""
     name = request.form.get('material_name', '').strip()
-    if not name:
-        flash("Nom du matériel requis", "error")
-        return redirect(f'/projects/{pid}')
     qty = int(request.form.get('quantity', 1) or 1)
     
     conn = _gdb()
     mg_id = request.form.get('mg_equipement_id') or None
     available = 0
+    article_data = None
+    
+    # Si lié à un article, récupérer ses infos et calculer le stock réel
     if mg_id:
-        row = conn.execute("SELECT stock_actuel, nom FROM mg_equipements WHERE id=?", (mg_id,)).fetchone()
-        if row:
-            stock = row['stock_actuel'] or 0
+        article_data = conn.execute("""SELECT id, reference, designation, unite, prix_unitaire,
+            COALESCE(stock_initial,0) 
+              + COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=mg_stock_articles.id),0)
+              - COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=mg_stock_articles.id),0) as stock_actuel
+            FROM mg_stock_articles WHERE id=?""", (mg_id,)).fetchone()
+        if article_data:
+            article_data = dict(article_data)
+            stock = article_data['stock_actuel'] or 0
             available = 1 if stock >= qty else 0
-            if not name: name = row['nom']
+            if not name: 
+                name = article_data['designation']
+    
+    if not name:
+        flash("Désignation requise", "error")
+        conn.close()
+        return redirect(f'/projects/{pid}')
+    
+    unite_val = request.form.get('unite', '').strip()
+    if not unite_val and article_data:
+        unite_val = article_data.get('unite') or 'unité'
+    if not unite_val:
+        unite_val = 'unité'
     
     conn.execute("""INSERT INTO wf_project_materials
         (project_id, material_name, quantity, unite, mg_equipement_id, available, notes)
         VALUES (?,?,?,?,?,?,?)""",
-        (pid, name, qty, request.form.get('unite', 'unité'),
+        (pid, name, qty, unite_val,
          int(mg_id) if mg_id else None, available, request.form.get('notes', '')))
     conn.commit(); conn.close()
     flash(f"📦 Matériel '{name}' x{qty} ajouté", "success")
@@ -20147,10 +20244,11 @@ def caisse_demande():
 @login_required
 def caisse_valider(sid):
     from models import get_db, recompute_budget_spent
-    """DG ou admin valide la demande de sortie de caisse → impact sur le budget département."""
+    """v103 : RH valide la demande de sortie de caisse (3ème signataire) → impact sur le budget département.
+    Donne ensuite accès au bouton de validation comptabilité, puis décaissement."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'dg', 'directeur'):
-        flash("Seul le DG peut valider les sorties de caisse", "error")
+    if not user or user['role'] not in ('admin', 'rh', 'dg', 'directeur'):
+        flash("⚠️ Seul le service RH peut valider les sorties de caisse (3ème signataire)", "error")
         return redirect(url_for('caisse_sortie'))
     conn = get_db()
     conn.execute("UPDATE caisse_sorties SET status='valide', valideur_id=?, valideur_name=?, validated_at=? WHERE id=? AND status='en_attente'",
@@ -20164,7 +20262,6 @@ def caisse_valider(sid):
     if s_dict and s_dict.get('department'):
         try:
             conn2 = get_db()
-            # Trouver les budgets actifs du département
             budgets = conn2.execute(
                 """SELECT id, amount_planned, amount_spent FROM dept_budgets
                    WHERE department=? AND COALESCE(is_active,1)=1
@@ -20172,7 +20269,6 @@ def caisse_valider(sid):
             conn2.close()
             for b in budgets:
                 recompute_budget_spent(b['id'])
-                # Vérifier dépassement
                 conn3 = get_db()
                 bnew = conn3.execute("SELECT amount_planned, amount_spent FROM dept_budgets WHERE id=?", (b['id'],)).fetchone()
                 conn3.close()
@@ -20187,8 +20283,8 @@ def caisse_valider(sid):
             pass
     if s_dict:
         log_activity(session['user_id'], user['full_name'], 'Caisse',
-                    f"Sortie {s_dict['reference']} validée — {float(s_dict['montant']):,.0f} F", request.remote_addr)
-    flash(f"✅ Sortie de caisse validée → transmise à la comptabilité{budget_msg}", "success")
+                    f"Sortie {s_dict['reference']} validée RH — {float(s_dict['montant']):,.0f} F", request.remote_addr)
+    flash(f"✅ Sortie de caisse validée par RH → transmise à la comptabilité pour décaissement{budget_msg}", "success")
     return redirect(url_for('caisse_sortie'))
 
 
@@ -20197,8 +20293,8 @@ def caisse_valider(sid):
 def caisse_refuser(sid):
     from models import get_db, recompute_budget_spent
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'dg', 'directeur'):
-        flash("Seul le DG peut refuser", "error")
+    if not user or user['role'] not in ('admin', 'rh', 'dg', 'directeur'):
+        flash("⚠️ Seul le service RH peut refuser les sorties de caisse", "error")
         return redirect(url_for('caisse_sortie'))
     conn = get_db()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
@@ -21746,6 +21842,21 @@ def mg_dashboard():
         ORDER BY date_prochaine_maintenance LIMIT 5
     """).fetchall()]
     
+    # v103 : Alertes inventaire stock (articles épuisés / faibles)
+    stock_alerts = [dict(r) for r in conn.execute("""
+        SELECT a.id, a.reference, a.designation, a.unite, a.seuil_alerte,
+               COALESCE(a.stock_initial,0) 
+                 + COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=a.id),0)
+                 - COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=a.id),0) as stock_actuel
+        FROM mg_stock_articles a
+        ORDER BY stock_actuel ASC
+    """).fetchall()]
+    # Filtrer en Python (plus simple que CASE/HAVING avec sous-requête)
+    stock_epuise = [s for s in stock_alerts if (s['stock_actuel'] or 0) == 0][:10]
+    stock_faible = [s for s in stock_alerts if 0 < (s['stock_actuel'] or 0) <= (s['seuil_alerte'] or 2)][:10]
+    nb_stock_epuise = len([s for s in stock_alerts if (s['stock_actuel'] or 0) == 0])
+    nb_stock_faible = len([s for s in stock_alerts if 0 < (s['stock_actuel'] or 0) <= (s['seuil_alerte'] or 2)])
+    
     conn.close()
     return render_template('mg_dashboard.html',
         nb_demandes_attente=nb_demandes_attente,
@@ -21755,7 +21866,9 @@ def mg_dashboard():
         total_commandes_mois=total_commandes_mois,
         total_paye_mois=total_paye_mois,
         recent_demandes=recent_demandes,
-        alertes_equip=alertes_equip)
+        alertes_equip=alertes_equip,
+        stock_epuise=stock_epuise, stock_faible=stock_faible,
+        nb_stock_epuise=nb_stock_epuise, nb_stock_faible=nb_stock_faible)
 
 
 # === DEMANDES INTERNES ===
@@ -21804,20 +21917,30 @@ def mg_demandes_add():
 @permission_required_any('mg_valider', 'admin')
 def mg_demandes_valider(did, action):
     """Valider ou refuser une demande. action ∈ {validee, refusee}.
-    v102 : si validée, transmet automatiquement à la Comptabilité pour validation budgétaire."""
+    v103 : protection contre double validation."""
     if action not in ('validee', 'refusee', 'en_attente'):
         flash("Action invalide", "error")
         return redirect('/mg/demandes')
     conn = _gdb()
-    row = conn.execute("SELECT reference FROM achats_demandes WHERE id=?", (did,)).fetchone()
-    ref = row['reference'] if row else f'#{did}'
+    row = conn.execute("SELECT reference, status, compta_status FROM achats_demandes WHERE id=?", (did,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Demande introuvable", "error")
+        return redirect('/mg/demandes')
+    ref = row['reference']
+    
+    # v103 : protection — ne pas re-valider si déjà dans cet état
+    if row['status'] == action:
+        conn.close()
+        flash(f"⚠️ Demande {ref} déjà {action}", "warning")
+        return redirect('/mg/demandes')
     
     conn.execute("""UPDATE achats_demandes SET status=?, approved_by=?, approved_at=?
-                    WHERE id=?""",
-                 (action, session['user_id'], datetime.now().isoformat(), did))
+                    WHERE id=? AND status != ?""",
+                 (action, session['user_id'], datetime.now().isoformat(), did, action))
     
-    # v102 : auto-envoi à la Comptabilité
-    if action == 'validee':
+    # v102 : auto-envoi à la Comptabilité (uniquement si pas déjà envoyé)
+    if action == 'validee' and not row['compta_status']:
         total_items_row = conn.execute("""SELECT COALESCE(SUM(quantity * COALESCE(estimated_price,0)), 0) as total
             FROM achats_demande_items WHERE demande_id=?""", (did,)).fetchone()
         montant_calc = float(total_items_row['total'] or 0) if total_items_row else 0
@@ -21829,11 +21952,16 @@ def mg_demandes_valider(did, action):
             WHERE id=? AND (compta_visible_at IS NULL OR compta_status='en_attente')""", 
             (montant_calc if montant_calc > 0 else None, did))
         
-        # Notifier les comptables
+        # Notifier les comptables (sans doublons : un user reçoit max 1 notif par demande)
         try:
             users_compta = conn.execute("""SELECT id FROM users 
                 WHERE role IN ('comptable','comptabilite','dg','directeur','admin') AND is_active=1""").fetchall()
             for u in users_compta:
+                # Anti-doublon : vérifier si une notif existe déjà
+                existing = conn.execute("""SELECT id FROM notifications 
+                    WHERE user_id=? AND message LIKE ? AND type='mg_demande'""",
+                    (u['id'], f"%{ref}%")).fetchone()
+                if existing: continue
                 try:
                     conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
                         VALUES (?,?,?,?,?)""",

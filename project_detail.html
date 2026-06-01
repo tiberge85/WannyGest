@@ -247,19 +247,35 @@
     <div class="card-body" style="padding:0">
     {% if project.materials %}
     <table style="width:100%">
-        <thead><tr style="background:#f8faf9"><th style="padding:8px;text-align:left;font-size:11px">Désignation</th><th style="font-size:11px">Qté</th><th style="font-size:11px">État</th><th></th></tr></thead>
+        <thead><tr style="background:#f8faf9">
+            <th style="padding:8px;text-align:left;font-size:11px">Désignation</th>
+            <th style="font-size:11px;text-align:center">Qté demandée</th>
+            <th style="font-size:11px;text-align:center">Stock dispo</th>
+            <th style="font-size:11px;text-align:right">Prix unitaire</th>
+            <th style="font-size:11px;text-align:center">État</th>
+            <th></th>
+        </tr></thead>
         <tbody>
         {% for m in project.materials %}
         <tr style="border-bottom:1px solid #eee">
             <td style="padding:8px">{{ m.material_name }}{% if m.notes %}<br><span style="font-size:10px;color:#888">{{ m.notes }}</span>{% endif %}</td>
-            <td style="text-align:center;font-size:12px">{{ m.quantity }} {{ m.unite or 'u' }}</td>
+            <td style="text-align:center;font-size:12px;font-weight:700">{{ m.quantity }} {{ m.unite or 'u' }}</td>
+            <td style="text-align:center;font-size:12px">
+                {% if m.mg_equipement_id %}
+                    <span style="font-weight:700;color:{% if m.stock_actuel and m.stock_actuel >= m.quantity %}#2e7d32{% elif m.stock_actuel and m.stock_actuel > 0 %}#e8672a{% else %}#c53030{% endif %}">{{ m.stock_actuel or 0 }}</span>
+                {% else %}<span style="color:#888;font-size:10px">—</span>{% endif %}
+            </td>
+            <td style="text-align:right;font-size:11px;color:#666">
+                {% if m.article_prix %}{{ '{:,.0f}'.format(m.article_prix).replace(',', ' ') }} F{% else %}—{% endif %}
+            </td>
             <td style="text-align:center">
                 {% if m.reserved %}<span style="background:#e8f5e9;color:#2e7d32;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600">✅ Réservé</span>
-                {% elif m.available %}<span style="background:#fff3e0;color:#e8672a;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600">Dispo</span>
-                {% else %}<span style="background:#fde8e8;color:#c53030;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600">⚠️ Rupture</span>{% endif %}
+                {% elif m.available %}<span style="background:#fff3e0;color:#e8672a;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600">✅ Disponible</span>
+                {% elif not m.mg_equipement_id %}<span style="background:#e3f2fd;color:#1976d2;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600">📋 Hors catalogue</span>
+                {% else %}<span style="background:#fde8e8;color:#c53030;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600">⚠️ Stock insuffisant</span>{% endif %}
             </td>
             <td style="white-space:nowrap;text-align:right;padding:4px">
-                {% if not m.reserved and project.status in ('preparation','demarre','valide') %}
+                {% if not m.reserved and m.available and project.status in ('preparation','demarre','valide') %}
                 <a href="/projects/{{ project.id }}/material/{{ m.id }}/reserve" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:10px">Réserver</a>
                 {% endif %}
                 <a href="/projects/{{ project.id }}/material/{{ m.id }}/delete" class="btn btn-sm" style="color:#c53030;font-size:11px" onclick="return confirm('Retirer ?')">🗑️</a>
@@ -376,24 +392,73 @@
     </div>
 </form></div></div>
 
-<div class="modal-bg" id="addMatM"><div class="modal"><h3>📦 Ajouter du matériel</h3>
+<div class="modal-bg" id="addMatM"><div class="modal" style="max-width:650px"><h3>📦 Ajouter du matériel</h3>
 <form method="post" action="/projects/{{ project.id }}/material/add">
-    <div class="form-row">
-        <div class="form-group"><label>Désignation *</label><input type="text" name="material_name" required></div>
-        <div class="form-group"><label>Quantité</label><input type="number" name="quantity" value="1" min="1"></div>
-        <div class="form-group"><label>Unité</label><input type="text" name="unite" value="unité"></div>
+    <div class="form-group">
+        <label>Article catalogue (recherche rapide)</label>
+        <input type="text" id="art_search" list="art_list" placeholder="🔍 Tapez le nom ou la référence..." 
+            style="padding:10px 12px;border:1.5px solid #1A7A6D;border-radius:7px;width:100%">
+        <datalist id="art_list">
+            {% for e in mg_equips %}<option value="{{ e.reference }} — {{ e.nom }}" data-id="{{ e.id }}" data-stock="{{ e.stock_actuel or 0 }}" data-unite="{{ e.unite or 'unité' }}" data-prix="{{ e.prix_unitaire or 0 }}">{% endfor %}
+        </datalist>
+        <p style="font-size:11px;color:#666;margin-top:4px">📋 {{ mg_equips|length }} articles disponibles dans le catalogue RAMYA</p>
+        <input type="hidden" name="mg_equipement_id" id="mg_equipement_id" value="">
     </div>
-    <div class="form-group"><label>Lier à un équipement MG</label>
-        <select name="mg_equipement_id">
-            <option value="">— Aucun —</option>
-            {% for e in mg_equips %}<option value="{{ e.id }}">{{ e.nom }} (stock: {{ e.stock_actuel or 0 }})</option>{% endfor %}
-        </select></div>
+    
+    <!-- Aperçu article sélectionné -->
+    <div id="art_preview" style="display:none;background:#e8f5e9;border-left:4px solid #2e7d32;padding:10px 12px;border-radius:6px;margin-bottom:14px;font-size:12px">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <div><strong style="color:#1b5e20">📦 <span id="prev_name"></span></strong></div>
+            <div><span style="background:#fff;color:#1b5e20;padding:2px 8px;border-radius:10px;font-weight:700">Stock actuel : <span id="prev_stock">0</span> <span id="prev_unite"></span></span></div>
+        </div>
+        <div style="font-size:11px;color:#558b2f;margin-top:4px">💰 Prix d'achat : <strong><span id="prev_prix">0</span> FCFA</strong></div>
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group" style="flex:2"><label>Désignation *</label>
+            <input type="text" name="material_name" id="material_name" required placeholder="Sera rempli automatiquement"></div>
+        <div class="form-group"><label>Quantité *</label>
+            <input type="number" name="quantity" value="1" min="1" required></div>
+        <div class="form-group"><label>Unité</label>
+            <input type="text" name="unite" id="unite_field" value="unité"></div>
+    </div>
     <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('addMatM').classList.remove('active')">Annuler</button>
         <button type="submit" class="btn btn-primary">✅ Ajouter</button>
     </div>
-</form></div></div>
+</form>
+
+<script>
+(function() {
+    // Stockage des données articles
+    const articles = {
+        {% for e in mg_equips %}"{{ e.reference }} — {{ e.nom|replace('"','\\"') }}": {id:{{ e.id }}, name:"{{ e.nom|replace('"','\\"') }}", stock:{{ e.stock_actuel or 0 }}, unite:"{{ e.unite or 'unité' }}", prix:{{ e.prix_unitaire or 0 }}},
+        {% endfor %}
+    };
+    const search = document.getElementById('art_search');
+    if (!search) return;
+    search.addEventListener('input', function() {
+        const val = this.value;
+        const data = articles[val];
+        if (data) {
+            document.getElementById('mg_equipement_id').value = data.id;
+            document.getElementById('material_name').value = data.name;
+            document.getElementById('unite_field').value = data.unite;
+            // Preview
+            document.getElementById('prev_name').textContent = data.name;
+            document.getElementById('prev_stock').textContent = data.stock;
+            document.getElementById('prev_unite').textContent = data.unite;
+            document.getElementById('prev_prix').textContent = data.prix.toLocaleString('fr-FR');
+            document.getElementById('art_preview').style.display = 'block';
+        } else {
+            document.getElementById('mg_equipement_id').value = '';
+            document.getElementById('art_preview').style.display = 'none';
+        }
+    });
+})();
+</script>
+</div></div>
 
 <div class="modal-bg" id="addProgM"><div class="modal"><h3>📝 Rapport d'avancement</h3>
 <form method="post" action="/projects/{{ project.id }}/progress">
