@@ -20510,7 +20510,7 @@ def caisse_pdf(sid):
     # Signatures
     sig = [[Paragraph("<b>Bénéficiaire</b>", ParagraphStyle('s1', fontSize=10, alignment=TA_CENTER)),
             Paragraph("<b>Caisse</b>", ParagraphStyle('s2', fontSize=10, alignment=TA_CENTER)),
-            Paragraph("<b>Autorisation</b>", ParagraphStyle('s3', fontSize=10, alignment=TA_CENTER))]]
+            Paragraph("<b>Autorisation (RH)</b>", ParagraphStyle('s3', fontSize=10, alignment=TA_CENTER))]]
     st = Table(sig, colWidths=[57*mm, 57*mm, 57*mm])
     st.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),1,HexColor('#000')),
         ('TOPPADDING',(0,0),(-1,-1),6)]))

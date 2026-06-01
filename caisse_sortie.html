@@ -76,19 +76,36 @@
 <td style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis">{{ (s.motif or '')[:40] }}</td>
 <td style="text-align:right;font-weight:600;color:#6b7280">{{ '{:,.0f}'.format(s.montant) }}</td>
 <td>
-    <span class="badge-status {% if s.status=='valide' %}sent{% elif s.status=='refuse' %}{% else %}pending{% endif %}">{{ s.status }}</span>
-    {% if s.comptabilise %}<span style="font-size:9px;color:#2e7d32">📗</span>{% endif %}
+    {% if s.status == 'valide' %}
+        <span class="badge-status sent">✅ validée RH</span>
+    {% elif s.status == 'refuse' %}
+        <span class="badge-status">❌ refusée</span>
+    {% else %}
+        <span class="badge-status pending">⏳ en attente RH</span>
+    {% endif %}
+    {% if s.comptabilise %}<br><span style="font-size:10px;color:#2e7d32;font-weight:700">💰 Décaissée</span>{% endif %}
 </td>
 <td style="white-space:nowrap">
-    <a href="/caisse-sortie/{{ s.id }}/preview" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px">👁️</a>
-    <a href="/caisse-sortie/{{ s.id }}/pdf" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px">📄</a>
-    {% if current_user.role in ('admin','dg','directeur') %}<a href="/caisse-sortie/{{ s.id }}/edit" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px">✏️</a>{% endif %}
+    <a href="/caisse-sortie/{{ s.id }}/preview" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="Aperçu">👁️</a>
+    <a href="/caisse-sortie/{{ s.id }}/pdf" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="PDF">📄</a>
+    {% if current_user.role in ('admin','dg','directeur') %}<a href="/caisse-sortie/{{ s.id }}/edit" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="Modifier">✏️</a>{% endif %}
+    
+    {# v104 : Validation RH (3ème signataire) #}
     {% if s.status == 'en_attente' and current_user.role in ('admin','rh','directeur','dg') %}
-    <a href="/caisse-sortie/{{ s.id }}/valider" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px" onclick="return confirm('Valider (RH) ?')" title="Validation RH (3ème signataire)">✅</a>
-    <a href="/caisse-sortie/{{ s.id }}/refuser" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:2px 6px" onclick="return confirm('Refuser ?')">❌</a>
+    <a href="/caisse-sortie/{{ s.id }}/valider" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;font-weight:700" onclick="return confirm('Valider en tant que RH (3ème signataire) ?')" title="Validation RH">✅ Valider RH</a>
+    <a href="/caisse-sortie/{{ s.id }}/refuser" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:2px 6px" onclick="return confirm('Refuser ?')" title="Refuser">❌</a>
     {% endif %}
+    
+    {# v104 : Décaissement par la comptabilité (uniquement après validation RH) #}
     {% if s.status == 'valide' and not s.comptabilise %}
-    <a href="/caisse-sortie/{{ s.id }}/comptabiliser" class="btn btn-sm" style="background:#e3f2fd;color:#1A7A6D;font-size:10px;padding:2px 6px">📗</a>
+        {% if current_user.role in ('admin','comptable','comptabilite','dg','directeur') %}
+        <a href="/caisse-sortie/{{ s.id }}/comptabiliser" class="btn btn-sm" 
+            style="background:#1A7A6D;color:#fff;font-size:10px;padding:3px 10px;font-weight:700" 
+            onclick="return confirm('Procéder au décaissement ? Cette action enregistre la sortie en comptabilité.')" 
+            title="Décaissement (Comptabilité)">💰 Décaisser</a>
+        {% else %}
+        <span style="font-size:9px;color:#888;font-style:italic">En attente Comptabilité</span>
+        {% endif %}
     {% endif %}
 </td>
 </tr>{% endfor %}</tbody></table></div>

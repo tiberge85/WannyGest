@@ -986,47 +986,83 @@ function sortTable(tableId, colIndex, type){
 })();
 
 // v103 : Préservation de la position de scroll lors des changements d'onglets/filtres
+// v104 : Étendu pour préserver aussi le scroll de la sidebar entre navigations
 (function() {
     'use strict';
     var STORAGE_KEY = 'wg_scroll_' + window.location.pathname;
+    // v104 : clé globale pour la sidebar (pas par-page, puisqu'on veut garder la position en naviguant)
+    var SIDEBAR_KEY = 'wg_sidebar_scroll';
+    
+    function getSidebar() {
+        return document.querySelector('nav.sidebar') || document.querySelector('.sidebar');
+    }
     
     // 1. Au chargement, restaurer la position de scroll
     document.addEventListener('DOMContentLoaded', function() {
+        // Restaurer scroll page
         try {
             var saved = sessionStorage.getItem(STORAGE_KEY);
             if (saved) {
                 var y = parseInt(saved, 10);
                 if (y > 0) {
-                    // Restaurer après un court délai pour que la page soit complètement rendue
                     setTimeout(function() { window.scrollTo(0, y); }, 50);
                 }
-                sessionStorage.removeItem(STORAGE_KEY); // consommé une fois
+                sessionStorage.removeItem(STORAGE_KEY);
+            }
+        } catch(e){}
+        
+        // v104 : Restaurer scroll sidebar
+        try {
+            var sbSaved = sessionStorage.getItem(SIDEBAR_KEY);
+            if (sbSaved) {
+                var sbY = parseInt(sbSaved, 10);
+                if (sbY > 0) {
+                    var sb = getSidebar();
+                    if (sb) {
+                        // Attendre un cycle de rendu pour que la sidebar soit dimensionnée
+                        setTimeout(function() { sb.scrollTop = sbY; }, 20);
+                        // Double tentative au cas où le rendu prend du temps
+                        setTimeout(function() { sb.scrollTop = sbY; }, 150);
+                    }
+                }
             }
         } catch(e){}
     });
     
-    // 2. Avant soumission de formulaire GET (filtres, onchange→submit), sauvegarder la position
+    // 2. Avant soumission de formulaire GET, sauvegarder la position page + sidebar
     document.addEventListener('submit', function(e) {
         try {
             var form = e.target;
-            // Uniquement formulaires GET (filtres) — pas les POST destructifs
             if (form.method && form.method.toLowerCase() === 'get') {
                 sessionStorage.setItem(STORAGE_KEY, String(window.scrollY || window.pageYOffset || 0));
             }
+            // v104 : toujours sauvegarder le scroll sidebar
+            var sb = getSidebar();
+            if (sb) sessionStorage.setItem(SIDEBAR_KEY, String(sb.scrollTop || 0));
         } catch(e){}
     }, true);
     
-    // 3. Avant un clic sur lien interne (onglets de filtre, ?tab=X), sauvegarder
+    // 3. Avant un clic sur lien interne, sauvegarder
     document.addEventListener('click', function(e) {
         try {
             var link = e.target.closest('a');
             if (!link) return;
             var href = link.getAttribute('href') || '';
-            // Liens internes qui changent juste les params (?tab, ?statut, ?from, etc.)
-            // On préserve si même chemin que la page courante
-            if (href && href.startsWith('?')) {
+            // Ignorer les liens vers l'extérieur, les ancres simples ou les téléchargements
+            if (!href || href.startsWith('#') || href.startsWith('javascript:') || 
+                href.startsWith('http://') || href.startsWith('https://') || 
+                link.target === '_blank' || link.hasAttribute('download')) {
+                return;
+            }
+            
+            // v104 : TOUJOURS sauvegarder le scroll sidebar (peu importe la destination)
+            var sb = getSidebar();
+            if (sb) sessionStorage.setItem(SIDEBAR_KEY, String(sb.scrollTop || 0));
+            
+            // Sauvegarder scroll page UNIQUEMENT pour les liens qui changent juste les params de la même page
+            if (href.startsWith('?')) {
                 sessionStorage.setItem(STORAGE_KEY, String(window.scrollY || window.pageYOffset || 0));
-            } else if (href && href.indexOf('?') >= 0) {
+            } else if (href.indexOf('?') >= 0) {
                 var path = href.split('?')[0];
                 if (path === '' || path === window.location.pathname) {
                     sessionStorage.setItem(STORAGE_KEY, String(window.scrollY || window.pageYOffset || 0));
@@ -1034,6 +1070,34 @@ function sortTable(tableId, colIndex, type){
             }
         } catch(e){}
     }, true);
+    
+    // v104 : S'assurer que le lien actif est visible dans la sidebar
+    // Fallback si la restauration de scroll échoue ou s'il n'y avait pas de scroll sauvegardé
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            try {
+                var sb = getSidebar();
+                if (!sb) return;
+                // Si on a déjà restauré une position, ne pas écraser
+                var hadSaved = sessionStorage.getItem(SIDEBAR_KEY);
+                if (hadSaved && parseInt(hadSaved, 10) > 0) return;
+                
+                var activeLink = sb.querySelector('a.active');
+                if (!activeLink) return;
+                
+                // Vérifier si le lien actif est hors du viewport de la sidebar
+                var linkRect = activeLink.getBoundingClientRect();
+                var sbRect = sb.getBoundingClientRect();
+                if (linkRect.top < sbRect.top || linkRect.bottom > sbRect.bottom) {
+                    // Le scroller dans la sidebar pour le centrer
+                    var linkOffset = activeLink.offsetTop;
+                    var sbHeight = sb.clientHeight;
+                    var linkHeight = activeLink.offsetHeight;
+                    sb.scrollTop = Math.max(0, linkOffset - (sbHeight / 2) + (linkHeight / 2));
+                }
+            } catch(e){}
+        }, 200);
+    });
 })();
 </script>
 </body>
