@@ -270,7 +270,9 @@
             </div>
             {% endif %}
             
-            {% if 'resp_projet' in permissions or 'admin' in permissions or 'controle_qualite' in permissions or 'livraison_intervention' in permissions %}
+            {# v109 : Section GESTION DE PROJETS visible uniquement aux vrais gestionnaires #}
+            {# Les permissions transverses (livraison_intervention, controle_qualite) iront en OUTILS RAPIDES #}
+            {% if 'resp_projet' in permissions or 'admin' in permissions or user_role == 'gestionnaire_projet' %}
             <div class="nav-section" id="sec-resp-proj" {% if user_role in ('gestionnaire_projet',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 GESTION DE PROJETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
@@ -579,18 +581,27 @@
             {% endif %}
             
             {# ═══════════════════════════════════════════════════════════════ #}
-            {# v106 : OUTILS RAPIDES — Pour les rôles qui ont des permissions  #}
-            {# transversales sans avoir accès à tout un département complet.   #}
-            {# Ex : technicien qui peut demander une sortie de caisse,        #}
-            {# tout en n'ayant pas accès au journal/banque/rapprochement.     #}
+            {# v106 + v109 : OUTILS RAPIDES — Liens transverses isolés          #}
+            {# Pour les rôles qui ont des permissions partielles dans d'autres  #}
+            {# départements, sans afficher tout le menu du département.         #}
             {# ═══════════════════════════════════════════════════════════════ #}
-            {% set show_outils_rapides = 'caisse_sortie' in permissions and not has_full_tresorerie %}
-            {% if show_outils_rapides %}
+            {% set is_full_gestion_projet = user_role == 'gestionnaire_projet' or 'resp_projet' in permissions or 'admin' in permissions %}
+            {% set show_outils_caisse = 'caisse_sortie' in permissions and not has_full_tresorerie %}
+            {% set show_outils_livraison = 'livraison_intervention' in permissions and not is_full_gestion_projet %}
+            {% set show_outils_cq = 'controle_qualite' in permissions and not is_full_gestion_projet %}
+            {% set has_outils_rapides = show_outils_caisse or show_outils_livraison or show_outils_cq %}
+            {% if has_outils_rapides %}
             <div class="nav-section" id="sec-outils-rapides">
                 <div class="nav-section-title" onclick="toggleSection('sec-outils-rapides')">⚡ OUTILS RAPIDES <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    {% if 'caisse_sortie' in permissions %}
+                    {% if show_outils_caisse %}
                     <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">📤 Demande sortie caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
+                    {% endif %}
+                    {% if show_outils_livraison %}
+                    <a href="/gestion-projets/livraisons" class="{% if page == 'gestion_livraisons' %}active{% endif %}">📦 Livraisons{% if pending_deliv_count and pending_deliv_count > 0 %} <span style="background:#1a7a6d;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_deliv_count }}</span>{% endif %}</a>
+                    {% endif %}
+                    {% if show_outils_cq %}
+                    <a href="/gestion-projets/controle-qualite" class="{% if page == 'controle_qualite' %}active{% endif %}">🔍 Contrôle qualité{% if pending_cq_count and pending_cq_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_cq_count }}</span>{% endif %}</a>
                     {% endif %}
                 </div>
             </div>

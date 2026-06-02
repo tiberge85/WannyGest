@@ -20464,6 +20464,83 @@ def caisse_refuser(sid):
     flash("Demande refusée — le demandeur a été notifié", "info")
     return redirect(url_for('caisse_sortie'))
 
+
+# v109 : Route POST unifiée — validation OU refus avec motif obligatoire en cas de refus
+@app.route('/caisse-sortie/<int:sid>/decision', methods=['POST'])
+@login_required
+def caisse_decision(sid):
+    """Validation ou refus avec motif depuis le preview (formulaire intégré)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'dg', 'directeur'):
+        flash("⚠️ Seul le DG ou le service RH peut décider sur les sorties de caisse", "error")
+        return redirect(url_for('caisse_sortie'))
+    
+    action = request.form.get('action', '').strip()
+    motif = request.form.get('motif_refus', '').strip()
+    
+    if action not in ('valider', 'refuser'):
+        flash("Action invalide", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    
+    if action == 'refuser' and not motif:
+        flash("⚠️ Le motif est obligatoire en cas de refus", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    
+    # Rediriger vers la route de validation (qui gère déjà budget, log, flash)
+    if action == 'valider':
+        return redirect(f'/caisse-sortie/{sid}/valider')
+    
+    # Refuser avec motif — traitement direct
+    from models import get_db, recompute_budget_spent
+    valideur_label = 'DG' if user['role'] in ('dg', 'directeur') else ('RH' if user['role'] == 'rh' else 'Admin')
+    conn = get_db()
+    # Ajout colonnes idempotent
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN valideur_role TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN refus_motif TEXT")
+    except: pass
+    
+    s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    s_dict = dict(s) if s else None
+    conn.execute("""UPDATE caisse_sorties SET status='refuse',
+        valideur_id=?, valideur_name=?, valideur_role=?, validated_at=?, refus_motif=?
+        WHERE id=? AND status='en_attente'""",
+        (session['user_id'], user['full_name'], valideur_label, datetime.now().isoformat(), motif, sid))
+    conn.commit()
+    conn.close()
+    
+    # Recompute budget si nécessaire
+    if s_dict and s_dict.get('department'):
+        try:
+            conn2 = get_db()
+            budgets = conn2.execute(
+                "SELECT id FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1",
+                (s_dict['department'],)).fetchall()
+            conn2.close()
+            for b in budgets:
+                recompute_budget_spent(b['id'])
+        except: pass
+    
+    # Notifier le demandeur avec le motif
+    if s_dict and s_dict.get('demandeur_id'):
+        try:
+            conn3 = get_db()
+            conn3.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                VALUES (?,?,?,?,?)""",
+                (s_dict['demandeur_id'], 'caisse_refus',
+                 f"❌ Sortie caisse {s_dict['reference']} refusée",
+                 f"Motif : {motif[:150]}",
+                 f"/caisse-sortie/{sid}/preview"))
+            conn3.commit()
+            conn3.close()
+        except: pass
+    
+    log_activity(session['user_id'], user['full_name'], 'Caisse',
+                f"Sortie {s_dict['reference'] if s_dict else sid} refusée par {valideur_label} — motif: {motif[:80]}", request.remote_addr)
+    flash(f"❌ Sortie de caisse refusée — motif communiqué au demandeur", "success")
+    return redirect(url_for('caisse_sortie'))
+
+
 @app.route('/caisse-sortie/<int:sid>/comptabiliser')
 @login_required
 def caisse_comptabiliser(sid):

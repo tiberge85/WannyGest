@@ -145,8 +145,63 @@
     <div style="margin-top:20px;padding:14px;background:#ffebee;border-left:4px solid #c53030;border-radius:8px">
         <div style="font-weight:700;color:#c53030;font-size:14px">❌ Sortie refusée</div>
         <div style="font-size:12px;color:#555;margin-top:4px">
-            Refusée par <strong>{{ s.valideur_name or 'RH' }}</strong>
+            Refusée par <strong>{{ s.valideur_name or 'DG/RH' }}</strong>{% if s.valideur_role %} ({{ s.valideur_role }}){% endif %}
             {% if s.validated_at %} le {{ s.validated_at[:10] }}{% endif %}
+        </div>
+        {% if s.refus_motif %}
+        <div style="background:rgba(197,48,48,0.1);padding:10px 12px;border-radius:6px;margin-top:8px;border:1px solid rgba(197,48,48,0.3)">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#c53030">Motif du refus</div>
+            <div style="font-size:13px;color:#7f1d1d;margin-top:3px">{{ s.refus_motif }}</div>
+        </div>
+        {% endif %}
+    </div>
+    {% else %}
+    {# v109 : Formulaire de validation/refus avec motif obligatoire — réservé DG/RH/admin #}
+    {% if current_user.role in ('admin','rh','dg','directeur') %}
+    <div class="card" style="margin-top:20px;border:2px solid #e8672a">
+        <div class="card-header" style="background:#e8672a;color:#fff;padding:12px 16px;border-radius:10px 10px 0 0">
+            <h3 style="margin:0;color:#fff;font-size:14px">⚡ Décision {{ 'DG' if current_user.role in ('dg','directeur') else ('RH' if current_user.role == 'rh' else 'Admin') }} — Validation ou refus</h3>
+        </div>
+        <div class="card-body">
+            <p style="font-size:13px;color:#666;margin-bottom:14px">
+                En tant que <strong>{{ 'DG' if current_user.role in ('dg','directeur') else ('RH' if current_user.role == 'rh' else 'Admin') }}</strong> (3ème signataire), vous devez valider ou refuser cette sortie de caisse.
+                Le motif est <strong>obligatoire</strong> en cas de refus et sera communiqué au demandeur.
+            </p>
+            <form method="post" action="/caisse-sortie/{{ s.id }}/decision">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+                    <label style="background:#2e7d32;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                        <input type="radio" name="action" value="valider" id="cs_opt_v" style="margin-right:6px" required>
+                        ✅ VALIDER<br><span style="font-size:11px;font-weight:400">Sortie approuvée</span>
+                    </label>
+                    <label style="background:#c53030;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
+                        <input type="radio" name="action" value="refuser" id="cs_opt_r" style="margin-right:6px" required>
+                        ❌ REFUSER<br><span style="font-size:11px;font-weight:400">Sortie rejetée</span>
+                    </label>
+                </div>
+                <div class="form-group" id="cs_motif_block" style="display:none">
+                    <label style="color:#c53030;font-weight:700">Motif du refus (obligatoire) *</label>
+                    <textarea name="motif_refus" id="cs_motif_field" rows="3" style="width:100%;padding:8px;border:2px solid #c53030;border-radius:7px" placeholder="Ex: Budget insuffisant, sortie non justifiée, doublon de demande..."></textarea>
+                    <p style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Ce motif sera communiqué au demandeur</p>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
+                    <button type="submit" class="btn btn-primary" style="background:#1a3a5c">💾 Enregistrer la décision</button>
+                    <a href="/caisse-sortie" class="btn btn-outline">Annuler</a>
+                </div>
+            </form>
+            <script>
+            (function(){
+                var optR = document.getElementById('cs_opt_r');
+                var optV = document.getElementById('cs_opt_v');
+                var block = document.getElementById('cs_motif_block');
+                var field = document.getElementById('cs_motif_field');
+                optR.addEventListener('change', function(){
+                    if (optR.checked) { block.style.display = 'block'; field.required = true; }
+                });
+                optV.addEventListener('change', function(){
+                    if (optV.checked) { block.style.display = 'none'; field.required = false; }
+                });
+            })();
+            </script>
         </div>
     </div>
     {% else %}
@@ -154,6 +209,7 @@
         <div style="font-weight:700;color:#856404;font-size:14px">⏳ En attente de validation DG ou RH</div>
         <div style="font-size:12px;color:#555;margin-top:4px">Le DG ou le service RH doit valider cette demande pour qu'elle soit transmise à la Comptabilité.</div>
     </div>
+    {% endif %}
     {% endif %}
 </div>
 </div>
