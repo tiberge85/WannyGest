@@ -1097,6 +1097,34 @@ except Exception as _e:
     print(f"[v107-Backfill] Erreur : {_e}", flush=True)
 
 
+# v108 : FORCE — Garantir que gestionnaire_projet a toutes les permissions field_report
+# Au cas où le rôle existerait sans avoir reçu les permissions ajoutées en v99/v100
+try:
+    from models import get_db as _v108_db
+    _v108 = _v108_db()
+    field_perms_gp = ['field_report_create', 'field_report_view_all', 'field_report_view_mine',
+                       'field_report_analyze', 'field_report_transform', 'field_report_close',
+                       'field_report_edit', 'field_report_delete', 'field_report_print']
+    nb_added_gp = 0
+    for p in field_perms_gp:
+        try:
+            existing = _v108.execute(
+                "SELECT COUNT(*) FROM permissions WHERE role='gestionnaire_projet' AND permission=?",
+                (p,)).fetchone()[0]
+            if existing == 0:
+                _v108.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('gestionnaire_projet', ?)", (p,))
+                nb_added_gp += 1
+        except: pass
+    _v108.commit()
+    _v108.close()
+    if nb_added_gp > 0:
+        print(f"[v108-GP] {nb_added_gp} permission(s) field_report ajoutée(s) à gestionnaire_projet", flush=True)
+    else:
+        print(f"[v108-GP] gestionnaire_projet a déjà toutes les permissions field_report ✅", flush=True)
+except Exception as _e:
+    print(f"[v108-GP] Erreur : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -20343,15 +20371,24 @@ def caisse_demande():
 @login_required
 def caisse_valider(sid):
     from models import get_db, recompute_budget_spent
-    """v103 : RH valide la demande de sortie de caisse (3ème signataire) → impact sur le budget département.
-    Donne ensuite accès au bouton de validation comptabilité, puis décaissement."""
+    """v103 : RH ou DG valide la demande de sortie de caisse (3ème signataire) → impact sur le budget département.
+    Donne ensuite accès au bouton de validation comptabilité, puis décaissement.
+    v108 : Le 3ème signataire peut être le DG ou le RH (selon disponibilité)."""
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'rh', 'dg', 'directeur'):
-        flash("⚠️ Seul le service RH peut valider les sorties de caisse (3ème signataire)", "error")
+        flash("⚠️ Seul le DG ou le service RH peut valider les sorties de caisse (3ème signataire)", "error")
         return redirect(url_for('caisse_sortie'))
+    
+    # v108 : Label du rôle validateur pour distinction visuelle
+    valideur_label = 'DG' if user['role'] in ('dg', 'directeur') else ('RH' if user['role'] == 'rh' else 'Admin')
+    
     conn = get_db()
-    conn.execute("UPDATE caisse_sorties SET status='valide', valideur_id=?, valideur_name=?, validated_at=? WHERE id=? AND status='en_attente'",
-                 (session['user_id'], user['full_name'], datetime.now().isoformat(), sid))
+    # v108 : ajout colonne valideur_role si absente
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN valideur_role TEXT")
+    except: pass
+    
+    conn.execute("UPDATE caisse_sorties SET status='valide', valideur_id=?, valideur_name=?, valideur_role=?, validated_at=? WHERE id=? AND status='en_attente'",
+                 (session['user_id'], user['full_name'], valideur_label, datetime.now().isoformat(), sid))
     conn.commit()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
     s_dict = dict(s) if s else None
@@ -20382,8 +20419,8 @@ def caisse_valider(sid):
             pass
     if s_dict:
         log_activity(session['user_id'], user['full_name'], 'Caisse',
-                    f"Sortie {s_dict['reference']} validée RH — {float(s_dict['montant']):,.0f} F", request.remote_addr)
-    flash(f"✅ Sortie de caisse validée par RH → transmise à la comptabilité pour décaissement{budget_msg}", "success")
+                    f"Sortie {s_dict['reference']} validée {valideur_label} — {float(s_dict['montant']):,.0f} F", request.remote_addr)
+    flash(f"✅ Sortie de caisse validée par {valideur_label} → transmise à la comptabilité pour décaissement{budget_msg}", "success")
     return redirect(url_for('caisse_sortie'))
 
 
@@ -20393,7 +20430,7 @@ def caisse_refuser(sid):
     from models import get_db, recompute_budget_spent
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'rh', 'dg', 'directeur'):
-        flash("⚠️ Seul le service RH peut refuser les sorties de caisse", "error")
+        flash("⚠️ Seul le DG ou le service RH peut refuser les sorties de caisse", "error")
         return redirect(url_for('caisse_sortie'))
     conn = get_db()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
@@ -20609,7 +20646,7 @@ def caisse_pdf(sid):
     # Signatures
     sig = [[Paragraph("<b>Bénéficiaire</b>", ParagraphStyle('s1', fontSize=10, alignment=TA_CENTER)),
             Paragraph("<b>Caisse</b>", ParagraphStyle('s2', fontSize=10, alignment=TA_CENTER)),
-            Paragraph("<b>Autorisation (RH)</b>", ParagraphStyle('s3', fontSize=10, alignment=TA_CENTER))]]
+            Paragraph("<b>Autorisation (DG ou RH)</b>", ParagraphStyle('s3', fontSize=10, alignment=TA_CENTER))]]
     st = Table(sig, colWidths=[57*mm, 57*mm, 57*mm])
     st.setStyle(TableStyle([('LINEABOVE',(0,0),(-1,0),1,HexColor('#000')),
         ('TOPPADDING',(0,0),(-1,-1),6)]))
@@ -22189,6 +22226,111 @@ def mg_demande_edit(did):
     conn.close()
     return render_template('mg_demande_edit.html', page='mg_demandes',
         demande=demande, items=items)
+
+
+# v108 : Route POST de décision MG (formulaire intégré dans preview) avec motif obligatoire pour refus
+@app.route('/mg/demandes/<int:did>/decision', methods=['POST'])
+@permission_required_any('mg_valider', 'admin')
+def mg_demande_decision(did):
+    """Validation/Refus depuis le preview avec motif obligatoire en cas de refus."""
+    action = request.form.get('action', '').strip()
+    motif = request.form.get('motif_refus', '').strip()
+    notes = request.form.get('notes', '').strip()
+    
+    if action not in ('validee', 'refusee'):
+        flash("Action invalide", "error")
+        return redirect(f'/mg/demandes/{did}/preview')
+    
+    if action == 'refusee' and not motif:
+        flash("⚠️ Le motif est obligatoire en cas de refus", "error")
+        return redirect(f'/mg/demandes/{did}/preview')
+    
+    conn = _gdb()
+    row = conn.execute("SELECT reference, status FROM achats_demandes WHERE id=?", (did,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Demande introuvable", "error")
+        return redirect('/mg/demandes')
+    ref = row['reference']
+    
+    if row['status'] == action:
+        conn.close()
+        flash(f"⚠️ Demande {ref} déjà {action}", "warning")
+        return redirect(f'/mg/demandes/{did}/preview')
+    
+    # Mettre à jour
+    try:
+        # Ajouter colonne refus_motif sur achats_demandes si absente (idempotent)
+        try: conn.execute("ALTER TABLE achats_demandes ADD COLUMN refus_motif TEXT")
+        except: pass
+        try: conn.execute("ALTER TABLE achats_demandes ADD COLUMN decision_notes TEXT")
+        except: pass
+        
+        conn.execute("""UPDATE achats_demandes SET 
+            status=?, approved_by=?, approved_at=?,
+            refus_motif=?, decision_notes=?
+            WHERE id=? AND status != ?""",
+            (action, session['user_id'], datetime.now().isoformat(),
+             motif if action == 'refusee' else None,
+             notes,
+             did, action))
+        
+        # Si validée → auto-envoi en Compta (logique v102)
+        if action == 'validee':
+            total_items_row = conn.execute("""SELECT COALESCE(SUM(quantity * COALESCE(estimated_price,0)), 0) as total
+                FROM achats_demande_items WHERE demande_id=?""", (did,)).fetchone()
+            montant_calc = float(total_items_row['total'] or 0) if total_items_row else 0
+            
+            conn.execute("""UPDATE achats_demandes SET 
+                compta_status='a_valider',
+                compta_visible_at=datetime('now'),
+                compta_montant_estime=COALESCE(compta_montant_estime, ?)
+                WHERE id=? AND (compta_visible_at IS NULL OR compta_status='en_attente')""", 
+                (montant_calc if montant_calc > 0 else None, did))
+            
+            # Notifier les comptables
+            try:
+                users_compta = conn.execute("""SELECT id FROM users 
+                    WHERE role IN ('comptable','comptabilite','dg','directeur','admin') AND is_active=1""").fetchall()
+                for u in users_compta:
+                    existing = conn.execute("""SELECT id FROM notifications 
+                        WHERE user_id=? AND message LIKE ? AND type='mg_demande'""",
+                        (u['id'], f"%{ref}%")).fetchone()
+                    if existing: continue
+                    try:
+                        conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
+                            VALUES (?,?,?,?,?)""",
+                            (u['id'], 'mg_demande', f"💰 Demande MG à valider",
+                             f"{ref} — Validation budgétaire requise",
+                             '/comptabilite/demandes-mg'))
+                    except: pass
+            except: pass
+        
+        # Notifier le demandeur en cas de refus
+        if action == 'refusee':
+            try:
+                requester = conn.execute("SELECT requested_by FROM achats_demandes WHERE id=?", (did,)).fetchone()
+                if requester and requester['requested_by']:
+                    conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
+                        VALUES (?,?,?,?,?)""",
+                        (requester['requested_by'], 'mg_demande_refus', 
+                         f"❌ Demande {ref} refusée",
+                         f"Motif : {motif[:120]}",
+                         f'/mg/demandes/{did}/preview'))
+            except: pass
+        
+        conn.commit()
+        conn.close()
+        if action == 'validee':
+            flash(f"✅ Demande {ref} validée et transmise à la Comptabilité", "success")
+        else:
+            flash(f"❌ Demande {ref} refusée — motif communiqué au demandeur", "success")
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        flash(f"Erreur : {e}", "error")
+    
+    return redirect(f'/mg/demandes/{did}/preview')
 
 
 # ==================== v100 : Workflow Demandes MG → Comptabilité ====================

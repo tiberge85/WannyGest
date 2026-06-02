@@ -28,6 +28,15 @@
             {% if validateur %}
             <div style="font-size:12px;opacity:0.85;margin-top:6px">Par <strong>{{ validateur.full_name }}</strong> ({{ validateur.role }}){% if demande.approved_at %} le {{ demande.approved_at[:10] }}{% endif %}</div>
             {% endif %}
+            {% if demande.status == 'refusee' and demande.refus_motif %}
+            <div style="background:rgba(0,0,0,0.25);padding:8px 12px;border-radius:6px;margin-top:8px;max-width:600px">
+                <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Motif du refus</div>
+                <div style="font-size:13px;margin-top:3px">{{ demande.refus_motif }}</div>
+            </div>
+            {% endif %}
+            {% if demande.decision_notes %}
+            <div style="font-size:11px;opacity:0.9;margin-top:6px;font-style:italic">Notes : {{ demande.decision_notes }}</div>
+            {% endif %}
         </div>
         <div style="text-align:right">
             <div style="font-size:11px;opacity:0.85;text-transform:uppercase">Urgence</div>
@@ -125,13 +134,59 @@
 </div></div>
 
 <!-- Actions selon le statut -->
+{% if demande.status == 'en_attente' and ('mg_valider' in permissions or 'admin' in permissions) %}
+<div class="card" style="margin-top:16px;border:2px solid #e8672a">
+    <div class="card-header" style="background:#e8672a;color:#fff;padding:12px 16px;border-radius:10px 10px 0 0">
+        <h3 style="margin:0;color:#fff;font-size:14px">⚡ Décision MG — Validation ou refus</h3>
+    </div>
+    <div class="card-body">
+        <p style="font-size:13px;color:#666;margin-bottom:14px">
+            En tant que validateur MG, vous devez <strong>valider</strong> ou <strong>refuser</strong> cette demande. Le motif est obligatoire en cas de refus.
+        </p>
+        <form method="post" action="/mg/demandes/{{ demande.id }}/decision">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+                <label style="background:#2e7d32;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700;transition:all 0.2s">
+                    <input type="radio" name="action" value="validee" id="opt_validee" style="margin-right:6px" required>
+                    ✅ VALIDER<br><span style="font-size:11px;font-weight:400">Demande approuvée</span>
+                </label>
+                <label style="background:#c53030;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700;transition:all 0.2s">
+                    <input type="radio" name="action" value="refusee" id="opt_refusee" style="margin-right:6px" required>
+                    ❌ REFUSER<br><span style="font-size:11px;font-weight:400">Demande rejetée</span>
+                </label>
+            </div>
+            <div class="form-group" id="motif_block" style="display:none">
+                <label style="color:#c53030;font-weight:700">Motif du refus (obligatoire) *</label>
+                <textarea name="motif_refus" id="motif_field" rows="3" style="width:100%;padding:8px;border:2px solid #c53030;border-radius:7px" placeholder="Ex: Demande hors budget, à reporter ou à reformuler..."></textarea>
+                <p style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Ce motif sera communiqué au demandeur</p>
+            </div>
+            <div class="form-group" style="margin-top:12px">
+                <label>Notes complémentaires (optionnelles)</label>
+                <textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Ex: Validée sous réserve du devis fournisseur..."></textarea>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
+                <button type="submit" class="btn btn-primary" style="background:#1a3a5c">💾 Enregistrer la décision</button>
+                <a href="/mg/demandes" class="btn btn-outline">Annuler</a>
+            </div>
+        </form>
+        <script>
+        (function(){
+            var optR = document.getElementById('opt_refusee');
+            var optV = document.getElementById('opt_validee');
+            var block = document.getElementById('motif_block');
+            var field = document.getElementById('motif_field');
+            optR.addEventListener('change', function(){
+                if (optR.checked) { block.style.display = 'block'; field.required = true; }
+            });
+            optV.addEventListener('change', function(){
+                if (optV.checked) { block.style.display = 'none'; field.required = false; }
+            });
+        })();
+        </script>
+    </div>
+</div>
+{% endif %}
+
 <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
-    {% if demande.status == 'en_attente' %}
-        {% if 'mg_valider' in permissions or 'admin' in permissions %}
-        <a href="/mg/demandes/{{ demande.id }}/valider/validee" class="btn btn-primary" style="background:#2e7d32" onclick="return confirm('Valider cette demande ?')">✅ Valider la demande</a>
-        <a href="/mg/demandes/{{ demande.id }}/valider/refusee" class="btn btn-outline" style="color:#c53030;border-color:#c53030" onclick="return confirm('Refuser cette demande ?')">❌ Refuser</a>
-        {% endif %}
-    {% endif %}
     {% if demande.status == 'validee' and not demande.compta_visible_at %}
         <form method="post" action="/mg/demandes/{{ demande.id }}/envoyer-compta" style="display:inline" onsubmit="return confirm('Envoyer cette demande à la Comptabilité pour validation budgétaire ?')">
             <button type="submit" class="btn btn-orange">💰 Transmettre à la Comptabilité</button>

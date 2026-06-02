@@ -77,11 +77,11 @@
 <td style="text-align:right;font-weight:600;color:#6b7280">{{ '{:,.0f}'.format(s.montant) }}</td>
 <td>
     {% if s.status == 'valide' %}
-        <span class="badge-status sent">✅ validée RH</span>
+        <span class="badge-status sent">✅ validée {{ s.valideur_role or 'DG/RH' }}</span>
     {% elif s.status == 'refuse' %}
         <span class="badge-status">❌ refusée</span>
     {% else %}
-        <span class="badge-status pending">⏳ en attente RH</span>
+        <span class="badge-status pending">⏳ en attente DG/RH</span>
     {% endif %}
     {% if s.comptabilise %}<br><span style="font-size:10px;color:#2e7d32;font-weight:700">💰 Décaissée</span>{% endif %}
 </td>
@@ -90,9 +90,9 @@
     <a href="/caisse-sortie/{{ s.id }}/pdf" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="PDF">📄</a>
     {% if current_user.role in ('admin','dg','directeur') %}<a href="/caisse-sortie/{{ s.id }}/edit" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="Modifier">✏️</a>{% endif %}
     
-    {# v104 : Validation RH (3ème signataire) #}
+    {# v108 : Validation DG ou RH (3ème signataire) #}
     {% if s.status == 'en_attente' and current_user.role in ('admin','rh','directeur','dg') %}
-    <a href="/caisse-sortie/{{ s.id }}/valider" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;font-weight:700" onclick="return confirm('Valider en tant que RH (3ème signataire) ?')" title="Validation RH">✅ Valider RH</a>
+    <a href="/caisse-sortie/{{ s.id }}/valider" class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;font-weight:700" onclick="return confirm('Valider en tant que {{ 'DG' if current_user.role in ('dg','directeur') else ('RH' if current_user.role == 'rh' else 'Admin') }} (3ème signataire) ?')" title="Validation DG ou RH">✅ Valider {{ 'DG' if current_user.role in ('dg','directeur') else ('RH' if current_user.role == 'rh' else 'Admin') }}</a>
     <a href="/caisse-sortie/{{ s.id }}/refuser" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:2px 6px" onclick="return confirm('Refuser ?')" title="Refuser">❌</a>
     {% endif %}
     
