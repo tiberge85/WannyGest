@@ -21,7 +21,16 @@
         .sidebar-user{padding:12px 16px;background:rgba(0,0,0,0.15);font-size:13px}
         .sidebar-user .name{font-weight:600}
         .sidebar-user .role{opacity:0.6;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
-        .sidebar-nav{flex:1;padding:8px 0}
+        /* v107 : sidebar-nav en flex column pour permettre re-ordering CSS */
+        .sidebar-nav{flex:1;padding:8px 0;display:flex;flex-direction:column}
+        .sidebar-nav > *{flex-shrink:0}
+        /* Mettre les sections selon "order" — défaut 100 ; section principale = 1, OUTILS RAPIDES = 2, autres = 100+ */
+        .sidebar-nav a, .sidebar-nav .separator{order:0}
+        .nav-section{order:100} /* tous les départements par défaut */
+        .nav-section#sec-outils-rapides{order:50} /* OUTILS RAPIDES juste après la section principale */
+        .nav-section#sec-admin{order:200} /* admin toujours en bas */
+        /* Section principale du user (mise en premier) — sera assignée via data-role-section attribute */
+        .nav-section[data-primary="true"]{order:10}
         .sidebar-nav a{display:flex;align-items:center;gap:10px;padding:10px 18px;color:rgba(255,255,255,0.75);text-decoration:none;font-size:13px;transition:all 0.2s;border-left:3px solid transparent}
         .sidebar-nav a:hover{background:rgba(255,255,255,0.08);color:#fff}
         .sidebar-nav a.active{background:rgba(232,103,42,0.15);color:#ff9f43;border-left-color:#ff9f43}
@@ -247,7 +256,7 @@
             
             {% if 'visites' in permissions or 'proforma' in permissions or 'clients' in permissions %}
             <!-- CRM -->
-            <div class="nav-section" id="sec-crm">
+            <div class="nav-section" id="sec-crm" {% if user_role in ('commercial',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-crm')">🎯 CRM <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     {% if 'clients' in permissions %}<a href="/clients" class="{% if page == 'clients' %}active{% endif %}">Relation client</a>{% endif %}
@@ -262,7 +271,7 @@
             {% endif %}
             
             {% if 'resp_projet' in permissions or 'admin' in permissions or 'controle_qualite' in permissions or 'livraison_intervention' in permissions %}
-            <div class="nav-section" id="sec-resp-proj">
+            <div class="nav-section" id="sec-resp-proj" {% if user_role in ('gestionnaire_projet',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 GESTION DE PROJETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/resp-projet" class="{% if page == 'resp_projet' %}active{% endif %}">📊 Tableau de bord</a>
@@ -300,7 +309,7 @@
             
             {% if 'fichiers' in permissions %}
             <!-- Gestion RH -->
-            <div class="nav-section" id="sec-rh">
+            <div class="nav-section" id="sec-rh" {% if user_role in ('rh',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-rh')">👥 GESTION RH <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/rh" class="{% if page == 'rh' %}active{% endif %}">Tableau de bord RH</a>
@@ -342,7 +351,7 @@
             {# 💰 COMPTABILITÉ : normes comptables, états, lettrage, écritures   #}
             {# ═══════════════════════════════════════════════════════════════ #}
             {% if 'compta_pro' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
-            <div class="nav-section" id="sec-compta">
+            <div class="nav-section" id="sec-compta" {% if user_role in ('comptable', 'comptabilite') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-compta')">💰 COMPTABILITÉ <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     
@@ -459,7 +468,7 @@
             
             {% if 'centre_technique' in permissions or 'admin' in permissions %}
             <!-- Centre Technique -->
-            <div class="nav-section" id="sec-tech">
+            <div class="nav-section" id="sec-tech" {% if user_role in ('technicien', 'tech_chef', 'centre_technique') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-tech')">🔧 CENTRE TECHNIQUE <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     {# v89 : Lien Roadmap projets accessible au centre technique #}
@@ -476,7 +485,7 @@
             
             {% if 'informatique' in permissions or 'admin' in permissions %}
             <!-- IT -->
-            <div class="nav-section" id="sec-info">
+            <div class="nav-section" id="sec-info" {% if user_role in ('informatique',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-info')">🖥️ IT <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/it" class="{% if page == 'it' %}active{% endif %}">📊 Dashboard IT</a>
@@ -489,7 +498,7 @@
             
             {% if 'moyens_generaux' in permissions or 'comptabilite' in permissions or 'mg_view' in permissions or 'admin' in permissions %}
             <!-- Moyens Généraux (UNIFIÉ v59) -->
-            <div class="nav-section" id="sec-moyens">
+            <div class="nav-section" id="sec-moyens" {% if user_role in ('moyens_generaux', 'mg', 'magasinier') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-moyens')">
                     🏠 MOYENS GÉNÉRAUX
                     {% if mg_pending_count and mg_pending_count > 0 %}
@@ -529,7 +538,7 @@
             
             {% if 'concierge' in permissions or 'admin' in permissions %}
             <!-- Conciergerie -->
-            <div class="nav-section" id="sec-concierge">
+            <div class="nav-section" id="sec-concierge" {% if user_role in ('concierge',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-concierge')">🔑 CONCIERGERIE <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/concierge" class="{% if page == 'concierge' and tab == 'accueil' %}active{% endif %}">📊 Accueil</a>
@@ -542,8 +551,8 @@
             </div>
             {% endif %}
             
-            <!-- Outils communs -->
-            <div style="padding:4px 0">
+            <!-- Outils communs (Calendrier) — order:150 = juste avant admin (200) -->
+            <div style="padding:4px 0;order:150">
                 <a href="/rh/calendrier" class="{% if page == 'rh_calendrier' %}active{% endif %}" style="display:block;padding:8px 18px;color:rgba(255,255,255,0.85);text-decoration:none;font-size:13px">📅 Calendrier</a>
             </div>
             

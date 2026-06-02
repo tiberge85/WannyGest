@@ -1064,6 +1064,39 @@ except Exception as _e:
     print(f"[v106-Outils] Erreur : {_e}", flush=True)
 
 
+# v107 : BACKFILL — Les anciennes demandes validées AVANT v102 n'ont pas compta_status rempli
+# → Les rendre visibles dans /comptabilite/demandes-mg
+try:
+    from models import get_db as _v107_db
+    _v107 = _v107_db()
+    # Sélectionner les demandes validées sans compta_status rempli
+    orphan_demandes = _v107.execute("""SELECT id, reference 
+        FROM achats_demandes 
+        WHERE status='validee' 
+          AND (compta_status IS NULL OR compta_status='')
+          AND (compta_visible_at IS NULL)""").fetchall()
+    nb_orphans = 0
+    for d in orphan_demandes:
+        try:
+            # Calculer montant estimé depuis les items
+            total_row = _v107.execute("""SELECT COALESCE(SUM(quantity * COALESCE(estimated_price,0)), 0) as total
+                FROM achats_demande_items WHERE demande_id=?""", (d['id'],)).fetchone()
+            montant = float(total_row['total'] or 0) if total_row else 0
+            _v107.execute("""UPDATE achats_demandes SET 
+                compta_status='a_valider',
+                compta_visible_at=COALESCE(approved_at, created_at, datetime('now')),
+                compta_montant_estime=COALESCE(compta_montant_estime, ?)
+                WHERE id=?""", (montant if montant > 0 else None, d['id']))
+            nb_orphans += 1
+        except: pass
+    _v107.commit()
+    _v107.close()
+    if nb_orphans > 0:
+        print(f"[v107-Backfill] {nb_orphans} demande(s) MG validée(s) rendues visibles à la Comptabilité", flush=True)
+except Exception as _e:
+    print(f"[v107-Backfill] Erreur : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -20203,7 +20236,30 @@ def budget_recompute(bid):
 def caisse_sortie():
     month = request.args.get('month', datetime.now().strftime('%Y-%m'))
     tab = request.args.get('tab', 'sorties')
-    sorties = get_caisse_sorties(month=month)
+    
+    # v107 : Filtrage par département pour les rôles non-comptables
+    user = get_user_by_id(session.get('user_id'))
+    user_role = user['role'] if user else None
+    user_dept = user.get('department') if user else None
+    
+    # Rôles qui voient TOUT (comptabilité, RH validateur, admin, DG, direction)
+    roles_voient_tout = ('admin', 'comptable', 'comptabilite', 'rh', 'dg', 'directeur', 'moyens_generaux', 'mg')
+    voit_tout = user_role in roles_voient_tout
+    
+    # Filtrer par demandeur OU par département
+    if voit_tout:
+        sorties = get_caisse_sorties(month=month)
+    else:
+        # Récupérer toutes les sorties du mois puis filtrer en Python
+        all_sorties = get_caisse_sorties(month=month)
+        sorties = []
+        for s in all_sorties:
+            s_dict = dict(s) if hasattr(s, 'keys') else s
+            # Inclure si l'utilisateur est le demandeur OU dans le même département
+            if (s_dict.get('demandeur_id') == session.get('user_id') or
+                (user_dept and s_dict.get('department') == user_dept)):
+                sorties.append(s_dict)
+    
     stats = get_caisse_stats(month=month)
     conn = _gdb()
     entrees = [dict(r) for r in conn.execute("SELECT * FROM caisse_entrees WHERE strftime('%Y-%m',date)=? ORDER BY date DESC", (month,)).fetchall()]
@@ -20217,7 +20273,8 @@ def caisse_sortie():
         s['caisse_name'] = caisses_map.get(s.get('caisse_id'), '') if hasattr(s, 'get') else ''
     conn.close()
     return render_template('caisse_sortie.html', page='caisse_sortie', sorties=sorties, stats=stats, month=month,
-        tab=tab, entrees=entrees, total_entrees=total_entrees, caisses=caisses)
+        tab=tab, entrees=entrees, total_entrees=total_entrees, caisses=caisses,
+        voit_tout=voit_tout)
 
 @app.route('/caisse-sortie/demande', methods=['GET','POST'])
 @login_required
@@ -22213,8 +22270,17 @@ def compta_demandes_mg():
         FROM achats_demandes WHERE compta_status='a_valider'""").fetchone()[0]
     
     conn.close()
+    
+    # v107 : Solde de la caisse de fonctionnement pour aide à la décision
+    solde_caisse = 0
+    try:
+        from models import tresorerie_solde_caisse
+        solde_caisse = float(tresorerie_solde_caisse() or 0)
+    except: pass
+    
     return render_template('compta_demandes_mg.html', page='compta_demandes_mg',
-        demandes=demandes, current_statut=statut, stats=stats, montant_attente=montant_attente)
+        demandes=demandes, current_statut=statut, stats=stats, montant_attente=montant_attente,
+        solde_caisse=solde_caisse)
 
 
 @app.route('/comptabilite/demandes-mg/<int:did>/preview')
@@ -22240,8 +22306,17 @@ def compta_demande_mg_preview(did):
     total_items = sum((it.get('quantity') or 0) * (it.get('estimated_price') or 0) for it in items)
     
     conn.close()
+    
+    # v107 : Solde caisse pour aide à la décision
+    solde_caisse = 0
+    try:
+        from models import tresorerie_solde_caisse
+        solde_caisse = float(tresorerie_solde_caisse() or 0)
+    except: pass
+    
     return render_template('compta_demande_mg_preview.html', page='compta_demandes_mg',
-        demande=demande, items=items, total_items=total_items)
+        demande=demande, items=items, total_items=total_items,
+        solde_caisse=solde_caisse)
 
 
 @app.route('/comptabilite/demandes-mg/<int:did>/decision', methods=['POST'])
@@ -22255,6 +22330,11 @@ def compta_demande_mg_decision(did):
     if action not in ('validee', 'refusee'):
         flash("Action invalide", "error")
         return redirect('/comptabilite/demandes-mg')
+    
+    # v107 : motif obligatoire en cas de refus
+    if action == 'refusee' and not motif:
+        flash("⚠️ Le motif est obligatoire en cas de refus", "error")
+        return redirect(f'/comptabilite/demandes-mg/{did}/preview')
     
     user = get_user_by_id(session.get('user_id'))
     try:

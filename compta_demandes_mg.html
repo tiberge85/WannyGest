@@ -9,6 +9,25 @@
     <a href="/comptabilite" class="btn btn-outline btn-sm">← Comptabilité</a>
 </div>
 
+{# v107 : Bandeau solde caisse pour aide à la décision (visible seulement pour rôles autorisés) #}
+{% if current_user.role in ('admin','comptable','comptabilite','moyens_generaux','mg','dg','directeur') %}
+<div style="background:linear-gradient(90deg,{% if solde_caisse > 1000000 %}#2e7d32 0%,#1b5e20 100%{% elif solde_caisse > 100000 %}#f29f2f 0%,#b8561f 100%{% else %}#c53030 0%,#7f1d1d 100%{% endif %});color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.15)">
+    <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;font-weight:700">💰 Solde caisse de fonctionnement</div>
+        <div style="font-size:26px;font-weight:900;margin-top:4px">{{ '{:,.0f}'.format(solde_caisse).replace(',', ' ') }} F CFA</div>
+    </div>
+    <div style="text-align:right">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;font-weight:700">Engagements en attente</div>
+        <div style="font-size:18px;font-weight:800;margin-top:4px">{{ '{:,.0f}'.format(montant_attente).replace(',', ' ') }} F</div>
+        {% set restant = solde_caisse - montant_attente %}
+        <div style="font-size:11px;opacity:0.9;margin-top:2px">
+            {% if restant >= 0 %}Solde après validation : <strong>{{ '{:,.0f}'.format(restant).replace(',', ' ') }} F</strong>
+            {% else %}⚠️ Insuffisance : <strong>{{ '{:,.0f}'.format(restant).replace(',', ' ') }} F</strong>{% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- KPI -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px">
     <a href="?statut=a_valider" style="text-decoration:none;background:linear-gradient(135deg,#e8672a 0%,#b8561f 100%);color:#fff;padding:16px;border-radius:10px;display:block">
@@ -52,6 +71,9 @@
                     <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-weight:800">Description</th>
                     <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-weight:800">Urgence</th>
                     <th style="padding:12px 8px;text-align:right;background:#1A7A6D;color:#fff;font-weight:800">Montant estimé</th>
+                    {% if current_user.role in ('admin','comptable','comptabilite','moyens_generaux','mg','dg','directeur') %}
+                    <th style="padding:12px 8px;text-align:right;background:#1A7A6D;color:#fff;font-weight:800" title="Solde caisse de fonctionnement après cette sortie">Solde après</th>
+                    {% endif %}
                     <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-weight:800">Statut Compta</th>
                     <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-weight:800">Action</th>
                 </tr>
@@ -73,6 +95,18 @@
                     {% elif d.total_items %}{{ '{:,.0f}'.format(d.total_items).replace(',', ' ') }} F
                     {% else %}<span style="color:#888;font-weight:400;font-style:italic">non renseigné</span>{% endif %}
                 </td>
+                {% if current_user.role in ('admin','comptable','comptabilite','moyens_generaux','mg','dg','directeur') %}
+                <td style="text-align:right;padding:8px;font-weight:700">
+                    {% set montant_d = d.compta_montant_estime or d.total_items or 0 %}
+                    {% set solde_apres = solde_caisse - montant_d %}
+                    <span style="color:{% if solde_apres >= 100000 %}#2e7d32{% elif solde_apres >= 0 %}#f29f2f{% else %}#c53030{% endif %};font-size:11px">
+                        {{ '{:,.0f}'.format(solde_apres).replace(',', ' ') }} F
+                    </span>
+                    {% if solde_apres < 0 %}<br><span style="background:#c53030;color:#fff;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:800">⚠️ Insuffisant</span>
+                    {% elif solde_apres < 100000 %}<br><span style="background:#f29f2f;color:#fff;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:800">⚠️ Tendu</span>
+                    {% endif %}
+                </td>
+                {% endif %}
                 <td style="text-align:center;padding:8px">
                     {% if d.compta_status == 'a_valider' %}
                     <span style="background:#e8672a;color:#fff;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700">⏳ À valider</span>

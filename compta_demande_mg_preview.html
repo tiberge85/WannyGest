@@ -9,6 +9,33 @@
     <a href="/comptabilite/demandes-mg" class="btn btn-outline btn-sm">← Liste demandes</a>
 </div>
 
+{# v107 : Bandeau solde caisse pour aide à la décision #}
+{% if current_user.role in ('admin','comptable','comptabilite','moyens_generaux','mg','dg','directeur') %}
+{% set montant_demande = demande.compta_montant_estime or total_items or 0 %}
+{% set solde_apres = solde_caisse - montant_demande %}
+<div style="background:linear-gradient(90deg,{% if solde_apres >= 100000 %}#2e7d32 0%,#1b5e20 100%{% elif solde_apres >= 0 %}#f29f2f 0%,#b8561f 100%{% else %}#c53030 0%,#7f1d1d 100%{% endif %});color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15)">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:center">
+        <div>
+            <div style="font-size:10px;text-transform:uppercase;opacity:0.85;letter-spacing:1px;font-weight:700">💰 Solde caisse actuel</div>
+            <div style="font-size:20px;font-weight:900;margin-top:3px">{{ '{:,.0f}'.format(solde_caisse).replace(',', ' ') }} F</div>
+        </div>
+        <div style="text-align:center">
+            <div style="font-size:10px;text-transform:uppercase;opacity:0.85;letter-spacing:1px;font-weight:700">↓ Montant demandé</div>
+            <div style="font-size:20px;font-weight:900;margin-top:3px">- {{ '{:,.0f}'.format(montant_demande).replace(',', ' ') }} F</div>
+        </div>
+        <div style="text-align:right;background:rgba(0,0,0,0.2);padding:8px;border-radius:6px">
+            <div style="font-size:10px;text-transform:uppercase;opacity:0.85;letter-spacing:1px;font-weight:700">= Solde après validation</div>
+            <div style="font-size:22px;font-weight:900;margin-top:3px">{{ '{:,.0f}'.format(solde_apres).replace(',', ' ') }} F</div>
+            {% if solde_apres < 0 %}
+            <div style="font-size:11px;margin-top:3px">⚠️ INSUFFISANCE</div>
+            {% elif solde_apres < 100000 %}
+            <div style="font-size:11px;margin-top:3px">⚠️ Solde tendu</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px">
     <!-- Colonne principale -->
     <div>
@@ -104,9 +131,29 @@
                         </label>
                     </div>
                     <div class="form-group" id="motif_block" style="display:none">
-                        <label style="color:#c53030;font-weight:700">Motif du refus (obligatoire en cas de refus)</label>
-                        <textarea name="motif_refus" rows="2" style="width:100%;padding:8px;border:2px solid #c53030;border-radius:7px" placeholder="Ex: Budget de trésorerie insuffisant, à reporter au mois prochain..."></textarea>
+                        <label style="color:#c53030;font-weight:700">Motif du refus (obligatoire en cas de refus) *</label>
+                        <textarea name="motif_refus" id="motif_refus_field" rows="3" style="width:100%;padding:8px;border:2px solid #c53030;border-radius:7px" placeholder="Ex: Budget de trésorerie insuffisant, à reporter au mois prochain..."></textarea>
+                        <p style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Ce motif sera communiqué au demandeur</p>
                     </div>
+                    <script>
+                    // v107 : Toggle required selon l'action choisie
+                    (function(){
+                        var radios = document.querySelectorAll('input[name="action"]');
+                        var motifBlock = document.getElementById('motif_block');
+                        var motifField = document.getElementById('motif_refus_field');
+                        radios.forEach(function(r){
+                            r.addEventListener('change', function(){
+                                if (r.value === 'refusee' && r.checked) {
+                                    motifBlock.style.display = 'block';
+                                    motifField.required = true;
+                                } else if (r.value === 'validee' && r.checked) {
+                                    motifBlock.style.display = 'none';
+                                    motifField.required = false;
+                                }
+                            });
+                        });
+                    })();
+                    </script>
                     <div class="form-group">
                         <label>Notes complémentaires (visibles par le MG)</label>
                         <textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Ex: Validé sous réserve d'envoi facture du fournisseur..."></textarea>
