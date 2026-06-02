@@ -13232,19 +13232,26 @@ def field_reports_list():
     """Liste des remontées d'informations avec filtres."""
     conn = _gdb()
     user_id = session.get('user_id')
-    perms = session.get('permissions', [])
+    # v105 : utiliser has_permission (BDD) au lieu de session (vide)
+    from models import has_permission as _hp
+    user = get_user_by_id(user_id) if user_id else None
+    user_role = user['role'] if user else None
+    can_view_all = (user_role == 'admin' or 
+                    _hp(user_role, 'field_report_view_all') or 
+                    _hp(user_role, 'admin'))
+    can_view_mine = (can_view_all or _hp(user_role, 'field_report_view_mine'))
     
     # Si pas view_all, montrer uniquement les siennes
-    if 'field_report_view_all' in perms or 'admin' in perms:
+    if can_view_all:
         rows = conn.execute("SELECT * FROM field_reports ORDER BY created_at DESC LIMIT 500").fetchall()
-    elif 'field_report_view_mine' in perms:
+    elif can_view_mine:
         rows = conn.execute("SELECT * FROM field_reports WHERE auteur_id=? ORDER BY created_at DESC LIMIT 200", (user_id,)).fetchall()
     else:
         rows = []
     reports = [dict(r) for r in rows]
     
     # Stats par statut (tous)
-    all_rows = conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall() if ('field_report_view_all' in perms or 'admin' in perms) else []
+    all_rows = conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall() if can_view_all else []
     stats_statut = {row['statut']: row['nb'] for row in all_rows}
     stats = {
         'recue': stats_statut.get('recue', 0),
@@ -13352,11 +13359,18 @@ def field_report_detail(rid):
         return redirect('/field-reports')
     report = dict(row)
     
-    # Permissions de vue
+    # v105 : Permissions de vue — utiliser has_permission (BDD) au lieu de session (vide)
+    from models import has_permission as _hp
     user_id = session.get('user_id')
-    perms = session.get('permissions', [])
-    if ('field_report_view_all' not in perms and 'admin' not in perms 
-        and report['auteur_id'] != user_id):
+    user = get_user_by_id(user_id) if user_id else None
+    user_role = user['role'] if user else None
+    
+    can_view_all = (user_role == 'admin' or 
+                    _hp(user_role, 'field_report_view_all') or 
+                    _hp(user_role, 'admin'))
+    is_author = (report.get('auteur_id') == user_id)
+    
+    if not can_view_all and not is_author:
         conn.close()
         flash("Accès refusé", "error")
         return redirect('/field-reports')
@@ -19954,8 +19968,8 @@ def pointage_company_session_current(slug):
 
 DEPARTMENTS = ['Administration', 'Direction Générale', 'Ressources Humaines',
                'Comptabilité / Finance', 'Commercial', 'Technique',
-               'Informatique', 'Moyens Généraux', 'Conciergerie',
-               'Marketing', 'Logistique', 'Autre']
+               'Informatique', 'Moyens Généraux', 'Gestion de Projet',
+               'Conciergerie', 'Marketing', 'Logistique', 'Autre']
 
 
 @app.route('/budgets')
