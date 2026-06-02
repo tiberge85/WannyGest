@@ -1653,13 +1653,23 @@ setTimeout(function(){ window.location.reload(); }, 60000);
 <div class="card"><div class="card-body" style="padding:0">
 {% if backups %}
 <table>
-<thead><tr><th>Fichier</th><th>Date</th><th style="text-align:right">Taille</th></tr></thead>
+<thead><tr><th>Fichier</th><th>Date</th><th style="text-align:right">Taille</th><th style="text-align:center">Inspection</th></tr></thead>
 <tbody>
 {% for b in backups %}
-<tr><td style="font-family:monospace;font-size:11px">{{ b.name }}</td><td>{{ b.date }}</td><td style="text-align:right">{{ b.size_kb }} KB</td></tr>
+<tr>
+    <td style="font-family:monospace;font-size:11px">{{ b.name }}</td>
+    <td>{{ b.date }}</td>
+    <td style="text-align:right">{{ b.size_kb }} KB</td>
+    <td style="text-align:center">
+        <a href="/admin/backup/{{ b.name }}/inspect-caisses" class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 8px" title="Voir les caisses présentes dans ce backup">💰 Caisses</a>
+    </td>
+</tr>
 {% endfor %}
 </tbody>
 </table>
+<div style="background:#fff3e0;padding:10px 14px;font-size:11px;color:#7a4a00;border-top:1px solid #ffe0b2">
+    💡 Cliquez sur <strong>💰 Caisses</strong> pour parcourir les caisses présentes dans un backup et récupérer celles supprimées. Une copie sera mise en corbeille pour restauration sélective.
+</div>
 {% else %}
 <div style="text-align:center;padding:40px;color:#888">Aucun backup. Programmez le cron pour commencer.</div>
 {% endif %}

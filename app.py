@@ -1151,6 +1151,32 @@ except Exception as _e:
     print(f"[v108-GP] Erreur : {_e}", flush=True)
 
 
+# v112 : Système de corbeille — sauvegarde toute purge en JSON pour restauration
+try:
+    from models import get_db as _v112_db
+    _v112 = _v112_db()
+    _v112.execute("""CREATE TABLE IF NOT EXISTS trash_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER,
+        entity_name TEXT,
+        snapshot_json TEXT NOT NULL,
+        stats_json TEXT,
+        deleted_by INTEGER,
+        deleted_by_name TEXT,
+        deleted_at TEXT DEFAULT (datetime('now')),
+        restored_at TEXT,
+        restored_by INTEGER,
+        notes TEXT
+    )""")
+    _v112.execute("CREATE INDEX IF NOT EXISTS idx_trash_type ON trash_snapshots(entity_type, deleted_at)")
+    _v112.commit()
+    _v112.close()
+    print("[v112-Corbeille] Table trash_snapshots prête", flush=True)
+except Exception as _e:
+    print(f"[v112-Corbeille] Erreur : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -9780,11 +9806,21 @@ def compta_caisse_delete(cid):
         return redirect('/comptabilite/caisses')
     # Hard delete : pas d'opérations ou force=1
     try:
+        # v112 : SNAPSHOT avant DELETE pour permettre restauration
+        try:
+            snapshot, snap_stats = _snapshot_caisse(conn, cid)
+            _save_trash_snapshot(conn, 'caisse', cid, ca['name'],
+                snapshot, snap_stats, session['user_id'], user['full_name'],
+                notes=f"Hard delete (force={bool(request.args.get('force'))})")
+            conn.commit()
+        except Exception as _e:
+            print(f"[v112-Corbeille] Erreur snapshot delete : {_e}", flush=True)
+        
         if request.args.get('force'):
             conn.execute("DELETE FROM caisse_operations WHERE caisse_id=?", (cid,))
         conn.execute("DELETE FROM caisses WHERE id=?", (cid,))
         conn.commit()
-        flash(f"✅ Caisse « {ca['name']} » supprimée définitivement.", "success")
+        flash(f"✅ Caisse « {ca['name']} » supprimée définitivement. 📦 Sauvegarde disponible dans la Corbeille.", "success")
     except Exception as e:
         flash(f"Erreur: {e}", "error")
     conn.close()
@@ -9864,15 +9900,118 @@ def compta_caisse_reset_zero(cid):
     return redirect('/comptabilite/caisses')
 
 
+# v112 : Fonctions helpers pour le système de corbeille (snapshot + restauration)
+def _snapshot_caisse(conn, cid):
+    """v112 : Crée un snapshot JSON complet d'une caisse avant suppression.
+    Retourne (snapshot_dict, stats_dict)."""
+    import json
+    snap = {'caisse': None, 'operations': [], 'entrees': [], 'sorties': [],
+            'virements': [], 'mouvements': [], 'pieces': [], 'ecritures': [],
+            'supplier_payments_links': [], 'interventions_links': []}
+    stats = {}
+    
+    ca_row = conn.execute("SELECT * FROM caisses WHERE id=?", (cid,)).fetchone()
+    if not ca_row: return snap, stats
+    snap['caisse'] = dict(ca_row)
+    
+    # Opérations
+    rows = conn.execute("SELECT * FROM caisse_operations WHERE caisse_id=? OR source_caisse_id=? OR dest_caisse_id=?",
+                        (cid, cid, cid)).fetchall()
+    snap['operations'] = [dict(r) for r in rows]
+    stats['operations'] = len(snap['operations'])
+    
+    # Entrées
+    try:
+        rows = conn.execute("SELECT * FROM caisse_entrees WHERE caisse_id=?", (cid,)).fetchall()
+        snap['entrees'] = [dict(r) for r in rows]
+        stats['entrees'] = len(snap['entrees'])
+    except: stats['entrees'] = 0
+    
+    # Sorties
+    try:
+        rows = conn.execute("SELECT * FROM caisse_sorties WHERE caisse_id=?", (cid,)).fetchall()
+        snap['sorties'] = [dict(r) for r in rows]
+        stats['sorties'] = len(snap['sorties'])
+    except: stats['sorties'] = 0
+    
+    # Virements
+    try:
+        rows = conn.execute("SELECT * FROM caisse_virements WHERE caisse_id=?", (cid,)).fetchall()
+        snap['virements'] = [dict(r) for r in rows]
+        stats['virements'] = len(snap['virements'])
+    except: stats['virements'] = 0
+    
+    # Références pour mouvements et écritures
+    op_refs = [r['reference'] for r in snap['operations'] if r.get('reference')]
+    sortie_refs = [r['reference'] for r in snap['sorties'] if r.get('reference')]
+    entree_refs = [r['reference'] for r in snap['entrees'] if r.get('reference')]
+    all_refs = list(set(op_refs + sortie_refs + entree_refs))
+    
+    # Mouvements de trésorerie
+    rows = conn.execute("SELECT * FROM tresorerie_mouvements WHERE caisse_id=?", (cid,)).fetchall()
+    snap['mouvements'] = [dict(r) for r in rows]
+    if all_refs:
+        rows2 = conn.execute("SELECT * FROM tresorerie_mouvements WHERE reference IN ({}) AND caisse_id != ?".format(
+            ','.join('?' for _ in all_refs)), all_refs + [cid]).fetchall()
+        snap['mouvements'].extend([dict(r) for r in rows2])
+    stats['mouvements'] = len(snap['mouvements'])
+    
+    # Pièces
+    try:
+        rows = conn.execute("SELECT * FROM pieces_caisse WHERE caisse_id=?", (cid,)).fetchall()
+        snap['pieces'] = [dict(r) for r in rows]
+        stats['pieces'] = len(snap['pieces'])
+    except: stats['pieces'] = 0
+    
+    # Écritures comptables liées
+    if all_refs:
+        try:
+            rows = conn.execute("SELECT * FROM ecritures_comptables WHERE piece IN ({})".format(
+                ','.join('?' for _ in all_refs)), all_refs).fetchall()
+            snap['ecritures'] = [dict(r) for r in rows]
+            stats['ecritures'] = len(snap['ecritures'])
+        except: stats['ecritures'] = 0
+    
+    # Liens supplier_payments (pour restauration)
+    sortie_ids = [r['id'] for r in snap['sorties']]
+    if sortie_ids:
+        try:
+            rows = conn.execute("SELECT id, caisse_sortie_id FROM supplier_payments WHERE caisse_sortie_id IN ({})".format(
+                ','.join('?' for _ in sortie_ids)), sortie_ids).fetchall()
+            snap['supplier_payments_links'] = [dict(r) for r in rows]
+        except: pass
+    
+    # Liens interventions
+    try:
+        rows = conn.execute("SELECT id, caisse_id FROM interventions WHERE caisse_id=?", (cid,)).fetchall()
+        snap['interventions_links'] = [dict(r) for r in rows]
+    except: pass
+    
+    return snap, stats
+
+
+def _save_trash_snapshot(conn, entity_type, entity_id, entity_name, snapshot, stats, user_id, user_name, notes=''):
+    """v112 : Enregistre un snapshot dans la table trash_snapshots."""
+    import json
+    cur = conn.execute("""INSERT INTO trash_snapshots 
+        (entity_type, entity_id, entity_name, snapshot_json, stats_json, 
+         deleted_by, deleted_by_name, deleted_at, notes)
+        VALUES (?,?,?,?,?,?,?,datetime('now'),?)""",
+        (entity_type, entity_id, entity_name,
+         json.dumps(snapshot, ensure_ascii=False, default=str),
+         json.dumps(stats, ensure_ascii=False, default=str),
+         user_id, user_name, notes))
+    return cur.lastrowid
+
+
 # v111 : SUPPRESSION DÉFINITIVE d'une caisse + toutes ses traces (purge totale)
 # Efface : la caisse, ses opérations, entrées, sorties, virements, mouvements journal,
 # pièces, écritures comptables liées. Aucun retour possible.
 @app.route('/comptabilite/caisses/<int:cid>/purge', methods=['POST', 'GET'])
 @login_required
 def compta_caisse_purge(cid):
-    """v111 : Purge totale d'une caisse — supprime TOUTES les traces.
-    Accessible uniquement à admin, rh, comptable, comptabilite, dg, directeur.
-    Nécessite la confirmation explicite (form POST avec confirm='OUI')."""
+    """v111 + v112 : Purge totale d'une caisse — supprime TOUTES les traces
+    APRÈS avoir sauvegardé un snapshot complet dans la corbeille."""
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
         flash("⚠️ Seul l'admin, le RH ou la comptabilité peuvent purger une caisse", "error")
@@ -9909,6 +10048,17 @@ def compta_caisse_purge(cid):
     stats = {'operations': 0, 'entrees': 0, 'sorties': 0, 'virements': 0,
              'mouvements': 0, 'pieces': 0, 'ecritures': 0, 'interventions_unlinked': 0,
              'supplier_payments_unlinked': 0}
+    
+    # v112 : SNAPSHOT AVANT PURGE pour permettre la restauration
+    try:
+        snapshot, snap_stats = _snapshot_caisse(conn, cid)
+        trash_id = _save_trash_snapshot(conn, 'caisse', cid, ca['name'], 
+            snapshot, snap_stats, session['user_id'], user['full_name'])
+        conn.commit()
+        print(f"[v112-Corbeille] Snapshot caisse {ca['name']} (id={cid}) sauvegardé en corbeille (trash_id={trash_id})", flush=True)
+    except Exception as _e:
+        print(f"[v112-Corbeille] Erreur snapshot : {_e}", flush=True)
+        trash_id = None
     
     try:
         # 1. Opérations
@@ -9976,10 +10126,11 @@ def compta_caisse_purge(cid):
         log_activity(session['user_id'], user['full_name'], 'Caisse',
                      f"PURGE TOTALE caisse {ca['name']} (id={cid}) — {stats}", request.remote_addr)
         
-        msg = (f"🗑️ Caisse « {ca['name']} » et toutes ses traces supprimées définitivement : "
+        msg = (f"🗑️ Caisse « {ca['name']} » purgée : "
                f"{stats['operations']} op., {stats['entrees']} entrées, {stats['sorties']} sorties, "
                f"{stats['virements']} virements, {stats['mouvements']} mvts journal, "
-               f"{stats['pieces']} pièces, {stats['ecritures']} écritures comptables.")
+               f"{stats['pieces']} pièces, {stats['ecritures']} écritures comptables. "
+               f"📦 Sauvegarde disponible dans la Corbeille — restauration possible.")
         flash(msg, "success")
     except Exception as e:
         try: conn.close()
@@ -10010,6 +10161,24 @@ def compta_caisse_purge_all():
         conn.close()
         flash("ℹ️ Aucune caisse à purger", "info")
         return redirect('/comptabilite/caisses')
+    
+    # v112 : SNAPSHOT par caisse AVANT purge totale
+    nb_snapshots = 0
+    try:
+        all_caisses = conn.execute("SELECT id, name FROM caisses").fetchall()
+        for cr in all_caisses:
+            try:
+                snapshot, snap_stats = _snapshot_caisse(conn, cr['id'])
+                _save_trash_snapshot(conn, 'caisse', cr['id'], cr['name'],
+                    snapshot, snap_stats, session['user_id'], user['full_name'],
+                    notes='Purge globale (PURGE TOUTES)')
+                nb_snapshots += 1
+            except Exception as _se:
+                print(f"[v112-Corbeille] Erreur snapshot caisse {cr['id']} : {_se}", flush=True)
+        conn.commit()
+        print(f"[v112-Corbeille] {nb_snapshots} snapshots sauvegardés en corbeille avant purge globale", flush=True)
+    except Exception as _e:
+        print(f"[v112-Corbeille] Erreur purge-all snapshot : {_e}", flush=True)
     
     # Récupérer toutes les références pour purger les écritures liées
     op_refs = [r[0] for r in conn.execute("SELECT reference FROM caisse_operations").fetchall() if r[0]]
@@ -10081,6 +10250,255 @@ def compta_caisse_purge_all():
         flash(f"Erreur lors de la purge globale : {e}", "error")
     
     return redirect('/comptabilite/caisses')
+
+
+# ============================================================================
+# v112 : CORBEILLE — Gestion des éléments supprimés avec restauration sélective
+# ============================================================================
+
+@app.route('/admin/corbeille')
+@login_required
+def corbeille_list():
+    """v112 : Liste tous les éléments supprimés disponibles pour restauration."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
+        flash("⚠️ Accès réservé à l'admin, RH et comptabilité", "error")
+        return redirect('/dashboard')
+    
+    import json
+    conn = _gdb()
+    rows = conn.execute("""SELECT * FROM trash_snapshots 
+        WHERE restored_at IS NULL 
+        ORDER BY deleted_at DESC""").fetchall()
+    items = []
+    for r in rows:
+        item = dict(r)
+        try: item['stats'] = json.loads(item['stats_json'] or '{}')
+        except: item['stats'] = {}
+        items.append(item)
+    conn.close()
+    return render_template('corbeille.html', page='corbeille', items=items)
+
+
+@app.route('/admin/corbeille/<int:tid>')
+@login_required
+def corbeille_detail(tid):
+    """v112 : Détail d'un snapshot avec possibilité de choisir quoi restaurer."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/dashboard')
+    
+    import json
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM trash_snapshots WHERE id=?", (tid,)).fetchone()
+    conn.close()
+    if not row:
+        flash("Élément introuvable", "error")
+        return redirect('/admin/corbeille')
+    item = dict(row)
+    try: 
+        item['snapshot'] = json.loads(item['snapshot_json'])
+        item['stats'] = json.loads(item['stats_json'] or '{}')
+    except:
+        item['snapshot'] = {}
+        item['stats'] = {}
+    return render_template('corbeille_detail.html', page='corbeille', item=item)
+
+
+@app.route('/admin/corbeille/<int:tid>/restore', methods=['POST'])
+@login_required
+def corbeille_restore(tid):
+    """v112 : Restaure tout ou partie d'un snapshot.
+    Le formulaire envoie des cases à cocher : restore_caisse, restore_operations, etc."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/admin/corbeille')
+    
+    import json
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM trash_snapshots WHERE id=? AND restored_at IS NULL", (tid,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Élément introuvable ou déjà restauré", "error")
+        return redirect('/admin/corbeille')
+    
+    try:
+        snapshot = json.loads(row['snapshot_json'])
+    except:
+        conn.close()
+        flash("Snapshot corrompu", "error")
+        return redirect('/admin/corbeille')
+    
+    # Que faut-il restaurer ?
+    do_caisse = request.form.get('restore_caisse') == 'on'
+    do_ops = request.form.get('restore_operations') == 'on'
+    do_entrees = request.form.get('restore_entrees') == 'on'
+    do_sorties = request.form.get('restore_sorties') == 'on'
+    do_virements = request.form.get('restore_virements') == 'on'
+    do_mouvements = request.form.get('restore_mouvements') == 'on'
+    do_pieces = request.form.get('restore_pieces') == 'on'
+    do_ecritures = request.form.get('restore_ecritures') == 'on'
+    do_links = request.form.get('restore_links') == 'on'
+    
+    if not any([do_caisse, do_ops, do_entrees, do_sorties, do_virements, do_mouvements, do_pieces, do_ecritures, do_links]):
+        conn.close()
+        flash("⚠️ Sélectionnez au moins un élément à restaurer", "error")
+        return redirect(f'/admin/corbeille/{tid}')
+    
+    restored = {}
+    new_caisse_id = None
+    
+    try:
+        # 1. Caisse (en premier, pour avoir un ID si nécessaire)
+        if do_caisse and snapshot.get('caisse'):
+            ca = snapshot['caisse']
+            old_id = ca.get('id')
+            # Vérifier si l'id original est libre, sinon insérer avec nouvel id
+            existing = conn.execute("SELECT id FROM caisses WHERE id=?", (old_id,)).fetchone()
+            if not existing:
+                # Réutiliser l'id original
+                cols = [c for c in ca.keys() if c != 'id']
+                vals = [ca[c] for c in cols]
+                placeholders = ','.join('?' for _ in cols)
+                cols.insert(0, 'id'); vals.insert(0, old_id)
+                placeholders = '?,' + placeholders
+                conn.execute(f"INSERT INTO caisses ({','.join(cols)}) VALUES ({placeholders})", vals)
+                # Marquer comme active
+                conn.execute("UPDATE caisses SET is_active=1 WHERE id=?", (old_id,))
+                new_caisse_id = old_id
+            else:
+                # ID conflit → créer avec nouvel ID
+                cols = [c for c in ca.keys() if c != 'id']
+                vals = [ca[c] for c in cols]
+                placeholders = ','.join('?' for _ in cols)
+                cur = conn.execute(f"INSERT INTO caisses ({','.join(cols)}) VALUES ({placeholders})", vals)
+                new_caisse_id = cur.lastrowid
+                # Marquer active
+                conn.execute("UPDATE caisses SET is_active=1 WHERE id=?", (new_caisse_id,))
+            restored['caisse'] = 1
+        else:
+            # Si on ne restaure pas la caisse, prendre l'id existant si elle existe
+            ca_id = snapshot.get('caisse', {}).get('id')
+            if ca_id:
+                existing = conn.execute("SELECT id FROM caisses WHERE id=?", (ca_id,)).fetchone()
+                if existing:
+                    new_caisse_id = ca_id
+        
+        # Mapping pour ajuster les caisse_id si on a un nouveau
+        old_caisse_id = snapshot.get('caisse', {}).get('id')
+        
+        def adapt_caisse_id(row_data):
+            """Remap old caisse_id → new_caisse_id si différent."""
+            if not new_caisse_id or not old_caisse_id or old_caisse_id == new_caisse_id:
+                return row_data
+            r = dict(row_data)
+            if r.get('caisse_id') == old_caisse_id: r['caisse_id'] = new_caisse_id
+            if r.get('source_caisse_id') == old_caisse_id: r['source_caisse_id'] = new_caisse_id
+            if r.get('dest_caisse_id') == old_caisse_id: r['dest_caisse_id'] = new_caisse_id
+            return r
+        
+        def reinsert_rows(table, rows, do_flag):
+            if not do_flag or not rows: return 0
+            n = 0
+            for r in rows:
+                r = adapt_caisse_id(r)
+                try:
+                    cols = list(r.keys())
+                    vals = [r[c] for c in cols]
+                    placeholders = ','.join('?' for _ in cols)
+                    conn.execute(f"INSERT OR IGNORE INTO {table} ({','.join(cols)}) VALUES ({placeholders})", vals)
+                    n += 1
+                except Exception as ex:
+                    print(f"[v112-Restore] Skip {table} row : {ex}", flush=True)
+            return n
+        
+        restored['operations'] = reinsert_rows('caisse_operations', snapshot.get('operations', []), do_ops)
+        restored['entrees'] = reinsert_rows('caisse_entrees', snapshot.get('entrees', []), do_entrees)
+        restored['sorties'] = reinsert_rows('caisse_sorties', snapshot.get('sorties', []), do_sorties)
+        restored['virements'] = reinsert_rows('caisse_virements', snapshot.get('virements', []), do_virements)
+        restored['mouvements'] = reinsert_rows('tresorerie_mouvements', snapshot.get('mouvements', []), do_mouvements)
+        restored['pieces'] = reinsert_rows('pieces_caisse', snapshot.get('pieces', []), do_pieces)
+        restored['ecritures'] = reinsert_rows('ecritures_comptables', snapshot.get('ecritures', []), do_ecritures)
+        
+        # Liens supplier_payments
+        if do_links:
+            restored['links'] = 0
+            for link in snapshot.get('supplier_payments_links', []):
+                try:
+                    conn.execute("UPDATE supplier_payments SET caisse_sortie_id=? WHERE id=?",
+                                 (link['caisse_sortie_id'], link['id']))
+                    restored['links'] += 1
+                except: pass
+            for link in snapshot.get('interventions_links', []):
+                try:
+                    cid_val = new_caisse_id or link.get('caisse_id')
+                    conn.execute("UPDATE interventions SET caisse_id=? WHERE id=?",
+                                 (cid_val, link['id']))
+                    restored['links'] += 1
+                except: pass
+        
+        # Marquer comme restauré
+        conn.execute("""UPDATE trash_snapshots SET 
+            restored_at=datetime('now'), restored_by=?
+            WHERE id=?""", (session['user_id'], tid))
+        
+        conn.commit()
+        conn.close()
+        
+        log_activity(session['user_id'], user['full_name'], 'Corbeille',
+                     f"Restauration snapshot #{tid} ({row['entity_name']}) — {restored}", request.remote_addr)
+        
+        msg = f"✅ Restauration effectuée pour « {row['entity_name'] or 'sans nom'} » : "
+        parts = []
+        if restored.get('caisse'): parts.append("la caisse")
+        if restored.get('operations'): parts.append(f"{restored['operations']} opérations")
+        if restored.get('entrees'): parts.append(f"{restored['entrees']} entrées")
+        if restored.get('sorties'): parts.append(f"{restored['sorties']} sorties")
+        if restored.get('virements'): parts.append(f"{restored['virements']} virements")
+        if restored.get('mouvements'): parts.append(f"{restored['mouvements']} mouvements journal")
+        if restored.get('pieces'): parts.append(f"{restored['pieces']} pièces")
+        if restored.get('ecritures'): parts.append(f"{restored['ecritures']} écritures comptables")
+        if restored.get('links'): parts.append(f"{restored['links']} liens")
+        msg += ", ".join(parts) if parts else "rien (aucun élément cochable)"
+        flash(msg, "success")
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        flash(f"Erreur lors de la restauration : {e}", "error")
+    
+    return redirect('/admin/corbeille')
+
+
+@app.route('/admin/corbeille/<int:tid>/delete', methods=['POST'])
+@login_required
+def corbeille_delete(tid):
+    """v112 : Suppression définitive d'un snapshot de la corbeille."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] != 'admin':
+        flash("⚠️ Seul l'admin peut vider la corbeille", "error")
+        return redirect('/admin/corbeille')
+    
+    if request.form.get('confirm', '').strip().upper() != 'OUI':
+        flash("⚠️ Confirmation invalide : tapez 'OUI' pour confirmer", "error")
+        return redirect(f'/admin/corbeille/{tid}')
+    
+    conn = _gdb()
+    row = conn.execute("SELECT entity_name FROM trash_snapshots WHERE id=?", (tid,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Snapshot introuvable", "error")
+        return redirect('/admin/corbeille')
+    name = row['entity_name']
+    conn.execute("DELETE FROM trash_snapshots WHERE id=?", (tid,))
+    conn.commit()
+    conn.close()
+    
+    log_activity(session['user_id'], user['full_name'], 'Corbeille',
+                 f"Snapshot #{tid} ({name}) définitivement supprimé", request.remote_addr)
+    flash(f"🗑️ Sauvegarde de « {name} » supprimée définitivement de la corbeille", "success")
+    return redirect('/admin/corbeille')
 
 
 # ======================== VIREMENTS BANQUE → CAISSE (avec validation DG) ========================
@@ -17158,6 +17576,102 @@ def admin_backup_list():
                 })
     return render_template('extra_pages.html', page='backup_list', backups=backups,
         backup_token_set=bool(os.environ.get('BACKUP_AUTH_TOKEN','')))
+
+
+# v112 : Inspecter un backup pour voir quelles caisses il contenait
+@app.route('/admin/backup/<path:backup_name>/inspect-caisses')
+@permission_required('admin')
+def admin_backup_inspect_caisses(backup_name):
+    """v112 : Liste les caisses présentes dans un backup, pour récupération sélective."""
+    # Sécurité : empêcher path traversal
+    if '/' in backup_name or '\\' in backup_name or '..' in backup_name or not backup_name.startswith('ramya-'):
+        flash("Nom de backup invalide", "error")
+        return redirect('/admin/backup/list')
+    
+    backup_dir = os.path.join(PERSISTENT_DIR, 'backups')
+    backup_path = os.path.join(backup_dir, backup_name)
+    if not os.path.exists(backup_path):
+        flash("Backup introuvable", "error")
+        return redirect('/admin/backup/list')
+    
+    # Ouvrir le backup en lecture seule
+    import sqlite3 as _sql
+    try:
+        conn_bak = _sql.connect(f"file:{backup_path}?mode=ro", uri=True)
+        conn_bak.row_factory = _sql.Row
+        caisses = [dict(r) for r in conn_bak.execute("SELECT * FROM caisses ORDER BY name").fetchall()]
+        # Compter les opérations pour chaque caisse
+        for ca in caisses:
+            try:
+                ca['nb_ops'] = conn_bak.execute("SELECT COUNT(*) FROM caisse_operations WHERE caisse_id=?", (ca['id'],)).fetchone()[0]
+            except: ca['nb_ops'] = 0
+            try:
+                ca['nb_mvts'] = conn_bak.execute("SELECT COUNT(*) FROM tresorerie_mouvements WHERE caisse_id=?", (ca['id'],)).fetchone()[0]
+            except: ca['nb_mvts'] = 0
+        conn_bak.close()
+    except Exception as e:
+        flash(f"Erreur lecture backup : {e}", "error")
+        return redirect('/admin/backup/list')
+    
+    # Quelles caisses sont actuellement présentes en prod
+    conn = _gdb()
+    current_ids = [r[0] for r in conn.execute("SELECT id FROM caisses").fetchall()]
+    conn.close()
+    for ca in caisses:
+        ca['exists_now'] = ca['id'] in current_ids
+    
+    return render_template('backup_inspect_caisses.html', page='backup_list',
+        backup_name=backup_name, caisses=caisses)
+
+
+# v112 : Restaurer une caisse spécifique depuis un backup vers la corbeille (snapshot)
+@app.route('/admin/backup/<path:backup_name>/restore-caisse/<int:cid>', methods=['POST'])
+@permission_required('admin')
+def admin_backup_restore_caisse_to_trash(backup_name, cid):
+    """v112 : Extrait une caisse + son contenu d'un backup et l'enregistre dans la corbeille
+    (pour permettre ensuite une restauration sélective via /admin/corbeille)."""
+    if '/' in backup_name or '\\' in backup_name or '..' in backup_name or not backup_name.startswith('ramya-'):
+        flash("Nom de backup invalide", "error")
+        return redirect('/admin/backup/list')
+    
+    backup_dir = os.path.join(PERSISTENT_DIR, 'backups')
+    backup_path = os.path.join(backup_dir, backup_name)
+    if not os.path.exists(backup_path):
+        flash("Backup introuvable", "error")
+        return redirect('/admin/backup/list')
+    
+    user = get_user_by_id(session['user_id'])
+    
+    # Ouvrir backup en read-only
+    import sqlite3 as _sql
+    try:
+        conn_bak = _sql.connect(f"file:{backup_path}?mode=ro", uri=True)
+        conn_bak.row_factory = _sql.Row
+        snapshot, stats = _snapshot_caisse(conn_bak, cid)
+        conn_bak.close()
+    except Exception as e:
+        flash(f"Erreur extraction backup : {e}", "error")
+        return redirect(f'/admin/backup/{backup_name}/inspect-caisses')
+    
+    if not snapshot.get('caisse'):
+        flash(f"Caisse {cid} non trouvée dans ce backup", "error")
+        return redirect(f'/admin/backup/{backup_name}/inspect-caisses')
+    
+    # Sauvegarder en corbeille
+    conn = _gdb()
+    try:
+        trash_id = _save_trash_snapshot(conn, 'caisse', cid, snapshot['caisse'].get('name', f'caisse-{cid}'),
+            snapshot, stats, session['user_id'], user['full_name'],
+            notes=f'Extrait du backup {backup_name}')
+        conn.commit()
+        conn.close()
+        flash(f"✅ Caisse « {snapshot['caisse'].get('name')} » et ses {sum(stats.values())} éléments ajoutés à la corbeille — vous pouvez maintenant la restaurer sélectivement", "success")
+        return redirect(f'/admin/corbeille/{trash_id}')
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        flash(f"Erreur sauvegarde corbeille : {e}", "error")
+        return redirect(f'/admin/backup/{backup_name}/inspect-caisses')
 
 
 @app.route('/historique')

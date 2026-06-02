@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Corbeille{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>♻️ Corbeille — Éléments supprimés</h1>
+        <p style="color:#666;font-size:13px;margin:0">Restauration sélective des sauvegardes</p>
+    </div>
+    <a href="/comptabilite/caisses" class="btn btn-outline">← Multi-caisses</a>
+</div>
+
+{% if items %}
+<div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#1b5e20">
+    💡 Cliquez sur 👁️ pour voir le détail d'une sauvegarde et choisir précisément quoi restaurer (la caisse, ses opérations, les écritures comptables, les mouvements journal, etc.).
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+<table style="width:100%;font-size:13px;border-collapse:collapse">
+<thead>
+<tr style="background:#1A7A6D;color:#fff">
+    <th style="padding:10px;text-align:left">Type</th>
+    <th style="padding:10px;text-align:left">Nom</th>
+    <th style="padding:10px;text-align:center">Date suppression</th>
+    <th style="padding:10px;text-align:left">Supprimé par</th>
+    <th style="padding:10px;text-align:left">Contenu</th>
+    <th style="padding:10px;text-align:center">Actions</th>
+</tr>
+</thead>
+<tbody>
+{% for it in items %}
+<tr style="border-bottom:1px solid #eee">
+    <td style="padding:10px"><span style="background:#fff3e0;color:#b8561f;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700">{{ it.entity_type|upper }}</span></td>
+    <td style="padding:10px;font-weight:700;color:#1a3a5c">{{ it.entity_name or '(sans nom)' }}<br><span style="font-size:10px;color:#888;font-weight:400">id orig: {{ it.entity_id }}</span></td>
+    <td style="padding:10px;text-align:center;font-size:11px">{{ it.deleted_at[:16] if it.deleted_at else '-' }}</td>
+    <td style="padding:10px;font-size:11px">{{ it.deleted_by_name or '-' }}</td>
+    <td style="padding:10px;font-size:11px">
+        {% if it.stats.operations %}<span style="display:inline-block;background:#e3f2fd;color:#1976d2;padding:1px 6px;border-radius:4px;margin:1px">{{ it.stats.operations }} op.</span>{% endif %}
+        {% if it.stats.entrees %}<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;padding:1px 6px;border-radius:4px;margin:1px">{{ it.stats.entrees }} entrées</span>{% endif %}
+        {% if it.stats.sorties %}<span style="display:inline-block;background:#fde8e8;color:#c53030;padding:1px 6px;border-radius:4px;margin:1px">{{ it.stats.sorties }} sorties</span>{% endif %}
+        {% if it.stats.virements %}<span style="display:inline-block;background:#f3e5f5;color:#7b1fa2;padding:1px 6px;border-radius:4px;margin:1px">{{ it.stats.virements }} virements</span>{% endif %}
+        {% if it.stats.mouvements %}<span style="display:inline-block;background:#fff3e0;color:#b8561f;padding:1px 6px;border-radius:4px;margin:1px">{{ it.stats.mouvements }} mvts journal</span>{% endif %}
+        {% if it.stats.ecritures %}<span style="display:inline-block;background:#fce4ec;color:#c2185b;padding:1px 6px;border-radius:4px;margin:1px">{{ it.stats.ecritures }} écritures</span>{% endif %}
+        {% if it.stats.pieces %}<span style="display:inline-block;background:#e0f7fa;color:#006064;padding:1px 6px;border-radius:4px;margin:1px">{{ it.stats.pieces }} pièces</span>{% endif %}
+        {% if it.notes %}<br><span style="font-size:10px;color:#666;font-style:italic">📝 {{ it.notes }}</span>{% endif %}
+    </td>
+    <td style="padding:10px;text-align:center;white-space:nowrap">
+        <a href="/admin/corbeille/{{ it.id }}" class="btn btn-primary btn-sm" style="font-size:11px;padding:4px 10px">👁️ Restaurer</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div></div>
+
+<p style="font-size:11px;color:#888;margin-top:14px;font-style:italic">
+    💡 Les sauvegardes sont conservées indéfiniment. Vous pouvez restaurer à tout moment ou supprimer définitivement (admin uniquement).
+</p>
+
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;padding:40px">
+    <div style="font-size:42px;margin-bottom:12px">📭</div>
+    <div style="font-size:16px;font-weight:600;color:#666">La corbeille est vide</div>
+    <div style="font-size:12px;color:#999;margin-top:6px">Les éléments supprimés depuis v112 apparaîtront ici, avec possibilité de restauration sélective.</div>
+</div></div>
+{% endif %}
+
+{% endblock %}

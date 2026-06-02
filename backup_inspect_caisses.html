@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Inspection backup {{ backup_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>🔍 Inspection backup : <code style="font-size:14px;background:#f5f5f5;padding:2px 8px;border-radius:4px">{{ backup_name }}</code></h1>
+        <p style="color:#666;font-size:13px;margin:0">Caisses présentes dans cette sauvegarde — récupérez celles qui ont été supprimées</p>
+    </div>
+    <a href="/admin/backup/list" class="btn btn-outline">← Liste des backups</a>
+</div>
+
+<div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:12px 16px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#1b5e20">
+    <strong>Comment ça marche :</strong>
+    <ol style="margin:6px 0 0 18px;padding:0;font-size:12px">
+        <li>Repérez la caisse que vous voulez récupérer (statut "❌ supprimée actuellement" = absente de votre BDD)</li>
+        <li>Cliquez sur "📥 Mettre en corbeille" — la caisse et toutes ses données vont dans la corbeille</li>
+        <li>Allez ensuite sur <a href="/admin/corbeille" style="color:#1A7A6D;font-weight:700">♻️ Corbeille</a> pour restaurer sélectivement ce que vous voulez</li>
+    </ol>
+</div>
+
+{% if caisses %}
+<div class="card"><div class="card-body" style="padding:0">
+<table style="width:100%;font-size:13px">
+<thead>
+<tr style="background:#1A7A6D;color:#fff">
+    <th style="padding:10px;text-align:center">ID</th>
+    <th style="padding:10px;text-align:left">Nom</th>
+    <th style="padding:10px;text-align:left">Responsable</th>
+    <th style="padding:10px;text-align:right">Solde</th>
+    <th style="padding:10px;text-align:center">Opérations</th>
+    <th style="padding:10px;text-align:center">Mouvements</th>
+    <th style="padding:10px;text-align:center">Statut actuel</th>
+    <th style="padding:10px;text-align:center">Action</th>
+</tr>
+</thead>
+<tbody>
+{% for ca in caisses %}
+<tr style="border-bottom:1px solid #eee">
+    <td style="padding:8px;text-align:center;color:#888;font-size:11px">{{ ca.id }}</td>
+    <td style="padding:8px"><strong>{{ ca.name }}</strong>{% if ca.description %}<br><span style="font-size:10px;color:#888">{{ ca.description }}</span>{% endif %}</td>
+    <td style="padding:8px;font-size:11px">{{ ca.responsible_name or '-' }}</td>
+    <td style="padding:8px;text-align:right;font-weight:700;color:{% if (ca.solde_actuel or 0) >= 0 %}#1A7A6D{% else %}#c53030{% endif %}">{{ '{:,.0f}'.format(ca.solde_actuel or 0).replace(',', ' ') }} F</td>
+    <td style="padding:8px;text-align:center">{{ ca.nb_ops }}</td>
+    <td style="padding:8px;text-align:center">{{ ca.nb_mvts }}</td>
+    <td style="padding:8px;text-align:center">
+        {% if ca.exists_now %}
+            <span style="background:#e8f5e9;color:#1b5e20;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700">✓ Existe</span>
+        {% else %}
+            <span style="background:#fde8e8;color:#c53030;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700">❌ Supprimée</span>
+        {% endif %}
+    </td>
+    <td style="padding:8px;text-align:center">
+        <form method="post" action="/admin/backup/{{ backup_name }}/restore-caisse/{{ ca.id }}" style="display:inline" onsubmit="return confirm('Mettre cette caisse et ses {{ ca.nb_ops }} opérations en corbeille ?\n\nVous pourrez ensuite restaurer sélectivement depuis /admin/corbeille.')">
+            <button type="submit" class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:11px;padding:4px 10px;font-weight:700">📥 Mettre en corbeille</button>
+        </form>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div></div>
+
+<p style="font-size:11px;color:#888;margin-top:14px;font-style:italic">
+    💡 Cette opération ne modifie pas le backup ni la BDD actuelle. Elle copie seulement les données dans la corbeille pour vous permettre une restauration sélective.
+</p>
+
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;padding:40px">
+    <div style="font-size:42px;margin-bottom:12px">📭</div>
+    <div style="font-size:16px;font-weight:600;color:#666">Aucune caisse dans ce backup</div>
+</div></div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Restaurer {{ item.entity_name }}{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>♻️ Restaurer « {{ item.entity_name or 'sans nom' }} »</h1>
+        <p style="color:#666;font-size:13px;margin:0">Sélectionnez ce que vous souhaitez restaurer</p>
+    </div>
+    <a href="/admin/corbeille" class="btn btn-outline">← Retour corbeille</a>
+</div>
+
+<!-- Infos générales -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;font-size:12px">
+        <div><strong>Type :</strong> {{ item.entity_type }}</div>
+        <div><strong>ID original :</strong> {{ item.entity_id }}</div>
+        <div><strong>Supprimé le :</strong> {{ item.deleted_at[:16] if item.deleted_at else '-' }}</div>
+        <div><strong>Par :</strong> {{ item.deleted_by_name or '-' }}</div>
+    </div>
+    {% if item.notes %}<div style="font-size:11px;color:#666;font-style:italic;margin-top:8px;background:#fff3e0;padding:6px 10px;border-radius:6px">📝 {{ item.notes }}</div>{% endif %}
+</div></div>
+
+{# Détails de la caisse si c'est ça #}
+{% if item.snapshot.caisse %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin-top:0;color:#1a3a5c;font-size:14px">💰 Détails de la caisse sauvegardée</h3>
+    <table style="width:100%;font-size:12px">
+        <tr><td style="padding:4px;width:30%;color:#666">Nom</td><td style="padding:4px"><strong>{{ item.snapshot.caisse.name }}</strong></td></tr>
+        {% if item.snapshot.caisse.description %}<tr><td style="padding:4px;color:#666">Description</td><td style="padding:4px">{{ item.snapshot.caisse.description }}</td></tr>{% endif %}
+        <tr><td style="padding:4px;color:#666">Responsable</td><td style="padding:4px">{{ item.snapshot.caisse.responsible_name or '-' }}</td></tr>
+        <tr><td style="padding:4px;color:#666">Solde initial</td><td style="padding:4px">{{ '{:,.0f}'.format(item.snapshot.caisse.solde_initial or 0).replace(',', ' ') }} F</td></tr>
+        <tr><td style="padding:4px;color:#666">Solde au moment de la suppression</td><td style="padding:4px"><strong>{{ '{:,.0f}'.format(item.snapshot.caisse.solde_actuel or 0).replace(',', ' ') }} F</strong></td></tr>
+    </table>
+</div></div>
+{% endif %}
+
+<!-- Formulaire de restauration sélective -->
+<form method="post" action="/admin/corbeille/{{ item.id }}/restore">
+<div class="card" style="border:2px solid #2e7d32"><div class="card-body">
+    <h3 style="margin-top:0;color:#2e7d32;font-size:15px">✅ Sélection des éléments à restaurer</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:14px">Cochez tout ou partie. Si vous ne cochez pas la caisse mais cochez ses opérations, elles seront rattachées à la caisse existante (si l'ID est libre).</p>
+    
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">
+        
+        {% if item.snapshot.caisse %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#e8f5e9;border-radius:8px;cursor:pointer;border:1px solid #c8e6c9">
+            <input type="checkbox" name="restore_caisse" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#1b5e20">💰 La caisse</div>
+                <div style="font-size:11px;color:#666">« {{ item.snapshot.caisse.name }} »</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        {% if item.stats.operations %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#e3f2fd;border-radius:8px;cursor:pointer;border:1px solid #bbdefb">
+            <input type="checkbox" name="restore_operations" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#1565c0">📋 Opérations</div>
+                <div style="font-size:11px;color:#666">{{ item.stats.operations }} opération(s) (entrées, sorties, transferts)</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        {% if item.stats.entrees %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#e8f5e9;border-radius:8px;cursor:pointer;border:1px solid #c8e6c9">
+            <input type="checkbox" name="restore_entrees" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#1b5e20">💵 Entrées</div>
+                <div style="font-size:11px;color:#666">{{ item.stats.entrees }} entrée(s) directe(s)</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        {% if item.stats.sorties %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#fde8e8;border-radius:8px;cursor:pointer;border:1px solid #ffcdd2">
+            <input type="checkbox" name="restore_sorties" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#7f1d1d">📤 Sorties caisse</div>
+                <div style="font-size:11px;color:#666">{{ item.stats.sorties }} demande(s) de sortie</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        {% if item.stats.virements %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#f3e5f5;border-radius:8px;cursor:pointer;border:1px solid #e1bee7">
+            <input type="checkbox" name="restore_virements" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#6a1b9a">🏦 Virements</div>
+                <div style="font-size:11px;color:#666">{{ item.stats.virements }} virement(s) banque → caisse</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        {% if item.stats.mouvements %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#fff3e0;border-radius:8px;cursor:pointer;border:1px solid #ffe0b2">
+            <input type="checkbox" name="restore_mouvements" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#7a4a00">📊 Mouvements journal de caisse</div>
+                <div style="font-size:11px;color:#666">{{ item.stats.mouvements }} mouvement(s) dans tresorerie</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        {% if item.stats.pieces %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#e0f7fa;border-radius:8px;cursor:pointer;border:1px solid #b2ebf2">
+            <input type="checkbox" name="restore_pieces" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#006064">🧾 Pièces de caisse</div>
+                <div style="font-size:11px;color:#666">{{ item.stats.pieces }} pièce(s) justificative(s)</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        {% if item.stats.ecritures %}
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#fce4ec;border-radius:8px;cursor:pointer;border:1px solid #f8bbd0">
+            <input type="checkbox" name="restore_ecritures" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#880e4f">📑 Écritures comptables</div>
+                <div style="font-size:11px;color:#666">{{ item.stats.ecritures }} écriture(s) liée(s)</div>
+            </div>
+        </label>
+        {% endif %}
+        
+        <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#f5f5f5;border-radius:8px;cursor:pointer;border:1px solid #e0e0e0">
+            <input type="checkbox" name="restore_links" checked style="width:18px;height:18px;cursor:pointer">
+            <div style="flex:1">
+                <div style="font-weight:700;color:#424242">🔗 Liens (interventions, paiements fournisseurs)</div>
+                <div style="font-size:11px;color:#666">Rétablir les références qui pointaient sur cette caisse</div>
+            </div>
+        </label>
+        
+    </div>
+    
+    <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end">
+        <a href="/admin/corbeille" class="btn btn-outline">Annuler</a>
+        <button type="submit" class="btn btn-primary" style="background:#2e7d32">♻️ Restaurer ce qui est coché</button>
+    </div>
+</div></div>
+</form>
+
+{# Bouton suppression définitive — admin uniquement #}
+{% if current_user.role == 'admin' %}
+<div class="card" style="margin-top:14px;border:1px solid #ffcdd2"><div class="card-body" style="background:#ffebee">
+    <h3 style="margin-top:0;color:#c53030;font-size:14px">🗑️ Supprimer définitivement cette sauvegarde</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:10px">Cette action ne peut pas être annulée. La sauvegarde sera retirée définitivement de la corbeille.</p>
+    <form method="post" action="/admin/corbeille/{{ item.id }}/delete" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px">Tapez <code style="background:#fff;padding:2px 6px;border-radius:4px;color:#c53030">OUI</code> pour confirmer :</label>
+        <input type="text" name="confirm" placeholder="OUI" style="padding:5px 8px;border:2px solid #c53030;border-radius:6px;font-family:monospace;width:80px;text-transform:uppercase">
+        <button type="submit" class="btn btn-sm" style="background:#7f1d1d;color:#fff">🗑️ Vider de la corbeille</button>
+    </form>
+</div></div>
+{% endif %}
+
+{% endblock %}
