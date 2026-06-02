@@ -1036,30 +1036,46 @@ except Exception as _e:
     print(f"[v103-Sync] Erreur backfill : {_e}", flush=True)
 
 
-# v106 : Donner aux rôles métiers la permission "caisse_sortie" pour qu'ils puissent
-# faire des demandes de sortie de caisse, SANS leur ouvrir toute la section Trésorerie.
+# v106 + v110 : Donner 'caisse_sortie' aux rôles métier — UNIQUEMENT au premier démarrage
+# v110 : Utilise un flag dans la table app_settings pour ne s'exécuter qu'une seule fois,
+# afin de ne pas réinjecter quand l'admin a délibérément retiré la permission.
 try:
     from models import get_db as _v106_db
     _v106 = _v106_db()
-    # Rôles métier qui font régulièrement des demandes de sortie de caisse
-    roles_outils_caisse = ('technicien', 'tech_chef', 'centre_technique',
-                            'commercial', 'gestionnaire_projet', 
-                            'moyens_generaux', 'mg', 'magasinier',
-                            'rh', 'secretaire')
-    nb_added = 0
-    for role in roles_outils_caisse:
-        try:
-            existing = _v106.execute(
-                "SELECT COUNT(*) FROM permissions WHERE role=? AND permission='caisse_sortie'",
-                (role,)).fetchone()[0]
-            if existing == 0:
-                _v106.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, 'caisse_sortie')", (role,))
-                nb_added += 1
-        except: pass
-    _v106.commit()
+    # Créer table app_settings si absente
+    try:
+        _v106.execute("""CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)""")
+        _v106.commit()
+    except: pass
+    
+    already_done = _v106.execute(
+        "SELECT value FROM app_settings WHERE key='v106_outils_caisse_done'").fetchone()
+    
+    if not already_done:
+        # Première exécution : ajouter caisse_sortie aux rôles métier
+        roles_outils_caisse = ('technicien', 'tech_chef', 'centre_technique',
+                                'commercial', 'gestionnaire_projet', 
+                                'moyens_generaux', 'mg', 'magasinier',
+                                'rh', 'secretaire')
+        nb_added = 0
+        for role in roles_outils_caisse:
+            try:
+                existing = _v106.execute(
+                    "SELECT COUNT(*) FROM permissions WHERE role=? AND permission='caisse_sortie'",
+                    (role,)).fetchone()[0]
+                if existing == 0:
+                    _v106.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, 'caisse_sortie')", (role,))
+                    nb_added += 1
+            except: pass
+        # Marquer comme fait
+        _v106.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v106_outils_caisse_done', '1', datetime('now'))")
+        _v106.commit()
+        if nb_added > 0:
+            print(f"[v106-Outils] {nb_added} rôle(s) ont reçu 'caisse_sortie' (1ère exécution seulement)", flush=True)
+        else:
+            print(f"[v106-Outils] Tous les rôles avaient déjà la permission (marqué comme fait)", flush=True)
     _v106.close()
-    if nb_added > 0:
-        print(f"[v106-Outils] {nb_added} rôle(s) ont reçu 'caisse_sortie' pour demande de sortie", flush=True)
 except Exception as _e:
     print(f"[v106-Outils] Erreur : {_e}", flush=True)
 
@@ -1097,30 +1113,40 @@ except Exception as _e:
     print(f"[v107-Backfill] Erreur : {_e}", flush=True)
 
 
-# v108 : FORCE — Garantir que gestionnaire_projet a toutes les permissions field_report
-# Au cas où le rôle existerait sans avoir reçu les permissions ajoutées en v99/v100
+# v108 + v110 : Garantir que gestionnaire_projet a les permissions field_report — UNIQUEMENT au premier démarrage
 try:
     from models import get_db as _v108_db
     _v108 = _v108_db()
-    field_perms_gp = ['field_report_create', 'field_report_view_all', 'field_report_view_mine',
-                       'field_report_analyze', 'field_report_transform', 'field_report_close',
-                       'field_report_edit', 'field_report_delete', 'field_report_print']
-    nb_added_gp = 0
-    for p in field_perms_gp:
-        try:
-            existing = _v108.execute(
-                "SELECT COUNT(*) FROM permissions WHERE role='gestionnaire_projet' AND permission=?",
-                (p,)).fetchone()[0]
-            if existing == 0:
-                _v108.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('gestionnaire_projet', ?)", (p,))
-                nb_added_gp += 1
-        except: pass
-    _v108.commit()
+    try:
+        _v108.execute("""CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)""")
+        _v108.commit()
+    except: pass
+    
+    already_done = _v108.execute(
+        "SELECT value FROM app_settings WHERE key='v108_gp_field_perms_done'").fetchone()
+    
+    if not already_done:
+        field_perms_gp = ['field_report_create', 'field_report_view_all', 'field_report_view_mine',
+                           'field_report_analyze', 'field_report_transform', 'field_report_close',
+                           'field_report_edit', 'field_report_delete', 'field_report_print']
+        nb_added_gp = 0
+        for p in field_perms_gp:
+            try:
+                existing = _v108.execute(
+                    "SELECT COUNT(*) FROM permissions WHERE role='gestionnaire_projet' AND permission=?",
+                    (p,)).fetchone()[0]
+                if existing == 0:
+                    _v108.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('gestionnaire_projet', ?)", (p,))
+                    nb_added_gp += 1
+            except: pass
+        _v108.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v108_gp_field_perms_done', '1', datetime('now'))")
+        _v108.commit()
+        if nb_added_gp > 0:
+            print(f"[v108-GP] {nb_added_gp} permission(s) field_report ajoutée(s) à gestionnaire_projet (1ère exécution)", flush=True)
+        else:
+            print(f"[v108-GP] gestionnaire_projet avait déjà toutes les permissions field_report (marqué comme fait)", flush=True)
     _v108.close()
-    if nb_added_gp > 0:
-        print(f"[v108-GP] {nb_added_gp} permission(s) field_report ajoutée(s) à gestionnaire_projet", flush=True)
-    else:
-        print(f"[v108-GP] gestionnaire_projet a déjà toutes les permissions field_report ✅", flush=True)
 except Exception as _e:
     print(f"[v108-GP] Erreur : {_e}", flush=True)
 
@@ -1171,6 +1197,8 @@ try:
                    'field_report_edit', 'field_report_delete', 'field_report_print',
                    'mg_compta_validate'])
     from models import get_role_permissions as _grp
+    # v110 : N'initialise QUE pour un rôle complètement vide (création initiale)
+    # Plus de réinjection forcée quand l'admin enlève une permission
     if not _grp('concierge'):
         update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
     if not _grp('proprietaire'):
@@ -1179,21 +1207,15 @@ try:
         update_role_permissions('secretaire', ['dashboard', 'clients', 'clients_edit', 'proforma', 'rapports_j', 'chat', 'concierge', 'concierge_edit', 'visites', 'contrats'])
     if not _grp('client'):
         update_role_permissions('client', ['dashboard'])
-    # v74 : permissions par défaut RH si aucune définie (inclut rapports_j)
     if not _grp('rh'):
         update_role_permissions('rh', ['dashboard', 'dashboard_general', 'employees', 'payslips',
                    'leaves', 'absences', 'rh_contracts', 'rh_trainings', 'rh_announcements',
                    'traitement', 'fichiers', 'clients', 'rapports_j', 'chat', 'logs',
                    'alertes', 'comparaison'])
-    if 'informatique' not in _grp('technicien'):
-        # Conserver toute permission déjà accordée + ajouter les défauts
-        existing = _grp('technicien')
-        defaults = ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat']
-        merged = list(set(existing + defaults))
-        update_role_permissions('technicien', merged)
-    if 'centre_technique' not in _grp('resp_projet'):
-        # v102 : 'resp_projet' fusionné dans 'gestionnaire_projet' — ne plus initialiser
-        pass
+    # v110 : technicien suit la même règle — UNIQUEMENT si vide
+    if not _grp('technicien'):
+        update_role_permissions('technicien', ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat'])
+    # v102 : 'resp_projet' fusionné dans 'gestionnaire_projet'
 except: pass
 
 from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
@@ -9724,9 +9746,14 @@ def compta_caisse_add():
 
 
 @app.route('/comptabilite/caisses/<int:cid>/delete', methods=['POST','GET'])
-@permission_required('comptabilite_edit')
+@login_required
 def compta_caisse_delete(cid):
-    """Supprime une caisse — soft delete si des opérations existent, sinon DELETE."""
+    """v110 : Supprime une caisse — accessible aux rôles admin, rh, comptable, comptabilite, dg, directeur."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
+        flash("⚠️ Seuls l'admin, le RH ou la comptabilité peuvent supprimer une caisse", "error")
+        return redirect('/comptabilite/caisses')
+    
     conn = _gdb()
     ca = conn.execute("SELECT * FROM caisses WHERE id=?", (cid,)).fetchone()
     if not ca:
@@ -9735,7 +9762,7 @@ def compta_caisse_delete(cid):
     ca = dict(ca)
     # Check solde
     if abs(ca.get('solde_actuel') or 0) > 0.01 and not request.args.get('force'):
-        flash(f"⚠️ Impossible de supprimer « {ca['name']} » : solde actuel = {ca['solde_actuel']:,.0f} F. Videz la caisse d'abord (transfert vers autre caisse) ou utilisez 'Forcer la suppression'.", "error")
+        flash(f"⚠️ Impossible de supprimer « {ca['name']} » : solde actuel = {ca['solde_actuel']:,.0f} F. Videz la caisse d'abord (bouton 'Vider à zéro') ou utilisez 'Forcer la suppression'.", "error")
         conn.close()
         return redirect('/comptabilite/caisses')
     # Check opérations
@@ -9756,9 +9783,79 @@ def compta_caisse_delete(cid):
     except Exception as e:
         flash(f"Erreur: {e}", "error")
     conn.close()
-    user = get_user_by_id(session['user_id'])
-    log_activity(session['user_id'], user['full_name'] if user else '?', 'Caisse',
+    log_activity(session['user_id'], user['full_name'], 'Caisse',
                  f"Suppression caisse {ca['name']} (force={bool(request.args.get('force'))})", request.remote_addr)
+    return redirect('/comptabilite/caisses')
+
+
+# v110 : Remise à zéro d'une caisse (sortie d'ajustement pour mettre solde_actuel à 0)
+@app.route('/comptabilite/caisses/<int:cid>/reset-zero', methods=['POST', 'GET'])
+@login_required
+def compta_caisse_reset_zero(cid):
+    """v110 : Vide une caisse en passant une écriture d'ajustement (solde → 0).
+    Accessible à admin, rh, comptable, comptabilite, dg, directeur."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
+        flash("⚠️ Seuls l'admin, le RH ou la comptabilité peuvent vider une caisse", "error")
+        return redirect('/comptabilite/caisses')
+    
+    conn = _gdb()
+    ca = conn.execute("SELECT * FROM caisses WHERE id=?", (cid,)).fetchone()
+    if not ca:
+        conn.close()
+        flash("Caisse non trouvée", "error")
+        return redirect('/comptabilite/caisses')
+    ca = dict(ca)
+    solde = float(ca.get('solde_actuel') or 0)
+    
+    if abs(solde) < 0.01:
+        conn.close()
+        flash(f"ℹ️ La caisse « {ca['name']} » est déjà à zéro", "info")
+        return redirect('/comptabilite/caisses')
+    
+    # Créer une opération d'ajustement
+    ref_op = f"AJUST-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    today = datetime.now().strftime('%Y-%m-%d')
+    motif = request.form.get('motif', f"Remise à zéro caisse par {user['full_name']}").strip()
+    
+    if solde > 0:
+        # Sortie d'ajustement pour vider
+        op_type = 'sortie'
+        descr = f"Ajustement remise à zéro — {motif}"
+        conn.execute("""INSERT INTO caisse_operations 
+            (caisse_id, type, amount, description, reference, category, created_by) 
+            VALUES (?,'sortie',?,?,?,'ajustement',?)""",
+            (cid, solde, descr, ref_op, session['user_id']))
+        # Écriture comptable 658 / 571 (charge exceptionnelle / caisse)
+        try: auto_ecriture(conn, today, f"Ajustement caisse {ref_op}", '658', '571', solde, ref_op)
+        except: pass
+        # Sync journal de caisse
+        try: _sync_caisse_op_to_journal(conn, 'sortie', today, solde,
+            f"[{ca['name']}] {descr}", ref_op, session['user_id'])
+        except: pass
+    else:
+        # Caisse négative → entrée d'ajustement
+        op_type = 'entree'
+        descr = f"Ajustement régularisation — {motif}"
+        montant = abs(solde)
+        conn.execute("""INSERT INTO caisse_operations 
+            (caisse_id, type, amount, description, reference, category, created_by) 
+            VALUES (?,'entree',?,?,?,'ajustement',?)""",
+            (cid, montant, descr, ref_op, session['user_id']))
+        try: auto_ecriture(conn, today, f"Régularisation caisse {ref_op}", '571', '758', montant, ref_op)
+        except: pass
+        try: _sync_caisse_op_to_journal(conn, 'entree', today, montant,
+            f"[{ca['name']}] {descr}", ref_op, session['user_id'])
+        except: pass
+    
+    # Mettre solde_actuel à 0
+    conn.execute("UPDATE caisses SET solde_actuel=0 WHERE id=?", (cid,))
+    conn.commit()
+    conn.close()
+    
+    log_activity(session['user_id'], user['full_name'], 'Caisse',
+                 f"Remise à zéro caisse {ca['name']} — ajustement {ref_op} ({solde:,.0f} F)", request.remote_addr)
+    flash(f"✅ Caisse « {ca['name']} » remise à zéro — ajustement de {abs(solde):,.0f} F enregistré ({ref_op})", "success")
     return redirect('/comptabilite/caisses')
 
 
@@ -22113,16 +22210,99 @@ def mg_demandes():
 @app.route('/mg/demandes/add', methods=['POST'])
 @permission_required_any('mg_demande', 'admin')
 def mg_demandes_add():
+    """v110 : Création d'une demande MG.
+    Si l'auteur a la permission de valider (mg_valider — typiquement le service MG lui-même),
+    la demande est créée + auto-validée + auto-envoyée à la Comptabilité.
+    Sinon, elle reste en attente d'une validation MG."""
     ref = f"DM-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
-    _dbi('achats_demandes', reference=ref,
-         date=request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
-         department=request.form.get('department', ''),
-         requested_by=session['user_id'],
-         description=request.form.get('description', ''),
-         urgency=request.form.get('urgency', 'normale'),
-         status='en_attente',
-         notes=request.form.get('notes', ''))
-    flash(f"Demande {ref} créée — En attente de validation", "success")
+    
+    # Détecter si l'auteur peut valider directement (c'est le MG lui-même)
+    user = get_user_by_id(session['user_id'])
+    from models import has_permission as _hp
+    user_role = user['role'] if user else None
+    can_self_validate = (user_role == 'admin' or 
+                         user_role in ('moyens_generaux', 'mg') or
+                         _hp(user_role, 'mg_valider'))
+    
+    initial_status = 'validee' if can_self_validate else 'en_attente'
+    approved_by = session['user_id'] if can_self_validate else None
+    approved_at = datetime.now().isoformat() if can_self_validate else None
+    
+    conn = _gdb()
+    cur = conn.execute("""INSERT INTO achats_demandes 
+        (reference, date, department, requested_by, description, urgency, status, notes,
+         approved_by, approved_at, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+        (ref,
+         request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('department', ''),
+         session['user_id'],
+         request.form.get('description', ''),
+         request.form.get('urgency', 'normale'),
+         initial_status,
+         request.form.get('notes', ''),
+         approved_by, approved_at))
+    did = cur.lastrowid
+    
+    # v110 : Insérer les items du formulaire (s'il y en a)
+    designations = request.form.getlist('item_designation[]')
+    quantities = request.form.getlist('item_quantity[]')
+    prices = request.form.getlist('item_price[]')
+    notes_items = request.form.getlist('item_notes[]')
+    nb_items = 0
+    for i, des in enumerate(designations):
+        des = (des or '').strip()
+        if not des: continue
+        try: qty = int(quantities[i]) if i < len(quantities) else 1
+        except: qty = 1
+        try: prix = float(prices[i]) if i < len(prices) and prices[i] else 0
+        except: prix = 0
+        note = (notes_items[i] if i < len(notes_items) else '').strip()
+        try:
+            conn.execute("""INSERT INTO achats_demande_items 
+                (demande_id, designation, quantity, estimated_price, notes)
+                VALUES (?,?,?,?,?)""", (did, des, qty, prix, note))
+            nb_items += 1
+        except: pass
+    
+    # v110 : Auto-envoi compta si auto-validé
+    if can_self_validate:
+        total_items_row = conn.execute("""SELECT COALESCE(SUM(quantity * COALESCE(estimated_price,0)), 0) as total
+            FROM achats_demande_items WHERE demande_id=?""", (did,)).fetchone()
+        montant_calc = float(total_items_row['total'] or 0) if total_items_row else 0
+        
+        conn.execute("""UPDATE achats_demandes SET 
+            compta_status='a_valider',
+            compta_visible_at=datetime('now'),
+            compta_montant_estime=?
+            WHERE id=?""", 
+            (montant_calc if montant_calc > 0 else None, did))
+        
+        # Notifier les comptables
+        try:
+            users_compta = conn.execute("""SELECT id FROM users 
+                WHERE role IN ('comptable','comptabilite','dg','directeur','admin') AND is_active=1""").fetchall()
+            for u in users_compta:
+                existing = conn.execute("""SELECT id FROM notifications 
+                    WHERE user_id=? AND message LIKE ? AND type='mg_demande'""",
+                    (u['id'], f"%{ref}%")).fetchone()
+                if existing: continue
+                try:
+                    conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
+                        VALUES (?,?,?,?,?)""",
+                        (u['id'], 'mg_demande', f"💰 Demande MG à valider",
+                         f"{ref} — Validation budgétaire requise",
+                         '/comptabilite/demandes-mg'))
+                except: pass
+        except: pass
+    
+    conn.commit()
+    conn.close()
+    
+    if can_self_validate:
+        flash(f"✅ Demande {ref} créée et transmise à la Comptabilité ({nb_items} article{'s' if nb_items > 1 else ''})", "success")
+    else:
+        flash(f"Demande {ref} créée — En attente de validation MG ({nb_items} article{'s' if nb_items > 1 else ''})", "success")
     return redirect('/mg/demandes')
 
 

@@ -1196,12 +1196,18 @@ function toggleDetail() {
 <div class="card-body" style="padding:14px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
         <div style="font-size:14px;font-weight:700;color:#1a3a5c">{{ ca.name }}{% if not ca.is_active %} <span style="font-size:9px;color:#888;font-weight:400">(désactivée)</span>{% endif %}</div>
-        <div style="display:flex;gap:4px">
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
             <a href="/comptabilite/caisses/{{ ca.id }}" class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 7px" title="Détails">👁️</a>
-            {% if current_user and current_user.role in ('admin','dg','directeur') %}
-            <form method="post" action="/comptabilite/caisses/{{ ca.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer la caisse « {{ ca.name|e }} » ? {% if ca.nb_ops > 0 %}({{ ca.nb_ops }} opération(s) seront conservées en historique, la caisse sera désactivée).{% else %}Cette action est définitive.{% endif %}')">
-                <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 7px" title="Supprimer">🗑️</button>
-            </form>
+            {# v110 : admin, rh, comptable, comptabilité, dg peuvent vider et supprimer #}
+            {% if current_user and current_user.role in ('admin','rh','comptable','comptabilite','dg','directeur') %}
+                {% if ca.solde_calcule and ca.solde_calcule != 0 %}
+                <form method="post" action="/comptabilite/caisses/{{ ca.id }}/reset-zero" style="display:inline" onsubmit="return confirm('🔄 Vider la caisse « {{ ca.name|e }} » à zéro ?\n\nUne écriture d\'ajustement de {{ '{:,.0f}'.format(ca.solde_calcule).replace(',', ' ') }} F sera enregistrée automatiquement (compte 658/758).\n\nCette action est tracée et écrite en comptabilité.')">
+                    <button type="submit" class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:10px;padding:3px 7px" title="Vider à zéro (écriture d'ajustement)">⚖️ Vider</button>
+                </form>
+                {% endif %}
+                <form method="post" action="/comptabilite/caisses/{{ ca.id }}/delete" style="display:inline" onsubmit="return confirm('🗑️ Supprimer la caisse « {{ ca.name|e }} » ?\n\n{% if ca.solde_calcule and ca.solde_calcule != 0 %}⚠️ Le solde n\'est pas à zéro ({{ '{:,.0f}'.format(ca.solde_calcule).replace(',', ' ') }} F). Videz la caisse d\'abord avec ⚖️ Vider.\n\n{% endif %}{% if ca.nb_ops > 0 %}{{ ca.nb_ops }} opération(s) seront conservées en historique, la caisse sera désactivée.{% else %}Cette action est définitive.{% endif %}')">
+                    <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 7px" title="Supprimer">🗑️</button>
+                </form>
             {% endif %}
         </div>
     </div>
