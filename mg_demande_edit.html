@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Modifier {{ demande.reference }}{% endblock %}
+{% block content %}
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>✏️ Modifier {{ demande.reference }}</h1>
+        <p style="color:#666;font-size:13px;margin:0">Modification de la demande interne</p>
+    </div>
+    <div style="display:flex;gap:8px">
+        <a href="/mg/demandes/{{ demande.id }}/preview" class="btn btn-outline">← Annuler</a>
+    </div>
+</div>
+
+<form method="post" action="/mg/demandes/{{ demande.id }}/edit">
+<div class="card"><div class="card-body">
+    <h3 style="margin-top:0;color:#1a3a5c;font-size:15px">📋 Informations générales</h3>
+    
+    <div class="form-row">
+        <div class="form-group"><label>Date</label>
+            <input type="date" name="date" value="{{ demande.date or '' }}"></div>
+        <div class="form-group"><label>Département / Service</label>
+            <input type="text" name="department" value="{{ demande.department or '' }}" placeholder="Ex: IT, Logistique..."></div>
+    </div>
+    
+    <div class="form-group">
+        <label>Description / Objet de la demande *</label>
+        <textarea name="description" rows="4" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px">{{ demande.description or '' }}</textarea>
+    </div>
+    
+    <div class="form-group">
+        <label>Urgence</label>
+        <select name="urgency" style="padding:8px;border:1.5px solid #ddd;border-radius:7px;width:200px">
+            <option value="normale" {% if demande.urgency == 'normale' %}selected{% endif %}>⚪ Normale</option>
+            <option value="haute" {% if demande.urgency == 'haute' %}selected{% endif %}>🟠 Haute</option>
+            <option value="urgente" {% if demande.urgency == 'urgente' %}selected{% endif %}>🔴 Urgente</option>
+        </select>
+    </div>
+</div></div>
+
+<div class="card" style="margin-top:16px"><div class="card-body">
+    <h3 style="margin-top:0;color:#1a3a5c;font-size:15px;display:flex;justify-content:space-between;align-items:center">
+        <span>📦 Articles demandés</span>
+        <button type="button" onclick="addItemRow()" class="btn btn-outline btn-sm">+ Ajouter une ligne</button>
+    </h3>
+    
+    <div class="table-wrap"><table style="width:100%;font-size:13px" id="itemsTable">
+        <thead style="background:#f8faf9">
+            <tr>
+                <th style="text-align:left;padding:8px">Désignation *</th>
+                <th style="text-align:center;padding:8px;width:90px">Quantité</th>
+                <th style="text-align:right;padding:8px;width:140px">Prix unitaire (F)</th>
+                <th style="padding:8px">Notes</th>
+                <th style="width:40px"></th>
+            </tr>
+        </thead>
+        <tbody id="itemsBody">
+        {% for it in items %}
+        <tr>
+            <td style="padding:4px"><input type="text" name="item_designation[]" value="{{ it.designation }}" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
+            <td style="padding:4px"><input type="number" name="item_quantity[]" value="{{ it.quantity or 1 }}" min="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:center"></td>
+            <td style="padding:4px"><input type="number" name="item_price[]" value="{{ it.estimated_price or 0 }}" min="0" step="100" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:right"></td>
+            <td style="padding:4px"><input type="text" name="item_notes[]" value="{{ it.notes or '' }}" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px" placeholder="Notes..."></td>
+            <td style="text-align:center;padding:4px"><button type="button" onclick="this.closest('tr').remove()" class="btn btn-sm" style="background:none;color:#c53030;font-size:14px;padding:2px 6px">🗑️</button></td>
+        </tr>
+        {% endfor %}
+        {% if not items %}
+        <tr>
+            <td style="padding:4px"><input type="text" name="item_designation[]" placeholder="Désignation de l'article..." style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
+            <td style="padding:4px"><input type="number" name="item_quantity[]" value="1" min="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:center"></td>
+            <td style="padding:4px"><input type="number" name="item_price[]" value="0" min="0" step="100" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:right"></td>
+            <td style="padding:4px"><input type="text" name="item_notes[]" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
+            <td style="text-align:center;padding:4px"><button type="button" onclick="this.closest('tr').remove()" class="btn btn-sm" style="background:none;color:#c53030;font-size:14px;padding:2px 6px">🗑️</button></td>
+        </tr>
+        {% endif %}
+        </tbody>
+    </table></div>
+    
+    <p style="font-size:11px;color:#888;margin-top:8px">💡 Les lignes vides seront automatiquement ignorées lors de l'enregistrement.</p>
+</div></div>
+
+<div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+    <a href="/mg/demandes/{{ demande.id }}/preview" class="btn btn-outline">Annuler</a>
+    <button type="submit" class="btn btn-primary">💾 Enregistrer les modifications</button>
+</div>
+</form>
+
+<script>
+function addItemRow() {
+    var tbody = document.getElementById('itemsBody');
+    var row = document.createElement('tr');
+    row.innerHTML = `
+        <td style="padding:4px"><input type="text" name="item_designation[]" placeholder="Désignation..." style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
+        <td style="padding:4px"><input type="number" name="item_quantity[]" value="1" min="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:center"></td>
+        <td style="padding:4px"><input type="number" name="item_price[]" value="0" min="0" step="100" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:right"></td>
+        <td style="padding:4px"><input type="text" name="item_notes[]" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
+        <td style="text-align:center;padding:4px"><button type="button" onclick="this.closest('tr').remove()" class="btn btn-sm" style="background:none;color:#c53030;font-size:14px;padding:2px 6px">🗑️</button></td>
+    `;
+    tbody.appendChild(row);
+}
+</script>
+
+{% endblock %}

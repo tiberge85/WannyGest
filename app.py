@@ -1036,6 +1036,34 @@ except Exception as _e:
     print(f"[v103-Sync] Erreur backfill : {_e}", flush=True)
 
 
+# v106 : Donner aux rôles métiers la permission "caisse_sortie" pour qu'ils puissent
+# faire des demandes de sortie de caisse, SANS leur ouvrir toute la section Trésorerie.
+try:
+    from models import get_db as _v106_db
+    _v106 = _v106_db()
+    # Rôles métier qui font régulièrement des demandes de sortie de caisse
+    roles_outils_caisse = ('technicien', 'tech_chef', 'centre_technique',
+                            'commercial', 'gestionnaire_projet', 
+                            'moyens_generaux', 'mg', 'magasinier',
+                            'rh', 'secretaire')
+    nb_added = 0
+    for role in roles_outils_caisse:
+        try:
+            existing = _v106.execute(
+                "SELECT COUNT(*) FROM permissions WHERE role=? AND permission='caisse_sortie'",
+                (role,)).fetchone()[0]
+            if existing == 0:
+                _v106.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, 'caisse_sortie')", (role,))
+                nb_added += 1
+        except: pass
+    _v106.commit()
+    _v106.close()
+    if nb_added > 0:
+        print(f"[v106-Outils] {nb_added} rôle(s) ont reçu 'caisse_sortie' pour demande de sortie", flush=True)
+except Exception as _e:
+    print(f"[v106-Outils] Erreur : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -19969,7 +19997,7 @@ def pointage_company_session_current(slug):
 DEPARTMENTS = ['Administration', 'Direction Générale', 'Ressources Humaines',
                'Comptabilité / Finance', 'Commercial', 'Technique',
                'Informatique', 'Moyens Généraux', 'Gestion de Projet',
-               'Conciergerie', 'Marketing', 'Logistique', 'Autre']
+               'Secrétariat', 'Conciergerie', 'Marketing', 'Logistique', 'Autre']
 
 
 @app.route('/budgets')
@@ -22003,6 +22031,107 @@ def mg_demandes_delete(did):
     conn.commit(); conn.close()
     flash("Demande supprimée", "success")
     return redirect('/mg/demandes')
+
+
+# v106 : Prévisualisation et édition d'une demande MG
+@app.route('/mg/demandes/<int:did>/preview')
+@permission_required_any('mg_view', 'mg_gestion', 'admin')
+def mg_demande_preview(did):
+    """Affiche le détail d'une demande MG en lecture seule (mode aperçu)."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM achats_demandes WHERE id=?", (did,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Demande introuvable", "error")
+        return redirect('/mg/demandes')
+    demande = dict(row)
+    items = [dict(r) for r in conn.execute(
+        "SELECT * FROM achats_demande_items WHERE demande_id=? ORDER BY id", (did,)).fetchall()]
+    # Auteur
+    auteur = None
+    if demande.get('requested_by'):
+        try:
+            u = conn.execute("SELECT full_name, role FROM users WHERE id=?", (demande['requested_by'],)).fetchone()
+            auteur = dict(u) if u else None
+        except: pass
+    # Validateur
+    validateur = None
+    if demande.get('approved_by'):
+        try:
+            u = conn.execute("SELECT full_name, role FROM users WHERE id=?", (demande['approved_by'],)).fetchone()
+            validateur = dict(u) if u else None
+        except: pass
+    # Total estimé
+    total = sum((it.get('quantity', 0) or 0) * (it.get('estimated_price', 0) or 0) for it in items)
+    conn.close()
+    return render_template('mg_demande_preview.html', page='mg_demandes',
+        demande=demande, items=items, auteur=auteur, validateur=validateur, total=total)
+
+
+@app.route('/mg/demandes/<int:did>/edit', methods=['GET', 'POST'])
+@permission_required_any('mg_gestion', 'admin')
+def mg_demande_edit(did):
+    """Modifier une demande MG (description, urgence, items)."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM achats_demandes WHERE id=?", (did,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Demande introuvable", "error")
+        return redirect('/mg/demandes')
+    demande = dict(row)
+    # Bloquer la modification si déjà transmise à la compta
+    if demande.get('status') == 'validee' and demande.get('compta_visible_at'):
+        conn.close()
+        flash("⚠️ Cette demande a déjà été transmise à la Comptabilité — modification bloquée", "error")
+        return redirect('/mg/demandes')
+    
+    if request.method == 'POST':
+        description = request.form.get('description', '').strip()
+        department = request.form.get('department', '').strip()
+        urgency = request.form.get('urgency', 'normale')
+        date_d = request.form.get('date') or demande.get('date')
+        
+        try:
+            conn.execute("""UPDATE achats_demandes SET 
+                description=?, department=?, urgency=?, date=?
+                WHERE id=?""", (description, department, urgency, date_d, did))
+            
+            # Mise à jour des items
+            # Supprimer tous les items existants
+            conn.execute("DELETE FROM achats_demande_items WHERE demande_id=?", (did,))
+            # Récupérer les items du formulaire
+            designations = request.form.getlist('item_designation[]')
+            quantities = request.form.getlist('item_quantity[]')
+            prices = request.form.getlist('item_price[]')
+            notes_list = request.form.getlist('item_notes[]')
+            
+            for i, des in enumerate(designations):
+                des = (des or '').strip()
+                if not des: continue
+                try: qty = int(quantities[i]) if i < len(quantities) else 1
+                except: qty = 1
+                try: prix = float(prices[i]) if i < len(prices) and prices[i] else 0
+                except: prix = 0
+                notes = (notes_list[i] if i < len(notes_list) else '').strip()
+                conn.execute("""INSERT INTO achats_demande_items 
+                    (demande_id, designation, quantity, estimated_price, notes)
+                    VALUES (?,?,?,?,?)""", (did, des, qty, prix, notes))
+            
+            conn.commit()
+            conn.close()
+            flash(f"✅ Demande {demande['reference']} modifiée", "success")
+            return redirect(f"/mg/demandes/{did}/preview")
+        except Exception as e:
+            conn.close()
+            flash(f"Erreur lors de la modification : {e}", "error")
+            return redirect(f"/mg/demandes/{did}/edit")
+    
+    # GET
+    items = [dict(r) for r in conn.execute(
+        "SELECT * FROM achats_demande_items WHERE demande_id=? ORDER BY id", (did,)).fetchall()]
+    conn.close()
+    return render_template('mg_demande_edit.html', page='mg_demandes',
+        demande=demande, items=items)
 
 
 # ==================== v100 : Workflow Demandes MG → Comptabilité ====================

@@ -401,9 +401,12 @@
             {% endif %}
             
             {# ═══════════════════════════════════════════════════════════════ #}
-            {# 💵 TRÉSORERIE : caisse, banque, virements, rapprochement         #}
+            {# 💵 TRÉSORERIE : section visible si l'utilisateur a au moins 1 outil complet #}
+            {# v106 : les rôles avec uniquement 'caisse_sortie' ne voient PAS la section complète, #}
+            {# juste un lien direct en bas de sidebar (rendu plus bas dans 'OUTILS RAPIDES'). #}
             {# ═══════════════════════════════════════════════════════════════ #}
-            {% if 'tresorerie' in permissions or 'comptabilite' in permissions or 'caisse_sortie' in permissions or 'admin' in permissions %}
+            {% set has_full_tresorerie = 'tresorerie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+            {% if has_full_tresorerie %}
             <div class="nav-section" id="sec-tresorerie">
                 <div class="nav-section-title" onclick="toggleSection('sec-tresorerie')">💵 TRÉSORERIE <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
@@ -413,9 +416,7 @@
                     {# CAISSE #}
                     <div class="compta-subsection-title"><span class="dot"></span>CAISSE</div>
                     <a href="/tresorerie/caisse" class="{% if page == 'tresorerie_caisse' %}active{% endif %}">💰 Journal de caisse</a>
-                    {% if 'caisse_sortie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
                     <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">📤 Sorties caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
-                    {% endif %}
                     <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
                     {% if 'caisse_multi' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
                     <a href="/comptabilite/caisses" class="{% if page == 'caisses' or page == 'caisse_detail' %}active{% endif %}">🏪 Multi-caisses</a>
@@ -564,6 +565,24 @@
                     <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">Logs d'activité</a>
                     <a href="/admin/backup">Sauvegarde BDD</a>
                     <a href="/export/stats">Export statistiques</a>
+                </div>
+            </div>
+            {% endif %}
+            
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {# v106 : OUTILS RAPIDES — Pour les rôles qui ont des permissions  #}
+            {# transversales sans avoir accès à tout un département complet.   #}
+            {# Ex : technicien qui peut demander une sortie de caisse,        #}
+            {# tout en n'ayant pas accès au journal/banque/rapprochement.     #}
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {% set show_outils_rapides = 'caisse_sortie' in permissions and not has_full_tresorerie %}
+            {% if show_outils_rapides %}
+            <div class="nav-section" id="sec-outils-rapides">
+                <div class="nav-section-title" onclick="toggleSection('sec-outils-rapides')">⚡ OUTILS RAPIDES <span class="arrow">▼</span></div>
+                <div class="nav-section-items">
+                    {% if 'caisse_sortie' in permissions %}
+                    <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">📤 Demande sortie caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
