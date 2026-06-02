@@ -1188,7 +1188,19 @@ function toggleDetail() {
 <div style="display:flex;gap:6px;flex-wrap:wrap">
 <a href="/comptabilite/virements" class="btn btn-outline btn-sm">🏦 Virements banque → caisse</a>
 <button class="btn btn-primary btn-sm" onclick="document.getElementById('addCaisseM').classList.add('active')">+ Nouvelle caisse</button>
+{# v111 : Bouton PURGE TOTALE — admin uniquement #}
+{% if current_user and current_user.role == 'admin' and caisses %}
+<button class="btn btn-sm" style="background:#c53030;color:#fff" onclick="document.getElementById('purgeAllM').classList.add('active')" title="Purger toutes les caisses et leurs traces">🔥 Purger toutes les caisses</button>
+{% endif %}
 </div></div>
+
+{# v111 : Bandeau d'alerte purge si plusieurs caisses de test #}
+{% if current_user and current_user.role in ('admin','rh','comptable','comptabilite','dg','directeur') and caisses %}
+<div style="background:#fff3e0;border-left:4px solid #f29f2f;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:12px;color:#7a4a00">
+    💡 <strong>Vous pouvez supprimer définitivement</strong> une caisse de test avec le bouton 🔥 sur chaque carte.
+    Cette action efface la caisse + toutes ses opérations + entrées/sorties + virements + mouvements du journal + écritures comptables liées.
+</div>
+{% endif %}
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:16px">
 {% for ca in caisses %}
@@ -1205,9 +1217,13 @@ function toggleDetail() {
                     <button type="submit" class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:10px;padding:3px 7px" title="Vider à zéro (écriture d'ajustement)">⚖️ Vider</button>
                 </form>
                 {% endif %}
-                <form method="post" action="/comptabilite/caisses/{{ ca.id }}/delete" style="display:inline" onsubmit="return confirm('🗑️ Supprimer la caisse « {{ ca.name|e }} » ?\n\n{% if ca.solde_calcule and ca.solde_calcule != 0 %}⚠️ Le solde n\'est pas à zéro ({{ '{:,.0f}'.format(ca.solde_calcule).replace(',', ' ') }} F). Videz la caisse d\'abord avec ⚖️ Vider.\n\n{% endif %}{% if ca.nb_ops > 0 %}{{ ca.nb_ops }} opération(s) seront conservées en historique, la caisse sera désactivée.{% else %}Cette action est définitive.{% endif %}')">
-                    <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 7px" title="Supprimer">🗑️</button>
+                <form method="post" action="/comptabilite/caisses/{{ ca.id }}/delete" style="display:inline" onsubmit="return confirm('🗑️ Désactiver la caisse « {{ ca.name|e }} » ?\n\n{% if ca.solde_calcule and ca.solde_calcule != 0 %}⚠️ Le solde n\'est pas à zéro ({{ '{:,.0f}'.format(ca.solde_calcule).replace(',', ' ') }} F). Videz la caisse d\'abord avec ⚖️ Vider.\n\n{% endif %}{% if ca.nb_ops > 0 %}{{ ca.nb_ops }} opération(s) seront conservées en historique, la caisse sera désactivée.{% else %}Cette action est définitive.{% endif %}')">
+                    <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 7px" title="Désactiver (soft delete)">🗑️</button>
                 </form>
+                {# v111 : Suppression DÉFINITIVE — purge totale (caisse + toutes traces) #}
+                <button type="button" class="btn btn-sm" style="background:#7f1d1d;color:#fff;font-size:10px;padding:3px 7px" 
+                    onclick="openPurgeModal({{ ca.id }}, '{{ ca.name|e }}', {{ ca.nb_ops }}, {{ ca.solde_calcule|round|int }})"
+                    title="Purger définitivement (efface TOUTES les traces)">🔥</button>
             {% endif %}
         </div>
     </div>
@@ -1216,6 +1232,78 @@ function toggleDetail() {
 </div></div>
 {% endfor %}
 </div>
+
+{# v111 : Modal de purge d'une caisse #}
+<div class="modal-bg" id="purgeM"><div class="modal" style="max-width:560px;border-top:5px solid #7f1d1d">
+    <h3 style="color:#7f1d1d">🔥 Purge définitive de caisse</h3>
+    <div style="background:#ffebee;border-left:4px solid #c53030;padding:12px;border-radius:6px;margin-bottom:14px">
+        <div style="font-weight:800;color:#7f1d1d;font-size:13px">⚠️ ACTION IRRÉVERSIBLE</div>
+        <div style="font-size:12px;color:#555;margin-top:4px">Cette purge effacera <strong>TOUTES les traces</strong> de cette caisse :</div>
+        <ul style="font-size:11px;color:#555;margin:6px 0 0 18px;padding:0">
+            <li>La caisse elle-même</li>
+            <li>Toutes les opérations (entrées, sorties, transferts)</li>
+            <li>Tous les virements banque → caisse</li>
+            <li>Tous les mouvements du journal de caisse</li>
+            <li>Toutes les pièces de caisse rattachées</li>
+            <li>Toutes les écritures comptables liées</li>
+        </ul>
+    </div>
+    <div id="purgeCaisseInfo" style="background:#fafafa;padding:10px;border-radius:6px;margin-bottom:14px;font-size:13px"></div>
+    <form method="post" id="purgeForm">
+        <div class="form-group">
+            <label style="font-weight:700">Tapez <code style="background:#fde8e8;padding:2px 6px;border-radius:4px;color:#c53030">PURGE</code> en majuscules pour confirmer *</label>
+            <input type="text" name="confirm" required style="width:100%;padding:10px;border:2px solid #c53030;border-radius:7px;font-family:monospace;font-size:14px;text-transform:uppercase" placeholder="PURGE">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('purgeM').classList.remove('active')">Annuler</button>
+            <button type="submit" class="btn" style="background:#7f1d1d;color:#fff">🔥 PURGER DÉFINITIVEMENT</button>
+        </div>
+    </form>
+</div></div>
+
+{# v111 : Modal PURGE TOUTES (admin uniquement) #}
+{% if current_user and current_user.role == 'admin' %}
+<div class="modal-bg" id="purgeAllM"><div class="modal" style="max-width:600px;border-top:5px solid #7f1d1d">
+    <h3 style="color:#7f1d1d">🔥 PURGE DE TOUTES LES CAISSES</h3>
+    <div style="background:#ffebee;border-left:4px solid #c53030;padding:14px;border-radius:6px;margin-bottom:14px">
+        <div style="font-weight:800;color:#7f1d1d;font-size:14px">⚠️ ACTION DESTRUCTRICE — IRRÉVERSIBLE</div>
+        <div style="font-size:12px;color:#555;margin-top:6px">
+            Cette purge va effacer <strong>TOUTES les caisses</strong> et toutes leurs traces du système :
+        </div>
+        <ul style="font-size:11px;color:#555;margin:8px 0 0 18px;padding:0">
+            <li><strong>{{ caisses|length }} caisse(s)</strong> seront supprimées</li>
+            <li>Toutes les opérations, entrées, sorties, virements</li>
+            <li>Tous les mouvements du journal de caisse</li>
+            <li>Toutes les pièces et écritures comptables liées</li>
+        </ul>
+        <div style="font-size:11px;color:#7a4a00;margin-top:8px;font-style:italic">
+            💡 Utilisez cette option si toutes vos caisses sont des tests et que vous voulez repartir de zéro.
+        </div>
+    </div>
+    <form method="post" action="/comptabilite/caisses/purge-all">
+        <div class="form-group">
+            <label style="font-weight:700">Tapez <code style="background:#fde8e8;padding:2px 6px;border-radius:4px;color:#c53030">PURGE TOUTES</code> en majuscules pour confirmer *</label>
+            <input type="text" name="confirm" required style="width:100%;padding:10px;border:2px solid #c53030;border-radius:7px;font-family:monospace;font-size:14px" placeholder="PURGE TOUTES">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('purgeAllM').classList.remove('active')">Annuler</button>
+            <button type="submit" class="btn" style="background:#7f1d1d;color:#fff">🔥 PURGER TOUTES LES CAISSES</button>
+        </div>
+    </form>
+</div></div>
+{% endif %}
+
+<script>
+function openPurgeModal(cid, name, nbOps, solde) {
+    var form = document.getElementById('purgeForm');
+    form.action = '/comptabilite/caisses/' + cid + '/purge';
+    var info = document.getElementById('purgeCaisseInfo');
+    info.innerHTML = '<strong>Caisse :</strong> ' + name + 
+                     '<br><strong>Opérations enregistrées :</strong> ' + nbOps +
+                     '<br><strong>Solde actuel :</strong> ' + solde.toLocaleString('fr-FR') + ' F';
+    document.getElementById('purgeM').classList.add('active');
+}
+</script>
 <div class="card"><div class="card-body" style="text-align:right;font-size:16px;font-weight:700">
 Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }} FCFA</span>
 </div></div>

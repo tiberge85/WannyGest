@@ -9711,8 +9711,13 @@ def admin_modules_reset():
 # ======================== MULTI-CAISSES ========================
 
 @app.route('/comptabilite/caisses')
-@permission_required('comptabilite')
+@login_required
 def compta_caisses():
+    # v111 : accessible à admin, RH, comptable, comptabilité, DG, directeur
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
+        flash("⚠️ Accès réservé à la comptabilité, RH et administration", "error")
+        return redirect('/dashboard')
     conn = _gdb()
     caisses = [dict(r) for r in conn.execute("SELECT * FROM caisses ORDER BY name").fetchall()]
     # Recalculate solde for each caisse
@@ -9856,6 +9861,225 @@ def compta_caisse_reset_zero(cid):
     log_activity(session['user_id'], user['full_name'], 'Caisse',
                  f"Remise à zéro caisse {ca['name']} — ajustement {ref_op} ({solde:,.0f} F)", request.remote_addr)
     flash(f"✅ Caisse « {ca['name']} » remise à zéro — ajustement de {abs(solde):,.0f} F enregistré ({ref_op})", "success")
+    return redirect('/comptabilite/caisses')
+
+
+# v111 : SUPPRESSION DÉFINITIVE d'une caisse + toutes ses traces (purge totale)
+# Efface : la caisse, ses opérations, entrées, sorties, virements, mouvements journal,
+# pièces, écritures comptables liées. Aucun retour possible.
+@app.route('/comptabilite/caisses/<int:cid>/purge', methods=['POST', 'GET'])
+@login_required
+def compta_caisse_purge(cid):
+    """v111 : Purge totale d'une caisse — supprime TOUTES les traces.
+    Accessible uniquement à admin, rh, comptable, comptabilite, dg, directeur.
+    Nécessite la confirmation explicite (form POST avec confirm='OUI')."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
+        flash("⚠️ Seul l'admin, le RH ou la comptabilité peuvent purger une caisse", "error")
+        return redirect('/comptabilite/caisses')
+    
+    conn = _gdb()
+    ca = conn.execute("SELECT * FROM caisses WHERE id=?", (cid,)).fetchone()
+    if not ca:
+        conn.close()
+        flash("Caisse non trouvée", "error")
+        return redirect('/comptabilite/caisses')
+    ca = dict(ca)
+    
+    # Confirmation explicite obligatoire
+    if request.method == 'POST' and request.form.get('confirm', '').strip().upper() != 'PURGE':
+        conn.close()
+        flash("⚠️ Confirmation invalide : tapez 'PURGE' en majuscules pour confirmer", "error")
+        return redirect('/comptabilite/caisses')
+    
+    # Récupérer toutes les références d'opérations de cette caisse pour purger les écritures liées
+    op_refs = [r[0] for r in conn.execute(
+        "SELECT reference FROM caisse_operations WHERE caisse_id=? OR source_caisse_id=? OR dest_caisse_id=?",
+        (cid, cid, cid)).fetchall() if r[0]]
+    entree_refs = []
+    try:
+        entree_refs = [r[0] for r in conn.execute(
+            "SELECT reference FROM caisse_entrees WHERE caisse_id=?", (cid,)).fetchall() if r[0]]
+    except: pass
+    sortie_refs = [r[0] for r in conn.execute(
+        "SELECT reference FROM caisse_sorties WHERE caisse_id=?", (cid,)).fetchall() if r[0]]
+    
+    all_refs = list(set(op_refs + entree_refs + sortie_refs))
+    
+    stats = {'operations': 0, 'entrees': 0, 'sorties': 0, 'virements': 0,
+             'mouvements': 0, 'pieces': 0, 'ecritures': 0, 'interventions_unlinked': 0,
+             'supplier_payments_unlinked': 0}
+    
+    try:
+        # 1. Opérations
+        cur = conn.execute("DELETE FROM caisse_operations WHERE caisse_id=? OR source_caisse_id=? OR dest_caisse_id=?",
+                           (cid, cid, cid))
+        stats['operations'] = cur.rowcount or 0
+        
+        # 2. Entrées
+        try:
+            cur = conn.execute("DELETE FROM caisse_entrees WHERE caisse_id=?", (cid,))
+            stats['entrees'] = cur.rowcount or 0
+        except: pass
+        
+        # 3. Sorties (et déliage des supplier_payments)
+        sortie_ids = [r[0] for r in conn.execute("SELECT id FROM caisse_sorties WHERE caisse_id=?", (cid,)).fetchall()]
+        if sortie_ids:
+            try:
+                cur = conn.execute("UPDATE supplier_payments SET caisse_sortie_id=NULL WHERE caisse_sortie_id IN ({})".format(
+                    ','.join('?' for _ in sortie_ids)), sortie_ids)
+                stats['supplier_payments_unlinked'] = cur.rowcount or 0
+            except: pass
+        cur = conn.execute("DELETE FROM caisse_sorties WHERE caisse_id=?", (cid,))
+        stats['sorties'] = cur.rowcount or 0
+        
+        # 4. Virements
+        try:
+            cur = conn.execute("DELETE FROM caisse_virements WHERE caisse_id=?", (cid,))
+            stats['virements'] = cur.rowcount or 0
+        except: pass
+        
+        # 5. Mouvements de trésorerie (par caisse_id direct OU par référence)
+        cur = conn.execute("DELETE FROM tresorerie_mouvements WHERE caisse_id=?", (cid,))
+        stats['mouvements'] = cur.rowcount or 0
+        if all_refs:
+            cur = conn.execute("DELETE FROM tresorerie_mouvements WHERE reference IN ({})".format(
+                ','.join('?' for _ in all_refs)), all_refs)
+            stats['mouvements'] += cur.rowcount or 0
+        
+        # 6. Pièces de caisse
+        try:
+            cur = conn.execute("DELETE FROM pieces_caisse WHERE caisse_id=?", (cid,))
+            stats['pieces'] = cur.rowcount or 0
+        except: pass
+        
+        # 7. Écritures comptables liées (par référence/piece)
+        if all_refs:
+            try:
+                cur = conn.execute("DELETE FROM ecritures_comptables WHERE piece IN ({})".format(
+                    ','.join('?' for _ in all_refs)), all_refs)
+                stats['ecritures'] = cur.rowcount or 0
+            except: pass
+        
+        # 8. Délier les interventions
+        try:
+            cur = conn.execute("UPDATE interventions SET caisse_id=NULL WHERE caisse_id=?", (cid,))
+            stats['interventions_unlinked'] = cur.rowcount or 0
+        except: pass
+        
+        # 9. Enfin, la caisse elle-même
+        conn.execute("DELETE FROM caisses WHERE id=?", (cid,))
+        
+        conn.commit()
+        conn.close()
+        
+        log_activity(session['user_id'], user['full_name'], 'Caisse',
+                     f"PURGE TOTALE caisse {ca['name']} (id={cid}) — {stats}", request.remote_addr)
+        
+        msg = (f"🗑️ Caisse « {ca['name']} » et toutes ses traces supprimées définitivement : "
+               f"{stats['operations']} op., {stats['entrees']} entrées, {stats['sorties']} sorties, "
+               f"{stats['virements']} virements, {stats['mouvements']} mvts journal, "
+               f"{stats['pieces']} pièces, {stats['ecritures']} écritures comptables.")
+        flash(msg, "success")
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        flash(f"Erreur lors de la purge : {e}", "error")
+    
+    return redirect('/comptabilite/caisses')
+
+
+# v111 : Purge TOTALE de toutes les caisses (pour repartir de zéro)
+@app.route('/comptabilite/caisses/purge-all', methods=['POST'])
+@login_required
+def compta_caisse_purge_all():
+    """v111 : Purge TOUTES les caisses (mode reset complet).
+    Réservé à admin uniquement. Confirmation 'PURGE TOUTES' obligatoire."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] != 'admin':
+        flash("⚠️ Seul l'admin peut purger toutes les caisses", "error")
+        return redirect('/comptabilite/caisses')
+    
+    if request.form.get('confirm', '').strip().upper() != 'PURGE TOUTES':
+        flash("⚠️ Confirmation invalide : tapez exactement 'PURGE TOUTES' pour confirmer", "error")
+        return redirect('/comptabilite/caisses')
+    
+    conn = _gdb()
+    nb_caisses = conn.execute("SELECT COUNT(*) FROM caisses").fetchone()[0]
+    if nb_caisses == 0:
+        conn.close()
+        flash("ℹ️ Aucune caisse à purger", "info")
+        return redirect('/comptabilite/caisses')
+    
+    # Récupérer toutes les références pour purger les écritures liées
+    op_refs = [r[0] for r in conn.execute("SELECT reference FROM caisse_operations").fetchall() if r[0]]
+    try:
+        entree_refs = [r[0] for r in conn.execute("SELECT reference FROM caisse_entrees").fetchall() if r[0]]
+    except: entree_refs = []
+    sortie_refs = [r[0] for r in conn.execute("SELECT reference FROM caisse_sorties").fetchall() if r[0]]
+    all_refs = list(set(op_refs + entree_refs + sortie_refs))
+    
+    stats = {}
+    try:
+        # Vider toutes les tables liées
+        try:
+            r = conn.execute("DELETE FROM caisse_operations"); stats['operations'] = r.rowcount or 0
+        except: stats['operations'] = 0
+        try:
+            r = conn.execute("DELETE FROM caisse_entrees"); stats['entrees'] = r.rowcount or 0
+        except: stats['entrees'] = 0
+        try:
+            r = conn.execute("UPDATE supplier_payments SET caisse_sortie_id=NULL WHERE caisse_sortie_id IS NOT NULL")
+            stats['supplier_payments_unlinked'] = r.rowcount or 0
+        except: pass
+        try:
+            r = conn.execute("DELETE FROM caisse_sorties"); stats['sorties'] = r.rowcount or 0
+        except: stats['sorties'] = 0
+        try:
+            r = conn.execute("DELETE FROM caisse_virements"); stats['virements'] = r.rowcount or 0
+        except: stats['virements'] = 0
+        # Mouvements caisse uniquement
+        r = conn.execute("DELETE FROM tresorerie_mouvements WHERE type='caisse' OR caisse_id IS NOT NULL")
+        stats['mouvements'] = r.rowcount or 0
+        if all_refs:
+            r = conn.execute("DELETE FROM tresorerie_mouvements WHERE reference IN ({})".format(
+                ','.join('?' for _ in all_refs)), all_refs)
+            stats['mouvements'] += r.rowcount or 0
+        try:
+            r = conn.execute("DELETE FROM pieces_caisse"); stats['pieces'] = r.rowcount or 0
+        except: stats['pieces'] = 0
+        # Écritures comptables liées
+        if all_refs:
+            try:
+                r = conn.execute("DELETE FROM ecritures_comptables WHERE piece IN ({})".format(
+                    ','.join('?' for _ in all_refs)), all_refs)
+                stats['ecritures'] = r.rowcount or 0
+            except: pass
+        # Délier interventions
+        try:
+            r = conn.execute("UPDATE interventions SET caisse_id=NULL WHERE caisse_id IS NOT NULL")
+            stats['interventions_unlinked'] = r.rowcount or 0
+        except: pass
+        # Enfin, toutes les caisses
+        r = conn.execute("DELETE FROM caisses"); stats['caisses'] = r.rowcount or 0
+        
+        conn.commit()
+        conn.close()
+        
+        log_activity(session['user_id'], user['full_name'], 'Caisse',
+                     f"PURGE TOTALE de TOUTES les caisses — {stats}", request.remote_addr)
+        
+        msg = (f"🗑️ PURGE COMPLÈTE effectuée : {stats.get('caisses',0)} caisses, "
+               f"{stats.get('operations',0)} op., {stats.get('entrees',0)} entrées, "
+               f"{stats.get('sorties',0)} sorties, {stats.get('virements',0)} virements, "
+               f"{stats.get('mouvements',0)} mvts journal, {stats.get('pieces',0)} pièces, "
+               f"{stats.get('ecritures',0)} écritures comptables. Vous pouvez recréer des caisses propres.")
+        flash(msg, "success")
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        flash(f"Erreur lors de la purge globale : {e}", "error")
+    
     return redirect('/comptabilite/caisses')
 
 
