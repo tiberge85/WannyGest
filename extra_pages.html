@@ -1188,17 +1188,18 @@ function toggleDetail() {
 <div style="display:flex;gap:6px;flex-wrap:wrap">
 <a href="/comptabilite/virements" class="btn btn-outline btn-sm">🏦 Virements banque → caisse</a>
 <button class="btn btn-primary btn-sm" onclick="document.getElementById('addCaisseM').classList.add('active')">+ Nouvelle caisse</button>
-{# v111 : Bouton PURGE TOTALE — admin uniquement #}
-{% if current_user and current_user.role == 'admin' and caisses %}
+{# v113 : Bouton PURGE TOTALE — permission 'caisse_purge_all' (admin uniquement par défaut) #}
+{% if ('caisse_purge_all' in permissions or 'admin' in permissions) and caisses %}
 <button class="btn btn-sm" style="background:#c53030;color:#fff" onclick="document.getElementById('purgeAllM').classList.add('active')" title="Purger toutes les caisses et leurs traces">🔥 Purger toutes les caisses</button>
 {% endif %}
 </div></div>
 
-{# v111 : Bandeau d'alerte purge si plusieurs caisses de test #}
-{% if current_user and current_user.role in ('admin','rh','comptable','comptabilite','dg','directeur') and caisses %}
+{# v113 : Bandeau d'alerte purge — visible si permission 'caisse_purge' ou 'caisse_delete' #}
+{% if ('caisse_purge' in permissions or 'caisse_delete' in permissions or 'admin' in permissions) and caisses %}
 <div style="background:#fff3e0;border-left:4px solid #f29f2f;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:12px;color:#7a4a00">
     💡 <strong>Vous pouvez supprimer définitivement</strong> une caisse de test avec le bouton 🔥 sur chaque carte.
     Cette action efface la caisse + toutes ses opérations + entrées/sorties + virements + mouvements du journal + écritures comptables liées.
+    📦 Une sauvegarde est automatiquement créée dans la <a href="/admin/corbeille" style="color:#1A7A6D;font-weight:700">corbeille</a> pour permettre la restauration.
 </div>
 {% endif %}
 
@@ -1210,20 +1211,24 @@ function toggleDetail() {
         <div style="font-size:14px;font-weight:700;color:#1a3a5c">{{ ca.name }}{% if not ca.is_active %} <span style="font-size:9px;color:#888;font-weight:400">(désactivée)</span>{% endif %}</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
             <a href="/comptabilite/caisses/{{ ca.id }}" class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 7px" title="Détails">👁️</a>
-            {# v110 : admin, rh, comptable, comptabilité, dg peuvent vider et supprimer #}
-            {% if current_user and current_user.role in ('admin','rh','comptable','comptabilite','dg','directeur') %}
+            {# v113 : Utilisation des permissions au lieu de checks par rôle #}
+            {% if 'caisse_reset_zero' in permissions or 'admin' in permissions %}
                 {% if ca.solde_calcule and ca.solde_calcule != 0 %}
                 <form method="post" action="/comptabilite/caisses/{{ ca.id }}/reset-zero" style="display:inline" onsubmit="return confirm('🔄 Vider la caisse « {{ ca.name|e }} » à zéro ?\n\nUne écriture d\'ajustement de {{ '{:,.0f}'.format(ca.solde_calcule).replace(',', ' ') }} F sera enregistrée automatiquement (compte 658/758).\n\nCette action est tracée et écrite en comptabilité.')">
                     <button type="submit" class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:10px;padding:3px 7px" title="Vider à zéro (écriture d'ajustement)">⚖️ Vider</button>
                 </form>
                 {% endif %}
+            {% endif %}
+            {% if 'caisse_delete' in permissions or 'admin' in permissions %}
                 <form method="post" action="/comptabilite/caisses/{{ ca.id }}/delete" style="display:inline" onsubmit="return confirm('🗑️ Désactiver la caisse « {{ ca.name|e }} » ?\n\n{% if ca.solde_calcule and ca.solde_calcule != 0 %}⚠️ Le solde n\'est pas à zéro ({{ '{:,.0f}'.format(ca.solde_calcule).replace(',', ' ') }} F). Videz la caisse d\'abord avec ⚖️ Vider.\n\n{% endif %}{% if ca.nb_ops > 0 %}{{ ca.nb_ops }} opération(s) seront conservées en historique, la caisse sera désactivée.{% else %}Cette action est définitive.{% endif %}')">
                     <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 7px" title="Désactiver (soft delete)">🗑️</button>
                 </form>
-                {# v111 : Suppression DÉFINITIVE — purge totale (caisse + toutes traces) #}
+            {% endif %}
+            {# v113 : Bouton PURGE — réservé aux rôles avec permission 'caisse_purge' (admin + RH par défaut) #}
+            {% if 'caisse_purge' in permissions or 'admin' in permissions %}
                 <button type="button" class="btn btn-sm" style="background:#7f1d1d;color:#fff;font-size:10px;padding:3px 7px" 
                     onclick="openPurgeModal({{ ca.id }}, '{{ ca.name|e }}', {{ ca.nb_ops }}, {{ ca.solde_calcule|round|int }})"
-                    title="Purger définitivement (efface TOUTES les traces)">🔥</button>
+                    title="Purger définitivement (efface TOUTES les traces) — réservé admin & RH">🔥</button>
             {% endif %}
         </div>
     </div>
@@ -1261,8 +1266,8 @@ function toggleDetail() {
     </form>
 </div></div>
 
-{# v111 : Modal PURGE TOUTES (admin uniquement) #}
-{% if current_user and current_user.role == 'admin' %}
+{# v113 : Modal PURGE TOUTES — permission 'caisse_purge_all' #}
+{% if 'caisse_purge_all' in permissions or 'admin' in permissions %}
 <div class="modal-bg" id="purgeAllM"><div class="modal" style="max-width:600px;border-top:5px solid #7f1d1d">
     <h3 style="color:#7f1d1d">🔥 PURGE DE TOUTES LES CAISSES</h3>
     <div style="background:#ffebee;border-left:4px solid #c53030;padding:14px;border-radius:6px;margin-bottom:14px">

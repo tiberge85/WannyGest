@@ -1177,6 +1177,145 @@ except Exception as _e:
     print(f"[v112-Corbeille] Erreur : {_e}", flush=True)
 
 
+# v113 : Initialisation des permissions par défaut pour le rôle "coordinateur"
+# UNIQUEMENT au premier démarrage (via flag app_settings)
+try:
+    from models import get_db as _v113_db
+    _v113 = _v113_db()
+    already_done = _v113.execute(
+        "SELECT value FROM app_settings WHERE key='v113_coord_perms_done'").fetchone()
+    
+    if not already_done:
+        # Le coordinateur a des permissions similaires au gestionnaire_projet
+        # (lecture roadmap, gestion projets, remontées, lecture comptable, etc.)
+        coord_defaults = [
+            'dashboard', 'dashboard_general', 'rapports_j', 'chat',
+            # Projets
+            'roadmap_view', 'roadmap_manage', 'projets', 'resp_projet', 'resp_projet_edit',
+            'project_create', 'project_advance', 'project_qc', 'project_deliver', 
+            'project_plan', 'project_close', 'project_contract', 'project_progress',
+            'project_report', 'project_material',
+            # Technique
+            'centre_technique', 'visites', 'visites_edit', 'gps_itineraire',
+            'controle_qualite', 'livraison_intervention',
+            # Remontées (toutes)
+            'field_report_create', 'field_report_view_all', 'field_report_view_mine',
+            'field_report_analyze', 'field_report_transform', 'field_report_close',
+            'field_report_edit', 'field_report_print',
+            # Clients / commercial
+            'clients', 'proforma',
+            # Stock
+            'stock_view', 'moyens_generaux',
+            # Caisse sortie (demander)
+            'caisse_sortie',
+            # MG
+            'mg_view', 'mg_demande',
+            # Budget vue propre
+            'budget_view_own',
+            # Pointage
+            'pointage',
+            # Tracking
+            'tracking',
+        ]
+        nb_added_coord = 0
+        for p in coord_defaults:
+            try:
+                existing = _v113.execute(
+                    "SELECT COUNT(*) FROM permissions WHERE role='coordinateur' AND permission=?",
+                    (p,)).fetchone()[0]
+                if existing == 0:
+                    _v113.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('coordinateur', ?)", (p,))
+                    nb_added_coord += 1
+            except: pass
+        _v113.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v113_coord_perms_done', '1', datetime('now'))")
+        _v113.commit()
+        if nb_added_coord > 0:
+            print(f"[v113-Coord] {nb_added_coord} permission(s) par défaut ajoutée(s) au rôle 'coordinateur'", flush=True)
+        else:
+            print(f"[v113-Coord] Rôle 'coordinateur' avait déjà ses permissions", flush=True)
+    _v113.close()
+except Exception as _e:
+    print(f"[v113-Coord] Erreur : {_e}", flush=True)
+
+
+# v113 : Initialisation des nouvelles permissions pour admin et RH (caisse purge, corbeille, backup)
+# UNIQUEMENT au premier démarrage
+try:
+    from models import get_db as _v113b_db
+    _v113b = _v113b_db()
+    already_done = _v113b.execute(
+        "SELECT value FROM app_settings WHERE key='v113_new_perms_done'").fetchone()
+    
+    if not already_done:
+        # Permissions Admin (TOUT — purge incluse, multi-caisses, corbeille, etc.)
+        admin_new_perms = [
+            'caisse_view', 'caisse_create', 'caisse_reset_zero', 
+            'caisse_delete', 'caisse_purge', 'caisse_purge_all',
+            'caisse_sortie_decision', 'caisse_sortie_comptabiliser',
+            'corbeille_view', 'corbeille_restore', 'corbeille_purge',
+            'backup_view', 'backup_inspect',
+            'mg_view', 'mg_demande', 'mg_valider', 'mg_gestion',
+        ]
+        # Permissions RH (limitées : peut voir, créer, vider, supprimer & purger MAIS PAS purge_all)
+        rh_new_perms = [
+            'caisse_view', 'caisse_create', 'caisse_reset_zero',
+            'caisse_delete', 'caisse_purge',  # ⚠️ Pas de caisse_purge_all
+            'caisse_sortie_decision',
+            'corbeille_view', 'corbeille_restore',  # Pas de corbeille_purge
+            'backup_view', 'backup_inspect',
+            'mg_view', 'mg_demande',
+        ]
+        # Permissions Comptable (similaire à RH côté caisse mais sans purge)
+        compta_new_perms = [
+            'caisse_view', 'caisse_create', 'caisse_reset_zero', 'caisse_delete',
+            'caisse_sortie_comptabiliser',
+            'corbeille_view', 'corbeille_restore',
+            'mg_view', 'mg_demande',
+        ]
+        # DG/Directeur
+        dg_new_perms = [
+            'caisse_view', 'caisse_sortie_decision', 'caisse_sortie_comptabiliser',
+            'corbeille_view', 'mg_view',
+        ]
+        # Moyens Généraux
+        mg_new_perms = [
+            'mg_view', 'mg_demande', 'mg_valider', 'mg_gestion',
+            'caisse_sortie',  # demander
+        ]
+        
+        all_default = {
+            'admin': admin_new_perms,
+            'rh': rh_new_perms,
+            'comptable': compta_new_perms,
+            'comptabilite': compta_new_perms,
+            'dg': dg_new_perms,
+            'directeur': dg_new_perms,
+            'moyens_generaux': mg_new_perms,
+            'mg': mg_new_perms,
+        }
+        
+        nb_added_new = 0
+        for role, perms_to_add in all_default.items():
+            for p in perms_to_add:
+                try:
+                    existing = _v113b.execute(
+                        "SELECT COUNT(*) FROM permissions WHERE role=? AND permission=?",
+                        (role, p)).fetchone()[0]
+                    if existing == 0:
+                        _v113b.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, p))
+                        nb_added_new += 1
+                except: pass
+        _v113b.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v113_new_perms_done', '1', datetime('now'))")
+        _v113b.commit()
+        if nb_added_new > 0:
+            print(f"[v113-NewPerms] {nb_added_new} nouvelle(s) permission(s) ajoutée(s) aux rôles", flush=True)
+        else:
+            print(f"[v113-NewPerms] Permissions déjà à jour", flush=True)
+    _v113b.close()
+except Exception as _e:
+    print(f"[v113-NewPerms] Erreur : {_e}", flush=True)
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -1217,11 +1356,28 @@ try:
                    'creances_view', 'creances_edit', 'creances_relance', 'creances_export',
                    # v99 : Marges stock + Remontées Informations
                    'stock_marges_edit',
-                   'field_report_create', 'field_report_view_all', 'field_report_analyze',
+                   'field_report_create', 'field_report_view_all', 'field_report_view_mine', 'field_report_analyze',
                    'field_report_transform', 'field_report_close',
                    # v100 : Actions remontées + validation compta MG
                    'field_report_edit', 'field_report_delete', 'field_report_print',
-                   'mg_compta_validate'])
+                   'mg_compta_validate',
+                   # v113 : Nouvelles permissions Multi-caisses + Corbeille + MG + Backup
+                   'caisse_view', 'caisse_create', 'caisse_reset_zero',
+                   'caisse_delete', 'caisse_purge', 'caisse_purge_all',
+                   'caisse_sortie_decision', 'caisse_sortie_comptabiliser',
+                   'corbeille_view', 'corbeille_restore', 'corbeille_purge',
+                   'backup_view', 'backup_inspect',
+                   'mg_view', 'mg_demande', 'mg_valider', 'mg_gestion',
+                   # v90 : Budget global
+                   'budget_view', 'budget_view_own', 'budget_edit',
+                   # v95+ Compta Pro
+                   'compta_pro', 'compta_pro_edit', 'compta_pro_valide', 'compta_pro_cloture',
+                   # v94 Trésorerie
+                   'tresorerie', 'tresorerie_edit', 'tresorerie_rapprochement',
+                   # Achats / Fournisseurs
+                   'achats', 'achats_edit', 'fournisseurs', 'fournisseurs_edit',
+                   # Pointage
+                   'pointage', 'pointage_admin', 'pointage_dept', 'pointage_edit'])
     from models import get_role_permissions as _grp
     # v110 : N'initialise QUE pour un rôle complètement vide (création initiale)
     # Plus de réinjection forcée quand l'admin enlève une permission
@@ -1368,6 +1524,33 @@ PERM_CATEGORIES = {
     ],
     'Validation Comptable MG (v100)': [
         ('mg_compta_validate', 'Valider/refuser les demandes Moyens Généraux côté Comptabilité'),
+    ],
+    'Demandes Moyens Généraux (v113)': [
+        ('mg_view', 'Voir les demandes MG'),
+        ('mg_demande', 'Créer une demande MG'),
+        ('mg_valider', 'Valider/refuser une demande MG (en interne MG)'),
+        ('mg_gestion', 'Gérer (modifier/supprimer) les demandes MG'),
+    ],
+    'Multi-caisses (v110-v112)': [
+        ('caisse_view', 'Voir le module Multi-caisses'),
+        ('caisse_create', 'Créer une nouvelle caisse'),
+        ('caisse_reset_zero', 'Vider une caisse à zéro (écriture d\'ajustement)'),
+        ('caisse_delete', 'Désactiver une caisse (soft delete avec historique)'),
+        ('caisse_purge', 'Suppression DÉFINITIVE d\'une caisse + toutes ses traces (admin & RH)'),
+        ('caisse_purge_all', 'PURGE TOTALE de toutes les caisses (admin uniquement)'),
+    ],
+    'Décision Sortie de Caisse (v108-v109)': [
+        ('caisse_sortie_decision', 'Valider/refuser les sorties de caisse (3ème signataire — DG ou RH)'),
+        ('caisse_sortie_comptabiliser', 'Comptabiliser le décaissement final'),
+    ],
+    'Corbeille - Restauration (v112)': [
+        ('corbeille_view', 'Voir la corbeille (éléments supprimés)'),
+        ('corbeille_restore', 'Restaurer des éléments depuis la corbeille'),
+        ('corbeille_purge', 'Supprimer définitivement des éléments de la corbeille'),
+    ],
+    'Backup BDD (v112)': [
+        ('backup_view', 'Voir la liste des sauvegardes BDD'),
+        ('backup_inspect', 'Inspecter le contenu d\'un backup et récupérer des caisses'),
     ],
     'Suivi Créances Clients (v92)': [
         ('creances_view', 'Voir le suivi des créances'),
@@ -9739,10 +9922,13 @@ def admin_modules_reset():
 @app.route('/comptabilite/caisses')
 @login_required
 def compta_caisses():
-    # v111 : accessible à admin, RH, comptable, comptabilité, DG, directeur
+    # v113 : permission 'caisse_view' (avec fallback sur comptabilite ou admin)
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
-        flash("⚠️ Accès réservé à la comptabilité, RH et administration", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and (_hp(user['role'], 'caisse_view') or _hp(user['role'], 'comptabilite'))
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'caisse_view' ou 'comptabilite' requise", "error")
         return redirect('/dashboard')
     conn = _gdb()
     caisses = [dict(r) for r in conn.execute("SELECT * FROM caisses ORDER BY name").fetchall()]
@@ -9779,10 +9965,14 @@ def compta_caisse_add():
 @app.route('/comptabilite/caisses/<int:cid>/delete', methods=['POST','GET'])
 @login_required
 def compta_caisse_delete(cid):
-    """v110 : Supprime une caisse — accessible aux rôles admin, rh, comptable, comptabilite, dg, directeur."""
+    """v110 + v113 : Supprime (désactive ou hard delete) une caisse.
+    v113 : permission 'caisse_delete' requise."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
-        flash("⚠️ Seuls l'admin, le RH ou la comptabilité peuvent supprimer une caisse", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'caisse_delete')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'caisse_delete' requise", "error")
         return redirect('/comptabilite/caisses')
     
     conn = _gdb()
@@ -9833,11 +10023,14 @@ def compta_caisse_delete(cid):
 @app.route('/comptabilite/caisses/<int:cid>/reset-zero', methods=['POST', 'GET'])
 @login_required
 def compta_caisse_reset_zero(cid):
-    """v110 : Vide une caisse en passant une écriture d'ajustement (solde → 0).
-    Accessible à admin, rh, comptable, comptabilite, dg, directeur."""
+    """v110 + v113 : Vide une caisse en passant une écriture d'ajustement (solde → 0).
+    v113 : permission 'caisse_reset_zero' requise."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
-        flash("⚠️ Seuls l'admin, le RH ou la comptabilité peuvent vider une caisse", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'caisse_reset_zero')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'caisse_reset_zero' requise", "error")
         return redirect('/comptabilite/caisses')
     
     conn = _gdb()
@@ -10010,11 +10203,15 @@ def _save_trash_snapshot(conn, entity_type, entity_id, entity_name, snapshot, st
 @app.route('/comptabilite/caisses/<int:cid>/purge', methods=['POST', 'GET'])
 @login_required
 def compta_caisse_purge(cid):
-    """v111 + v112 : Purge totale d'une caisse — supprime TOUTES les traces
-    APRÈS avoir sauvegardé un snapshot complet dans la corbeille."""
+    """v111 + v112 + v113 : Purge totale d'une caisse — supprime TOUTES les traces
+    APRÈS avoir sauvegardé un snapshot complet dans la corbeille.
+    v113 : Réservé aux rôles avec permission 'caisse_purge' (admin & RH par défaut)."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
-        flash("⚠️ Seul l'admin, le RH ou la comptabilité peuvent purger une caisse", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'caisse_purge')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'caisse_purge' requise — réservée à l'admin et au RH", "error")
         return redirect('/comptabilite/caisses')
     
     conn = _gdb()
@@ -10147,8 +10344,11 @@ def compta_caisse_purge_all():
     """v111 : Purge TOUTES les caisses (mode reset complet).
     Réservé à admin uniquement. Confirmation 'PURGE TOUTES' obligatoire."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] != 'admin':
-        flash("⚠️ Seul l'admin peut purger toutes les caisses", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'caisse_purge_all')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'caisse_purge_all' requise — réservée à l'admin", "error")
         return redirect('/comptabilite/caisses')
     
     if request.form.get('confirm', '').strip().upper() != 'PURGE TOUTES':
@@ -10259,10 +10459,14 @@ def compta_caisse_purge_all():
 @app.route('/admin/corbeille')
 @login_required
 def corbeille_list():
-    """v112 : Liste tous les éléments supprimés disponibles pour restauration."""
+    """v112 + v113 : Liste tous les éléments supprimés disponibles pour restauration.
+    v113 : permission 'corbeille_view' requise."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
-        flash("⚠️ Accès réservé à l'admin, RH et comptabilité", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'corbeille_view')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'corbeille_view' requise", "error")
         return redirect('/dashboard')
     
     import json
@@ -10283,10 +10487,14 @@ def corbeille_list():
 @app.route('/admin/corbeille/<int:tid>')
 @login_required
 def corbeille_detail(tid):
-    """v112 : Détail d'un snapshot avec possibilité de choisir quoi restaurer."""
+    """v112 + v113 : Détail d'un snapshot avec possibilité de choisir quoi restaurer.
+    v113 : permission 'corbeille_view' requise."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
-        flash("⚠️ Accès réservé", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'corbeille_view')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'corbeille_view' requise", "error")
         return redirect('/dashboard')
     
     import json
@@ -10309,11 +10517,14 @@ def corbeille_detail(tid):
 @app.route('/admin/corbeille/<int:tid>/restore', methods=['POST'])
 @login_required
 def corbeille_restore(tid):
-    """v112 : Restaure tout ou partie d'un snapshot.
-    Le formulaire envoie des cases à cocher : restore_caisse, restore_operations, etc."""
+    """v112 + v113 : Restaure tout ou partie d'un snapshot.
+    v113 : permission 'corbeille_restore' requise."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'rh', 'comptable', 'comptabilite', 'dg', 'directeur'):
-        flash("⚠️ Accès réservé", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'corbeille_restore')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'corbeille_restore' requise", "error")
         return redirect('/admin/corbeille')
     
     import json
@@ -10474,10 +10685,14 @@ def corbeille_restore(tid):
 @app.route('/admin/corbeille/<int:tid>/delete', methods=['POST'])
 @login_required
 def corbeille_delete(tid):
-    """v112 : Suppression définitive d'un snapshot de la corbeille."""
+    """v112 + v113 : Suppression définitive d'un snapshot de la corbeille.
+    v113 : permission 'corbeille_purge' requise (admin par défaut)."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] != 'admin':
-        flash("⚠️ Seul l'admin peut vider la corbeille", "error")
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and _hp(user['role'], 'corbeille_purge')
+    if not (is_admin or has_perm):
+        flash("⚠️ Permission 'corbeille_purge' requise — réservée à l'admin", "error")
         return redirect('/admin/corbeille')
     
     if request.form.get('confirm', '').strip().upper() != 'OUI':
