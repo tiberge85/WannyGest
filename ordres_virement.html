@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Ordres de virement{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>💸 Ordres de virement</h1>
+        <p style="color:#666;font-size:13px;margin:0">Caisse↔Caisse, Banque↔Banque, Caisse↔Banque — Tous les ordres requièrent la validation du DG</p>
+    </div>
+    <button class="btn btn-orange btn-sm" onclick="document.getElementById('newM').classList.add('active')">+ Nouvel ordre</button>
+</div>
+
+<!-- Stats -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+    <a href="?statut=en_attente" class="card" style="text-decoration:none;border-left:4px solid #f29f2f;{% if statut == 'en_attente' %}background:#fff3e0{% endif %}">
+        <div class="card-body" style="padding:14px">
+            <div style="font-size:22px;font-weight:800;color:#f29f2f">{{ stats.en_attente or 0 }}</div>
+            <div style="font-size:11px;color:#888">⏳ En attente DG</div>
+        </div>
+    </a>
+    <a href="?statut=valide" class="card" style="text-decoration:none;border-left:4px solid #2e7d32;{% if statut == 'valide' %}background:#e8f5e9{% endif %}">
+        <div class="card-body" style="padding:14px">
+            <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ stats.valide or 0 }}</div>
+            <div style="font-size:11px;color:#888">✅ Validés</div>
+        </div>
+    </a>
+    <a href="?statut=refuse" class="card" style="text-decoration:none;border-left:4px solid #c53030;{% if statut == 'refuse' %}background:#ffebee{% endif %}">
+        <div class="card-body" style="padding:14px">
+            <div style="font-size:22px;font-weight:800;color:#c53030">{{ stats.refuse or 0 }}</div>
+            <div style="font-size:11px;color:#888">❌ Refusés</div>
+        </div>
+    </a>
+    <a href="?statut=tous" class="card" style="text-decoration:none;border-left:4px solid #1a3a5c;{% if statut == 'tous' %}background:#e3f2fd{% endif %}">
+        <div class="card-body" style="padding:14px">
+            <div style="font-size:22px;font-weight:800;color:#1a3a5c">{{ (stats.en_attente or 0) + (stats.valide or 0) + (stats.refuse or 0) }}</div>
+            <div style="font-size:11px;color:#888">📋 Tous</div>
+        </div>
+    </a>
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if ordres %}
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead><tr style="background:#1a3a5c;color:#fff">
+    <th style="padding:8px">Référence</th>
+    <th>Date</th>
+    <th>Type</th>
+    <th>De</th>
+    <th>Vers</th>
+    <th style="text-align:right">Montant</th>
+    <th>Demandé par</th>
+    <th>Statut</th>
+    <th>Actions</th>
+</tr></thead>
+<tbody>
+{% for o in ordres %}
+<tr style="border-bottom:1px solid #f0f0f0">
+    <td style="padding:8px;font-family:monospace;font-weight:600">{{ o.reference }}</td>
+    <td style="padding:8px">{{ o.date }}</td>
+    <td style="padding:8px">
+        {% if o.type_virement == 'caisse_to_caisse' %}
+            <span style="background:#fff3e0;color:#b8561f;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">💵 Caisse → Caisse</span>
+        {% elif o.type_virement == 'banque_to_banque' %}
+            <span style="background:#e3f2fd;color:#0d47a1;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">🏦 Banque → Banque</span>
+        {% elif o.type_virement == 'caisse_to_banque' %}
+            <span style="background:#f3e5f5;color:#7b1fa2;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">💵 → 🏦</span>
+        {% elif o.type_virement == 'banque_to_caisse' %}
+            <span style="background:#e8f5e9;color:#2e7d32;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:700">🏦 → 💵</span>
+        {% endif %}
+    </td>
+    <td style="padding:8px;font-size:11px">{{ o.source_caisse_name or o.source_bank_name or '-' }}</td>
+    <td style="padding:8px;font-size:11px">{{ o.dest_caisse_name or o.dest_bank_name or '-' }}</td>
+    <td style="padding:8px;text-align:right;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(o.amount).replace(',', ' ') }} F</td>
+    <td style="padding:8px;font-size:11px">{{ o.requested_by_name or '-' }}</td>
+    <td style="padding:8px">
+        {% if o.status == 'en_attente' %}
+            <span style="background:#fff3e0;color:#b8561f;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700">⏳ En attente DG</span>
+        {% elif o.status == 'valide' %}
+            <span style="background:#e8f5e9;color:#2e7d32;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700" title="Validé par {{ o.validated_by_name or '-' }} le {{ (o.validated_at or '')[:10] }}">✅ Validé</span>
+        {% elif o.status == 'refuse' %}
+            <span style="background:#ffebee;color:#c53030;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700" title="{{ o.refus_motif or '' }}">❌ Refusé</span>
+        {% endif %}
+    </td>
+    <td style="padding:8px;white-space:nowrap">
+        {% if o.status == 'en_attente' and is_dg %}
+        <form method="post" action="/ordres-virement/{{ o.id }}/valider" style="display:inline"
+            onsubmit="return confirm('Valider cet ordre de virement ?\n\nCela exécutera immédiatement les opérations comptables.');">
+            <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:10px;padding:3px 6px" title="Valider">✅</button>
+        </form>
+        <button type="button" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 6px" title="Refuser"
+            onclick="openRefus({{ o.id }}, '{{ o.reference }}')">❌</button>
+        {% elif o.status == 'en_attente' %}
+        <span style="font-size:10px;color:#888">En attente</span>
+        {% else %}
+        <span style="font-size:10px;color:#888">{% if o.validated_by_name %}{{ o.validated_by_name[:15] }}{% endif %}</span>
+        {% endif %}
+    </td>
+</tr>
+{% if o.status == 'refuse' and o.refus_motif %}
+<tr style="background:#ffebee"><td colspan="9" style="padding:6px 12px;font-size:11px;color:#c53030;border-bottom:1px solid #f0f0f0">
+    <strong>❌ Motif refus :</strong> {{ o.refus_motif }}
+</td></tr>
+{% endif %}
+{% endfor %}
+</tbody>
+</table></div>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">
+    <div style="font-size:42px;margin-bottom:10px">📭</div>
+    <div>Aucun ordre de virement dans cette catégorie</div>
+</div>
+{% endif %}
+</div></div>
+
+<!-- Modal nouveau virement -->
+<div class="modal-bg" id="newM"><div class="modal" style="max-width:620px;max-height:90vh;overflow-y:auto">
+<h3>+ Nouvel ordre de virement</h3>
+<form method="post" action="/ordres-virement/new">
+    <div style="background:#e3f2fd;padding:8px 12px;border-radius:6px;font-size:11px;color:#0d47a1;margin-bottom:12px">
+        💡 <strong>Information</strong> : Cet ordre sera soumis à validation du DG. Les opérations comptables ne seront exécutées qu'après validation.
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group"><label>Date *</label><input type="date" name="date" value="{{ today }}" required></div>
+        <div class="form-group"><label>Type de virement *</label>
+            <select name="type_virement" id="typeSelect" required onchange="updateForm()">
+                <option value="">— Choisir —</option>
+                <option value="caisse_to_caisse">💵 Caisse → Caisse</option>
+                <option value="banque_to_banque">🏦 Banque → Banque</option>
+                <option value="caisse_to_banque">💵 Caisse → 🏦 Banque</option>
+                <option value="banque_to_caisse">🏦 Banque → 💵 Caisse</option>
+            </select>
+        </div>
+    </div>
+    
+    <div id="srcCaisse" style="display:none">
+        <div class="form-group"><label>Caisse source *</label>
+            <select name="source_caisse_id">
+                <option value="">— Choisir une caisse —</option>
+                {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div id="srcBank" style="display:none">
+        <div class="form-group"><label>Banque source *</label>
+            <select name="source_bank_id">
+                <option value="">— Choisir un compte —</option>
+                {% for b in banques %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {% if b.type_compte == 'epargne' %}💰 Épargne{% elif b.type_compte == 'devise' %}🌍 Devise{% elif b.type_compte == 'placement' %}📈 Placement{% else %}💳 Courant{% endif %}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div id="dstCaisse" style="display:none">
+        <div class="form-group"><label>Caisse destination *</label>
+            <select name="dest_caisse_id">
+                <option value="">— Choisir une caisse —</option>
+                {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div id="dstBank" style="display:none">
+        <div class="form-group"><label>Banque destination *</label>
+            <select name="dest_bank_id">
+                <option value="">— Choisir un compte —</option>
+                {% for b in banques %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {% if b.type_compte == 'epargne' %}💰 Épargne{% elif b.type_compte == 'devise' %}🌍 Devise{% elif b.type_compte == 'placement' %}📈 Placement{% else %}💳 Courant{% endif %}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    
+    <div class="form-group"><label>Montant (F CFA) *</label>
+        <input type="number" name="amount" step="100" min="1" required style="width:100%;font-weight:700;font-size:14px">
+    </div>
+    <div class="form-group"><label>Description / Motif</label>
+        <textarea name="description" rows="2" placeholder="Raison du virement..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></textarea>
+    </div>
+    
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('newM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">📋 Soumettre l'ordre</button>
+    </div>
+</form>
+</div></div>
+
+<!-- Modal refus -->
+<div class="modal-bg" id="refusM"><div class="modal" style="max-width:450px">
+<h3 style="color:#c53030">❌ Refuser l'ordre <span id="refusRef"></span></h3>
+<form method="post" id="refusForm">
+    <div class="form-group">
+        <label>Motif du refus * (min 5 caractères)</label>
+        <textarea name="motif" rows="3" required minlength="5" placeholder="Précisez la raison du refus..."
+            style="width:100%;padding:8px;border:1.5px solid #c53030;border-radius:6px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('refusM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn" style="background:#c53030;color:#fff;font-weight:700"
+            onclick="return confirm('Confirmer le refus de cet ordre ?')">❌ Confirmer refus</button>
+    </div>
+</form>
+</div></div>
+
+<script>
+function updateForm() {
+    var t = document.getElementById('typeSelect').value;
+    document.getElementById('srcCaisse').style.display = (t === 'caisse_to_caisse' || t === 'caisse_to_banque') ? 'block' : 'none';
+    document.getElementById('srcBank').style.display = (t === 'banque_to_banque' || t === 'banque_to_caisse') ? 'block' : 'none';
+    document.getElementById('dstCaisse').style.display = (t === 'caisse_to_caisse' || t === 'banque_to_caisse') ? 'block' : 'none';
+    document.getElementById('dstBank').style.display = (t === 'banque_to_banque' || t === 'caisse_to_banque') ? 'block' : 'none';
+    // required dynamique
+    document.querySelector('[name="source_caisse_id"]').required = (t === 'caisse_to_caisse' || t === 'caisse_to_banque');
+    document.querySelector('[name="source_bank_id"]').required = (t === 'banque_to_banque' || t === 'banque_to_caisse');
+    document.querySelector('[name="dest_caisse_id"]').required = (t === 'caisse_to_caisse' || t === 'banque_to_caisse');
+    document.querySelector('[name="dest_bank_id"]').required = (t === 'banque_to_banque' || t === 'caisse_to_banque');
+}
+function openRefus(id, ref) {
+    document.getElementById('refusForm').action = '/ordres-virement/' + id + '/refuser';
+    document.getElementById('refusRef').textContent = ref;
+    document.getElementById('refusM').classList.add('active');
+}
+</script>
+{% endblock %}

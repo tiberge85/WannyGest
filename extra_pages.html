@@ -1232,6 +1232,12 @@ function toggleDetail() {
         <div style="font-size:14px;font-weight:700;color:#1a3a5c">{{ ca.name }}{% if not ca.is_active %} <span style="font-size:9px;color:#888;font-weight:400">(désactivée)</span>{% endif %}</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
             <a href="/comptabilite/caisses/{{ ca.id }}" class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 7px" title="Détails">👁️</a>
+            {# v120 : Bouton modifier — admin uniquement #}
+            {% if can_edit_caisse %}
+                <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 7px" 
+                    onclick="openEditCaisse({{ ca.id }}, '{{ ca.name|e }}', '{{ (ca.description or '')|e }}', {{ ca.solde_initial or 0 }}, {{ ca.responsible_id or 0 }})"
+                    title="Modifier la caisse">✏️</button>
+            {% endif %}
             {# v113 : Utilisation des permissions au lieu de checks par rôle #}
             {% if 'caisse_reset_zero' in permissions or 'admin' in permissions %}
                 {% if ca.solde_calcule and ca.solde_calcule != 0 %}
@@ -1346,6 +1352,50 @@ Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }}
     <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
     <button type="submit" class="btn btn-primary">💰 Créer</button>
 </div></form></div></div>
+
+{# v120 : Modal édition caisse #}
+{% if can_edit_caisse %}
+<div class="modal-bg" id="editCaisseM"><div class="modal" style="max-width:500px">
+<h3>✏️ Modifier la caisse</h3>
+<div style="background:#fff3e0;padding:10px;border-radius:6px;font-size:11px;color:#7a4a00;margin-bottom:12px">
+    ⚠️ La modification du solde initial recalcule automatiquement le solde actuel à partir des opérations existantes.
+</div>
+<form method="post" id="editCaisseForm">
+    <div class="form-group"><label>Nom *</label>
+        <input type="text" name="name" id="ec_name" required style="width:100%">
+    </div>
+    <div class="form-group"><label>Description</label>
+        <input type="text" name="description" id="ec_desc" style="width:100%">
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Responsable</label>
+            <select name="responsible_id" id="ec_resp">
+                <option value="">—</option>
+                {% for u in users %}<option value="{{ u.id }}">{{ u.full_name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-group"><label>Solde initial (F)</label>
+            <input type="number" name="solde_initial" id="ec_solde" step="1" required>
+        </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editCaisseM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+<script>
+function openEditCaisse(cid, name, desc, soldeInit, respId) {
+    document.getElementById('editCaisseForm').action = '/comptabilite/caisses/' + cid + '/edit';
+    document.getElementById('ec_name').value = name;
+    document.getElementById('ec_desc').value = desc;
+    document.getElementById('ec_solde').value = soldeInit;
+    document.getElementById('ec_resp').value = respId || '';
+    document.getElementById('editCaisseM').classList.add('active');
+}
+</script>
+{% endif %}
 
 
 {% elif page == 'virements_list' %}

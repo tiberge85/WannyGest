@@ -432,6 +432,8 @@
                     <div class="compta-subsection-title"><span class="dot"></span>BANQUE</div>
                     <a href="/tresorerie/banque" class="{% if page == 'tresorerie_banque' %}active{% endif %}">🏦 Comptes bancaires</a>
                     <a href="/comptabilite/virements" class="{% if page == 'virements_list' %}active{% endif %}">💸 Virements banque{% if pending_virements_count and pending_virements_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_virements_count }}</span>{% endif %}</a>
+                    {# v120 : Ordres de virement universels (caisse↔caisse, banque↔banque, etc.) avec validation DG #}
+                    <a href="/ordres-virement" class="{% if page == 'ordres_virement' %}active{% endif %}" style="position:relative">📋 Ordres de virement{% if pending_ordres_count and pending_ordres_count > 0 %} <span style="background:#f29f2f;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_ordres_count }}</span>{% endif %}</a>
                     
                     {# CONTRÔLE #}
                     <div class="compta-subsection-title"><span class="dot"></span>CONTRÔLE</div>

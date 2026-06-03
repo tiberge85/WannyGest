@@ -1647,6 +1647,44 @@ except Exception as _e:
     print(f"[v117-Backfill] Erreur : {_e}", flush=True)
 
 
+# v120 : Table ordres_virement — workflow validation DG pour TOUS les types de virements
+# Types : caisse_to_caisse, banque_to_banque, caisse_to_banque, banque_to_caisse
+try:
+    from models import get_db as _v120_db
+    _v120 = _v120_db()
+    _v120.execute("""CREATE TABLE IF NOT EXISTS ordres_virement (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference TEXT UNIQUE NOT NULL,
+        type_virement TEXT NOT NULL,
+        amount REAL NOT NULL,
+        date TEXT NOT NULL,
+        description TEXT,
+        source_caisse_id INTEGER,
+        source_caisse_name TEXT,
+        source_bank_id INTEGER,
+        source_bank_name TEXT,
+        dest_caisse_id INTEGER,
+        dest_caisse_name TEXT,
+        dest_bank_id INTEGER,
+        dest_bank_name TEXT,
+        status TEXT DEFAULT 'en_attente',
+        requested_by INTEGER,
+        requested_by_name TEXT,
+        requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        validated_by INTEGER,
+        validated_by_name TEXT,
+        validated_at TEXT,
+        refus_motif TEXT
+    )""")
+    _v120.execute("CREATE INDEX IF NOT EXISTS idx_ordres_status ON ordres_virement(status)")
+    _v120.execute("CREATE INDEX IF NOT EXISTS idx_ordres_date ON ordres_virement(date)")
+    _v120.commit()
+    _v120.close()
+    print("[v120-Migrations] Table ordres_virement OK", flush=True)
+except Exception as _e:
+    print(f"[v120-Migrations] Erreur : {_e}", flush=True)
+
+
 # v118 : RÉ-EXÉCUTION du retrait de 'traitement' pour informatique
 # (le bloc v116 ne se ré-exécutait pas car le flag était déjà à 1)
 # v118 force le nettoyage à chaque démarrage tant que cette permission est présente
@@ -2448,6 +2486,10 @@ def inject_globals():
                     try:
                         ctx['pending_virements_count'] = _c.execute("SELECT COUNT(*) FROM caisse_virements WHERE status='en_attente'").fetchone()[0]
                     except: ctx['pending_virements_count'] = 0
+                    # v120 : Ordres de virement unifiés en attente DG
+                    try:
+                        ctx['pending_ordres_count'] = _c.execute("SELECT COUNT(*) FROM ordres_virement WHERE status='en_attente'").fetchone()[0]
+                    except: ctx['pending_ordres_count'] = 0
                     # Contrôle qualité en attente
                     try:
                         ctx['pending_cq_count'] = _c.execute("SELECT COUNT(*) FROM interventions WHERE status='travaux_termines' AND COALESCE(cq_status,'')=''").fetchone()[0]
@@ -10487,7 +10529,9 @@ def compta_caisses():
     users = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE is_active=1").fetchall()]
     total = sum(ca['solde_calcule'] for ca in caisses)
     conn.close()
-    return render_template('extra_pages.html', page='caisses', caisses=caisses, users=users, total=total)
+    # v120 : permission de modifier les caisses
+    can_edit_caisse = is_admin or (user and _hp(user['role'], 'caisse_create') and _hp(user['role'], 'comptabilite_edit'))
+    return render_template('extra_pages.html', page='caisses', caisses=caisses, users=users, total=total, can_edit_caisse=can_edit_caisse)
 
 @app.route('/comptabilite/caisses/add', methods=['POST'])
 @permission_required('comptabilite_edit')
@@ -10503,6 +10547,66 @@ def compta_caisse_add():
         (request.form.get('name',''), request.form.get('description',''), resp_id, resp_name, solde, solde, session['user_id']))
     conn.commit(); conn.close()
     flash("Caisse créée", "success")
+    return redirect('/comptabilite/caisses')
+
+
+# v120 : Modification d'une caisse (admin uniquement)
+@app.route('/comptabilite/caisses/<int:cid>/edit', methods=['POST'])
+@login_required
+def compta_caisse_edit(cid):
+    """v120 : Modifier une caisse existante. Réservé à admin (ou caisse_create + comptabilite_edit)."""
+    user = get_user_by_id(session['user_id'])
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    can_edit = user and _hp(user['role'], 'caisse_create') and _hp(user['role'], 'comptabilite_edit')
+    if not (is_admin or can_edit):
+        flash("⚠️ Seul l'admin (ou les comptables avec permission caisse_create) peut modifier une caisse", "error")
+        return redirect('/comptabilite/caisses')
+    
+    conn = _gdb()
+    c = conn.execute("SELECT * FROM caisses WHERE id=?", (cid,)).fetchone()
+    if not c:
+        conn.close()
+        flash("Caisse introuvable", "error")
+        return redirect('/comptabilite/caisses')
+    c = dict(c)
+    
+    new_name = (request.form.get('name','') or '').strip()
+    new_desc = (request.form.get('description','') or '').strip()
+    try: new_solde_init = float(request.form.get('solde_initial', c.get('solde_initial', 0)) or 0)
+    except: new_solde_init = c.get('solde_initial', 0) or 0
+    new_resp_id = int(request.form.get('responsible_id', 0) or 0)
+    new_resp_name = ''
+    if new_resp_id:
+        u = conn.execute("SELECT full_name FROM users WHERE id=?", (new_resp_id,)).fetchone()
+        new_resp_name = u['full_name'] if u else ''
+    
+    if not new_name:
+        conn.close()
+        flash("⚠️ Le nom est obligatoire", "error")
+        return redirect('/comptabilite/caisses')
+    
+    try:
+        # Recalculer le solde actuel à partir des opérations + nouveau solde_initial
+        entrees = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (cid,)).fetchone()[0] or 0
+        sorties = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (cid,)).fetchone()[0] or 0
+        trans_in = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'", (cid,)).fetchone()[0] or 0
+        trans_out = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'", (cid,)).fetchone()[0] or 0
+        new_solde_actuel = new_solde_init + entrees + trans_in - sorties - trans_out
+        
+        conn.execute("""UPDATE caisses SET 
+            name=?, description=?, responsible_id=?, responsible_name=?,
+            solde_initial=?, solde_actuel=?
+            WHERE id=?""",
+            (new_name, new_desc, new_resp_id or None, new_resp_name,
+             new_solde_init, new_solde_actuel, cid))
+        conn.commit()
+        log_activity(session['user_id'], user['full_name'], 'Caisse',
+            f"Caisse #{cid} modifiée — {new_name} (solde initial: {new_solde_init:,.0f} F)", request.remote_addr)
+        flash(f"✅ Caisse « {new_name} » modifiée — Solde actuel recalculé : {new_solde_actuel:,.0f} F", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
     return redirect('/comptabilite/caisses')
 
 
@@ -11420,6 +11524,344 @@ def compta_virement_refuser(vid):
     flash(f"Virement {v['reference']} refusé.", "warning")
     return redirect('/comptabilite/virements')
 
+
+# ═══════════════════════════════════════════════════════════════════
+# v120 : ORDRES DE VIREMENT UNIFIÉS — Workflow DG pour tous types
+# Types : caisse_to_caisse, banque_to_banque, caisse_to_banque, banque_to_caisse
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route('/ordres-virement')
+@login_required
+def ordres_virement_list():
+    """v120 : Liste de tous les ordres de virement avec leur statut."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh'):
+        flash("⚠️ Accès réservé à la comptabilité, trésorerie, DG, RH ou admin", "error")
+        return redirect('/dashboard')
+    
+    conn = _gdb()
+    statut = (request.args.get('statut','en_attente') or 'en_attente').strip()
+    where, params = "", []
+    if statut and statut != 'tous':
+        where = " WHERE status=?"
+        params = [statut]
+    ordres = [dict(r) for r in conn.execute(
+        f"SELECT * FROM ordres_virement{where} ORDER BY requested_at DESC LIMIT 200", params).fetchall()]
+    
+    # Compteurs
+    stats = {}
+    for s in ('en_attente','valide','refuse'):
+        try:
+            stats[s] = conn.execute("SELECT COUNT(*) FROM ordres_virement WHERE status=?", (s,)).fetchone()[0]
+        except: stats[s] = 0
+    
+    # Pour le formulaire création
+    caisses = [dict(r) for r in conn.execute("SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
+    banques = [dict(r) for r in conn.execute(
+        "SELECT id, nom, banque, type_compte FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom"
+    ).fetchall()]
+    
+    conn.close()
+    is_dg = user['role'] in ('admin','dg','directeur')
+    return render_template('ordres_virement.html', page='ordres_virement',
+        ordres=ordres, stats=stats, statut=statut,
+        caisses=caisses, banques=banques, is_dg=is_dg,
+        today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/ordres-virement/new', methods=['POST'])
+@login_required
+def ordres_virement_new():
+    """v120 : Créer une demande d'ordre de virement (en_attente DG)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/ordres-virement')
+    
+    type_virement = (request.form.get('type_virement','') or '').strip()
+    if type_virement not in ('caisse_to_caisse','banque_to_banque','caisse_to_banque','banque_to_caisse'):
+        flash("⚠️ Type de virement invalide", "error")
+        return redirect('/ordres-virement')
+    try: amount = float(request.form.get('amount', 0) or 0)
+    except: amount = 0
+    if amount <= 0:
+        flash("⚠️ Montant invalide", "error")
+        return redirect('/ordres-virement')
+    
+    date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    description = (request.form.get('description','') or '').strip()
+    ref = f"OV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    conn = _gdb()
+    src_caisse_id = src_caisse_name = src_bank_id = src_bank_name = None
+    dst_caisse_id = dst_caisse_name = dst_bank_id = dst_bank_name = None
+    
+    try:
+        if type_virement == 'caisse_to_caisse':
+            src_caisse_id = int(request.form.get('source_caisse_id', 0) or 0)
+            dst_caisse_id = int(request.form.get('dest_caisse_id', 0) or 0)
+            if not src_caisse_id or not dst_caisse_id:
+                conn.close()
+                flash("⚠️ Caisse source et destination requises", "error")
+                return redirect('/ordres-virement')
+            if src_caisse_id == dst_caisse_id:
+                conn.close()
+                flash("⚠️ Source et destination identiques", "error")
+                return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT name FROM caisses WHERE id=?", (src_caisse_id,)).fetchone()
+            r2 = conn.execute("SELECT name FROM caisses WHERE id=?", (dst_caisse_id,)).fetchone()
+            src_caisse_name = r1['name'] if r1 else f"Caisse #{src_caisse_id}"
+            dst_caisse_name = r2['name'] if r2 else f"Caisse #{dst_caisse_id}"
+        elif type_virement == 'banque_to_banque':
+            src_bank_id = int(request.form.get('source_bank_id', 0) or 0)
+            dst_bank_id = int(request.form.get('dest_bank_id', 0) or 0)
+            if not src_bank_id or not dst_bank_id:
+                conn.close()
+                flash("⚠️ Banque source et destination requises", "error")
+                return redirect('/ordres-virement')
+            if src_bank_id == dst_bank_id:
+                conn.close()
+                flash("⚠️ Source et destination identiques", "error")
+                return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (src_bank_id,)).fetchone()
+            r2 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (dst_bank_id,)).fetchone()
+            src_bank_name = (r1['nom'] + (f" ({r1['banque']})" if r1['banque'] else "")) if r1 else f"Compte #{src_bank_id}"
+            dst_bank_name = (r2['nom'] + (f" ({r2['banque']})" if r2['banque'] else "")) if r2 else f"Compte #{dst_bank_id}"
+        elif type_virement == 'caisse_to_banque':
+            src_caisse_id = int(request.form.get('source_caisse_id', 0) or 0)
+            dst_bank_id = int(request.form.get('dest_bank_id', 0) or 0)
+            if not src_caisse_id or not dst_bank_id:
+                conn.close()
+                flash("⚠️ Caisse source et banque destination requises", "error")
+                return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT name FROM caisses WHERE id=?", (src_caisse_id,)).fetchone()
+            r2 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (dst_bank_id,)).fetchone()
+            src_caisse_name = r1['name'] if r1 else f"Caisse #{src_caisse_id}"
+            dst_bank_name = (r2['nom'] + (f" ({r2['banque']})" if r2['banque'] else "")) if r2 else f"Compte #{dst_bank_id}"
+        elif type_virement == 'banque_to_caisse':
+            src_bank_id = int(request.form.get('source_bank_id', 0) or 0)
+            dst_caisse_id = int(request.form.get('dest_caisse_id', 0) or 0)
+            if not src_bank_id or not dst_caisse_id:
+                conn.close()
+                flash("⚠️ Banque source et caisse destination requises", "error")
+                return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (src_bank_id,)).fetchone()
+            r2 = conn.execute("SELECT name FROM caisses WHERE id=?", (dst_caisse_id,)).fetchone()
+            src_bank_name = (r1['nom'] + (f" ({r1['banque']})" if r1['banque'] else "")) if r1 else f"Compte #{src_bank_id}"
+            dst_caisse_name = r2['name'] if r2 else f"Caisse #{dst_caisse_id}"
+        
+        conn.execute("""INSERT INTO ordres_virement
+            (reference, type_virement, amount, date, description,
+             source_caisse_id, source_caisse_name, source_bank_id, source_bank_name,
+             dest_caisse_id, dest_caisse_name, dest_bank_id, dest_bank_name,
+             status, requested_by, requested_by_name)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'en_attente',?,?)""",
+            (ref, type_virement, amount, date, description,
+             src_caisse_id, src_caisse_name, src_bank_id, src_bank_name,
+             dst_caisse_id, dst_caisse_name, dst_bank_id, dst_bank_name,
+             session['user_id'], user['full_name']))
+        conn.commit()
+        
+        # Notifier les DG
+        try:
+            dg_users = conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','directeur')").fetchall()
+            for d in dg_users:
+                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
+                    VALUES (?,?,?,?,?,datetime('now'))""",
+                    (d['id'], 'ordre_virement',
+                     f"📋 Nouvel ordre de virement {ref}",
+                     f"{user['full_name']} demande un virement de {amount:,.0f} F ({type_virement.replace('_to_',' → ').replace('caisse','Caisse').replace('banque','Banque')}). Validation requise.",
+                     "/ordres-virement"))
+            conn.commit()
+        except Exception as _e:
+            print(f"[v120] Erreur notif DG : {_e}", flush=True)
+        
+        log_activity(session['user_id'], user['full_name'], 'Virement',
+            f"Ordre {ref} créé — {type_virement} — {amount:,.0f} F", request.remote_addr)
+        flash(f"✅ Ordre de virement {ref} créé — en attente de validation DG", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect('/ordres-virement')
+
+
+@app.route('/ordres-virement/<int:oid>/valider', methods=['POST','GET'])
+@login_required
+def ordres_virement_valider(oid):
+    """v120 : DG valide un ordre de virement → exécution des opérations comptables."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','directeur'):
+        flash("⚠️ Seul le DG, le directeur ou l'admin peut valider un ordre de virement", "error")
+        return redirect('/ordres-virement')
+    
+    conn = _gdb()
+    o = conn.execute("SELECT * FROM ordres_virement WHERE id=?", (oid,)).fetchone()
+    if not o:
+        conn.close()
+        flash("Ordre introuvable", "error")
+        return redirect('/ordres-virement')
+    o = dict(o)
+    if o['status'] != 'en_attente':
+        conn.close()
+        flash(f"⚠️ Cet ordre n'est plus en attente (statut: {o['status']})", "error")
+        return redirect('/ordres-virement')
+    
+    now_iso = datetime.now().isoformat()
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    amount = float(o['amount'])
+    ref = o['reference']
+    typ = o['type_virement']
+    
+    try:
+        # Exécution selon le type
+        if typ == 'caisse_to_caisse':
+            # Transfert inter-caisses : on crée une opération 'transfert' qui touche les deux soldes
+            conn.execute("""INSERT INTO caisse_operations 
+                (caisse_id, type, amount, description, reference, category, source_caisse_id, dest_caisse_id, created_by)
+                VALUES (?,'transfert',?,?,?,'transfert',?,?,?)""",
+                (o['source_caisse_id'], amount,
+                 f"Virement {ref} : {o['source_caisse_name']} → {o['dest_caisse_name']}",
+                 ref, o['source_caisse_id'], o['dest_caisse_id'], session['user_id']))
+            # Maj soldes
+            conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?", (amount, o['source_caisse_id']))
+            conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) + ? WHERE id=?", (amount, o['dest_caisse_id']))
+            # Écriture : 580 / 580 (équilibré, juste pour traçabilité)
+            try: auto_ecriture(conn, today_str, f"Virement {ref} : {o['source_caisse_name']} → {o['dest_caisse_name']}", '580', '580', amount, ref)
+            except: pass
+        
+        elif typ == 'banque_to_banque':
+            # Mouvement bancaire sortie + entrée
+            try:
+                conn.execute("""INSERT INTO tresorerie_mouvements 
+                    (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
+                    VALUES ('banque','sortie','virement',?,?,?,?,?,'virement',?,?)""",
+                    (o['source_bank_id'], ref, today_str, amount,
+                     f"Virement {ref} : {o['source_bank_name']} → {o['dest_bank_name']}",
+                     session['user_id'], now_iso))
+                conn.execute("""INSERT INTO tresorerie_mouvements 
+                    (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
+                    VALUES ('banque','entree','virement',?,?,?,?,?,'virement',?,?)""",
+                    (o['dest_bank_id'], ref, today_str, amount,
+                     f"Virement {ref} : {o['source_bank_name']} → {o['dest_bank_name']}",
+                     session['user_id'], now_iso))
+            except Exception as _e:
+                print(f"[v120] Erreur mvt banque : {_e}", flush=True)
+            # Écriture 521 / 521
+            try: auto_ecriture(conn, today_str, f"Virement {ref} : {o['source_bank_name']} → {o['dest_bank_name']}", '521', '521', amount, ref)
+            except: pass
+        
+        elif typ == 'caisse_to_banque':
+            # Caisse → Banque : sortie caisse + entrée banque
+            conn.execute("""INSERT INTO caisse_operations 
+                (caisse_id, type, amount, description, reference, category, bank_account_id, created_by)
+                VALUES (?,'sortie',?,?,?,'versement_banque',?,?)""",
+                (o['source_caisse_id'], amount,
+                 f"Virement {ref} : {o['source_caisse_name']} → {o['dest_bank_name']}",
+                 ref, o['dest_bank_id'], session['user_id']))
+            conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?", (amount, o['source_caisse_id']))
+            try:
+                conn.execute("""INSERT INTO tresorerie_mouvements 
+                    (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
+                    VALUES ('banque','entree','versement_caisse',?,?,?,?,?,'especes',?,?)""",
+                    (o['dest_bank_id'], ref, today_str, amount,
+                     f"Virement {ref} : {o['source_caisse_name']} → {o['dest_bank_name']}",
+                     session['user_id'], now_iso))
+            except: pass
+            # Écriture 521 (banque) DÉBIT / 571 (caisse) CRÉDIT
+            try: auto_ecriture(conn, today_str, f"Virement {ref} : {o['source_caisse_name']} → {o['dest_bank_name']}", '521', '571', amount, ref)
+            except: pass
+        
+        elif typ == 'banque_to_caisse':
+            # Banque → Caisse : sortie banque + entrée caisse
+            try:
+                conn.execute("""INSERT INTO tresorerie_mouvements 
+                    (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
+                    VALUES ('banque','sortie','retrait_caisse',?,?,?,?,?,'especes',?,?)""",
+                    (o['source_bank_id'], ref, today_str, amount,
+                     f"Virement {ref} : {o['source_bank_name']} → {o['dest_caisse_name']}",
+                     session['user_id'], now_iso))
+            except: pass
+            conn.execute("""INSERT INTO caisse_operations 
+                (caisse_id, type, amount, description, reference, category, bank_account_id, created_by)
+                VALUES (?,'entree',?,?,?,'retrait_banque',?,?)""",
+                (o['dest_caisse_id'], amount,
+                 f"Virement {ref} : {o['source_bank_name']} → {o['dest_caisse_name']}",
+                 ref, o['source_bank_id'], session['user_id']))
+            conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) + ? WHERE id=?", (amount, o['dest_caisse_id']))
+            # Écriture 571 (caisse) DÉBIT / 521 (banque) CRÉDIT
+            try: auto_ecriture(conn, today_str, f"Virement {ref} : {o['source_bank_name']} → {o['dest_caisse_name']}", '571', '521', amount, ref)
+            except: pass
+        
+        # Marquer l'ordre comme validé
+        conn.execute("""UPDATE ordres_virement SET status='valide',
+            validated_by=?, validated_by_name=?, validated_at=? WHERE id=?""",
+            (session['user_id'], user['full_name'], now_iso, oid))
+        
+        # Notifier le demandeur
+        if o.get('requested_by'):
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
+                VALUES (?,?,?,?,?,datetime('now'))""",
+                (o['requested_by'], 'ordre_virement',
+                 f"✅ Ordre de virement {ref} validé",
+                 f"Votre demande de {amount:,.0f} F a été validée par {user['full_name']} ({user['role']}).",
+                 "/ordres-virement"))
+        
+        conn.commit()
+        log_activity(session['user_id'], user['full_name'], 'Virement',
+            f"Ordre {ref} VALIDÉ par DG — {typ} — {amount:,.0f} F", request.remote_addr)
+        flash(f"✅ Ordre {ref} validé et exécuté — {amount:,.0f} F transférés", "success")
+    except Exception as e:
+        flash(f"❌ Erreur exécution : {e}", "error")
+    conn.close()
+    return redirect('/ordres-virement')
+
+
+@app.route('/ordres-virement/<int:oid>/refuser', methods=['POST'])
+@login_required
+def ordres_virement_refuser(oid):
+    """v120 : DG refuse un ordre de virement avec motif."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','directeur'):
+        flash("⚠️ Seul le DG, le directeur ou l'admin peut refuser un ordre de virement", "error")
+        return redirect('/ordres-virement')
+    motif = (request.form.get('motif','') or '').strip()
+    if not motif or len(motif) < 5:
+        flash("⚠️ Motif de refus obligatoire (min 5 caractères)", "error")
+        return redirect('/ordres-virement')
+    
+    conn = _gdb()
+    o = conn.execute("SELECT * FROM ordres_virement WHERE id=?", (oid,)).fetchone()
+    if not o:
+        conn.close()
+        flash("Ordre introuvable", "error")
+        return redirect('/ordres-virement')
+    o = dict(o)
+    if o['status'] != 'en_attente':
+        conn.close()
+        flash(f"⚠️ Cet ordre n'est plus en attente (statut: {o['status']})", "error")
+        return redirect('/ordres-virement')
+    
+    try:
+        conn.execute("""UPDATE ordres_virement SET status='refuse',
+            validated_by=?, validated_by_name=?, validated_at=?, refus_motif=? WHERE id=?""",
+            (session['user_id'], user['full_name'], datetime.now().isoformat(), motif, oid))
+        if o.get('requested_by'):
+            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
+                VALUES (?,?,?,?,?,datetime('now'))""",
+                (o['requested_by'], 'ordre_virement',
+                 f"❌ Ordre de virement {o['reference']} refusé",
+                 f"Refusé par {user['full_name']} — Motif : {motif[:80]}",
+                 "/ordres-virement"))
+        conn.commit()
+        log_activity(session['user_id'], user['full_name'], 'Virement',
+            f"Ordre {o['reference']} REFUSÉ — Motif : {motif[:60]}", request.remote_addr)
+        flash(f"❌ Ordre {o['reference']} refusé", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect('/ordres-virement')
+
+
 @app.route('/comptabilite/caisses/<int:cid>')
 @permission_required('comptabilite')
 def compta_caisse_detail(cid):
@@ -11459,19 +11901,81 @@ def compta_caisse_operation(cid):
     caisse_name = caisse_row['name'] if caisse_row else f"Caisse #{cid}"
     
     if op_type == 'transfert_caisse':
+        # v120 : Les transferts inter-caisses passent désormais par les ordres de virement avec validation DG
         dest_id = int(request.form.get('dest_caisse_id',0) or 0)
-        conn.execute("INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, source_caisse_id, dest_caisse_id, created_by) VALUES (?,'transfert',?,?,?,?,?,?,?)",
-            (cid, amount, descr or 'Transfert inter-caisses', ref, 'transfert', cid, dest_id, session['user_id']))
-        auto_ecriture(conn, today_str, f"Transfert caisse {ref}", '580', '580', amount, ref)
-        # v103 : pas de sync journal car c'est un transfert interne (équilibré entre caisses)
+        if not dest_id:
+            conn.close()
+            flash("⚠️ Caisse destination requise", "error")
+            return redirect(f'/comptabilite/caisses/{cid}')
+        if dest_id == cid:
+            conn.close()
+            flash("⚠️ Caisse source et destination identiques", "error")
+            return redirect(f'/comptabilite/caisses/{cid}')
+        # Création d'un ordre de virement en attente DG
+        try:
+            ref_ov = f"OV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            user_ov = get_user_by_id(session['user_id'])
+            dst_row = conn.execute("SELECT name FROM caisses WHERE id=?", (dest_id,)).fetchone()
+            dst_name = dst_row['name'] if dst_row else f"Caisse #{dest_id}"
+            conn.execute("""INSERT INTO ordres_virement
+                (reference, type_virement, amount, date, description,
+                 source_caisse_id, source_caisse_name, dest_caisse_id, dest_caisse_name,
+                 status, requested_by, requested_by_name)
+                VALUES (?,'caisse_to_caisse',?,?,?,?,?,?,?,'en_attente',?,?)""",
+                (ref_ov, amount, today_str, descr or 'Transfert inter-caisses',
+                 cid, caisse_name, dest_id, dst_name,
+                 session['user_id'], user_ov['full_name'] if user_ov else '?'))
+            # Notifier DG
+            dg_users = conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','directeur')").fetchall()
+            for d in dg_users:
+                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
+                    VALUES (?,?,?,?,?,datetime('now'))""",
+                    (d['id'], 'ordre_virement', f"📋 Nouvel ordre de virement {ref_ov}",
+                     f"Transfert {caisse_name} → {dst_name} ({amount:,.0f} F). Validation requise.",
+                     "/ordres-virement"))
+            conn.commit()
+            conn.close()
+            flash(f"📋 Ordre de virement {ref_ov} créé — en attente de validation DG", "success")
+            return redirect('/ordres-virement')
+        except Exception as e:
+            conn.close()
+            flash(f"❌ Erreur création ordre : {e}", "error")
+            return redirect(f'/comptabilite/caisses/{cid}')
     elif op_type == 'transfert_banque':
+        # v120 : Les versements caisse → banque passent désormais par les ordres de virement
         bank_id = int(request.form.get('bank_account_id',0) or 0)
-        conn.execute("INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, bank_account_id, created_by) VALUES (?,'sortie',?,?,?,?,?,?)",
-            (cid, amount, descr or 'Versement banque', ref, 'banque', bank_id, session['user_id']))
-        auto_ecriture(conn, today_str, f"Versement banque {ref}", '521', '571', amount, ref)
-        # v103 : sync vers journal de caisse comme sortie
-        _sync_caisse_op_to_journal(conn, 'sortie', today_str, amount, 
-            f"[{caisse_name}] {descr or 'Versement banque'}", ref, session.get('user_id'))
+        if not bank_id:
+            conn.close()
+            flash("⚠️ Banque destination requise", "error")
+            return redirect(f'/comptabilite/caisses/{cid}')
+        try:
+            ref_ov = f"OV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            user_ov = get_user_by_id(session['user_id'])
+            bk = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (bank_id,)).fetchone()
+            bk_name = (bk['nom'] + (f" ({bk['banque']})" if bk['banque'] else "")) if bk else f"Compte #{bank_id}"
+            conn.execute("""INSERT INTO ordres_virement
+                (reference, type_virement, amount, date, description,
+                 source_caisse_id, source_caisse_name, dest_bank_id, dest_bank_name,
+                 status, requested_by, requested_by_name)
+                VALUES (?,'caisse_to_banque',?,?,?,?,?,?,?,'en_attente',?,?)""",
+                (ref_ov, amount, today_str, descr or 'Versement caisse vers banque',
+                 cid, caisse_name, bank_id, bk_name,
+                 session['user_id'], user_ov['full_name'] if user_ov else '?'))
+            dg_users = conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','directeur')").fetchall()
+            for d in dg_users:
+                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
+                    VALUES (?,?,?,?,?,datetime('now'))""",
+                    (d['id'], 'ordre_virement', f"📋 Nouvel ordre de virement {ref_ov}",
+                     f"Versement {caisse_name} → {bk_name} ({amount:,.0f} F). Validation requise.",
+                     "/ordres-virement"))
+            conn.commit()
+            conn.close()
+            flash(f"📋 Ordre de virement {ref_ov} créé — en attente de validation DG", "success")
+            return redirect('/ordres-virement')
+        except Exception as e:
+            conn.close()
+            flash(f"❌ Erreur création ordre : {e}", "error")
+            return redirect(f'/comptabilite/caisses/{cid}')
     else:
         conn.execute("INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, intervention_id, project_id, created_by) VALUES (?,?,?,?,?,?,?,?,?)",
             (cid, op_type, amount, descr, ref, request.form.get('category','divers'),
