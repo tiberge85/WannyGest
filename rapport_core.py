@@ -196,13 +196,22 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
     enriched = []
     
     for rec in records:
-        # v121 FIX DÉFINITIF : Les heures obligatoires se basent TOUJOURS sur l'EDT D'ORIGINE
-        # du fichier source, JAMAIS sur celui modifié par le matching.
-        # Le matching peut écraser sched_start/sched_end pour d'autres usages, mais
-        # 'sched_start_original'/'sched_end_original' contiennent toujours la valeur du
-        # fichier source. On les utilise systématiquement quand ils existent.
-        eff_start = rec.get('sched_start_original') if rec.get('sched_start_original') else rec.get('sched_start', '')
-        eff_end = rec.get('sched_end_original') if rec.get('sched_end_original') else rec.get('sched_end', '')
+        # v123 : Logique corrigée — la PRIORITÉ est claire :
+        #   1. sched_start_matched : EDT saisi EXPLICITEMENT par l'utilisateur dans
+        #      l'interface (override) → si présent, l'utilisateur a explicitement demandé
+        #      à modifier les heures, on utilise sa saisie.
+        #   2. sched_start_original : valeur du fichier source PRÉSERVÉE
+        #      (pour le cas où sched_start aurait été modifié ailleurs).
+        #   3. sched_start : valeur courante (= fichier source si pas écrasé).
+        #
+        # Ainsi : sans saisie explicite, les heures du fichier source ne bougent JAMAIS.
+        # Avec saisie explicite, l'override de l'utilisateur s'applique.
+        eff_start = (rec.get('sched_start_matched')
+                     or rec.get('sched_start_original')
+                     or rec.get('sched_start', ''))
+        eff_end = (rec.get('sched_end_matched')
+                   or rec.get('sched_end_original')
+                   or rec.get('sched_end', ''))
         ss = t2m(eff_start)
         se = t2m(eff_end)
         aa = t2m(rec['arrival'])
