@@ -1,164 +1,229 @@
-{% extends "base.html" %}{% block title %}WannyGest - Tableau de Bord Remontées{% endblock %}{% block content %}
+{% extends "base.html" %}
+{% block title %}WannyGest - Remontées d'Informations{% endblock %}
+{% block content %}
+
 <div class="page-header" style="flex-wrap:wrap;gap:10px">
     <div>
-        <h1>📊 Tableau de Bord Remontées d'Informations</h1>
+        <h1>📢 Remontées d'Informations Terrain</h1>
         <p style="color:#666;font-size:12px;margin:4px 0 0">
-            Vue d'ensemble des informations remontées par les équipes terrain
+            Tableau de bord · {{ stats.total }} remontée(s) au total · <strong style="color:#e8672a">{{ stats.a_traiter }}</strong> à traiter
         </p>
     </div>
-    <div style="display:flex;gap:6px">
-        <a href="/field-reports" class="btn btn-outline btn-sm">📋 Liste complète</a>
-        <a href="/field-reports/new" class="btn btn-primary btn-sm">+ Nouvelle remontée</a>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if 'field_report_create' in permissions or 'admin' in permissions %}
+        <a href="/field-reports/new" class="btn btn-primary btn-sm" style="font-weight:700">+ Nouvelle remontée</a>
+        {% endif %}
+        <a href="/field-reports/liste" class="btn btn-outline btn-sm" title="Voir la liste complète sans séparation">📋 Liste complète</a>
     </div>
 </div>
 
-{# v102 : message d'accueil si BDD vide #}
-{% if total == 0 or not total %}
-<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:20px;border-radius:10px;margin-bottom:18px;text-align:center">
-    <div style="font-size:42px;margin-bottom:10px">📭</div>
-    <div style="font-size:16px;font-weight:800;color:#0d47a1;margin-bottom:6px">Aucune remontée d'information enregistrée pour le moment</div>
-    <p style="font-size:13px;color:#1565c0;margin:8px 0 14px">
-        Les remontées d'informations apparaîtront ici dès que les techniciens, commerciaux ou autres collaborateurs commenceront à signaler des besoins, pannes ou opportunités terrain.
-    </p>
-    <a href="/field-reports/new" class="btn btn-primary" style="background:#1976d2">+ Créer la première remontée</a>
+{% if can_view_all %}
+<!-- KPI Cards -->
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card" style="border-left:4px solid #e8672a">
+        <div class="stat-icon" style="background:#e8672a;color:#fff">⚠️</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ stats.a_traiter }}</div>
+            <div class="stat-label">À traiter</div>
+        </div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #1976d2">
+        <div class="stat-icon" style="background:#1976d2;color:#fff">📥</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ stats.recue }}</div>
+            <div class="stat-label">Reçues</div>
+        </div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #7b1fa2">
+        <div class="stat-icon" style="background:#7b1fa2;color:#fff">🔍</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ stats.en_analyse }}</div>
+            <div class="stat-label">En analyse</div>
+        </div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #0f5a51">
+        <div class="stat-icon" style="background:#0f5a51;color:#fff">🎯</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ stats.projets }}</div>
+            <div class="stat-label">→ Projets</div>
+        </div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #e8672a">
+        <div class="stat-icon" style="background:#e8672a;color:#fff">🛠️</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ stats.interventions }}</div>
+            <div class="stat-label">→ Interventions</div>
+        </div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #1565c0">
+        <div class="stat-icon" style="background:#1565c0;color:#fff">💼</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ stats.opportunites }}</div>
+            <div class="stat-label">→ Opportunités</div>
+        </div>
+    </div>
+    <div class="stat-card" style="border-left:4px solid #888">
+        <div class="stat-icon" style="background:#888;color:#fff">📁</div>
+        <div class="stat-info">
+            <div class="stat-num">{{ stats.classees }}</div>
+            <div class="stat-label">Classées</div>
+        </div>
+    </div>
 </div>
 {% endif %}
 
-<!-- KPI haute visibilité -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px">
-    <div style="background:linear-gradient(135deg,#1976d2 0%,#0d47a1 100%);color:#fff;padding:18px;border-radius:10px;text-align:center">
-        <div style="font-size:36px;font-weight:900">{{ nb_a_traiter }}</div>
-        <div style="font-size:11px;text-transform:uppercase;opacity:0.9;margin-top:4px;font-weight:700">À traiter</div>
-        <div style="font-size:10px;opacity:0.85;margin-top:2px">Reçues + En analyse</div>
+<!-- Filtres + Recherche (s'appliquent aux 2 tableaux) -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px">
+    <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" name="q" value="{{ q }}" placeholder="🔍 Recherche (référence, client, site, description, auteur...)" 
+            style="padding:8px 12px;border:1.5px solid #1A7A6D;border-radius:7px;flex:1;min-width:240px">
+        <select name="statut" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Tous statuts</option>
+            {% for sk, sv in statuts.items() %}<option value="{{ sk }}" {% if sk == statut_filter %}selected{% endif %}>{{ sv[0] }}</option>{% endfor %}
+        </select>
+        <select name="priorite" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Toutes priorités</option>
+            {% for pk, pv in priorities.items() %}<option value="{{ pk }}" {% if pk == priorite_filter %}selected{% endif %}>{{ pv[0] }}</option>{% endfor %}
+        </select>
+        <select name="type" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Tous types</option>
+            {% for tk, tv in types.items() %}<option value="{{ tk }}" {% if tk == type_filter %}selected{% endif %}>{{ tv }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">🔎 Filtrer</button>
+        {% if q or statut_filter or priorite_filter or type_filter %}
+        <a href="/field-reports" class="btn btn-outline btn-sm">↻ Réinitialiser</a>
+        {% endif %}
+    </form>
+</div></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TABLEAU 1 : REMONTÉES À TRAITER (recue + en_analyse)               -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="card" style="margin-bottom:18px;border-top:4px solid #e8672a">
+    <div class="card-header" style="background:#fff3e0">
+        <h3 style="color:#e8672a;margin:0">⚠️ Remontées à traiter ({{ a_traiter|length }})</h3>
     </div>
-    <div style="background:linear-gradient(135deg,#c53030 0%,#9c1818 100%);color:#fff;padding:18px;border-radius:10px;text-align:center">
-        <div style="font-size:36px;font-weight:900">{{ nb_urgent }}</div>
-        <div style="font-size:11px;text-transform:uppercase;opacity:0.9;margin-top:4px;font-weight:700">🔴 Urgent</div>
+    <div class="card-body" style="padding:0">
+{% if a_traiter %}
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead><tr style="background:#e8672a;color:#fff">
+    <th style="padding:8px;text-align:left">Référence</th>
+    <th style="text-align:left">Date constat</th>
+    <th style="text-align:left">Client / Site</th>
+    <th style="text-align:left">Type</th>
+    <th style="text-align:left">Priorité</th>
+    <th style="text-align:left">Statut</th>
+    <th style="text-align:left">Auteur</th>
+    <th style="text-align:center">Action</th>
+</tr></thead>
+<tbody>
+{% for r in a_traiter %}
+<tr style="border-bottom:1px solid #f0f0f0">
+    <td style="padding:8px;font-family:monospace;font-weight:700">{{ r.reference }}</td>
+    <td style="padding:8px;font-size:11px">{{ r.date_constat or r.created_at[:10] }}</td>
+    <td style="padding:8px">
+        <strong>{{ r.client_name }}</strong>
+        {% if r.site_name %}<br><span style="font-size:11px;color:#666">📍 {{ r.site_name }}</span>{% endif %}
+    </td>
+    <td style="padding:8px;font-size:11px">{{ r.type_label }}</td>
+    <td style="padding:8px"><span style="background:{{ r.priorite_color }};color:#fff;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">{{ r.priorite_label }}</span></td>
+    <td style="padding:8px"><span style="background:{{ r.statut_color }};color:#fff;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">{{ r.statut_label }}</span></td>
+    <td style="padding:8px;font-size:11px">{{ r.auteur_name or '—' }}</td>
+    <td style="padding:8px;text-align:center">
+        <a href="/field-reports/{{ r.id }}" class="btn btn-sm btn-primary" style="font-size:10px;padding:4px 8px">Traiter →</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table></div>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">
+    <div style="font-size:36px">✅</div>
+    <div style="font-size:13px;margin-top:6px">
+        {% if q or statut_filter or priorite_filter or type_filter %}
+            Aucune remontée à traiter ne correspond aux filtres
+        {% else %}
+            Toutes les remontées ont été traitées !
+        {% endif %}
     </div>
-    <div style="background:linear-gradient(135deg,#e8672a 0%,#b8561f 100%);color:#fff;padding:18px;border-radius:10px;text-align:center">
-        <div style="font-size:36px;font-weight:900">{{ nb_eleve }}</div>
-        <div style="font-size:11px;text-transform:uppercase;opacity:0.9;margin-top:4px;font-weight:700">🟠 Élevé</div>
-    </div>
-    <div style="background:linear-gradient(135deg,#0f5a51 0%,#064842 100%);color:#fff;padding:18px;border-radius:10px;text-align:center">
-        <div style="font-size:36px;font-weight:900">{{ total }}</div>
-        <div style="font-size:11px;text-transform:uppercase;opacity:0.9;margin-top:4px;font-weight:700">Total</div>
+</div>
+{% endif %}
     </div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;margin-bottom:14px">
-    <!-- Répartition par statut -->
-    <div class="card">
-        <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📊 Répartition par statut</h3></div>
-        <div class="card-body">
-            <table style="width:100%;font-size:12px">
-            {% for sk, sv in statuts.items() %}
-            {% set nb = stats_statut.get(sk, 0) %}
-            <tr style="border-bottom:1px solid #eee">
-                <td style="padding:8px"><span style="display:inline-block;width:12px;height:12px;background:{{ sv[1] }};border-radius:50%;margin-right:6px"></span>{{ sv[0] }}</td>
-                <td style="text-align:right;padding:8px;font-weight:700">{{ nb }}</td>
-                <td style="padding:8px;width:140px">
-                    <div style="background:#eee;border-radius:10px;height:8px;overflow:hidden">
-                        <div style="background:{{ sv[1] }};height:100%;width:{{ (nb / total_div * 100) if total > 0 else 0 }}%"></div>
-                    </div>
-                </td>
-                <td style="text-align:right;padding:8px;color:#888;font-size:11px;width:50px">{{ '{:.0f}%'.format(nb / total_div * 100) if total > 0 else '0%' }}</td>
-            </tr>
-            {% endfor %}
-            </table>
-        </div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TABLEAU 2 : REMONTÉES DÉJÀ EXÉCUTÉES (transformee_* + classee)     -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="card" style="border-top:4px solid #2e7d32">
+    <div class="card-header" style="background:#e8f5e9">
+        <h3 style="color:#2e7d32;margin:0">✅ Remontées déjà exécutées ({{ deja_executees|length }})</h3>
     </div>
-    
-    <!-- Répartition par priorité -->
-    <div class="card">
-        <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">⚡ Répartition par priorité</h3></div>
-        <div class="card-body">
-            <table style="width:100%;font-size:12px">
-            {% for pk, pv in priorities.items() %}
-            {% set nb = stats_priorite.get(pk, 0) %}
-            <tr style="border-bottom:1px solid #eee">
-                <td style="padding:8px"><span style="display:inline-block;width:12px;height:12px;background:{{ pv[1] }};border-radius:50%;margin-right:6px"></span>{{ pv[0] }}</td>
-                <td style="text-align:right;padding:8px;font-weight:700">{{ nb }}</td>
-                <td style="padding:8px;width:140px">
-                    <div style="background:#eee;border-radius:10px;height:8px;overflow:hidden">
-                        <div style="background:{{ pv[1] }};height:100%;width:{{ (nb / total_div * 100) if total > 0 else 0 }}%"></div>
-                    </div>
-                </td>
-                <td style="text-align:right;padding:8px;color:#888;font-size:11px;width:50px">{{ '{:.0f}%'.format(nb / total_div * 100) if total > 0 else '0%' }}</td>
-            </tr>
-            {% endfor %}
-            </table>
-        </div>
+    <div class="card-body" style="padding:0">
+{% if deja_executees %}
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead><tr style="background:#2e7d32;color:#fff">
+    <th style="padding:8px;text-align:left">Référence</th>
+    <th style="text-align:left">Date constat</th>
+    <th style="text-align:left">Client / Site</th>
+    <th style="text-align:left">Type</th>
+    <th style="text-align:left">Priorité</th>
+    <th style="text-align:left">Statut final</th>
+    <th style="text-align:left">Décision / Notes</th>
+    <th style="text-align:left">Traité par</th>
+    <th style="text-align:left">Date trait.</th>
+    <th style="text-align:center">Détails</th>
+</tr></thead>
+<tbody>
+{% for r in deja_executees %}
+<tr style="border-bottom:1px solid #f0f0f0">
+    <td style="padding:8px;font-family:monospace;font-weight:700">{{ r.reference }}</td>
+    <td style="padding:8px;font-size:11px">{{ r.date_constat or r.created_at[:10] }}</td>
+    <td style="padding:8px">
+        <strong>{{ r.client_name }}</strong>
+        {% if r.site_name %}<br><span style="font-size:11px;color:#666">📍 {{ r.site_name }}</span>{% endif %}
+    </td>
+    <td style="padding:8px;font-size:11px">{{ r.type_label }}</td>
+    <td style="padding:8px"><span style="background:{{ r.priorite_color }};color:#fff;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">{{ r.priorite_label }}</span></td>
+    <td style="padding:8px"><span style="background:{{ r.statut_color }};color:#fff;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700">{{ r.statut_label }}</span></td>
+    <td style="padding:8px;font-size:11px;color:#555;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ r.decision or r.analyse_notes or '' }}">
+        {{ (r.decision or r.analyse_notes or '—')[:60] }}
+    </td>
+    <td style="padding:8px;font-size:11px">{{ r.decision_by_name or r.auteur_name or '—' }}</td>
+    <td style="padding:8px;font-size:11px">{{ (r.decision_date or r.updated_at or '')[:10] }}</td>
+    <td style="padding:8px;text-align:center">
+        <a href="/field-reports/{{ r.id }}" class="btn btn-sm btn-outline" style="font-size:10px;padding:4px 8px">👁️ Voir</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody>
+</table></div>
+{% else %}
+<div style="text-align:center;padding:30px;color:#888">
+    <div style="font-size:36px">📭</div>
+    <div style="font-size:13px;margin-top:6px">
+        {% if q or statut_filter or priorite_filter or type_filter %}
+            Aucune remontée exécutée ne correspond aux filtres
+        {% else %}
+            Aucune remontée exécutée pour le moment
+        {% endif %}
+    </div>
+</div>
+{% endif %}
     </div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;margin-bottom:14px">
-    <!-- Répartition par type -->
-    <div class="card">
-        <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📌 Répartition par type d'information</h3></div>
-        <div class="card-body">
-            <table style="width:100%;font-size:12px">
-            {% for tk, tv in types.items() %}
-            {% set nb = stats_type.get(tk, 0) %}
-            {% if nb > 0 %}
-            <tr style="border-bottom:1px solid #eee">
-                <td style="padding:8px">{{ tv }}</td>
-                <td style="text-align:right;padding:8px;font-weight:700">{{ nb }}</td>
-                <td style="padding:8px;width:120px">
-                    <div style="background:#eee;border-radius:10px;height:6px;overflow:hidden">
-                        <div style="background:#1A7A6D;height:100%;width:{{ (nb / total_div * 100) if total > 0 else 0 }}%"></div>
-                    </div>
-                </td>
-            </tr>
-            {% endif %}
-            {% endfor %}
-            </table>
+{% if can_view_all and top_auteurs %}
+<!-- Top contributeurs (optionnel, en bas de page) -->
+<div class="card" style="margin-top:18px"><div class="card-body" style="padding:14px">
+    <h3 style="font-size:13px;color:#1a3a5c;margin:0 0 10px">🏆 Top contributeurs</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% for a in top_auteurs %}
+        <div style="background:#f0f4f8;padding:8px 14px;border-radius:8px;font-size:12px">
+            <strong>{{ a.auteur_name or '—' }}</strong> <span style="color:#888">·</span> <span style="color:#1A7A6D;font-weight:700">{{ a.nb }} remontée(s)</span>
         </div>
+    {% endfor %}
     </div>
-    
-    <!-- Top contributeurs -->
-    <div class="card">
-        <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">👥 Top contributeurs terrain</h3></div>
-        <div class="card-body">
-            <table style="width:100%;font-size:12px">
-            {% for a in top_auteurs %}
-            <tr style="border-bottom:1px solid #eee">
-                <td style="padding:8px;width:30px;text-align:center;font-weight:700;color:{% if loop.index == 1 %}#ffd700{% elif loop.index == 2 %}#c0c0c0{% elif loop.index == 3 %}#cd7f32{% else %}#888{% endif %}">#{{ loop.index }}</td>
-                <td style="padding:8px"><strong>{{ a.auteur_name or 'Anonyme' }}</strong></td>
-                <td style="text-align:right;padding:8px;font-weight:700;color:#1A7A6D">{{ a.nb }} remontée(s)</td>
-            </tr>
-            {% else %}<tr><td colspan="3" style="padding:14px;text-align:center;color:#888">Aucune donnée</td></tr>{% endfor %}
-            </table>
-        </div>
-    </div>
-</div>
+</div></div>
+{% endif %}
 
-<!-- Dernières remontées -->
-<div class="card">
-    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📥 10 dernières remontées</h3></div>
-    <div class="card-body" style="padding:0;overflow-x:auto">
-        <table style="width:100%;font-size:11px;min-width:900px">
-            <thead><tr style="background:#f8faf9">
-                <th style="padding:10px;text-align:left">Référence</th>
-                <th style="padding:10px;text-align:left">Client</th>
-                <th style="padding:10px;text-align:left">Type</th>
-                <th style="padding:10px;text-align:left">Auteur</th>
-                <th style="padding:10px;text-align:center">Priorité</th>
-                <th style="padding:10px;text-align:center">Statut</th>
-            </tr></thead>
-            <tbody>
-            {% for r in recentes %}
-            <tr style="border-bottom:1px solid #eee;cursor:pointer" onclick="window.location='/field-reports/{{ r.id }}'">
-                <td style="padding:8px;font-family:monospace;font-weight:700;color:#1A7A6D">{{ r.reference }}</td>
-                <td style="padding:8px"><strong>{{ r.client_name }}</strong></td>
-                <td style="padding:8px">{{ r.type_label }}</td>
-                <td style="padding:8px;color:#666">{{ r.auteur_name or '-' }}</td>
-                <td style="text-align:center;padding:8px"><span style="font-size:11px">{{ r.priorite_label }}</span></td>
-                <td style="text-align:center;padding:8px"><span style="font-size:11px">{{ r.statut_label }}</span></td>
-            </tr>
-            {% else %}<tr><td colspan="6" style="padding:14px;text-align:center;color:#888">Aucune remontée</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
 {% endblock %}

@@ -15354,10 +15354,10 @@ def _filter_field_reports(reports, statut=None, priorite=None, type_info=None, q
 @app.route('/field-reports')
 @permission_required_any('field_report_view_all', 'field_report_view_mine', 'field_report_create')
 def field_reports_list():
-    """Liste des remontées d'informations avec filtres."""
+    """v122 : Tableau de bord principal — point d'entrée. La liste complète est sur /field-reports/liste.
+    Affichage : KPIs + 'À traiter' + 'Déjà traitées' avec filtres et recherche."""
     conn = _gdb()
     user_id = session.get('user_id')
-    # v105 : utiliser has_permission (BDD) au lieu de session (vide)
     from models import has_permission as _hp
     user = get_user_by_id(user_id) if user_id else None
     user_role = user['role'] if user else None
@@ -15366,7 +15366,93 @@ def field_reports_list():
                     _hp(user_role, 'admin'))
     can_view_mine = (can_view_all or _hp(user_role, 'field_report_view_mine'))
     
-    # Si pas view_all, montrer uniquement les siennes
+    # Récupérer les remontées (avec scope selon permissions)
+    if can_view_all:
+        all_reports = [dict(r) for r in conn.execute("SELECT * FROM field_reports ORDER BY created_at DESC").fetchall()]
+    elif can_view_mine:
+        all_reports = [dict(r) for r in conn.execute("SELECT * FROM field_reports WHERE auteur_id=? ORDER BY created_at DESC", (user_id,)).fetchall()]
+    else:
+        all_reports = []
+    
+    # Filtres URL (s'appliquent aux deux tableaux)
+    statut_f = (request.args.get('statut', '') or '').strip()
+    priorite_f = (request.args.get('priorite', '') or '').strip()
+    type_f = (request.args.get('type', '') or '').strip()
+    q = (request.args.get('q', '') or '').strip()
+    filtered = _filter_field_reports(all_reports, statut_f, priorite_f, type_f, q)
+    
+    # Séparer en 2 listes selon le statut
+    to_treat_statuts = ('recue', 'en_analyse')
+    treated_statuts = ('transformee_projet', 'transformee_intervention', 'transformee_opportunite', 'classee')
+    a_traiter = [r for r in filtered if r.get('statut') in to_treat_statuts]
+    deja_executees = [r for r in filtered if r.get('statut') in treated_statuts]
+    
+    # Enrichir affichage pour les deux listes
+    for lst in (a_traiter, deja_executees):
+        for r in lst:
+            sl = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))
+            pl = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))
+            r['statut_label'] = sl[0]; r['statut_color'] = sl[1]
+            r['priorite_label'] = pl[0]; r['priorite_color'] = pl[1]
+            r['type_label'] = FIELD_REPORT_TYPES.get(r['type_info'], r['type_info'])
+    
+    # Stats globales (sans filtres pour les KPI)
+    if can_view_all:
+        all_rows = conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall()
+    else:
+        all_rows = []
+    stats_statut = {row['statut']: row['nb'] for row in all_rows}
+    
+    # Stats par priorité et type pour graphiques
+    if can_view_all:
+        stats_priorite = {row['priorite']: row['nb'] for row in 
+                          conn.execute("SELECT priorite, COUNT(*) as nb FROM field_reports GROUP BY priorite").fetchall()}
+        stats_type = {row['type_info']: row['nb'] for row in 
+                      conn.execute("SELECT type_info, COUNT(*) as nb FROM field_reports GROUP BY type_info").fetchall()}
+        top_auteurs = [dict(r) for r in conn.execute(
+            """SELECT auteur_name, COUNT(*) as nb FROM field_reports 
+            GROUP BY auteur_id, auteur_name ORDER BY nb DESC LIMIT 5""").fetchall()]
+    else:
+        stats_priorite = {}
+        stats_type = {}
+        top_auteurs = []
+    
+    stats = {
+        'recue': stats_statut.get('recue', 0),
+        'en_analyse': stats_statut.get('en_analyse', 0),
+        'a_traiter': stats_statut.get('recue', 0) + stats_statut.get('en_analyse', 0),
+        'transformees': sum(stats_statut.get(s, 0) for s in ('transformee_projet', 'transformee_intervention', 'transformee_opportunite')),
+        'projets': stats_statut.get('transformee_projet', 0),
+        'interventions': stats_statut.get('transformee_intervention', 0),
+        'opportunites': stats_statut.get('transformee_opportunite', 0),
+        'classees': stats_statut.get('classee', 0),
+        'total': sum(stats_statut.values()),
+    }
+    conn.close()
+    
+    return render_template('field_reports_dashboard.html', page='field_reports',
+        a_traiter=a_traiter, deja_executees=deja_executees,
+        stats=stats, stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
+        top_auteurs=top_auteurs,
+        types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
+        statut_filter=statut_f, priorite_filter=priorite_f, type_filter=type_f, q=q,
+        can_view_all=can_view_all)
+
+
+@app.route('/field-reports/liste')
+@permission_required_any('field_report_view_all', 'field_report_view_mine', 'field_report_create')
+def field_reports_full_list():
+    """v122 : Ancienne liste complète, gardée pour rétrocompatibilité (sidebar/bookmarks)."""
+    conn = _gdb()
+    user_id = session.get('user_id')
+    from models import has_permission as _hp
+    user = get_user_by_id(user_id) if user_id else None
+    user_role = user['role'] if user else None
+    can_view_all = (user_role == 'admin' or 
+                    _hp(user_role, 'field_report_view_all') or 
+                    _hp(user_role, 'admin'))
+    can_view_mine = (can_view_all or _hp(user_role, 'field_report_view_mine'))
+    
     if can_view_all:
         rows = conn.execute("SELECT * FROM field_reports ORDER BY created_at DESC LIMIT 500").fetchall()
     elif can_view_mine:
@@ -15375,7 +15461,6 @@ def field_reports_list():
         rows = []
     reports = [dict(r) for r in rows]
     
-    # Stats par statut (tous)
     all_rows = conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall() if can_view_all else []
     stats_statut = {row['statut']: row['nb'] for row in all_rows}
     stats = {
@@ -15390,14 +15475,12 @@ def field_reports_list():
     }
     conn.close()
     
-    # Filtres URL
     statut = request.args.get('statut', '').strip()
     priorite = request.args.get('priorite', '').strip()
     type_info = request.args.get('type', '').strip()
     q = request.args.get('q', '').strip()
     reports = _filter_field_reports(reports, statut, priorite, type_info, q)
     
-    # Enrichir affichage
     for r in reports:
         sl = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))
         pl = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))
@@ -15405,7 +15488,7 @@ def field_reports_list():
         r['priorite_label'] = pl[0]; r['priorite_color'] = pl[1]
         r['type_label'] = FIELD_REPORT_TYPES.get(r['type_info'], r['type_info'])
     
-    return render_template('field_reports_list.html', page='field_reports',
+    return render_template('field_reports_list.html', page='field_reports_liste',
         reports=reports, stats=stats,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
         statut_filter=statut, priorite_filter=priorite, type_filter=type_info, q=q)
@@ -15585,41 +15668,8 @@ def field_report_transform(rid):
 @app.route('/field-reports/dashboard')
 @permission_required_any('field_report_view_all', 'admin')
 def field_reports_dashboard():
-    """Tableau de bord des remontées d'informations."""
-    conn = _gdb()
-    # Stats par statut
-    stats_statut = {row['statut']: row['nb'] for row in 
-                    conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall()}
-    # Stats par priorité
-    stats_priorite = {row['priorite']: row['nb'] for row in 
-                      conn.execute("SELECT priorite, COUNT(*) as nb FROM field_reports GROUP BY priorite").fetchall()}
-    # Stats par type
-    stats_type = {row['type_info']: row['nb'] for row in 
-                  conn.execute("SELECT type_info, COUNT(*) as nb FROM field_reports GROUP BY type_info").fetchall()}
-    # Top contributeurs
-    top_auteurs = [dict(r) for r in conn.execute(
-        """SELECT auteur_name, COUNT(*) as nb FROM field_reports 
-        GROUP BY auteur_id, auteur_name ORDER BY nb DESC LIMIT 10""").fetchall()]
-    # Dernières 10
-    recentes = [dict(r) for r in conn.execute(
-        "SELECT * FROM field_reports ORDER BY created_at DESC LIMIT 10").fetchall()]
-    for r in recentes:
-        r['statut_label'] = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))[0]
-        r['priorite_label'] = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))[0]
-        r['type_label'] = FIELD_REPORT_TYPES.get(r['type_info'], r['type_info'])
-    
-    total = sum(stats_statut.values())  # v102 : total réel pour affichage
-    total_div = total or 1  # éviter division par zéro
-    nb_urgent = stats_priorite.get('urgent', 0)
-    nb_eleve = stats_priorite.get('eleve', 0)
-    nb_a_traiter = stats_statut.get('recue', 0) + stats_statut.get('en_analyse', 0)
-    conn.close()
-    
-    return render_template('field_reports_dashboard.html', page='field_reports_dashboard',
-        stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
-        top_auteurs=top_auteurs, recentes=recentes,
-        types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
-        total=total, total_div=total_div, nb_urgent=nb_urgent, nb_eleve=nb_eleve, nb_a_traiter=nb_a_traiter)
+    """v122 : Redirection vers la nouvelle page d'entrée (tableau de bord = /field-reports)."""
+    return redirect('/field-reports')
 
 
 @app.route('/field-reports/<int:rid>/edit', methods=['GET', 'POST'])

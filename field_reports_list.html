@@ -1,18 +1,13 @@
-{% extends "base.html" %}{% block title %}WannyGest - Remontées d'Informations{% endblock %}{% block content %}
+{% extends "base.html" %}{% block title %}WannyGest - Liste complète des remontées{% endblock %}{% block content %}
 <div class="page-header" style="flex-wrap:wrap;gap:10px">
     <div>
-        <h1>📢 Remontées d'Informations Terrain</h1>
+        <h1>📋 Liste complète des remontées</h1>
         <p style="color:#666;font-size:12px;margin:4px 0 0">
-            Centralisation des observations terrain · {{ stats.total }} remontée(s) au total
+            Vue tableau · {{ stats.total }} remontée(s) au total · Pour créer une nouvelle remontée, retournez au tableau de bord
         </p>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-        {% if 'field_report_view_all' in permissions or 'admin' in permissions %}
-        <a href="/field-reports/dashboard" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📊 Tableau de bord</a>
-        {% endif %}
-        {% if 'field_report_create' in permissions or 'admin' in permissions %}
-        <a href="/field-reports/new" class="btn btn-primary btn-sm">+ Nouvelle remontée</a>
-        {% endif %}
+        <a href="/field-reports" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📊 ← Tableau de bord</a>
     </div>
 </div>
 
