@@ -7,13 +7,17 @@
 <div class="card" style="max-width:620px"><div class="card-body">
 <form method="post" id="caisseForm">
     <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ now }}" required></div>
-    <div class="form-group"><label>💰 Caisse à débiter *</label>
-        <select name="caisse_id" required>
-            <option value="">— Choisir une caisse —</option>
-            {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}{% if c.responsible_name %} ({{ c.responsible_name }}){% endif %} — Solde : {{ '{:,.0f}'.format(c.solde_actuel or 0) }} F</option>{% endfor %}
-        </select>
-        {% if not caisses %}<div style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucune caisse active. <a href="/comptabilite/caisses" style="color:#1a7a6d">Créez-en une d'abord →</a></div>{% endif %}
+    {# v114 : Caisse de fonctionnement FORCÉE — plus de sélection #}
+    {% if caisse_fonct %}
+    <div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px">
+        💰 <strong>Caisse de fonctionnement</strong> — Solde actuel : <strong>{{ '{:,.0f}'.format(caisse_fonct.solde_actuel or 0).replace(',', ' ') }} F CFA</strong>
+        <div style="font-size:11px;color:#666;margin-top:3px">Toutes les sorties sont automatiquement débitées de cette caisse.</div>
     </div>
+    {% else %}
+    <div style="background:#ffebee;border-left:4px solid #c53030;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px">
+        ⚠️ <strong>Caisse de fonctionnement introuvable.</strong> Contactez l'administrateur.
+    </div>
+    {% endif %}
     <div class="form-group"><label>A l'ordre de (bénéficiaire) *</label><input type="text" name="beneficiaire" required placeholder="Nom du bénéficiaire"></div>
     <div class="form-group"><label>Type de bénéficiaire</label>
         <div style="display:flex;gap:16px;margin-top:4px">

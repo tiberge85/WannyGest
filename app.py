@@ -1316,6 +1316,97 @@ except Exception as _e:
     print(f"[v113-NewPerms] Erreur : {_e}", flush=True)
 
 
+# v114 : Garantir l'existence d'une "Caisse de fonctionnement" par défaut
+# Toutes les sorties de caisse y seront automatiquement rattachées
+try:
+    from models import get_db as _v114_db
+    _v114 = _v114_db()
+    # Chercher une caisse avec "fonctionnement" dans le nom
+    existing = _v114.execute(
+        "SELECT id, name FROM caisses WHERE LOWER(name) LIKE '%fonctionnement%' AND COALESCE(is_active,1)=1 LIMIT 1"
+    ).fetchone()
+    if not existing:
+        # Vérifier si on en a déjà une marquée par défaut
+        existing_default = _v114.execute(
+            "SELECT value FROM app_settings WHERE key='caisse_fonctionnement_id'").fetchone()
+        if not existing_default or not existing_default['value']:
+            # Pas de caisse de fonctionnement → créer
+            _v114.execute("""INSERT INTO caisses 
+                (name, description, solde_initial, solde_actuel, is_active, created_at) 
+                VALUES (?,?,?,?,1,datetime('now'))""",
+                ('Caisse de fonctionnement', 
+                 'Caisse principale pour les sorties courantes (créée automatiquement par v114)',
+                 0, 0))
+            cf_id = _v114.execute("SELECT last_insert_rowid()").fetchone()[0]
+            _v114.execute("""INSERT OR REPLACE INTO app_settings (key, value, updated_at) 
+                VALUES ('caisse_fonctionnement_id', ?, datetime('now'))""", (str(cf_id),))
+            _v114.commit()
+            print(f"[v114-Fonct] Caisse de fonctionnement créée (id={cf_id})", flush=True)
+        else:
+            print(f"[v114-Fonct] Caisse de fonctionnement déjà définie (id={existing_default['value']})", flush=True)
+    else:
+        # Une caisse "fonctionnement" existe déjà → la marquer comme défaut
+        _v114.execute("""INSERT OR REPLACE INTO app_settings (key, value, updated_at) 
+            VALUES ('caisse_fonctionnement_id', ?, datetime('now'))""", (str(existing['id']),))
+        _v114.commit()
+        print(f"[v114-Fonct] Caisse de fonctionnement détectée : « {existing['name']} » (id={existing['id']})", flush=True)
+    _v114.close()
+except Exception as _e:
+    print(f"[v114-Fonct] Erreur : {_e}", flush=True)
+
+
+# v114 : Backfill — Synchroniser les sorties caisse validées qui ne sont PAS dans le journal
+try:
+    from models import get_db as _v114bf_db
+    _v114bf = _v114bf_db()
+    already_done = _v114bf.execute(
+        "SELECT value FROM app_settings WHERE key='v114_backfill_sorties_journal_done'").fetchone()
+    
+    if not already_done:
+        # Sorties validées (status valide ou comptabilisées) mais absentes du journal
+        sorties = _v114bf.execute("""SELECT cs.reference, cs.montant, cs.date, cs.beneficiaire, cs.motif, cs.caisse_id, cs.demandeur_id
+            FROM caisse_sorties cs
+            WHERE cs.status IN ('valide','comptabilisee') 
+              AND NOT EXISTS (SELECT 1 FROM tresorerie_mouvements tm WHERE tm.reference=cs.reference AND tm.type='caisse')
+            ORDER BY cs.id""").fetchall()
+        nb_synced = 0
+        for s in sorties:
+            try:
+                _v114bf.execute("""INSERT INTO tresorerie_mouvements 
+                    (type, sens, source, date, montant, libelle, reference, caisse_id, created_by, created_at)
+                    VALUES ('caisse', 'sortie', 'multicaisse', ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (s['date'], s['montant'],
+                     f"Sortie {s['reference']} — {s['beneficiaire']} — {s['motif']}",
+                     s['reference'], s['caisse_id'], s['demandeur_id']))
+                nb_synced += 1
+            except Exception as _e:
+                print(f"[v114-Backfill] Skip {s['reference']}: {_e}", flush=True)
+        _v114bf.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v114_backfill_sorties_journal_done', '1', datetime('now'))")
+        _v114bf.commit()
+        if nb_synced > 0:
+            print(f"[v114-Backfill] {nb_synced} sortie(s) caisse synchronisée(s) vers le journal", flush=True)
+        else:
+            print(f"[v114-Backfill] Aucune sortie à backfiller", flush=True)
+    _v114bf.close()
+except Exception as _e:
+    print(f"[v114-Backfill] Erreur : {_e}", flush=True)
+
+
+# v114 : Helper pour récupérer l'id de la caisse de fonctionnement
+def get_caisse_fonctionnement_id():
+    """Retourne l'id de la caisse de fonctionnement (créée auto par v114)."""
+    try:
+        from models import get_db as _gdb_helper
+        conn = _gdb_helper()
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='caisse_fonctionnement_id'").fetchone()
+        conn.close()
+        if row and row['value']:
+            return int(row['value'])
+    except: pass
+    return None
+
+
 from models import migrate_v15
 migrate_v15()
 from models import migrate_v16
@@ -10937,9 +11028,10 @@ def compta_caisse_operation(cid):
     return redirect(f'/comptabilite/caisses/{cid}')
 
 
-def _sync_caisse_op_to_journal(conn, sens, date, montant, libelle, ref, user_id):
-    """v103 : Synchronise une opération multi-caisses dans le journal de caisse (tresorerie_mouvements).
-    Crée un mouvement type='caisse' avec le bon sens (entree/sortie). Idempotent via reference."""
+def _sync_caisse_op_to_journal(conn, sens, date, montant, libelle, ref, user_id, caisse_id=None):
+    """v103 + v114 : Synchronise une opération multi-caisses dans le journal de caisse (tresorerie_mouvements).
+    Crée un mouvement type='caisse' avec le bon sens (entree/sortie). Idempotent via reference.
+    v114 : caisse_id lié explicitement pour traçabilité."""
     try:
         # Vérifier si déjà inséré (idempotence par référence)
         existing = conn.execute(
@@ -10949,9 +11041,9 @@ def _sync_caisse_op_to_journal(conn, sens, date, montant, libelle, ref, user_id)
             return
         # Insérer le mouvement
         conn.execute("""INSERT INTO tresorerie_mouvements 
-            (type, sens, source, date, montant, libelle, reference, created_by, created_at)
-            VALUES ('caisse', ?, 'multicaisse', ?, ?, ?, ?, ?, datetime('now'))""",
-            (sens, date, montant, libelle, ref, user_id))
+            (type, sens, source, date, montant, libelle, reference, caisse_id, created_by, created_at)
+            VALUES ('caisse', ?, 'multicaisse', ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (sens, date, montant, libelle, ref, caisse_id, user_id))
     except Exception as e:
         print(f"[v103-Sync] Erreur sync journal: {e}", flush=True)
 
@@ -21357,15 +21449,16 @@ def caisse_sortie():
 @app.route('/caisse-sortie/demande', methods=['GET','POST'])
 @login_required
 def caisse_demande():
-    """Tout le personnel peut faire une demande."""
+    """Tout le personnel peut faire une demande.
+    v114 : Toutes les demandes sont automatiquement rattachées à la Caisse de fonctionnement."""
     if request.method == 'POST':
         user = get_user_by_id(session['user_id'])
         ref = gen_caisse_ref()
         from models import get_db
         conn = get_db()
         montant = float(request.form.get('montant', 0) or 0)
-        caisse_id_raw = request.form.get('caisse_id', '').strip()
-        caisse_id = int(caisse_id_raw) if caisse_id_raw.isdigit() else None
+        # v114 : Caisse de fonctionnement FORCÉE — plus de sélection manuelle
+        caisse_id = get_caisse_fonctionnement_id()
         department = (request.form.get('department','') or '').strip() or None
         try:
             conn.execute("""INSERT INTO caisse_sorties (reference, date, beneficiaire, type_beneficiaire,
@@ -21411,11 +21504,21 @@ def caisse_demande():
                     'Caisse', f"Demande sortie {ref} — {montant:,.0f} F", request.remote_addr)
         flash(f"Demande de sortie de caisse {ref} envoyée au DG pour validation", "success")
         return redirect(url_for('caisse_sortie'))
-    # GET : passer la liste des caisses au template
+    # GET : passer la caisse de fonctionnement au template (v114)
     conn = _gdb()
     caisses = [dict(r) for r in conn.execute("SELECT * FROM caisses WHERE is_active=1 ORDER BY name").fetchall()]
+    cf_id = get_caisse_fonctionnement_id()
+    caisse_fonct = None
+    if cf_id:
+        # Recalculer le solde réel
+        cf_row = conn.execute("SELECT * FROM caisses WHERE id=?", (cf_id,)).fetchone()
+        if cf_row:
+            caisse_fonct = dict(cf_row)
+            entrees = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (cf_id,)).fetchone()[0]
+            sorties = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (cf_id,)).fetchone()[0]
+            caisse_fonct['solde_actuel'] = (caisse_fonct.get('solde_initial') or 0) + entrees - sorties
     conn.close()
-    return render_template('caisse_demande.html', page='caisse_sortie', caisses=caisses)
+    return render_template('caisse_demande.html', page='caisse_sortie', caisses=caisses, caisse_fonct=caisse_fonct)
 
 @app.route('/caisse-sortie/<int:sid>/valider')
 @login_required
@@ -21442,6 +21545,46 @@ def caisse_valider(sid):
     conn.commit()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
     s_dict = dict(s) if s else None
+    
+    # v114 : Déduction automatique de la caisse de fonctionnement + sync au journal
+    # Dès la validation DG/RH, l'argent sort. Pas besoin d'une comptabilisation séparée.
+    if s_dict:
+        cid = s_dict.get('caisse_id') or get_caisse_fonctionnement_id()
+        if cid:
+            already_op = conn.execute(
+                "SELECT id FROM caisse_operations WHERE reference=? AND caisse_id=? AND type='sortie'",
+                (s_dict['reference'], cid)).fetchone()
+            if not already_op:
+                try:
+                    conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by)
+                        VALUES (?,?,?,?,?,?,?)""",
+                        (cid, 'sortie', s_dict['montant'],
+                         f"Sortie {s_dict['reference']} — {s_dict['beneficiaire']}",
+                         s_dict['reference'], 'sortie_caisse', session.get('user_id')))
+                    conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
+                                 (s_dict['montant'], cid))
+                except Exception as _e:
+                    print(f"[v114] Erreur op : {_e}", flush=True)
+            # Sync au journal de caisse (sortie)
+            try:
+                _sync_caisse_op_to_journal(conn, 'sortie',
+                    s_dict.get('date') or datetime.now().strftime('%Y-%m-%d'),
+                    s_dict['montant'],
+                    f"Sortie {s_dict['reference']} — {s_dict['beneficiaire']} — {s_dict.get('motif','')}",
+                    s_dict['reference'], session.get('user_id'), caisse_id=cid)
+            except Exception as _e:
+                print(f"[v114] Erreur sync : {_e}", flush=True)
+            # Écriture comptable 658 / 571
+            try:
+                auto_ecriture(conn, s_dict.get('date') or datetime.now().strftime('%Y-%m-%d'),
+                    f"Sortie {s_dict['reference']} — {s_dict['beneficiaire']}",
+                    '658', '571', s_dict['montant'], s_dict['reference'])
+            except: pass
+            # Marquer comme comptabilisée
+            conn.execute("UPDATE caisse_sorties SET comptabilise=1, comptabilise_at=? WHERE id=?",
+                         (datetime.now().isoformat(), sid))
+            conn.commit()
+    
     conn.close()
     # === MISE À JOUR AUTOMATIQUE DU BUDGET DÉPARTEMENT ===
     budget_msg = ""
@@ -21595,7 +21738,8 @@ def caisse_decision(sid):
 @login_required
 def caisse_comptabiliser(sid):
     from models import get_db
-    """La comptabilité enregistre le décaissement."""
+    """La comptabilité enregistre le décaissement.
+    v114 : Sync automatique au journal de caisse + déduction du solde."""
     conn = get_db()
     conn.execute("UPDATE caisse_sorties SET comptabilise=1, comptabilise_at=? WHERE id=? AND status='valide'",
                  (datetime.now().isoformat(), sid))
@@ -21608,24 +21752,39 @@ def caisse_comptabiliser(sid):
                          ('depense', s['montant'], f"Sortie caisse {s['reference']} — {s['beneficiaire']} — {s['motif']}",
                           'sortie_caisse', session.get('user_id'), datetime.now().isoformat()))
         except: pass
-        # Si une caisse est rattachée : enregistrer l'opération + mettre à jour son solde
-        cid = s.get('caisse_id')
+        # v114 : Forcer la caisse de fonctionnement si caisse_id absent
+        cid = s.get('caisse_id') or get_caisse_fonctionnement_id()
         if cid:
+            # Idempotence : vérifier si déjà comptabilisé (anti-double déduction)
+            already_op = conn.execute(
+                "SELECT id FROM caisse_operations WHERE reference=? AND caisse_id=? AND type='sortie'",
+                (s['reference'], cid)).fetchone()
+            if not already_op:
+                try:
+                    conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by)
+                        VALUES (?,?,?,?,?,?,?)""",
+                        (cid, 'sortie', s['montant'],
+                         f"Sortie {s['reference']} — {s['beneficiaire']}",
+                         s['reference'], 'sortie_caisse', session.get('user_id')))
+                    conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?", (s['montant'], cid))
+                except Exception as _e:
+                    print(f"[v114] Erreur op caisse : {_e}", flush=True)
+            # v114 : SYNC AU JOURNAL DE CAISSE (sortie)
             try:
-                conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by)
-                    VALUES (?,?,?,?,?,?,?)""",
-                    (cid, 'sortie', s['montant'],
-                     f"Sortie {s['reference']} — {s['beneficiaire']}",
-                     s['reference'], 'sortie_caisse', session.get('user_id')))
-                conn.execute("UPDATE caisses SET solde_actuel = solde_actuel - ? WHERE id=?", (s['montant'], cid))
-            except: pass
+                _sync_caisse_op_to_journal(conn, 'sortie',
+                    s.get('date') or datetime.now().strftime('%Y-%m-%d'),
+                    s['montant'],
+                    f"Sortie {s['reference']} — {s['beneficiaire']} — {s.get('motif','')}",
+                    s['reference'], session.get('user_id'), caisse_id=cid)
+            except Exception as _e:
+                print(f"[v114] Erreur sync journal : {_e}", flush=True)
         # Écriture comptable partie double : 658 (charges diverses) DÉBIT / 571 (caisse) CRÉDIT
         try:
             auto_ecriture(conn, s.get('date') or datetime.now().strftime('%Y-%m-%d'),
                 f"Sortie {s['reference']} — {s['beneficiaire']}", '658', '571', s['montant'], s['reference'])
         except: pass
     conn.commit(); conn.close()
-    flash("Décaissement comptabilisé" + (" (solde caisse mis à jour)" if s and s.get('caisse_id') else ""), "success")
+    flash("✅ Décaissement comptabilisé — solde caisse mis à jour + journal de caisse + écriture comptable", "success")
     return redirect(url_for('caisse_sortie'))
 
 @app.route('/caisse-sortie/<int:sid>/edit', methods=['GET','POST'])
@@ -25400,6 +25559,111 @@ def tresorerie_banque():
                 except Exception as e:
                     flash(f"❌ {e}", "error")
                 conn.close()
+        # v114 : Modifier un compte bancaire
+        elif action == 'edit_compte':
+            try: bid = int(request.form.get('compte_id', 0) or 0)
+            except: bid = 0
+            nom = (request.form.get('nom','') or '').strip()
+            banque = (request.form.get('banque','') or '').strip()
+            num = (request.form.get('numero_compte','') or '').strip()
+            try: solde_init = float(request.form.get('solde_initial', 0) or 0)
+            except: solde_init = 0
+            if bid and nom:
+                conn = _gdb()
+                try:
+                    conn.execute("""UPDATE tresorerie_comptes_bancaires SET 
+                        nom=?, banque=?, numero_compte=?, solde_initial=? WHERE id=?""",
+                        (nom, banque, num, solde_init, bid))
+                    conn.commit()
+                    log_activity(session['user_id'], user['full_name'], 'Banque',
+                        f"Compte bancaire #{bid} modifié — {nom}", request.remote_addr)
+                    flash(f"✅ Compte bancaire '{nom}' modifié", "success")
+                except Exception as e:
+                    flash(f"❌ {e}", "error")
+                conn.close()
+            else:
+                flash("⚠️ Données invalides pour modification", "error")
+        # v114 : Désactiver un compte bancaire (soft delete)
+        elif action == 'delete_compte':
+            try: bid = int(request.form.get('compte_id', 0) or 0)
+            except: bid = 0
+            if bid:
+                conn = _gdb()
+                # Vérifier s'il y a des mouvements
+                nb_mvts = 0
+                try:
+                    nb_mvts = conn.execute("SELECT COUNT(*) FROM tresorerie_mouvements WHERE banque_id=?", (bid,)).fetchone()[0]
+                except: pass
+                nom_row = conn.execute("SELECT nom FROM tresorerie_comptes_bancaires WHERE id=?", (bid,)).fetchone()
+                nom_compte = nom_row['nom'] if nom_row else f'#{bid}'
+                try:
+                    if nb_mvts > 0:
+                        # Soft delete : désactiver
+                        conn.execute("UPDATE tresorerie_comptes_bancaires SET is_active=0 WHERE id=?", (bid,))
+                        conn.commit()
+                        log_activity(session['user_id'], user['full_name'], 'Banque',
+                            f"Compte bancaire {nom_compte} désactivé ({nb_mvts} mouvements conservés)", request.remote_addr)
+                        flash(f"✅ Compte '{nom_compte}' désactivé ({nb_mvts} mouvements conservés en historique)", "success")
+                    else:
+                        # Hard delete
+                        conn.execute("DELETE FROM tresorerie_comptes_bancaires WHERE id=?", (bid,))
+                        conn.commit()
+                        log_activity(session['user_id'], user['full_name'], 'Banque',
+                            f"Compte bancaire {nom_compte} supprimé définitivement", request.remote_addr)
+                        flash(f"✅ Compte '{nom_compte}' supprimé définitivement", "success")
+                except Exception as e:
+                    flash(f"❌ {e}", "error")
+                conn.close()
+        # v114 : Réactiver un compte bancaire
+        elif action == 'reactivate_compte':
+            try: bid = int(request.form.get('compte_id', 0) or 0)
+            except: bid = 0
+            if bid:
+                conn = _gdb()
+                try:
+                    conn.execute("UPDATE tresorerie_comptes_bancaires SET is_active=1 WHERE id=?", (bid,))
+                    conn.commit()
+                    flash("✅ Compte réactivé", "success")
+                except: pass
+                conn.close()
+        # v114 : Créditer un compte (entrée rapide)
+        elif action == 'credit_compte':
+            try: bid = int(request.form.get('compte_id', 0) or 0)
+            except: bid = 0
+            try: montant = float(request.form.get('montant', 0) or 0)
+            except: montant = 0
+            libelle = (request.form.get('libelle','') or '').strip() or 'Crédit manuel'
+            date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+            if bid and montant > 0:
+                mvt_id, eid, err = tresorerie_enregistrer_mouvement(
+                    'banque', 'entree', 'manuel', date, montant, libelle,
+                    mode_paiement='virement', user_id=session['user_id'],
+                    banque_id=bid, reference=f"CR-{datetime.now().strftime('%Y%m%d%H%M%S')}")
+                if err:
+                    flash(f"❌ {err}", "error")
+                else:
+                    flash(f"✅ Crédit de {montant:,.0f} F enregistré", "success")
+            else:
+                flash("⚠️ Compte ou montant invalide", "error")
+        # v114 : Débiter un compte (sortie rapide)
+        elif action == 'debit_compte':
+            try: bid = int(request.form.get('compte_id', 0) or 0)
+            except: bid = 0
+            try: montant = float(request.form.get('montant', 0) or 0)
+            except: montant = 0
+            libelle = (request.form.get('libelle','') or '').strip() or 'Débit manuel'
+            date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+            if bid and montant > 0:
+                mvt_id, eid, err = tresorerie_enregistrer_mouvement(
+                    'banque', 'sortie', 'manuel', date, montant, libelle,
+                    mode_paiement='virement', user_id=session['user_id'],
+                    banque_id=bid, reference=f"DB-{datetime.now().strftime('%Y%m%d%H%M%S')}")
+                if err:
+                    flash(f"❌ {err}", "error")
+                else:
+                    flash(f"✅ Débit de {montant:,.0f} F enregistré", "success")
+            else:
+                flash("⚠️ Compte ou montant invalide", "error")
         elif action == 'add_mvt':
             try: bid = int(request.form.get('banque_id', 0) or 0)
             except: bid = 0
@@ -25429,8 +25693,9 @@ def tresorerie_banque():
     
     conn = _gdb()
     try:
+        # v114 : Inclure même les comptes désactivés pour pouvoir les réactiver
         comptes = [dict(r) for r in conn.execute(
-            "SELECT * FROM tresorerie_comptes_bancaires ORDER BY nom").fetchall()]
+            "SELECT * FROM tresorerie_comptes_bancaires ORDER BY is_active DESC, nom").fetchall()]
         for c in comptes:
             c['solde'] = tresorerie_solde_banque(c['id'])
     except: comptes = []

@@ -592,26 +592,86 @@
             {# Pour les rôles qui ont des permissions partielles dans d'autres  #}
             {# départements, sans afficher tout le menu du département.         #}
             {# ═══════════════════════════════════════════════════════════════ #}
-            {% set is_full_gestion_projet = user_role == 'gestionnaire_projet' or 'resp_projet' in permissions or 'admin' in permissions %}
-            {% set show_outils_caisse = 'caisse_sortie' in permissions and not has_full_tresorerie %}
-            {% set show_outils_livraison = 'livraison_intervention' in permissions and not is_full_gestion_projet %}
-            {% set show_outils_cq = 'controle_qualite' in permissions and not is_full_gestion_projet %}
-            {% set has_outils_rapides = show_outils_caisse or show_outils_livraison or show_outils_cq %}
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {# v114 : OUTILS RAPIDES enrichi — tous les liens auxquels l'user a #}
+            {# accès mais qui ne sont PAS dans sa section principale.            #}
+            {# Pour les rôles non-managers, les sections complètes (CRM, RH,     #}
+            {# Compta, etc.) sont masquées sauf la leur ; les liens individuels  #}
+            {# autorisés sont placés ici.                                        #}
+            {# ═══════════════════════════════════════════════════════════════ #}
+            
+            {# Détermine si l'user est un "manager" (admin, dg, directeur) qui voit tout #}
+            {% set is_full_manager = user_role in ('admin', 'dg', 'directeur') %}
+            
+            {# Sections que l'user voit COMPLÈTES selon son rôle #}
+            {% set has_full_tech = is_full_manager or user_role in ('technicien', 'tech_chef', 'centre_technique') %}
+            {% set has_full_crm = is_full_manager or user_role == 'commercial' %}
+            {% set has_full_gp = is_full_manager or user_role in ('gestionnaire_projet', 'resp_projet') %}
+            {% set has_full_rh = is_full_manager or user_role == 'rh' %}
+            {% set has_full_compta = is_full_manager or user_role in ('comptable', 'comptabilite') %}
+            {% set has_full_info = is_full_manager or user_role == 'informatique' %}
+            {% set has_full_mg = is_full_manager or user_role in ('moyens_generaux', 'mg', 'magasinier') %}
+            {% set has_full_concierge = is_full_manager or user_role == 'concierge' %}
+            {% set has_full_tresorerie = 'tresorerie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+            
+            {# Outils transverses à mettre dans OUTILS RAPIDES (perm OK mais section non complète) #}
+            {% set or_caisse_sortie = 'caisse_sortie' in permissions and not has_full_tresorerie %}
+            {% set or_livraison = 'livraison_intervention' in permissions and not has_full_gp %}
+            {% set or_cq = 'controle_qualite' in permissions and not has_full_gp %}
+            {% set or_visites = 'visites' in permissions and not has_full_crm and not has_full_tech and not has_full_gp %}
+            {% set or_clients = 'clients' in permissions and not has_full_crm %}
+            {% set or_proforma = 'proforma' in permissions and not has_full_crm %}
+            {% set or_roadmap = 'roadmap_view' in permissions and not has_full_gp %}
+            {% set or_interventions = ('interventions' in permissions or 'centre_technique' in permissions) and not has_full_tech and not has_full_gp %}
+            {% set or_stock = 'stock_view' in permissions and not has_full_mg %}
+            {% set or_mg_demande = 'mg_demande' in permissions and not has_full_mg %}
+            {% set or_field_report = ('field_report_view_all' in permissions or 'field_report_view_mine' in permissions) and not has_full_gp and not has_full_tech %}
+            {% set or_traitement = 'traitement' in permissions and not has_full_rh %}
+            {% set or_tracking = 'tracking' in permissions and not has_full_tech %}
+            {% set or_concierge = 'concierge' in permissions and not has_full_concierge %}
+            
+            {% set has_outils_rapides = or_caisse_sortie or or_livraison or or_cq or or_visites or or_clients or or_proforma or or_roadmap or or_interventions or or_stock or or_mg_demande or or_field_report or or_traitement or or_tracking or or_concierge %}
+            
             {% if has_outils_rapides %}
             <div class="nav-section" id="sec-outils-rapides">
                 <div class="nav-section-title" onclick="toggleSection('sec-outils-rapides')">⚡ OUTILS RAPIDES <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    {% if show_outils_caisse %}
-                    <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">📤 Demande sortie caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
-                    {% endif %}
-                    {% if show_outils_livraison %}
-                    <a href="/gestion-projets/livraisons" class="{% if page == 'gestion_livraisons' %}active{% endif %}">📦 Livraisons{% if pending_deliv_count and pending_deliv_count > 0 %} <span style="background:#1a7a6d;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_deliv_count }}</span>{% endif %}</a>
-                    {% endif %}
-                    {% if show_outils_cq %}
-                    <a href="/gestion-projets/controle-qualite" class="{% if page == 'controle_qualite' %}active{% endif %}">🔍 Contrôle qualité{% if pending_cq_count and pending_cq_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_cq_count }}</span>{% endif %}</a>
-                    {% endif %}
+                    {% if or_caisse_sortie %}<a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">📤 Demande sortie caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>{% endif %}
+                    {% if or_livraison %}<a href="/gestion-projets/livraisons" class="{% if page == 'gestion_livraisons' %}active{% endif %}">📦 Livraisons{% if pending_deliv_count and pending_deliv_count > 0 %} <span style="background:#1a7a6d;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_deliv_count }}</span>{% endif %}</a>{% endif %}
+                    {% if or_cq %}<a href="/gestion-projets/controle-qualite" class="{% if page == 'controle_qualite' %}active{% endif %}">🔍 Contrôle qualité{% if pending_cq_count and pending_cq_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_cq_count }}</span>{% endif %}</a>{% endif %}
+                    {% if or_roadmap %}<a href="/projects" class="{% if page == 'projects' %}active{% endif %}">🗺️ Roadmap projets{% if my_projects_action_required and my_projects_action_required > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ my_projects_action_required }}</span>{% endif %}</a>{% endif %}
+                    {% if or_interventions %}<a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}">🔧 Interventions</a>{% endif %}
+                    {% if or_visites %}<a href="/visites" class="{% if page == 'visites' %}active{% endif %}">📋 Visites</a>{% endif %}
+                    {% if or_clients %}<a href="/clients" class="{% if page == 'clients' %}active{% endif %}">👥 Clients</a>{% endif %}
+                    {% if or_proforma %}<a href="/proforma" class="{% if page == 'proforma' %}active{% endif %}">📝 Devis</a>{% endif %}
+                    {% if or_stock %}<a href="/mg/stock" class="{% if page == 'mg_stock' %}active{% endif %}">📦 Stock</a>{% endif %}
+                    {% if or_mg_demande %}<a href="/mg/demandes" class="{% if page == 'mg_demandes' %}active{% endif %}">📋 Demandes MG</a>{% endif %}
+                    {% if or_field_report %}<a href="/field-reports" class="{% if page == 'field_reports' %}active{% endif %}">📢 Remontées</a>{% endif %}
+                    {% if or_traitement %}<a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">⏱️ Calcul d'heures</a>{% endif %}
+                    {% if or_tracking %}<a href="/tracking" class="{% if page == 'tracking' %}active{% endif %}">📍 Tracking GPS</a>{% endif %}
+                    {% if or_concierge %}<a href="/concierge" class="{% if page == 'concierge' %}active{% endif %}">🔑 Concierge</a>{% endif %}
                 </div>
             </div>
+            {% endif %}
+            
+            {# v114 : CSS pour masquer les sections non-primary chez les rôles non-managers #}
+            {% if not is_full_manager %}
+            <style>
+                /* Masquer les sections complètes qui ne sont pas la section principale du user */
+                {% if not has_full_tech %}.nav-section#sec-tech:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_crm %}.nav-section#sec-crm:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_gp %}.nav-section#sec-resp-proj:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_rh %}.nav-section#sec-rh:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_compta %}.nav-section#sec-compta:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_info %}.nav-section#sec-info:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_mg %}.nav-section#sec-moyens:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_concierge %}.nav-section#sec-concierge:not([data-primary="true"]){display:none}{% endif %}
+                {% if not has_full_tresorerie %}.nav-section#sec-tresorerie{display:none}{% endif %}
+                /* Toujours masquer GESTION DU TEMPS, TRACKING, BUDGET sauf rôle ad hoc */
+                {% if user_role not in ('rh', 'admin', 'dg', 'directeur') %}.nav-section#sec-temps{display:none}{% endif %}
+                {% if user_role not in ('admin', 'dg', 'directeur') and not has_full_tech %}.nav-section#sec-tracking{display:none}{% endif %}
+                {% if user_role not in ('rh', 'admin', 'dg', 'directeur', 'comptable', 'comptabilite') %}.nav-section#sec-budget{display:none}{% endif %}
+            </style>
             {% endif %}
         </div>
         <div class="sidebar-footer">

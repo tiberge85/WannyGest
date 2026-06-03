@@ -4936,19 +4936,116 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
     </div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:14px">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">
 {% for c in comptes %}
-<div class="tr-card" style="border-left:4px solid #1976d2;{% if not c.is_active %}opacity:0.5{% endif %}">
-    <div style="font-size:13px;font-weight:700">{{ c.nom }}</div>
-    <div style="font-size:11px;color:#888">{{ c.banque or '' }}</div>
-    {% if c.numero_compte %}<div style="font-family:monospace;font-size:10px;color:#666">N° {{ c.numero_compte }}</div>{% endif %}
-    <div style="font-size:18px;font-weight:800;color:#1976d2;margin-top:6px">{{ "{:,.0f}".format(c.solde) }} F</div>
-    <div style="font-size:9px;color:#aaa">Solde init: {{ "{:,.0f}".format(c.solde_initial or 0) }}</div>
+<div class="tr-card" style="border-left:4px solid #1976d2;{% if not c.is_active %}opacity:0.55{% endif %}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="flex:1">
+            <div style="font-size:13px;font-weight:700">{{ c.nom }}{% if not c.is_active %} <span style="font-size:9px;color:#888">(désactivé)</span>{% endif %}</div>
+            <div style="font-size:11px;color:#888">{{ c.banque or '' }}</div>
+            {% if c.numero_compte %}<div style="font-family:monospace;font-size:10px;color:#666">N° {{ c.numero_compte }}</div>{% endif %}
+            <div style="font-size:20px;font-weight:800;color:#1976d2;margin-top:6px">{{ "{:,.0f}".format(c.solde).replace(',', ' ') }} F</div>
+            <div style="font-size:9px;color:#aaa">Solde initial : {{ "{:,.0f}".format(c.solde_initial or 0).replace(',', ' ') }}</div>
+        </div>
+    </div>
+    {% if can_edit %}
+    <div style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap">
+        {% if c.is_active %}
+            <button class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:3px 7px"
+                onclick="openCreditModal({{ c.id }}, '{{ c.nom|e }}')" title="Créditer (entrée)">💵 Créditer</button>
+            <button class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 7px"
+                onclick="openDebitModal({{ c.id }}, '{{ c.nom|e }}')" title="Débiter (sortie)">💸 Débiter</button>
+            <button class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 7px"
+                onclick="openEditCompteModal({{ c.id }}, '{{ c.nom|e }}', '{{ c.banque|e }}', '{{ c.numero_compte|e }}', {{ c.solde_initial or 0 }})" title="Modifier">✏️ Modifier</button>
+            <form method="post" style="display:inline" onsubmit="return confirm('🗑️ Supprimer le compte {{ c.nom|e }} ?\n\nSi des mouvements existent, le compte sera désactivé (historique préservé).')">
+                <input type="hidden" name="action" value="delete_compte">
+                <input type="hidden" name="compte_id" value="{{ c.id }}">
+                <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#7f1d1d;font-size:10px;padding:3px 7px" title="Supprimer">🗑️</button>
+            </form>
+        {% else %}
+            <form method="post" style="display:inline">
+                <input type="hidden" name="action" value="reactivate_compte">
+                <input type="hidden" name="compte_id" value="{{ c.id }}">
+                <button type="submit" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 7px">♻️ Réactiver</button>
+            </form>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 {% else %}
 <div class="tr-card" style="text-align:center;color:#888;padding:40px">Aucun compte bancaire. {% if can_edit %}Créez-en un.{% endif %}</div>
 {% endfor %}
 </div>
+
+{# v114 : Modales pour Créditer / Débiter / Modifier #}
+{% if can_edit %}
+<div class="modal-bg" id="creditM"><div class="modal" style="max-width:480px;border-top:5px solid #2e7d32">
+    <h3 style="color:#2e7d32">💵 Créditer le compte <span id="creditCompteName"></span></h3>
+    <form method="post">
+        <input type="hidden" name="action" value="credit_compte">
+        <input type="hidden" name="compte_id" id="creditCompteId">
+        <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
+        <div class="form-group"><label>Montant (F CFA) *</label><input type="number" name="montant" required step="100" min="1" placeholder="0"></div>
+        <div class="form-group"><label>Libellé / Motif</label><input name="libelle" placeholder="Ex: Apport, dépôt espèces, virement client..." style="width:100%"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('creditM').classList.remove('active')">Annuler</button>
+            <button type="submit" class="btn" style="background:#2e7d32;color:#fff">💵 Créditer</button>
+        </div>
+    </form>
+</div></div>
+
+<div class="modal-bg" id="debitM"><div class="modal" style="max-width:480px;border-top:5px solid #c53030">
+    <h3 style="color:#c53030">💸 Débiter le compte <span id="debitCompteName"></span></h3>
+    <form method="post">
+        <input type="hidden" name="action" value="debit_compte">
+        <input type="hidden" name="compte_id" id="debitCompteId">
+        <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
+        <div class="form-group"><label>Montant (F CFA) *</label><input type="number" name="montant" required step="100" min="1" placeholder="0"></div>
+        <div class="form-group"><label>Libellé / Motif</label><input name="libelle" placeholder="Ex: Retrait espèces, paiement fournisseur..." style="width:100%"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('debitM').classList.remove('active')">Annuler</button>
+            <button type="submit" class="btn" style="background:#c53030;color:#fff">💸 Débiter</button>
+        </div>
+    </form>
+</div></div>
+
+<div class="modal-bg" id="editCompteM"><div class="modal" style="max-width:480px;border-top:5px solid #1976d2">
+    <h3 style="color:#1976d2">✏️ Modifier le compte bancaire</h3>
+    <form method="post">
+        <input type="hidden" name="action" value="edit_compte">
+        <input type="hidden" name="compte_id" id="editCompteId">
+        <div class="form-group"><label>Nom *</label><input name="nom" id="editCompteNom" required style="width:100%"></div>
+        <div class="form-group"><label>Banque</label><input name="banque" id="editCompteBanque" style="width:100%"></div>
+        <div class="form-group"><label>Numéro de compte</label><input name="numero_compte" id="editCompteNum" style="width:100%;font-family:monospace"></div>
+        <div class="form-group"><label>Solde initial (F)</label><input type="number" name="solde_initial" id="editCompteSolde" step="100" style="width:100%"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('editCompteM').classList.remove('active')">Annuler</button>
+            <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+        </div>
+    </form>
+</div></div>
+
+<script>
+function openCreditModal(cid, nom) {
+    document.getElementById('creditCompteId').value = cid;
+    document.getElementById('creditCompteName').textContent = nom;
+    document.getElementById('creditM').classList.add('active');
+}
+function openDebitModal(cid, nom) {
+    document.getElementById('debitCompteId').value = cid;
+    document.getElementById('debitCompteName').textContent = nom;
+    document.getElementById('debitM').classList.add('active');
+}
+function openEditCompteModal(cid, nom, banque, num, solde) {
+    document.getElementById('editCompteId').value = cid;
+    document.getElementById('editCompteNom').value = nom;
+    document.getElementById('editCompteBanque').value = banque;
+    document.getElementById('editCompteNum').value = num;
+    document.getElementById('editCompteSolde').value = solde;
+    document.getElementById('editCompteM').classList.add('active');
+}
+</script>
+{% endif %}
 
 {% if can_edit and comptes %}
 <div class="tr-card">
