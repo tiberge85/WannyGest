@@ -1562,6 +1562,91 @@ except Exception as _e:
     print(f"[v116-Sections] Erreur : {_e}", flush=True)
 
 
+# v117 : Migrations
+# - Colonne type_compte sur tresorerie_comptes_bancaires (courant/épargne/etc.)
+# - Colonne bank_account_id sur payslips (compte de paiement)
+# - Table depenses (suivi dépenses)
+try:
+    from models import get_db as _v117_db
+    _v117 = _v117_db()
+    
+    # 1. type_compte sur compte bancaire
+    for col in ["type_compte TEXT DEFAULT 'courant'"]:
+        try: _v117.execute(f"ALTER TABLE tresorerie_comptes_bancaires ADD COLUMN {col}")
+        except: pass
+    
+    # 2. bank_account_id sur payslips
+    for col in ['bank_account_id INTEGER', 'compta_paid_at TEXT', 'compta_paid_by INTEGER',
+                'compta_paid_by_name TEXT', 'compta_reference TEXT']:
+        try: _v117.execute(f"ALTER TABLE payslips ADD COLUMN {col}")
+        except: pass
+    
+    # 3. Table depenses (suivi dépenses unifié)
+    _v117.execute("""CREATE TABLE IF NOT EXISTS depenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference TEXT UNIQUE,
+        date TEXT NOT NULL,
+        category TEXT,
+        amount REAL NOT NULL,
+        description TEXT,
+        beneficiaire TEXT,
+        source_type TEXT,
+        source_id INTEGER,
+        source_reference TEXT,
+        caisse_id INTEGER,
+        bank_id INTEGER,
+        status TEXT DEFAULT 'comptabilisee',
+        created_by INTEGER,
+        created_by_name TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT
+    )""")
+    _v117.execute("CREATE INDEX IF NOT EXISTS idx_depenses_date ON depenses(date)")
+    _v117.execute("CREATE INDEX IF NOT EXISTS idx_depenses_source ON depenses(source_type, source_id)")
+    
+    _v117.commit()
+    _v117.close()
+    print("[v117-Migrations] type_compte + bank_account_id + table depenses OK", flush=True)
+except Exception as _e:
+    print(f"[v117-Migrations] Erreur : {_e}", flush=True)
+
+
+# v117 : Backfill — Toutes les sorties de caisse comptabilisees dans la table depenses
+try:
+    from models import get_db as _v117bf_db
+    _v117bf = _v117bf_db()
+    flag = _v117bf.execute("SELECT value FROM app_settings WHERE key='v117_backfill_depenses_done'").fetchone()
+    if not flag:
+        sorties = _v117bf.execute("""SELECT id, reference, date, motif, montant, beneficiaire, caisse_id, demandeur_id, demandeur_name
+            FROM caisse_sorties 
+            WHERE comptabilise=1
+            AND NOT EXISTS (SELECT 1 FROM depenses d WHERE d.source_type='caisse_sortie' AND d.source_reference=caisse_sorties.reference)
+            ORDER BY id""").fetchall()
+        nb = 0
+        for s in sorties:
+            try:
+                _v117bf.execute("""INSERT INTO depenses 
+                    (reference, date, category, amount, description, beneficiaire,
+                     source_type, source_id, source_reference, caisse_id,
+                     status, created_by, created_by_name)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (f"DEP-{s['reference']}", s['date'], 'sortie_caisse', s['montant'],
+                     s['motif'] or '', s['beneficiaire'] or '',
+                     'caisse_sortie', s['id'], s['reference'], s['caisse_id'],
+                     'comptabilisee', s['demandeur_id'], s['demandeur_name']))
+                nb += 1
+            except: pass
+        _v117bf.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v117_backfill_depenses_done', '1', datetime('now'))")
+        _v117bf.commit()
+        if nb > 0:
+            print(f"[v117-Backfill] {nb} sortie(s) caisse synchronisée(s) dans table depenses", flush=True)
+        else:
+            print(f"[v117-Backfill] Aucune sortie à synchroniser", flush=True)
+    _v117bf.close()
+except Exception as _e:
+    print(f"[v117-Backfill] Erreur : {_e}", flush=True)
+
+
 # v114 : Helper pour récupérer l'id de la caisse de fonctionnement
 def get_caisse_fonctionnement_id():
     """Retourne l'id de la caisse de fonctionnement (créée auto par v114)."""
@@ -7934,43 +8019,128 @@ def rh_paie_bulk_compta():
 @app.route('/comptabilite/validation-paie')
 @permission_required('comptabilite')
 def compta_validation_paie():
-    """Comptabilité: view and validate pending payslips."""
+    """Comptabilité: view and validate pending payslips.
+    v117 : Affiche aussi les banques disponibles pour rattachement."""
     conn = _gdb()
     pending = [dict(r) for r in conn.execute(
         """SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.department, e.position
         FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id 
         WHERE p.status='en_attente_compta' ORDER BY p.period DESC, e.last_name""").fetchall()]
     validated = [dict(r) for r in conn.execute(
-        """SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.department
-        FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id 
+        """SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.department,
+           b.nom as bank_nom, b.banque as bank_etab, b.type_compte as bank_type
+        FROM payslips p 
+        LEFT JOIN employees e ON p.employee_id=e.id 
+        LEFT JOIN tresorerie_comptes_bancaires b ON b.id=p.bank_account_id
         WHERE p.status='valide_compta' ORDER BY p.period DESC, e.last_name LIMIT 20""").fetchall()]
+    # v117 : liste des banques disponibles pour rattachement
+    banks = [dict(r) for r in conn.execute(
+        "SELECT id, nom, banque, type_compte, numero_compte FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom"
+    ).fetchall()]
     conn.close()
-    return render_template('extra_pages.html', page='compta_paie', pending=pending, validated=validated)
+    return render_template('extra_pages.html', page='compta_paie',
+        pending=pending, validated=validated, banks=banks)
 
 @app.route('/comptabilite/validation-paie/bulk-validate', methods=['POST'])
 @permission_required('comptabilite')
 def compta_bulk_validate():
-    """Validate all pending payslips at once."""
+    """v117 : Validate pending payslips + attach bank account + generate accounting entries.
+    Chaque bulletin doit être rattaché à un compte bancaire pour générer les mouvements."""
+    try: bank_id = int(request.form.get('bank_account_id', 0) or 0)
+    except: bank_id = 0
+    if not bank_id:
+        flash("⚠️ Vous devez choisir un compte bancaire de paiement avant de valider les bulletins", "error")
+        return redirect('/comptabilite/validation-paie')
+    
+    user = get_user_by_id(session['user_id'])
     conn = _gdb()
-    pending = conn.execute("SELECT id FROM payslips WHERE status='en_attente_compta'").fetchall()
+    bank = conn.execute("SELECT nom, banque, type_compte, numero_compte, compta_compte_numero FROM tresorerie_comptes_bancaires WHERE id=?", (bank_id,)).fetchone()
+    if not bank:
+        conn.close()
+        flash("⚠️ Compte bancaire introuvable", "error")
+        return redirect('/comptabilite/validation-paie')
+    bank = dict(bank)
+    bank_label = f"{bank['nom']}" + (f" ({bank['banque']})" if bank['banque'] else "")
+    compta_bank_account = bank.get('compta_compte_numero') or '521'  # par défaut 521 si non défini
+    
+    pending = conn.execute("""SELECT p.id, p.net_salary, p.period, p.employee_id, 
+        e.first_name||' '||e.last_name AS employee_name
+        FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id 
+        WHERE p.status='en_attente_compta'""").fetchall()
     count = 0
+    total_paid = 0
+    now_iso = datetime.now().isoformat()
+    now_date = datetime.now().strftime('%Y-%m-%d')
+    
     for p in pending:
-        conn.execute("UPDATE payslips SET status='valide_compta' WHERE id=?", (p['id'],))
+        p = dict(p)
+        net = float(p.get('net_salary') or 0)
+        if net <= 0:
+            continue
+        ref_compta = f"PAIE-{p['id']}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # 1. Marquer le bulletin comme validé + lié au compte
+        conn.execute("""UPDATE payslips SET 
+            status='valide_compta', 
+            bank_account_id=?, 
+            compta_paid_at=?, 
+            compta_paid_by=?,
+            compta_paid_by_name=?,
+            compta_reference=?
+            WHERE id=?""",
+            (bank_id, now_iso, session['user_id'], user['full_name'] if user else '?', ref_compta, p['id']))
+        
+        # 2. Écriture comptable partie double : 661 (Rémunérations) DÉBIT / 521 (Banque) CRÉDIT
+        try:
+            auto_ecriture(conn, now_date,
+                f"Paie {p.get('period','')} — {p.get('employee_name','?')} (Banque {bank_label})",
+                '661', compta_bank_account, net, ref_compta)
+        except Exception as _e:
+            print(f"[v117-Paie] Erreur écriture comptable : {_e}", flush=True)
+        
+        # 3. Mouvement bancaire (sortie)
+        try:
+            conn.execute("""INSERT INTO tresorerie_mouvements 
+                (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
+                VALUES ('banque','sortie','paie',?,?,?,?,?,'virement',?,?)""",
+                (bank_id, ref_compta, now_date, net,
+                 f"Paie {p.get('period','')} — {p.get('employee_name','?')}",
+                 session['user_id'], now_iso))
+        except Exception as _e:
+            print(f"[v117-Paie] Erreur mvt bancaire : {_e}", flush=True)
+        
+        # 4. Injection dans la table depenses (suivi unifié)
+        try:
+            existing = conn.execute("SELECT id FROM depenses WHERE source_type='paie' AND source_id=?", (p['id'],)).fetchone()
+            if not existing:
+                conn.execute("""INSERT INTO depenses 
+                    (reference, date, category, amount, description, beneficiaire,
+                     source_type, source_id, source_reference, bank_id,
+                     status, created_by, created_by_name)
+                    VALUES (?,?,?,?,?,?,'paie',?,?,?,'comptabilisee',?,?)""",
+                    (f"DEP-PAIE-{p['id']}", now_date, 'salaire', net,
+                     f"Bulletin de paie {p.get('period','')} via {bank_label}",
+                     p.get('employee_name',''), p['id'], ref_compta, bank_id,
+                     session['user_id'], user['full_name'] if user else '?'))
+        except Exception as _e:
+            print(f"[v117-Paie] Erreur dépense : {_e}", flush=True)
+        
         count += 1
+        total_paid += net
+    
     if count:
         rh_users = [dict(r) for r in conn.execute("SELECT id FROM users WHERE role IN ('rh','admin','dg')").fetchall()]
         for ru in rh_users:
             conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
                 (ru['id'], 'bulletin', f"✅ {count} bulletin(s) validé(s)",
-                 f"La comptabilité a validé {count} bulletin(s). Prêts à envoyer aux employés.",
+                 f"La comptabilité a validé {count} bulletin(s) ({total_paid:,.0f} F) via {bank_label}. Prêts à envoyer aux employés.",
                  '/rh/paie'))
         conn.commit(); conn.close()
-        user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie',
-                    f"{count} bulletins validés par comptabilité", request.remote_addr)
+                    f"{count} bulletins validés via compte {bank_label} — {total_paid:,.0f} F", request.remote_addr)
+        flash(f"✅ {count} bulletin(s) validé(s) — {total_paid:,.0f} F décaissés du compte {bank_label} (écritures 661/{compta_bank_account} créées)", "success")
     else:
         conn.close()
-    flash(f"{count} bulletin(s) validé(s) — retournés à la RH pour envoi", "success")
+        flash("Aucun bulletin à valider", "error")
     return redirect('/comptabilite/validation-paie')
 
 @app.route('/rh/paie/<int:pid>/delete')
@@ -11067,10 +11237,14 @@ def corbeille_delete(tid):
 @app.route('/comptabilite/virements')
 @permission_required('comptabilite')
 def compta_virements_list():
-    """Liste de tous les virements banque → caisse avec leur statut."""
+    """Liste de tous les virements banque → caisse avec leur statut.
+    v117 : Utilise tresorerie_comptes_bancaires (nouvelle table) au lieu de bank_accounts."""
     conn = _gdb()
     virements = [dict(r) for r in conn.execute("SELECT * FROM caisse_virements ORDER BY created_at DESC LIMIT 100").fetchall()]
-    banks = [dict(r) for r in conn.execute("SELECT id, name FROM bank_accounts").fetchall()]
+    # v117 : utiliser la nouvelle table des comptes bancaires
+    banks = [dict(r) for r in conn.execute(
+        "SELECT id, nom AS name, banque, numero_compte, type_compte FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom"
+    ).fetchall()]
     caisses = [dict(r) for r in conn.execute("SELECT id, name FROM caisses WHERE is_active=1 ORDER BY name").fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='virements_list',
@@ -11080,7 +11254,8 @@ def compta_virements_list():
 @app.route('/comptabilite/virement/new', methods=['POST'])
 @permission_required('comptabilite')
 def compta_virement_new():
-    """Crée une demande de virement banque → caisse (en attente validation DG)."""
+    """Crée une demande de virement banque → caisse (en attente validation DG).
+    v117 : utilise tresorerie_comptes_bancaires."""
     conn = _gdb()
     ref = f"VIR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     amount = float(request.form.get('amount', 0) or 0)
@@ -11092,11 +11267,17 @@ def compta_virement_new():
     if not caisse_id:
         flash("Choisissez une caisse de destination", "error"); conn.close()
         return redirect('/comptabilite/virements')
+    if not bank_id:
+        flash("Choisissez une banque source", "error"); conn.close()
+        return redirect('/comptabilite/virements')
     # Libellés
     bank_name = ''
     if bank_id:
-        b = conn.execute("SELECT name FROM bank_accounts WHERE id=?", (bank_id,)).fetchone()
-        bank_name = b['name'] if b else ''
+        b = conn.execute("SELECT nom, banque, type_compte FROM tresorerie_comptes_bancaires WHERE id=?", (bank_id,)).fetchone()
+        if b:
+            bank_name = b['nom']
+            if b['banque']: bank_name += f" ({b['banque']})"
+            if b['type_compte']: bank_name += f" - {b['type_compte']}"
     c = conn.execute("SELECT name FROM caisses WHERE id=?", (caisse_id,)).fetchone()
     caisse_name = c['name'] if c else ''
     user = get_user_by_id(session['user_id'])
@@ -18236,6 +18417,215 @@ def admin_backup_restore_caisse_to_trash(backup_name, cid):
         return redirect(f'/admin/backup/{backup_name}/inspect-caisses')
 
 
+# v117 : Module Suivi des dépenses
+# Recherche/filtres + CRUD + auto-sync depuis sorties caisse
+@app.route('/depenses')
+@login_required
+def depenses_list():
+    """v117 : Liste paginée avec filtres. Toutes les sorties caisse y sont automatiquement injectées."""
+    user = get_user_by_id(session['user_id'])
+    from models import has_permission as _hp
+    is_admin = user and user['role'] == 'admin'
+    has_perm = user and (_hp(user['role'], 'comptabilite') or _hp(user['role'], 'tresorerie'))
+    if not (is_admin or has_perm):
+        flash("⚠️ Accès réservé à la comptabilité, trésorerie ou admin", "error")
+        return redirect('/dashboard')
+    
+    # Filtres GET
+    f_q = (request.args.get('q', '') or '').strip()
+    f_cat = (request.args.get('category', '') or '').strip()
+    f_source = (request.args.get('source_type', '') or '').strip()
+    f_date_min = (request.args.get('date_min', '') or '').strip()
+    f_date_max = (request.args.get('date_max', '') or '').strip()
+    f_amount_min = request.args.get('amount_min', '')
+    f_amount_max = request.args.get('amount_max', '')
+    
+    conn = _gdb()
+    where = []
+    params = []
+    if f_q:
+        where.append("(d.description LIKE ? OR d.beneficiaire LIKE ? OR d.reference LIKE ? OR d.source_reference LIKE ?)")
+        like = f'%{f_q}%'
+        params += [like, like, like, like]
+    if f_cat:
+        where.append("d.category = ?")
+        params.append(f_cat)
+    if f_source:
+        where.append("d.source_type = ?")
+        params.append(f_source)
+    if f_date_min:
+        where.append("d.date >= ?")
+        params.append(f_date_min)
+    if f_date_max:
+        where.append("d.date <= ?")
+        params.append(f_date_max)
+    if f_amount_min:
+        try:
+            where.append("d.amount >= ?")
+            params.append(float(f_amount_min))
+        except: pass
+    if f_amount_max:
+        try:
+            where.append("d.amount <= ?")
+            params.append(float(f_amount_max))
+        except: pass
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    
+    sql = f"""SELECT d.*, c.name as caisse_nom, b.nom as bank_nom
+        FROM depenses d
+        LEFT JOIN caisses c ON c.id = d.caisse_id
+        LEFT JOIN tresorerie_comptes_bancaires b ON b.id = d.bank_id
+        {where_sql}
+        ORDER BY d.date DESC, d.id DESC LIMIT 500"""
+    depenses = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    
+    total = sum(d['amount'] for d in depenses)
+    nb = len(depenses)
+    
+    cats = [r['category'] for r in conn.execute("SELECT DISTINCT category FROM depenses WHERE category IS NOT NULL AND category!='' ORDER BY category").fetchall()]
+    sources = [r['source_type'] for r in conn.execute("SELECT DISTINCT source_type FROM depenses WHERE source_type IS NOT NULL AND source_type!='' ORDER BY source_type").fetchall()]
+    
+    conn.close()
+    return render_template('depenses.html', page='depenses', depenses=depenses,
+        total=total, nb=nb, cats=cats, sources=sources,
+        f_q=f_q, f_cat=f_cat, f_source=f_source,
+        f_date_min=f_date_min, f_date_max=f_date_max,
+        f_amount_min=f_amount_min, f_amount_max=f_amount_max,
+        today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/depenses/add', methods=['POST'])
+@login_required
+def depenses_add():
+    """v117 : Ajouter une dépense manuelle."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/depenses')
+    try: amount = float(request.form.get('amount', 0) or 0)
+    except: amount = 0
+    if amount <= 0:
+        flash("⚠️ Montant invalide", "error")
+        return redirect('/depenses')
+    ref = f"DEP-MAN-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    conn = _gdb()
+    try:
+        conn.execute("""INSERT INTO depenses 
+            (reference, date, category, amount, description, beneficiaire,
+             source_type, status, created_by, created_by_name)
+            VALUES (?,?,?,?,?,?,'manuelle','comptabilisee',?,?)""",
+            (ref, request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+             request.form.get('category','divers'), amount,
+             request.form.get('description','') or '',
+             request.form.get('beneficiaire','') or '',
+             session['user_id'], user['full_name']))
+        conn.commit()
+        log_activity(session['user_id'], user['full_name'], 'Dépense',
+            f"Dépense manuelle {ref} — {amount:,.0f} F", request.remote_addr)
+        flash(f"✅ Dépense {ref} enregistrée ({amount:,.0f} F)", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect('/depenses')
+
+
+@app.route('/depenses/<int:did>/edit', methods=['POST'])
+@login_required
+def depenses_edit(did):
+    """v117 : Modifier une dépense."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/depenses')
+    conn = _gdb()
+    d = conn.execute("SELECT * FROM depenses WHERE id=?", (did,)).fetchone()
+    if not d:
+        conn.close()
+        flash("Dépense introuvable", "error")
+        return redirect('/depenses')
+    d = dict(d)
+    if d.get('source_type') in ('caisse_sortie', 'paie'):
+        try: amount = float(d['amount'])
+        except: amount = d['amount']
+    else:
+        try: amount = float(request.form.get('amount', d['amount']))
+        except: amount = d['amount']
+    try:
+        conn.execute("""UPDATE depenses SET 
+            date=?, category=?, amount=?, description=?, beneficiaire=?
+            WHERE id=?""",
+            (request.form.get('date', d['date']),
+             request.form.get('category', d['category']),
+             amount,
+             request.form.get('description', d['description']),
+             request.form.get('beneficiaire', d['beneficiaire']),
+             did))
+        conn.commit()
+        log_activity(session['user_id'], user['full_name'], 'Dépense',
+            f"Dépense #{did} modifiée — {d['reference']}", request.remote_addr)
+        flash(f"✅ Dépense {d['reference']} modifiée", "success")
+    except Exception as e:
+        flash(f"❌ {e}", "error")
+    conn.close()
+    return redirect('/depenses')
+
+
+@app.route('/depenses/<int:did>/delete', methods=['POST'])
+@login_required
+def depenses_delete(did):
+    """v117 : Supprimer une dépense du suivi (la source reste intacte)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/depenses')
+    conn = _gdb()
+    d = conn.execute("SELECT reference, source_type FROM depenses WHERE id=?", (did,)).fetchone()
+    if not d:
+        conn.close()
+        flash("Dépense introuvable", "error")
+        return redirect('/depenses')
+    ref = d['reference']
+    src = d['source_type']
+    try:
+        conn.execute("DELETE FROM depenses WHERE id=?", (did,))
+        conn.commit()
+        log_activity(session['user_id'], user['full_name'], 'Dépense',
+            f"Dépense {ref} supprimée (source: {src})", request.remote_addr)
+        flash(f"✅ Dépense {ref} supprimée du suivi (la source {src or 'manuelle'} est conservée)", "success")
+    except Exception as e:
+        flash(f"❌ {e}", "error")
+    conn.close()
+    return redirect('/depenses')
+
+
+@app.route('/depenses/export.csv')
+@login_required
+def depenses_export_csv():
+    """v117 : Export CSV des dépenses."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/depenses')
+    import csv, io
+    conn = _gdb()
+    depenses = [dict(r) for r in conn.execute(
+        """SELECT d.*, c.name as caisse_nom FROM depenses d
+        LEFT JOIN caisses c ON c.id = d.caisse_id
+        ORDER BY d.date DESC""").fetchall()]
+    conn.close()
+    output = io.StringIO()
+    w = csv.writer(output, delimiter=';')
+    w.writerow(['Référence','Date','Catégorie','Montant','Bénéficiaire','Description','Source','Caisse','Statut','Créé par','Créé le'])
+    for d in depenses:
+        w.writerow([d['reference'], d['date'], d.get('category',''), d['amount'],
+                    d.get('beneficiaire',''), d.get('description',''),
+                    d.get('source_type',''), d.get('caisse_nom',''),
+                    d.get('status',''), d.get('created_by_name',''), d.get('created_at','')])
+    from flask import Response
+    return Response(output.getvalue(), mimetype='text/csv; charset=utf-8',
+                    headers={'Content-Disposition': 'attachment; filename=depenses.csv'})
+
+
 @app.route('/historique')
 @permission_required('admin')
 def historique():
@@ -21837,6 +22227,24 @@ def caisse_valider(sid):
                     f"Sortie {s_dict['reference']} — {s_dict['beneficiaire']}",
                     '658', '571', s_dict['montant'], s_dict['reference'])
             except: pass
+            # v117 : Auto-injection dans la table depenses (suivi unifié)
+            try:
+                existing_dep = conn.execute(
+                    "SELECT id FROM depenses WHERE source_type='caisse_sortie' AND source_reference=?",
+                    (s_dict['reference'],)).fetchone()
+                if not existing_dep:
+                    conn.execute("""INSERT INTO depenses 
+                        (reference, date, category, amount, description, beneficiaire,
+                         source_type, source_id, source_reference, caisse_id,
+                         status, created_by, created_by_name)
+                        VALUES (?,?,?,?,?,?,'caisse_sortie',?,?,?,'comptabilisee',?,?)""",
+                        (f"DEP-{s_dict['reference']}", s_dict.get('date') or datetime.now().strftime('%Y-%m-%d'),
+                         'sortie_caisse', s_dict['montant'],
+                         s_dict.get('motif','') or '', s_dict.get('beneficiaire','') or '',
+                         s_dict['id'], s_dict['reference'], cid,
+                         session.get('user_id'), user['full_name']))
+            except Exception as _e:
+                print(f"[v117-Dep] Erreur sync dépense (valider) : {_e}", flush=True)
             # Marquer comme comptabilisée
             conn.execute("UPDATE caisse_sorties SET comptabilise=1, comptabilise_at=? WHERE id=?",
                          (datetime.now().isoformat(), sid))
@@ -22047,6 +22455,24 @@ def caisse_comptabiliser(sid):
             auto_ecriture(conn, s.get('date') or datetime.now().strftime('%Y-%m-%d'),
                 f"Sortie {s['reference']} — {s['beneficiaire']}", '658', '571', s['montant'], s['reference'])
         except: pass
+        # v117 : Auto-injection dans la table depenses (suivi unifié)
+        try:
+            existing_dep = conn.execute(
+                "SELECT id FROM depenses WHERE source_type='caisse_sortie' AND source_reference=?",
+                (s['reference'],)).fetchone()
+            if not existing_dep:
+                conn.execute("""INSERT INTO depenses 
+                    (reference, date, category, amount, description, beneficiaire,
+                     source_type, source_id, source_reference, caisse_id,
+                     status, created_by, created_by_name)
+                    VALUES (?,?,?,?,?,?,'caisse_sortie',?,?,?,'comptabilisee',?,?)""",
+                    (f"DEP-{s['reference']}", s.get('date') or datetime.now().strftime('%Y-%m-%d'),
+                     'sortie_caisse', s['montant'],
+                     s.get('motif','') or '', s.get('beneficiaire','') or '',
+                     s['id'], s['reference'], cid,
+                     session.get('user_id'), user['full_name']))
+        except Exception as _e:
+            print(f"[v117-Dep] Erreur sync dépense : {_e}", flush=True)
     conn.commit(); conn.close()
     label = 'comptable' if user['role'] in ('comptable','comptabilite','tresorerie') else ('DG' if user['role'] in ('dg','directeur') else ('RH' if user['role']=='rh' else 'Admin'))
     flash(f"✅ Décaissement effectué par {label} ({user['full_name']}) — solde caisse mis à jour + journal de caisse + écriture comptable", "success")
@@ -22170,11 +22596,11 @@ def caisse_preview(sid):
 @app.route('/caisse-sortie/<int:sid>/signer', methods=['POST'])
 @login_required
 def caisse_signer(sid):
-    """v115 : Enregistre la signature (base64 canvas) dans une colonne dédiée.
+    """v115 + v117 : Enregistre la signature (base64 canvas) dans une colonne dédiée.
     Restreint par TYPE de signature et RÔLE de l'utilisateur :
     - beneficiaire : tout utilisateur connecté (demandeur / bénéficiaire)
-    - caisse (contrôle caissier) : comptable, comptabilité, trésorerie, admin
-    - autorisation (DG/RH 3ème signataire) : admin, dg, directeur, rh UNIQUEMENT
+    - caisse (contrôle comptable) : comptable, comptabilité, trésorerie, admin UNIQUEMENT
+    - autorisation (DG/RH) : admin, dg, directeur, rh — APRÈS signature compta seulement
     """
     from models import get_db
     user = get_user_by_id(session['user_id'])
@@ -22184,12 +22610,12 @@ def caisse_signer(sid):
     sig_type = request.form.get('type', 'beneficiaire')
     sig_data = request.form.get('signature', '')
     
-    # v115 : Contrôle d'accès par type de signature
+    # v117 : Contrôle d'accès par type de signature
+    # Caisse RÉSERVÉE strictement à la comptabilité (plus de RH/DG en secours)
     allowed_roles_by_sig = {
         'beneficiaire': None,  # Tout le monde
-        # v116 : RH peut aussi signer la case caisse en l'absence du comptable
-        'caisse': ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur', 'rh'),
-        'autorisation': ('admin', 'dg', 'directeur', 'rh'),  # DG ou RH UNIQUEMENT
+        'caisse': ('admin', 'comptable', 'comptabilite', 'tresorerie'),
+        'autorisation': ('admin', 'dg', 'directeur', 'rh'),
     }
     
     if sig_type not in allowed_roles_by_sig:
@@ -22201,10 +22627,19 @@ def caisse_signer(sid):
         if sig_type == 'autorisation':
             flash(f"⚠️ La signature « Autorisation » est réservée au DG, au directeur, à la RH ou à l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
         elif sig_type == 'caisse':
-            flash(f"⚠️ La signature « Caissier (contrôle) » est réservée à la comptabilité, la trésorerie ou l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
+            flash(f"⚠️ La signature « Caisse » est réservée à la comptabilité, la trésorerie ou l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
         else:
             flash(f"⚠️ Vous n'êtes pas autorisé à apposer cette signature ({user['role']})", "error")
         return redirect(f'/caisse-sortie/{sid}/preview')
+    
+    # v117 : Enforcer l'ordre des signatures pour 'autorisation' (DG/RH après compta)
+    if sig_type == 'autorisation':
+        conn_chk = get_db()
+        sortie = conn_chk.execute("SELECT sig_caisse FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+        conn_chk.close()
+        if not sortie or not sortie['sig_caisse']:
+            flash("⚠️ Le DG ou la RH ne peut signer qu'APRÈS la signature de la comptabilité. Demandez à la comptabilité de signer (ou refuser avec motif) d'abord.", "error")
+            return redirect(f'/caisse-sortie/{sid}/preview')
     
     if sig_data and sig_type in ('beneficiaire', 'caisse', 'autorisation'):
         conn = get_db()
@@ -22212,7 +22647,7 @@ def caisse_signer(sid):
         conn.commit(); conn.close()
         log_activity(session['user_id'], user['full_name'], 'Caisse',
             f"Signature {sig_type} apposée sur sortie #{sid} (rôle: {user['role']})", request.remote_addr)
-        label_map = {'beneficiaire':'Bénéficiaire', 'caisse':'Caissier (contrôle)', 'autorisation':'Autorisation (DG/RH)'}
+        label_map = {'beneficiaire':'Bénéficiaire', 'caisse':'Caisse (Comptabilité)', 'autorisation':'Autorisation (DG/RH)'}
         flash(f"✅ Signature « {label_map.get(sig_type, sig_type)} » enregistrée", "success")
     return redirect(f'/caisse-sortie/{sid}/preview')
 
@@ -25888,6 +26323,7 @@ def tresorerie_banque():
             nom = (request.form.get('nom','') or '').strip()
             banque = (request.form.get('banque','') or '').strip()
             num = (request.form.get('numero_compte','') or '').strip()
+            type_compte = (request.form.get('type_compte','courant') or 'courant').strip()
             try: solde_init = float(request.form.get('solde_initial', 0) or 0)
             except: solde_init = 0
             if not nom:
@@ -25896,32 +26332,33 @@ def tresorerie_banque():
                 conn = _gdb()
                 try:
                     conn.execute("""INSERT INTO tresorerie_comptes_bancaires
-                        (nom, banque, numero_compte, solde_initial, is_active)
-                        VALUES (?,?,?,?,1)""", (nom, banque, num, solde_init))
+                        (nom, banque, numero_compte, type_compte, solde_initial, is_active)
+                        VALUES (?,?,?,?,?,1)""", (nom, banque, num, type_compte, solde_init))
                     conn.commit()
-                    flash(f"✅ Compte bancaire '{nom}' créé", "success")
+                    flash(f"✅ Compte bancaire '{nom}' ({type_compte}) créé", "success")
                 except Exception as e:
                     flash(f"❌ {e}", "error")
                 conn.close()
-        # v114 : Modifier un compte bancaire
+        # v114 + v117 : Modifier un compte bancaire
         elif action == 'edit_compte':
             try: bid = int(request.form.get('compte_id', 0) or 0)
             except: bid = 0
             nom = (request.form.get('nom','') or '').strip()
             banque = (request.form.get('banque','') or '').strip()
             num = (request.form.get('numero_compte','') or '').strip()
+            type_compte = (request.form.get('type_compte','courant') or 'courant').strip()
             try: solde_init = float(request.form.get('solde_initial', 0) or 0)
             except: solde_init = 0
             if bid and nom:
                 conn = _gdb()
                 try:
                     conn.execute("""UPDATE tresorerie_comptes_bancaires SET 
-                        nom=?, banque=?, numero_compte=?, solde_initial=? WHERE id=?""",
-                        (nom, banque, num, solde_init, bid))
+                        nom=?, banque=?, numero_compte=?, type_compte=?, solde_initial=? WHERE id=?""",
+                        (nom, banque, num, type_compte, solde_init, bid))
                     conn.commit()
                     log_activity(session['user_id'], user['full_name'], 'Banque',
-                        f"Compte bancaire #{bid} modifié — {nom}", request.remote_addr)
-                    flash(f"✅ Compte bancaire '{nom}' modifié", "success")
+                        f"Compte bancaire #{bid} modifié — {nom} ({type_compte})", request.remote_addr)
+                    flash(f"✅ Compte bancaire '{nom}' ({type_compte}) modifié", "success")
                 except Exception as e:
                     flash(f"❌ {e}", "error")
                 conn.close()

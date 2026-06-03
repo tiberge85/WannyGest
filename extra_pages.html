@@ -563,16 +563,38 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
 
 {% elif page == 'compta_paie' %}
 <div class="page-header"><h1>💵 Validation des bulletins de paie</h1>
-<div style="display:flex;gap:6px">
-{% if pending %}
-<form method="post" action="/comptabilite/validation-paie/bulk-validate" style="display:inline">
-<button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="return confirm('Valider tous les bulletins en attente ?')">✅ Tout valider ({{ pending|length }})</button>
-</form>
-{% endif %}
 <a href="/comptabilite" class="btn btn-outline btn-sm">← Retour</a>
-</div></div>
+</div>
 
 {% if pending %}
+{# v117 : Sélecteur de compte bancaire OBLIGATOIRE pour valider en lot #}
+<div class="card" style="margin-bottom:14px;border-left:4px solid #1976d2">
+<div class="card-header"><h3>🏦 Validation groupée — Choisir le compte bancaire de paiement</h3></div>
+<div class="card-body">
+    <div style="background:#e3f2fd;padding:10px 14px;border-radius:6px;font-size:12px;color:#0d47a1;margin-bottom:12px">
+        💡 La validation des bulletins génère automatiquement :
+        <ul style="margin:4px 0;padding-left:20px">
+            <li>Une écriture comptable partie double <strong>661 (Salaires) DÉBIT / 521 (Banque) CRÉDIT</strong> pour chaque bulletin</li>
+            <li>Un mouvement bancaire de sortie sur le compte choisi</li>
+            <li>Une entrée dans le suivi des dépenses</li>
+        </ul>
+    </div>
+    <form method="post" action="/comptabilite/validation-paie/bulk-validate" 
+        onsubmit="return confirm('Valider TOUS les bulletins en attente sur ce compte ?\n\n— Écritures comptables 661/521 créées\n— Mouvements bancaires de sortie\n— Suivi dépenses mis à jour');">
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;align-items:end">
+            <div>
+                <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">🏦 Compte bancaire de paiement *</label>
+                <select name="bank_account_id" required style="width:100%;padding:8px;border:1.5px solid #1976d2;border-radius:6px;font-weight:600">
+                    <option value="">— Choisir un compte —</option>
+                    {% for b in banks %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {% if b.type_compte == 'epargne' %}💰 Épargne{% elif b.type_compte == 'devise' %}🌍 Devise{% elif b.type_compte == 'placement' %}📈 Placement{% else %}💳 Courant{% endif %}{% if b.numero_compte %} · {{ b.numero_compte }}{% endif %}</option>{% endfor %}
+                </select>
+                {% if not banks %}<div style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucun compte bancaire actif. <a href="/tresorerie/banque" style="color:#1976d2;font-weight:700">Créez-en un d'abord →</a></div>{% endif %}
+            </div>
+            <button type="submit" class="btn" style="background:#2e7d32;color:#fff;padding:10px;font-weight:700;font-size:13px">✅ Valider {{ pending|length }} bulletin(s)</button>
+        </div>
+    </form>
+</div></div>
+
 <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>📋 En attente de validation ({{ pending|length }})</h3></div>
 <div class="card-body" style="padding:0">
 <div class="table-wrap"><table>
@@ -585,7 +607,6 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
 <td style="white-space:nowrap">
     <a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm" style="font-size:9px">👁️ Voir</a>
     <a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm" style="font-size:9px">📥 PDF</a>
-    <a href="/rh/paie/{{ p.id }}/status/valide_compta" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅ Valider</a>
     <a href="/rh/paie/{{ p.id }}/status/brouillon" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:9px" onclick="return confirm('Rejeter ce bulletin ?')">❌ Rejeter</a>
 </td>
 </tr>{% endfor %}</tbody></table></div>
@@ -1390,10 +1411,10 @@ Total toutes caisses : <span style="color:#1A7A6D">{{ '{:,.0f}'.format(total) }}
     </div>
     <div class="form-group"><label>🏦 Compte bancaire source *</label>
         <select name="bank_account_id" required>
-            <option value="">— Choisir une banque —</option>
-            {% for b in banks %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}
+            <option value="">— Choisir un compte bancaire —</option>
+            {% for b in banks %}<option value="{{ b.id }}">{{ b.name }}{% if b.banque %} — {{ b.banque }}{% endif %} {% if b.type_compte == 'epargne' %}💰 Épargne{% elif b.type_compte == 'devise' %}🌍 Devise{% elif b.type_compte == 'placement' %}📈 Placement{% else %}💳 Courant{% endif %}{% if b.numero_compte %} ({{ b.numero_compte }}){% endif %}</option>{% endfor %}
         </select>
-        {% if not banks %}<div style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucun compte bancaire. <a href="/comptabilite" style="color:#1a7a6d">Créez-en un d'abord →</a></div>{% endif %}
+        {% if not banks %}<div style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucun compte bancaire actif. <a href="/tresorerie/banque" style="color:#1a7a6d;font-weight:700">Créez-en un d'abord →</a></div>{% endif %}
     </div>
     <div class="form-group"><label>💰 Caisse de destination *</label>
         <select name="caisse_id" required>
@@ -4938,13 +4959,23 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:14px">
 {% for c in comptes %}
-<div class="tr-card" style="border-left:4px solid #1976d2;{% if not c.is_active %}opacity:0.55{% endif %}">
+<div class="tr-card" style="border-left:4px solid {% if c.type_compte == 'epargne' %}#2e7d32{% else %}#1976d2{% endif %};{% if not c.is_active %}opacity:0.55{% endif %}">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div style="flex:1">
             <div style="font-size:13px;font-weight:700">{{ c.nom }}{% if not c.is_active %} <span style="font-size:9px;color:#888">(désactivé)</span>{% endif %}</div>
-            <div style="font-size:11px;color:#888">{{ c.banque or '' }}</div>
+            <div style="font-size:11px;color:#888">{{ c.banque or '' }}
+                {% if c.type_compte %}
+                <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;margin-left:4px;
+                    {% if c.type_compte == 'epargne' %}background:#e8f5e9;color:#2e7d32{% elif c.type_compte == 'devise' %}background:#fff3e0;color:#b8561f{% else %}background:#e3f2fd;color:#1976d2{% endif %}">
+                    {% if c.type_compte == 'epargne' %}💰 Épargne
+                    {% elif c.type_compte == 'devise' %}🌍 Devise
+                    {% elif c.type_compte == 'placement' %}📈 Placement
+                    {% else %}💳 Courant{% endif %}
+                </span>
+                {% endif %}
+            </div>
             {% if c.numero_compte %}<div style="font-family:monospace;font-size:10px;color:#666">N° {{ c.numero_compte }}</div>{% endif %}
-            <div style="font-size:20px;font-weight:800;color:#1976d2;margin-top:6px">{{ "{:,.0f}".format(c.solde).replace(',', ' ') }} F</div>
+            <div style="font-size:20px;font-weight:800;color:{% if c.type_compte == 'epargne' %}#2e7d32{% else %}#1976d2{% endif %};margin-top:6px">{{ "{:,.0f}".format(c.solde).replace(',', ' ') }} F</div>
             <div style="font-size:9px;color:#aaa">Solde initial : {{ "{:,.0f}".format(c.solde_initial or 0).replace(',', ' ') }}</div>
         </div>
     </div>
@@ -4956,7 +4987,7 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
             <button class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 7px"
                 onclick="openDebitModal({{ c.id }}, '{{ c.nom|e }}')" title="Débiter (sortie)">💸 Débiter</button>
             <button class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 7px"
-                onclick="openEditCompteModal({{ c.id }}, '{{ c.nom|e }}', '{{ c.banque|e }}', '{{ c.numero_compte|e }}', {{ c.solde_initial or 0 }})" title="Modifier">✏️ Modifier</button>
+                onclick="openEditCompteModal({{ c.id }}, '{{ c.nom|e }}', '{{ c.banque|e }}', '{{ c.numero_compte|e }}', {{ c.solde_initial or 0 }}, '{{ c.type_compte or 'courant' }}')" title="Modifier">✏️ Modifier</button>
             <form method="post" style="display:inline" onsubmit="return confirm('🗑️ Supprimer le compte {{ c.nom|e }} ?\n\nSi des mouvements existent, le compte sera désactivé (historique préservé).')">
                 <input type="hidden" name="action" value="delete_compte">
                 <input type="hidden" name="compte_id" value="{{ c.id }}">
@@ -5017,6 +5048,14 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
         <div class="form-group"><label>Nom *</label><input name="nom" id="editCompteNom" required style="width:100%"></div>
         <div class="form-group"><label>Banque</label><input name="banque" id="editCompteBanque" style="width:100%"></div>
         <div class="form-group"><label>Numéro de compte</label><input name="numero_compte" id="editCompteNum" style="width:100%;font-family:monospace"></div>
+        <div class="form-group"><label>Type de compte *</label>
+            <select name="type_compte" id="editCompteType" required style="width:100%">
+                <option value="courant">💳 Compte courant</option>
+                <option value="epargne">💰 Compte épargne</option>
+                <option value="devise">🌍 Compte devise</option>
+                <option value="placement">📈 Compte de placement</option>
+            </select>
+        </div>
         <div class="form-group"><label>Solde initial (F)</label><input type="number" name="solde_initial" id="editCompteSolde" step="100" style="width:100%"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
             <button type="button" class="btn btn-outline" onclick="document.getElementById('editCompteM').classList.remove('active')">Annuler</button>
@@ -5036,12 +5075,13 @@ function openDebitModal(cid, nom) {
     document.getElementById('debitCompteName').textContent = nom;
     document.getElementById('debitM').classList.add('active');
 }
-function openEditCompteModal(cid, nom, banque, num, solde) {
+function openEditCompteModal(cid, nom, banque, num, solde, type_compte) {
     document.getElementById('editCompteId').value = cid;
     document.getElementById('editCompteNom').value = nom;
     document.getElementById('editCompteBanque').value = banque;
     document.getElementById('editCompteNum').value = num;
     document.getElementById('editCompteSolde').value = solde;
+    document.getElementById('editCompteType').value = type_compte || 'courant';
     document.getElementById('editCompteM').classList.add('active');
 }
 </script>
@@ -5054,7 +5094,8 @@ function openEditCompteModal(cid, nom, banque, num, solde) {
         <input type="hidden" name="action" value="add_mvt">
         <div><label style="font-size:11px;color:#888;display:block">Banque *</label>
             <select name="banque_id" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
-                {% for c in comptes %}{% if c.is_active %}<option value="{{ c.id }}">{{ c.nom }}</option>{% endif %}{% endfor %}
+                <option value="">— Choisir un compte —</option>
+                {% for c in comptes %}{% if c.is_active %}<option value="{{ c.id }}">{{ c.nom }}{% if c.banque %} ({{ c.banque }}){% endif %} — {% if c.type_compte == 'epargne' %}💰 Épargne{% elif c.type_compte == 'devise' %}🌍 Devise{% elif c.type_compte == 'placement' %}📈 Placement{% else %}💳 Courant{% endif %}</option>{% endif %}{% endfor %}
             </select></div>
         <div><label style="font-size:11px;color:#888;display:block">Sens *</label>
             <select name="sens" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
@@ -5123,9 +5164,18 @@ function openEditCompteModal(cid, nom, banque, num, solde) {
             <div><label style="font-size:11px;color:#888">Banque</label>
                 <input name="banque" placeholder="SGBCI, Ecobank..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
             <div><label style="font-size:11px;color:#888">N° de compte</label>
                 <input name="numero_compte" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace"></div>
+            <div><label style="font-size:11px;color:#888">Type de compte *</label>
+                <select name="type_compte" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                    <option value="courant">💳 Compte courant</option>
+                    <option value="epargne">💰 Compte épargne</option>
+                    <option value="devise">🌍 Compte devise</option>
+                    <option value="placement">📈 Compte de placement</option>
+                </select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px">
             <div><label style="font-size:11px;color:#888">Solde initial (F)</label>
                 <input type="number" name="solde_initial" step="100" value="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
         </div>

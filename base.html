@@ -439,6 +439,8 @@
                     {% if 'caisse_view' in permissions or 'caisse_multi' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
                     <a href="/comptabilite/caisses" class="{% if page == 'caisses' or page == 'caisse_detail' %}active{% endif %}">🏪 Multi-caisses</a>
                     {% endif %}
+                    {# v117 : Rapport caisse restauré (rapport hebdomadaire agent + matricule, distinct du Journal) #}
+                    <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
                     
                     {# BANQUE #}
                     <div class="compta-subsection-title"><span class="dot"></span>BANQUE</div>
@@ -606,7 +608,8 @@
             {# ═══════════════════════════════════════════════════════════════ #}
             
             {# Détermine si l'user est un "manager" (admin, dg, directeur) qui voit tout #}
-            {% set is_full_manager = user_role in ('admin', 'dg', 'directeur') %}
+            {# v117 : RH compte aussi comme manager (a accès à toutes les sections) #}
+            {% set is_full_manager = user_role in ('admin', 'dg', 'directeur', 'rh') %}
             
             {# Sections que l'user voit COMPLÈTES selon son rôle #}
             {% set has_full_tech = is_full_manager or user_role in ('technicien', 'tech_chef', 'centre_technique') %}

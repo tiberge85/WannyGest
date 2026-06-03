@@ -3975,6 +3975,7 @@ def migrate_v61():
             nom TEXT NOT NULL,
             banque TEXT,
             numero_compte TEXT,
+            type_compte TEXT DEFAULT 'courant',
             iban TEXT,
             swift TEXT,
             devise TEXT DEFAULT 'XOF',
