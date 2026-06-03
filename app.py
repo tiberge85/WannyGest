@@ -3641,13 +3641,18 @@ def traitement_generate():
                         chosen = sched_all
                     
                     if chosen:
-                        # v76 : Préserver l'EDT d'origine (affiché dans le rapport)
-                        # avant d'appliquer l'override (utilisé pour les calculs)
+                        # v121 FIX DÉFINITIF : NE PAS écraser sched_start/sched_end.
+                        # Auparavant, le matching écrasait ces valeurs et cassait les heures
+                        # obligatoires. On stocke maintenant le matching dans des champs
+                        # séparés (_matched). Les heures du fichier source restent intactes.
+                        # 'sched_start_original' est gardé pour compat ascendante.
                         if 'sched_start_original' not in rec:
                             rec['sched_start_original'] = rec.get('sched_start', '')
                             rec['sched_end_original'] = rec.get('sched_end', '')
-                        rec['sched_start'] = chosen['start']
-                        rec['sched_end'] = chosen['end']
+                        rec['sched_start_matched'] = chosen['start']
+                        rec['sched_end_matched'] = chosen['end']
+                        # IMPORTANT : on n'écrase PAS rec['sched_start'] et rec['sched_end']
+                        # Ils gardent la valeur du fichier source pour les calculs.
                         applied_for_this_emp = True
                 
                 if applied_for_this_emp:
@@ -26021,15 +26026,15 @@ def pharma_generate():
                         d = _dt4.strptime(rec['date'][:10], '%Y-%m-%d')
                         dn = _DAYS_FR[d.weekday()]
                         if per_day.get(dn):
-                            # v76 : Préserver l'EDT d'origine avant override
+                            # v121 FIX DÉFINITIF : NE PAS écraser. Conserver l'EDT du fichier.
                             if 'sched_start_original' not in rec:
                                 rec['sched_start_original'] = rec.get('sched_start', '')
                                 rec['sched_end_original'] = rec.get('sched_end', '')
-                            rec['sched_start'] = per_day[dn].get('start_time') or rec.get('sched_start','')
-                            rec['sched_end'] = per_day[dn].get('end_time') or rec.get('sched_end','')
+                            rec['sched_start_matched'] = per_day[dn].get('start_time') or ''
+                            rec['sched_end_matched'] = per_day[dn].get('end_time') or ''
                     except: pass
         
-        # Si override global ou par personne : forcer sched_start/sched_end de chaque record
+        # Si override global ou par personne : NE PAS écraser sched_start/sched_end
         if schedule_override:
             from datetime import datetime as _dt5
             _DAYS_FR2 = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche']
@@ -26037,21 +26042,20 @@ def pharma_generate():
                 sched = schedules_map.get(emp['name'])
                 if not sched: continue
                 for rec in emp['records']:
-                    # Si déjà overridé par per-day, ne pas écraser
                     try:
                         d = _dt5.strptime(rec['date'][:10], '%Y-%m-%d')
                         dn = _DAYS_FR2[d.weekday()]
                         per_day = schedules_per_day_map.get(emp['name'], {})
-                        if per_day.get(dn): continue  # déjà appliqué par-jour
+                        if per_day.get(dn): continue
                     except: pass
-                    # v76 : Préserver l'EDT d'origine avant override
+                    # v121 FIX DÉFINITIF : NE PAS écraser sched_start/sched_end
                     if 'sched_start_original' not in rec:
                         rec['sched_start_original'] = rec.get('sched_start', '')
                         rec['sched_end_original'] = rec.get('sched_end', '')
                     if sched.get('start_time'):
-                        rec['sched_start'] = sched['start_time']
+                        rec['sched_start_matched'] = sched['start_time']
                     if sched.get('end_time'):
-                        rec['sched_end'] = sched['end_time']
+                        rec['sched_end_matched'] = sched['end_time']
         
         # === Coût par employé (taux horaire) ===
         employee_costs = dict(employee_rates) if employee_rates else {}

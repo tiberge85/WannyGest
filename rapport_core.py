@@ -196,8 +196,15 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
     enriched = []
     
     for rec in records:
-        ss = t2m(rec['sched_start'])
-        se = t2m(rec['sched_end'])
+        # v121 FIX DÉFINITIF : Les heures obligatoires se basent TOUJOURS sur l'EDT D'ORIGINE
+        # du fichier source, JAMAIS sur celui modifié par le matching.
+        # Le matching peut écraser sched_start/sched_end pour d'autres usages, mais
+        # 'sched_start_original'/'sched_end_original' contiennent toujours la valeur du
+        # fichier source. On les utilise systématiquement quand ils existent.
+        eff_start = rec.get('sched_start_original') if rec.get('sched_start_original') else rec.get('sched_start', '')
+        eff_end = rec.get('sched_end_original') if rec.get('sched_end_original') else rec.get('sched_end', '')
+        ss = t2m(eff_start)
+        se = t2m(eff_end)
         aa = t2m(rec['arrival'])
         ad = t2m(rec['departure'])
         dur = t2m(rec['duration'])
