@@ -240,19 +240,27 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
         elif hp > 0 and hp_weekend == 0:
             required = hm
         else:
-            required = se - ss if se > ss else 0
-            # v72 : appliquer la pause globale si demandée (sur sched du fichier source uniquement)
+            # v124 : Détection planning de nuit (ss > se → traverse minuit)
+            if ss > 0 and se > 0 and ss > se:
+                # Planning de nuit : durée = (24h - ss) + se
+                required = (1440 - ss) + se
+            else:
+                required = se - ss if se > ss else 0
+            # v72 : appliquer la pause globale si demandée
             if pause_minutes > 0 and required > pause_minutes:
                 required -= pause_minutes
         
         if not is_rest_day:
             total_required += required
         
-        # v76 : afficher l'EDT d'origine du fichier (préservé), pas l'EDT du matching
-        # Le matching modifie sched_start/sched_end pour le calcul de required mais
-        # l'affichage doit garder l'EDT d'origine pour ne pas tromper l'utilisateur
-        display_start = rec.get('sched_start_original') or rec.get('sched_start', '')
-        display_end = rec.get('sched_end_original') or rec.get('sched_end', '')
+        # v124 : Affichage = priorité à la saisie EXPLICITE de l'utilisateur (matched),
+        # sinon EDT d'origine du fichier. Cohérent avec le calcul.
+        display_start = (rec.get('sched_start_matched')
+                         or rec.get('sched_start_original')
+                         or rec.get('sched_start', ''))
+        display_end = (rec.get('sched_end_matched')
+                       or rec.get('sched_end_original')
+                       or rec.get('sched_end', ''))
         schedule_str = f"({display_start}_{display_end})"
         
         # Déterminer l'état
@@ -269,16 +277,16 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
             respect = "REPOS"
         elif (aa > 0 and ad == 0) or (aa == 0 and ad > 0):
             # NOUVEAU v51 : Badge incomplet - 1 seul pointage (arrivée OU départ, pas les deux)
-            # = ERREUR DE BADGE (différent d'absence : l'employé est venu mais badge incomplet)
-            # IMPORTANT : ce test DOIT être avant la condition d'absence (qui teste dur==0)
             state = "Erreur badge"
             days_badge_error += 1
             worked = 0
             overtime = 0
             late = 0
             respect = "ERR"
-        elif dur == 0 or (aa == 0 and ad == 0):
-            # Aucun pointage du tout = Absent
+        elif (aa == 0 and ad == 0):
+            # v124 : Aucun pointage du tout = Absent
+            # (test simplifié : on ne se base plus sur dur==0 car la duration peut être
+            # à 00:00 pour un poste de nuit valide. On vérifie uniquement les badges.)
             state = "Absent(e)"
             days_absent += 1
             worked = 0
@@ -288,35 +296,77 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
         else:
             days_present += 1
             
-            # === HEURES TRAVAILLÉES ===
-            # Le comptage commence au début du planning, PAS avant
-            # Ex: planning 7h-17h, arrivée 6h → on compte à partir de 7h
-            effective_start = max(aa, ss)
-            worked = ad - effective_start if ad > effective_start else 0
+            # v124 : DÉTECTION POSTE DE NUIT
+            # Si arrivée tard (>= 14h00) ET départ tôt (< 14h00 et > 0) → c'est un poste de nuit.
+            # L'employé est arrivé en soirée et reparti le lendemain matin.
+            # Ex: arrivée 19:37, départ 08:07 → travaillé = (24h - 19:37) + 08:07 = 12h30
+            is_night_shift = (aa >= 840 and ad > 0 and ad < 840)
+            
+            # Aussi : si le PLANNING saisi est un poste de nuit (ex: 20:00-07:00)
+            # → ss > se (1200 > 420), on considère aussi comme nuit
+            is_planning_night = (ss > 0 and se > 0 and ss > se)
+            
+            if is_night_shift:
+                # === HEURES TRAVAILLÉES (poste de nuit) ===
+                # de l'arrivée le soir jusqu'à minuit + de minuit jusqu'au départ matin
+                worked = (1440 - aa) + ad
+                
+                # Retard : si planning est nuit aussi, comparer aa avec ss (planning début)
+                if is_planning_night:
+                    # ss = début prévu nuit (ex: 20:00 = 1200), aa = arrivée réelle (ex: 19:37 = 1177)
+                    # Si arrivée APRÈS début prévu = retard
+                    late = aa - ss if aa > ss else 0
+                else:
+                    # Planning non détecté comme nuit, on ne peut pas calculer le retard
+                    late = 0
+                
+                if late > 0:
+                    total_late_mins += late
+                    days_late += 1
+                    state = "Retard"
+                else:
+                    days_punctual += 1
+                    state = "Présent(e)"
+                
+                # === HEURES SUPPLÉMENTAIRES (poste de nuit) ===
+                if is_planning_night:
+                    # Durée prévue = de ss à se (en passant par minuit)
+                    scheduled_duration = (1440 - ss) + se
+                    if worked > scheduled_duration:
+                        overtime = worked - scheduled_duration
+                    else:
+                        overtime = 0
+                else:
+                    overtime = 0
+                total_overtime += overtime
+            else:
+                # === COMPORTEMENT NORMAL (jour) ===
+                # Le comptage commence au début du planning, PAS avant
+                effective_start = max(aa, ss)
+                worked = ad - effective_start if ad > effective_start else 0
+                total_worked = total_worked  # update plus bas
+                
+                # Retard : arrivée après le début prévu
+                if aa > ss:
+                    late = aa - ss
+                    total_late_mins += late
+                    days_late += 1
+                    state = "Retard"
+                else:
+                    late = 0
+                    days_punctual += 1
+                    state = "Présent(e)"
+                
+                # === HEURES SUPPLÉMENTAIRES ===
+                if ad > se:
+                    overtime = ad - se
+                else:
+                    overtime = 0
+                total_overtime += overtime
+            
             total_worked += worked
             
-            # Retard : arrivée après le début prévu
-            if aa > ss:
-                late = aa - ss
-                total_late_mins += late
-                days_late += 1
-                state = "Retard"
-            else:
-                late = 0
-                days_punctual += 1
-                state = "Présent(e)"
-            
-            # === HEURES SUPPLÉMENTAIRES ===
-            # Seulement le temps APRÈS la fin prévue du planning
-            # Arriver tôt ne compte PAS comme heure sup
-            if ad > se:
-                overtime = ad - se
-            else:
-                overtime = 0
-            total_overtime += overtime
-            
             # === RESPECT HORAIRE ===
-            # Si les heures travaillées >= heures obligatoires (tolérance 5 min) → OUI
             if worked >= (required - 5):
                 respect = "OUI"
             else:
