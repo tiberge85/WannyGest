@@ -674,7 +674,7 @@
                 {% if not has_full_mg %}.nav-section#sec-moyens:not([data-primary="true"]){display:none}{% endif %}
                 {% if not has_full_concierge %}.nav-section#sec-concierge:not([data-primary="true"]){display:none}{% endif %}
                 {% if not has_full_tresorerie %}.nav-section#sec-tresorerie{display:none}{% endif %}
-                /* Toujours masquer GESTION DU TEMPS, TRACKING, BUDGET sauf rôle ad hoc */
+                {# v118 : Sections sensibles masquées sauf si rôle ad hoc #}
                 {% if user_role not in ('rh', 'admin', 'dg', 'directeur') %}.nav-section#sec-temps{display:none}{% endif %}
                 {% if user_role not in ('admin', 'dg', 'directeur') and not has_full_tech %}.nav-section#sec-tracking{display:none}{% endif %}
                 {% if user_role not in ('rh', 'admin', 'dg', 'directeur', 'comptable', 'comptabilite') %}.nav-section#sec-budget{display:none}{% endif %}

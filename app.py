@@ -1647,6 +1647,30 @@ except Exception as _e:
     print(f"[v117-Backfill] Erreur : {_e}", flush=True)
 
 
+# v118 : RÉ-EXÉCUTION du retrait de 'traitement' pour informatique
+# (le bloc v116 ne se ré-exécutait pas car le flag était déjà à 1)
+# v118 force le nettoyage à chaque démarrage tant que cette permission est présente
+try:
+    from models import get_db as _v118_db
+    _v118 = _v118_db()
+    # Retrait des permissions inadaptées au rôle informatique
+    bad_perms_for_info = ['traitement', 'pointage_admin', 'pointage_edit', 'pointage_dept']
+    nb_removed = 0
+    for p in bad_perms_for_info:
+        try:
+            res = _v118.execute("DELETE FROM permissions WHERE role='informatique' AND permission=?", (p,))
+            if res.rowcount:
+                nb_removed += res.rowcount
+                print(f"[v118-CleanInfo] Permission '{p}' retirée du rôle informatique", flush=True)
+        except: pass
+    if nb_removed > 0:
+        _v118.commit()
+        print(f"[v118-CleanInfo] Total : {nb_removed} permission(s) inadaptée(s) retirée(s) du rôle informatique", flush=True)
+    _v118.close()
+except Exception as _e:
+    print(f"[v118-CleanInfo] Erreur : {_e}", flush=True)
+
+
 # v114 : Helper pour récupérer l'id de la caisse de fonctionnement
 def get_caisse_fonctionnement_id():
     """Retourne l'id de la caisse de fonctionnement (créée auto par v114)."""
@@ -22171,9 +22195,11 @@ def caisse_demande():
 @login_required
 def caisse_valider(sid):
     from models import get_db, recompute_budget_spent
-    """v103 : RH ou DG valide la demande de sortie de caisse (3ème signataire) → impact sur le budget département.
-    Donne ensuite accès au bouton de validation comptabilité, puis décaissement.
-    v108 : Le 3ème signataire peut être le DG ou le RH (selon disponibilité)."""
+    """v103 + v118 : RH ou DG valide la demande de sortie de caisse (3ème signataire).
+    v118 : La validation NE déclenche PLUS le décaissement automatique.
+    Le décaissement reste manuel et doit être effectué par la comptabilité via
+    le bouton « Procéder au décaissement » (qui n'apparaît qu'une fois status=valide).
+    """
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'rh', 'dg', 'directeur'):
         flash("⚠️ Seul le DG ou le service RH peut valider les sorties de caisse (3ème signataire)", "error")
@@ -22187,99 +22213,56 @@ def caisse_valider(sid):
     try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN valideur_role TEXT")
     except: pass
     
-    conn.execute("UPDATE caisse_sorties SET status='valide', valideur_id=?, valideur_name=?, valideur_role=?, validated_at=? WHERE id=? AND status='en_attente'",
-                 (session['user_id'], user['full_name'], valideur_label, datetime.now().isoformat(), sid))
+    # v118 : vérifier la signature compta avant validation DG/RH
+    s_check = conn.execute("SELECT sig_caisse, status FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    if not s_check:
+        conn.close()
+        flash("Sortie introuvable", "error")
+        return redirect(url_for('caisse_sortie'))
+    if not s_check['sig_caisse']:
+        conn.close()
+        flash("⚠️ La comptabilité doit d'abord signer (ou refuser) avant que le DG/RH ne puisse valider", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    if s_check['status'] != 'en_attente':
+        conn.close()
+        flash(f"⚠️ Cette sortie n'est plus en attente (statut: {s_check['status']})", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    
+    # v118 : SEULEMENT changer le status — pas de décaissement automatique
+    conn.execute("""UPDATE caisse_sorties 
+        SET status='valide', valideur_id=?, valideur_name=?, valideur_role=?, validated_at=? 
+        WHERE id=? AND status='en_attente'""",
+        (session['user_id'], user['full_name'], valideur_label, datetime.now().isoformat(), sid))
     conn.commit()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
     s_dict = dict(s) if s else None
-    
-    # v114 : Déduction automatique de la caisse de fonctionnement + sync au journal
-    # Dès la validation DG/RH, l'argent sort. Pas besoin d'une comptabilisation séparée.
-    if s_dict:
-        cid = s_dict.get('caisse_id') or get_caisse_fonctionnement_id()
-        if cid:
-            already_op = conn.execute(
-                "SELECT id FROM caisse_operations WHERE reference=? AND caisse_id=? AND type='sortie'",
-                (s_dict['reference'], cid)).fetchone()
-            if not already_op:
-                try:
-                    conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by)
-                        VALUES (?,?,?,?,?,?,?)""",
-                        (cid, 'sortie', s_dict['montant'],
-                         f"Sortie {s_dict['reference']} — {s_dict['beneficiaire']}",
-                         s_dict['reference'], 'sortie_caisse', session.get('user_id')))
-                    conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
-                                 (s_dict['montant'], cid))
-                except Exception as _e:
-                    print(f"[v114] Erreur op : {_e}", flush=True)
-            # Sync au journal de caisse (sortie)
-            try:
-                _sync_caisse_op_to_journal(conn, 'sortie',
-                    s_dict.get('date') or datetime.now().strftime('%Y-%m-%d'),
-                    s_dict['montant'],
-                    f"Sortie {s_dict['reference']} — {s_dict['beneficiaire']} — {s_dict.get('motif','')}",
-                    s_dict['reference'], session.get('user_id'), caisse_id=cid)
-            except Exception as _e:
-                print(f"[v114] Erreur sync : {_e}", flush=True)
-            # Écriture comptable 658 / 571
-            try:
-                auto_ecriture(conn, s_dict.get('date') or datetime.now().strftime('%Y-%m-%d'),
-                    f"Sortie {s_dict['reference']} — {s_dict['beneficiaire']}",
-                    '658', '571', s_dict['montant'], s_dict['reference'])
-            except: pass
-            # v117 : Auto-injection dans la table depenses (suivi unifié)
-            try:
-                existing_dep = conn.execute(
-                    "SELECT id FROM depenses WHERE source_type='caisse_sortie' AND source_reference=?",
-                    (s_dict['reference'],)).fetchone()
-                if not existing_dep:
-                    conn.execute("""INSERT INTO depenses 
-                        (reference, date, category, amount, description, beneficiaire,
-                         source_type, source_id, source_reference, caisse_id,
-                         status, created_by, created_by_name)
-                        VALUES (?,?,?,?,?,?,'caisse_sortie',?,?,?,'comptabilisee',?,?)""",
-                        (f"DEP-{s_dict['reference']}", s_dict.get('date') or datetime.now().strftime('%Y-%m-%d'),
-                         'sortie_caisse', s_dict['montant'],
-                         s_dict.get('motif','') or '', s_dict.get('beneficiaire','') or '',
-                         s_dict['id'], s_dict['reference'], cid,
-                         session.get('user_id'), user['full_name']))
-            except Exception as _e:
-                print(f"[v117-Dep] Erreur sync dépense (valider) : {_e}", flush=True)
-            # Marquer comme comptabilisée
-            conn.execute("UPDATE caisse_sorties SET comptabilise=1, comptabilise_at=? WHERE id=?",
-                         (datetime.now().isoformat(), sid))
-            conn.commit()
-    
     conn.close()
-    # === MISE À JOUR AUTOMATIQUE DU BUDGET DÉPARTEMENT ===
-    budget_msg = ""
-    if s_dict and s_dict.get('department'):
-        try:
-            conn2 = get_db()
-            budgets = conn2.execute(
-                """SELECT id, amount_planned, amount_spent FROM dept_budgets
-                   WHERE department=? AND COALESCE(is_active,1)=1
-                   ORDER BY period_start DESC""", (s_dict['department'],)).fetchall()
-            conn2.close()
-            for b in budgets:
-                recompute_budget_spent(b['id'])
-                conn3 = get_db()
-                bnew = conn3.execute("SELECT amount_planned, amount_spent FROM dept_budgets WHERE id=?", (b['id'],)).fetchone()
-                conn3.close()
-                if bnew:
-                    if float(bnew['amount_spent']) > float(bnew['amount_planned']):
-                        budget_msg = f" ⚠️ Budget {s_dict['department']} DÉPASSÉ ({float(bnew['amount_spent']):,.0f} / {float(bnew['amount_planned']):,.0f} F)"
-                    else:
-                        ratio = (float(bnew['amount_spent']) / float(bnew['amount_planned']) * 100) if float(bnew['amount_planned']) > 0 else 0
-                        if ratio >= 80:
-                            budget_msg = f" — Budget {s_dict['department']} à {ratio:.0f}%"
-        except Exception:
-            pass
+    
+    # Notifier la comptabilité que la sortie est prête à être décaissée
     if s_dict:
-        log_activity(session['user_id'], user['full_name'], 'Caisse',
-                    f"Sortie {s_dict['reference']} validée {valideur_label} — {float(s_dict['montant']):,.0f} F", request.remote_addr)
-    flash(f"✅ Sortie de caisse validée par {valideur_label} → transmise à la comptabilité pour décaissement{budget_msg}", "success")
-    return redirect(url_for('caisse_sortie'))
+        try:
+            conn_n = get_db()
+            compta_users = [dict(r) for r in conn_n.execute(
+                "SELECT id FROM users WHERE role IN ('comptable','comptabilite','tresorerie','admin')"
+            ).fetchall()]
+            for cu in compta_users:
+                conn_n.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
+                    VALUES (?,?,?,?,?,datetime('now'))""",
+                    (cu['id'], 'caisse', f"💰 Sortie {s_dict['reference']} prête à décaisser",
+                     f"Validée par {valideur_label} ({user['full_name']}). "
+                     f"Montant : {s_dict['montant']:,.0f} F — Bénéf : {s_dict.get('beneficiaire','?')}. "
+                     f"Cliquez « Procéder au décaissement » pour finaliser.",
+                     f"/caisse-sortie/{sid}/preview"))
+            conn_n.commit(); conn_n.close()
+        except Exception as _e:
+            print(f"[v118] Erreur notif compta : {_e}", flush=True)
+    
+    log_activity(session['user_id'], user['full_name'], 'Caisse',
+        f"Sortie {s_dict['reference'] if s_dict else sid} validée par {valideur_label} — En attente décaissement compta",
+        request.remote_addr)
+    
+    flash(f"✅ Sortie validée par {valideur_label}. La comptabilité peut maintenant procéder au décaissement via le bouton « 💰 Procéder au décaissement ».", "success")
+    return redirect(f'/caisse-sortie/{sid}/preview')
 
 
 @app.route('/caisse-sortie/<int:sid>/refuser')
@@ -22484,13 +22467,14 @@ def caisse_comptabiliser(sid):
 @app.route('/caisse-sortie/<int:sid>/refuser-compta', methods=['POST'])
 @login_required
 def caisse_refuser_compta(sid):
-    """v116 : Refus de la sortie par la comptabilité (étape décaissement).
-    Annule la sortie validée précédemment + libère l'écriture comptable.
+    """v116 + v118 : Refus de la sortie par la comptabilité.
+    v118 : peut être refusé à n'importe quel stade — avant ou après la signature DG/RH,
+    tant que la sortie n'a pas encore été décaissée (status != 'comptabilise').
     Réservé à : comptable, comptabilite, tresorerie, admin, DG, directeur, RH."""
     from models import get_db, recompute_budget_spent
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur', 'rh'):
-        flash("⚠️ Seul le comptable, le DG, le directeur, la RH ou l'admin peut refuser un décaissement", "error")
+        flash("⚠️ Seul le comptable, le DG, le directeur, la RH ou l'admin peut refuser une sortie", "error")
         return redirect(url_for('caisse_sortie'))
     motif = (request.form.get('motif', '') or '').strip()
     if not motif or len(motif) < 5:
@@ -22504,9 +22488,14 @@ def caisse_refuser_compta(sid):
         flash("Sortie introuvable", "error")
         return redirect(url_for('caisse_sortie'))
     s_dict = dict(s)
-    if s_dict.get('status') != 'valide' or s_dict.get('comptabilise'):
+    # v118 : autoriser le refus tant que la sortie n'est pas déjà décaissée
+    if s_dict.get('comptabilise'):
         conn.close()
-        flash("⚠️ Cette sortie ne peut plus être refusée (statut actuel : " + s_dict.get('status','?') + ")", "error")
+        flash("⚠️ Cette sortie a déjà été décaissée — refus impossible", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    if s_dict.get('status') == 'refuse':
+        conn.close()
+        flash("⚠️ Cette sortie est déjà refusée", "error")
         return redirect(f'/caisse-sortie/{sid}/preview')
     
     # Ajouter les colonnes si manquantes
