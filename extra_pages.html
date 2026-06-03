@@ -3192,7 +3192,8 @@ function filterRecent() {
 {% elif page == 'fournisseur_detail' %}
 <div class="page-header">
     <h1>🏭 {{ supplier.nom }}</h1>
-    <div style="display:flex;gap:6px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/fournisseurs/{{ supplier.id }}/rapport.pdf" target="_blank" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-weight:700">📄 Imprimer rapport PDF</a>
         <a href="/fournisseurs" class="btn btn-outline btn-sm">← Liste</a>
     </div>
 </div>
@@ -3284,13 +3285,70 @@ function filterRecent() {
         {% else %}<span style="padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;background:#fde8e8;color:#c53030">🔴 Non payé</span>{% endif %}
     </td>
     <td style="font-size:10px">{% if p.date_echeance %}{{ p.date_echeance }}{% if p.overdue %} ⚠️{% endif %}{% else %}—{% endif %}</td>
-    <td>
-        <a href="/fournisseurs/purchase/{{ p.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px">📋 Voir</a>
+    <td style="white-space:nowrap">
+        <a href="/fournisseurs/purchase/{{ p.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px;padding:3px 6px" title="Voir détails">📋</a>
+        {% if can_edit %}
+        <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 6px"
+            onclick="openEditPurchase({{ p.id }}, '{{ (p.description or '')|e }}', '{{ (p.categorie or '')|e }}', {{ p.montant_total or 0 }}, '{{ p.date or '' }}', '{{ p.date_echeance or '' }}', '{{ (p.departement or '')|e }}', '{{ (p.notes or '')|e }}')" title="Modifier">✏️</button>
+        <form method="post" action="/fournisseurs/purchase/{{ p.id }}/delete" style="display:inline" 
+            onsubmit="return confirm('Supprimer cet achat ? Les paiements liés doivent être supprimés d\'abord.')">
+            <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 6px" title="Supprimer">🗑️</button>
+        </form>
+        {% endif %}
     </td>
 </tr>
 {% endfor %}
 </tbody>
 </table>
+
+{% if can_edit %}
+<!-- v119 : Modal édition achat -->
+<div class="modal-bg" id="editPurchaseM"><div class="modal" style="max-width:600px">
+<h3>✏️ Modifier l'achat</h3>
+<form method="post" id="editPurchaseForm">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888;display:block">Date</label>
+            <input type="date" name="date" id="ep_date" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Échéance</label>
+            <input type="date" name="date_echeance" id="ep_echeance" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    </div>
+    <div style="margin-bottom:8px">
+        <label style="font-size:11px;color:#888;display:block">Description</label>
+        <input name="description" id="ep_desc" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888;display:block">Catégorie</label>
+            <input name="categorie" id="ep_cat" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Département</label>
+            <input name="departement" id="ep_dept" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Montant (F)</label>
+            <input type="number" name="montant_total" id="ep_montant" step="100" min="0" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+    </div>
+    <div style="margin-bottom:10px">
+        <label style="font-size:11px;color:#888;display:block">Notes</label>
+        <textarea name="notes" id="ep_notes" rows="2" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editPurchaseM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+<script>
+function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes) {
+    document.getElementById('editPurchaseForm').action = '/fournisseurs/purchase/' + id + '/edit';
+    document.getElementById('ep_desc').value = desc;
+    document.getElementById('ep_cat').value = cat;
+    document.getElementById('ep_montant').value = mt;
+    document.getElementById('ep_date').value = date;
+    document.getElementById('ep_echeance').value = ech;
+    document.getElementById('ep_dept').value = dept;
+    document.getElementById('ep_notes').value = notes;
+    document.getElementById('editPurchaseM').classList.add('active');
+}
+</script>
+{% endif %}
 {% else %}
 <div style="text-align:center;padding:30px;color:#888">Aucun achat. Ajoutez-en un avec le formulaire ci-dessus.</div>
 {% endif %}

@@ -7,12 +7,19 @@
 <div class="card" style="max-width:620px"><div class="card-body">
 <form method="post" id="caisseForm">
     <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ now }}" required></div>
-    {# v114 : Caisse de fonctionnement FORCÉE — plus de sélection #}
+    {# v114 + v119 : Caisse de fonctionnement FORCÉE — solde visible UNIQUEMENT à compta/dg/rh/admin #}
     {% if caisse_fonct %}
+    {% if current_user.role in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh') %}
     <div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px">
         💰 <strong>Caisse de fonctionnement</strong> — Solde actuel : <strong>{{ '{:,.0f}'.format(caisse_fonct.solde_actuel or 0).replace(',', ' ') }} F CFA</strong>
         <div style="font-size:11px;color:#666;margin-top:3px">Toutes les sorties sont automatiquement débitées de cette caisse.</div>
     </div>
+    {% else %}
+    <div style="background:#f0f4f8;border-left:4px solid #1a3a5c;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px">
+        💰 <strong>Caisse de fonctionnement</strong> — Votre demande sera soumise à validation
+        <div style="font-size:11px;color:#666;margin-top:3px">Le solde de la caisse est masqué pour votre profil. La demande passera par le workflow de signatures habituel.</div>
+    </div>
+    {% endif %}
     {% else %}
     <div style="background:#ffebee;border-left:4px solid #c53030;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px">
         ⚠️ <strong>Caisse de fonctionnement introuvable.</strong> Contactez l'administrateur.

@@ -1,26 +1,32 @@
 {% extends "base.html" %}
 {% block title %}RAMYA - Relation Client{% endblock %}
 {% block content %}
-<div class="page-header"><h1>🏢 Relation Client</h1></div>
+<div class="page-header"><h1>🏢 Relation Client{% if not can_edit %} <span style="font-size:12px;background:#e3f2fd;color:#0d47a1;padding:3px 10px;border-radius:10px;font-weight:600">👁️ Lecture seule</span>{% endif %}</h1></div>
 <div class="card">
     <div class="card-header">
         <h3>Clients ({{ clients|length }})</h3>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+            {% if can_edit %}
             <a href="/clients/export" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Exporter la base clients en Excel">📤 Exporter</a>
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('importM').classList.add('active')">📥 Import</button>
             <button class="btn btn-primary btn-sm" onclick="document.getElementById('addModal').classList.add('active')">+ Client</button>
+            {% else %}
+            <a href="/clients/export" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Exporter la base clients en Excel">📤 Exporter</a>
+            {% endif %}
         </div>
     </div>
     <div class="card-body" style="padding:0">
         {% if clients %}
         <!-- Bulk action bar + search -->
         <div style="padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #eee">
+            {% if can_edit %}
             <form method="post" action="/clients/delete-bulk" id="bulkForm" onsubmit="return confirmBulkDelete()" style="display:flex;gap:6px;align-items:center">
                 <span id="selCount" style="font-size:12px;font-weight:700;color:#1a3a5c;background:#e3f2fd;padding:4px 10px;border-radius:10px;display:none">0 sélectionné(s)</span>
                 <button type="submit" id="bulkDelBtn" class="btn btn-sm" style="background:#c53030;color:#fff;display:none;font-size:11px">🗑️ Supprimer la sélection</button>
                 <button type="button" id="bulkMergeBtn" onclick="openMergeModal()" class="btn btn-sm" style="background:#7b1fa2;color:#fff;display:none;font-size:11px">🔗 Fusionner les 2 sélectionnés</button>
                 <input type="hidden" name="ids" id="bulkIds" value="">
             </form>
+            {% endif %}
             <div style="margin-left:auto">
                 <input type="text" id="searchCli" placeholder="🔍 Rechercher..." onkeyup="searchClients()" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px">
             </div>
@@ -49,7 +55,7 @@
         </div>
         <div class="table-wrap"><table id="cliTable">
             <thead><tr>
-                <th style="width:30px;text-align:center"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="Tout sélectionner"></th>
+                {% if can_edit %}<th style="width:30px;text-align:center"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="Tout sélectionner"></th>{% endif %}
                 <th style="width:40px">N°</th>
                 <th style="width:70px">Code</th>
                 <th style="cursor:pointer" onclick="sortTable('cliTable',3,'text')">Client / Entreprise <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
@@ -63,7 +69,7 @@
             <tbody>
             {% for c in clients|sort(attribute='name') %}
             <tr class="cli-row">
-                <td style="text-align:center"><input type="checkbox" class="selCli" value="{{ c.id }}" onchange="updateSel()"></td>
+                {% if can_edit %}<td style="text-align:center"><input type="checkbox" class="selCli" value="{{ c.id }}" onchange="updateSel()"></td>{% endif %}
                 <td style="text-align:center;font-weight:600;color:#888">{{ loop.index }}</td>
                 <td style="font-weight:700;color:#1a7a6d;font-family:monospace;white-space:nowrap">{{ c.client_code or '—' }}</td>
                 <td><a href="/clients/{{ c.id }}" style="color:#1a3a5c;font-weight:700;text-decoration:none">{{ c.name }}</a></td>
@@ -85,9 +91,11 @@
                 {% endif %}</td>
                 <td style="white-space:nowrap">
                     <a href="/clients/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Voir">👁️</a>
+                    {% if can_edit %}
                     <a href="/clients/edit/{{ c.id }}?return_to={{ (request.url | urlencode) if request.url else '' }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Modifier">✏️</a>
                     <a href="/clients/{{ c.id }}/toggle-type" class="btn btn-sm btn-outline" style="font-size:9px" title="{% if (c.type or 'client') == 'client' %}Convertir en prospect{% else %}Convertir en client{% endif %}" onclick="return confirm('Basculer entre client et prospect ?')">🔄</a>
                     <a href="/clients/delete/{{ c.id }}?return_to={{ (request.url | urlencode) if request.url else '' }}" class="btn btn-sm del-client-btn" data-name="{{ c.name|e }}" style="color:#c53030;font-size:9px" title="Supprimer">🗑️</a>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -255,6 +263,7 @@
     </div>
 </div>
 
+{% if can_edit %}
 <!-- Modal ajout -->
 <div class="modal-bg" id="addModal"><div class="modal" style="max-width:600px">
     <h3>➕ Ajouter un client</h3>
@@ -301,4 +310,5 @@
         </div>
     </form>
 </div></div>
+{% endif %}
 {% endblock %}

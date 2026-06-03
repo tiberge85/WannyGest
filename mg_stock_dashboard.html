@@ -61,9 +61,11 @@
         <div class="stat-num">{{ stats.nb_faibles }}</div><div class="stat-label">Stocks faibles</div></div></div>
 </div>
 
-<!-- Filtres -->
+<!-- Filtres + Pagination v119 -->
 <div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:10px">
     <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="search" name="q" value="{{ q_filter or '' }}" placeholder="🔎 Référence ou désignation..."
+            style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;min-width:200px">
         <select name="cat" onchange="this.form.submit()" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
             <option value="">Toutes catégories</option>
             {% for c in categories %}<option value="{{ c }}" {% if c == cat_filter %}selected{% endif %}>{{ c }}</option>{% endfor %}
@@ -74,8 +76,15 @@
             <option value="FAIBLE" {% if alerte_filter == 'FAIBLE' %}selected{% endif %}>⚠ Faible</option>
             <option value="OK" {% if alerte_filter == 'OK' %}selected{% endif %}>✓ OK</option>
         </select>
-        {% if cat_filter or alerte_filter %}<a href="/mg/stock" class="btn btn-outline btn-sm">↻ Réinitialiser</a>{% endif %}
-        <span style="margin-left:auto;font-size:12px;color:#888">{{ articles|length }} article(s) affiché(s)</span>
+        <button type="submit" class="btn btn-primary btn-sm">🔎 Filtrer</button>
+        {% if cat_filter or alerte_filter or q_filter %}<a href="/mg/stock" class="btn btn-outline btn-sm">↻ Réinitialiser</a>{% endif %}
+        <span style="margin-left:auto;font-size:12px;color:#888">
+            {% if total_count is defined %}
+                Page <strong>{{ page_num }}</strong>/{{ total_pages }} — {{ articles|length }} affiché(s) sur {{ total_count }} article(s)
+            {% else %}
+                {{ articles|length }} article(s) affiché(s)
+            {% endif %}
+        </span>
     </form>
 </div></div>
 
@@ -122,5 +131,41 @@
             </tbody>
         </table>
     </div>
+    
+    {# v119 : Pagination #}
+    {% if total_pages is defined and total_pages > 1 %}
+    <div style="padding:14px;display:flex;justify-content:center;align-items:center;gap:6px;border-top:1px solid #eee;flex-wrap:wrap">
+        {% set qs = '' %}
+        {% if q_filter %}{% set qs = qs + '&q=' + q_filter %}{% endif %}
+        {% if cat_filter %}{% set qs = qs + '&cat=' + cat_filter %}{% endif %}
+        {% if alerte_filter %}{% set qs = qs + '&alerte=' + alerte_filter %}{% endif %}
+        
+        {% if page_num > 1 %}
+            <a href="?page=1{{ qs }}" class="btn btn-outline btn-sm" style="font-size:11px">« Première</a>
+            <a href="?page={{ page_num - 1 }}{{ qs }}" class="btn btn-outline btn-sm" style="font-size:11px">‹ Précédente</a>
+        {% endif %}
+        
+        {% set start_p = [1, page_num - 2]|max %}
+        {% set end_p = [total_pages, page_num + 2]|min %}
+        {% if start_p > 1 %}<span style="padding:0 5px;color:#888">…</span>{% endif %}
+        {% for p in range(start_p, end_p + 1) %}
+            {% if p == page_num %}
+                <span class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-weight:700;font-size:11px;padding:5px 10px">{{ p }}</span>
+            {% else %}
+                <a href="?page={{ p }}{{ qs }}" class="btn btn-outline btn-sm" style="font-size:11px;padding:5px 10px">{{ p }}</a>
+            {% endif %}
+        {% endfor %}
+        {% if end_p < total_pages %}<span style="padding:0 5px;color:#888">…</span>{% endif %}
+        
+        {% if page_num < total_pages %}
+            <a href="?page={{ page_num + 1 }}{{ qs }}" class="btn btn-outline btn-sm" style="font-size:11px">Suivante ›</a>
+            <a href="?page={{ total_pages }}{{ qs }}" class="btn btn-outline btn-sm" style="font-size:11px">Dernière »</a>
+        {% endif %}
+        
+        <span style="margin-left:14px;font-size:11px;color:#888">
+            Page <strong>{{ page_num }}</strong> sur {{ total_pages }} ({{ total_count }} articles)
+        </span>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

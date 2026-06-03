@@ -3741,7 +3741,11 @@ def fichiers_marquer(job_id):
 @permission_required('clients')
 def clients_page():
     clients = get_all_clients()
-    return render_template('clients.html', page='clients', clients=clients)
+    # v119 : can_edit pour masquer les boutons d'action en lecture seule
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    can_edit = ('clients_edit' in perms or 'admin' in perms)
+    return render_template('clients.html', page='clients', clients=clients, can_edit=can_edit)
 
 
 # v83 : Export base clients en Excel
@@ -3797,7 +3801,7 @@ def clients_export():
 
 # v83 : Convertir un client en prospect (et inversement)
 @app.route('/clients/<int:cid>/toggle-type')
-@permission_required('clients')
+@permission_required('clients_edit')
 def clients_toggle_type(cid):
     """Bascule le type entre 'client' et 'prospect'."""
     conn = _gdb()
@@ -13746,16 +13750,33 @@ def mg_stock_dashboard():
     # Filtre
     cat_filter = request.args.get('cat', '').strip()
     alerte_filter = request.args.get('alerte', '').strip()
+    q_filter = (request.args.get('q', '') or '').strip().lower()
     if cat_filter:
         articles = [a for a in articles if (a.get('categorie') or '') == cat_filter]
     if alerte_filter:
         articles = [a for a in articles if a['alerte'] == alerte_filter]
+    if q_filter:
+        articles = [a for a in articles
+                    if q_filter in (a.get('designation','') or '').lower()
+                    or q_filter in (a.get('reference','') or '').lower()]
+    
+    # v119 : Pagination
+    try: page_num = max(1, int(request.args.get('page', 1)))
+    except: page_num = 1
+    per_page = 50
+    total_count = len(articles)
+    total_pages = max(1, (total_count + per_page - 1) // per_page)
+    page_num = min(page_num, total_pages)
+    start = (page_num - 1) * per_page
+    end = start + per_page
+    articles_page = articles[start:end]
     
     conn.close()
     return render_template('mg_stock_dashboard.html', page='mg_stock',
-        articles=articles, stats=stats, categories=categories,
-        cat_filter=cat_filter, alerte_filter=alerte_filter,
-        recent_entries=recent_entries, recent_exits=recent_exits)
+        articles=articles_page, stats=stats, categories=categories,
+        cat_filter=cat_filter, alerte_filter=alerte_filter, q_filter=q_filter,
+        recent_entries=recent_entries, recent_exits=recent_exits,
+        page_num=page_num, total_pages=total_pages, total_count=total_count, per_page=per_page)
 
 
 @app.route('/mg/stock/inventaires')
@@ -23449,6 +23470,192 @@ def fournisseur_detail(sid):
                           supplier=supplier, purchases=purchases,
                           summary=summary, can_edit=can_edit,
                           today_str=datetime.now().strftime('%Y-%m-%d'))
+
+
+# v119 : Édition d'un achat fournisseur (montant, description, échéance, etc.)
+@app.route('/fournisseurs/purchase/<int:pid>/edit', methods=['POST'])
+@permission_required_any('fournisseurs_edit', 'admin')
+def purchase_edit(pid):
+    conn = _gdb()
+    p = conn.execute("SELECT supplier_id FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
+    if not p:
+        conn.close()
+        flash("Achat introuvable", "error")
+        return redirect(url_for('fournisseurs_list'))
+    sid = p['supplier_id']
+    try:
+        conn.execute("""UPDATE supplier_purchases SET
+            description=?, categorie=?, montant_total=?, date=?, date_echeance=?,
+            departement=?, notes=? WHERE id=?""",
+            (request.form.get('description','').strip(),
+             request.form.get('categorie','').strip(),
+             float(request.form.get('montant_total','0') or 0),
+             request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+             request.form.get('date_echeance','').strip() or None,
+             request.form.get('departement','').strip(),
+             request.form.get('notes','').strip(),
+             pid))
+        conn.commit()
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?', 'Fournisseur',
+            f"Achat #{pid} modifié (fournisseur #{sid})", request.remote_addr)
+        flash("✅ Achat modifié", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect(f'/fournisseurs/{sid}')
+
+
+# v119 : Suppression d'un achat fournisseur
+@app.route('/fournisseurs/purchase/<int:pid>/delete', methods=['POST'])
+@permission_required_any('fournisseurs_edit', 'admin')
+def purchase_delete(pid):
+    conn = _gdb()
+    p = conn.execute("SELECT supplier_id, description, montant_total FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
+    if not p:
+        conn.close()
+        flash("Achat introuvable", "error")
+        return redirect(url_for('fournisseurs_list'))
+    sid = p['supplier_id']
+    try:
+        nb_pay = conn.execute("SELECT COUNT(*) FROM supplier_payments WHERE purchase_id=?", (pid,)).fetchone()[0]
+    except: nb_pay = 0
+    if nb_pay > 0:
+        conn.close()
+        flash(f"⚠️ Impossible de supprimer : {nb_pay} paiement(s) associé(s). Supprimez d'abord les paiements.", "error")
+        return redirect(f'/fournisseurs/{sid}')
+    try:
+        conn.execute("DELETE FROM supplier_purchases WHERE id=?", (pid,))
+        conn.commit()
+        user = get_user_by_id(session['user_id'])
+        log_activity(session['user_id'], user['full_name'] if user else '?', 'Fournisseur',
+            f"Achat #{pid} supprimé — {p['description'][:40]} ({float(p['montant_total']):,.0f} F)", request.remote_addr)
+        flash("✅ Achat supprimé", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect(f'/fournisseurs/{sid}')
+
+
+# v119 : Rapport PDF complet d'un fournisseur
+@app.route('/fournisseurs/<int:sid>/rapport.pdf')
+@permission_required_any('fournisseurs', 'achats', 'admin')
+def fournisseur_rapport_pdf(sid):
+    from models import get_supplier_summary, get_purchase_status
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from io import BytesIO
+    
+    conn = _gdb()
+    supplier = conn.execute("SELECT * FROM suppliers WHERE id=?", (sid,)).fetchone()
+    if not supplier:
+        conn.close()
+        flash("Fournisseur introuvable", "error")
+        return redirect(url_for('fournisseurs_list'))
+    supplier = dict(supplier)
+    purchases = [dict(r) for r in conn.execute(
+        "SELECT * FROM supplier_purchases WHERE supplier_id=? ORDER BY date DESC", (sid,)).fetchall()]
+    for p in purchases:
+        status, paid, rest, pct = get_purchase_status(p['id'])
+        p['status'] = status; p['total_paid'] = paid; p['reste'] = rest
+    payments = []
+    try:
+        payments = [dict(r) for r in conn.execute("""SELECT sp.*, p.description as purchase_desc
+            FROM supplier_payments sp 
+            LEFT JOIN supplier_purchases p ON p.id=sp.purchase_id
+            WHERE p.supplier_id=? ORDER BY sp.date DESC""", (sid,)).fetchall()]
+    except: pass
+    summary = get_supplier_summary(sid)
+    conn.close()
+    
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('T', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1A7A6D'), spaceAfter=10)
+    h2 = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#1a3a5c'), spaceAfter=6)
+    elems = []
+    elems.append(Paragraph(f"Rapport fournisseur — {supplier['nom']}", title_style))
+    elems.append(Paragraph(f"Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')} — RAMYA Technologie", styles['Normal']))
+    elems.append(Spacer(1, 0.4*cm))
+    elems.append(Paragraph("📇 Informations", h2))
+    info = [['Nom', supplier.get('nom','')],
+            ['Téléphone', supplier.get('telephone','')],
+            ['Email', supplier.get('email','')],
+            ['Adresse', supplier.get('adresse','')],
+            ['Contact', supplier.get('contact','')],
+            ['Notes', supplier.get('notes','')]]
+    t = Table(info, colWidths=[4*cm, 13*cm])
+    t.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.5,colors.lightgrey),
+        ('BACKGROUND',(0,0),(0,-1),colors.HexColor('#f0f4f8')),
+        ('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),
+        ('FONTSIZE',(0,0),(-1,-1),9),('VALIGN',(0,0),(-1,-1),'TOP'),
+        ('PADDING',(0,0),(-1,-1),5)]))
+    elems.append(t)
+    elems.append(Spacer(1, 0.4*cm))
+    elems.append(Paragraph("💰 Synthèse financière", h2))
+    fmt = lambda x: f"{float(x or 0):,.0f}".replace(',', ' ') + " F"
+    sumtab = [['Total achats', fmt(summary.get('total_achats',0))],
+              ['Total payé', fmt(summary.get('total_paye',0))],
+              ['Reste à payer', fmt(summary.get('total_reste',0))],
+              ['Nb achats', str(summary.get('nb_achats',0))]]
+    t2 = Table(sumtab, colWidths=[5*cm, 6*cm])
+    t2.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.5,colors.lightgrey),
+        ('BACKGROUND',(0,0),(0,-1),colors.HexColor('#fff3e0')),
+        ('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),
+        ('FONTSIZE',(0,0),(-1,-1),10),('PADDING',(0,0),(-1,-1),6)]))
+    elems.append(t2)
+    elems.append(Spacer(1, 0.5*cm))
+    elems.append(Paragraph(f"🛒 Achats ({len(purchases)})", h2))
+    if purchases:
+        rows = [['Date', 'Description', 'Catégorie', 'Montant', 'Payé', 'Reste', 'Statut']]
+        for p in purchases:
+            rows.append([str(p.get('date',''))[:10],
+                (p.get('description','') or '')[:30],
+                (p.get('categorie','') or '')[:15],
+                fmt(p.get('montant_total',0)),
+                fmt(p.get('total_paid',0)),
+                fmt(p.get('reste',0)),
+                p.get('status','')[:10]])
+        t3 = Table(rows, colWidths=[2*cm, 4*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2*cm], repeatRows=1)
+        t3.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#1A7A6D')),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+            ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+            ('FONTSIZE',(0,0),(-1,-1),8),
+            ('GRID',(0,0),(-1,-1),0.3,colors.lightgrey),
+            ('ALIGN',(3,1),(-1,-1),'RIGHT'),
+            ('PADDING',(0,0),(-1,-1),3)]))
+        elems.append(t3)
+    else:
+        elems.append(Paragraph("Aucun achat enregistré.", styles['Normal']))
+    elems.append(Spacer(1, 0.5*cm))
+    elems.append(Paragraph(f"💳 Paiements ({len(payments)})", h2))
+    if payments:
+        rows = [['Date', 'Achat', 'Montant', 'Mode', 'Référence']]
+        for p in payments:
+            rows.append([str(p.get('date',''))[:10],
+                (p.get('purchase_desc','') or '')[:30],
+                fmt(p.get('montant',0)),
+                (p.get('mode','') or '')[:10],
+                (p.get('reference','') or '')[:15]])
+        t4 = Table(rows, colWidths=[2*cm, 5*cm, 3*cm, 3*cm, 4*cm], repeatRows=1)
+        t4.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#2e7d32')),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+            ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+            ('FONTSIZE',(0,0),(-1,-1),8),
+            ('GRID',(0,0),(-1,-1),0.3,colors.lightgrey),
+            ('ALIGN',(2,1),(2,-1),'RIGHT'),
+            ('PADDING',(0,0),(-1,-1),3)]))
+        elems.append(t4)
+    else:
+        elems.append(Paragraph("Aucun paiement enregistré.", styles['Normal']))
+    doc.build(elems)
+    buf.seek(0)
+    from flask import send_file
+    return send_file(buf, mimetype='application/pdf', as_attachment=True,
+                     download_name=f"rapport_fournisseur_{supplier['nom'].replace(' ','_')}_{datetime.now().strftime('%Y%m%d')}.pdf")
 
 
 @app.route('/fournisseurs/purchase/<int:pid>', methods=['GET', 'POST'])

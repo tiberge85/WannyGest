@@ -3,8 +3,8 @@
 <div class="page-header"><h1>💵 Caisse</h1>
 <a href="/caisse-sortie/demande" class="btn btn-orange btn-sm">+ Demande de sortie</a></div>
 
-{# v115 : Solde caisse de fonctionnement (visible à tous pour transparence) #}
-{% if solde_caisse_fonct is defined %}
+{# v115 + v119 : Solde caisse de fonctionnement visible UNIQUEMENT à compta/dg/rh/admin #}
+{% if solde_caisse_fonct is defined and current_user.role in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh') %}
 <div style="background:linear-gradient(90deg,{% if solde_caisse_fonct > 500000 %}#1A7A6D 0%,#0d5b50 100%{% elif solde_caisse_fonct > 100000 %}#f29f2f 0%,#b8561f 100%{% elif solde_caisse_fonct >= 0 %}#888 0%,#555 100%{% else %}#c53030 0%,#7f1d1d 100%{% endif %});color:#fff;padding:12px 18px;border-radius:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
     <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;font-weight:700">💰 Solde caisse de fonctionnement</div>

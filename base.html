@@ -243,21 +243,7 @@
             <a href="/rapports-journaliers" class="{% if page == 'rapports_j' %}active{% endif %}">📝 Rapport journalier</a>
             {% endif %}
             
-            {# v116 : Section GESTION DU TEMPS — permission 'section_temps' OU 'traitement' OU 'pointage_admin' #}
-            {% if 'section_temps' in permissions or 'traitement' in permissions or 'pointage_admin' in permissions or 'pointage_edit' in permissions or 'admin' in permissions %}
-            <!-- Gestion du temps -->
-            <div class="nav-section" id="sec-temps">
-                <div class="nav-section-title" onclick="toggleSection('sec-temps')">⏱️ GESTION DU TEMPS <span class="arrow">▼</span></div>
-                <div class="nav-section-items">
-                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">Calcul d'heures</a>{% endif %}
-                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/dpci" class="{% if page == 'dpci' %}active{% endif %}">🏢 Calcul d'heures DPCI</a>{% endif %}
-                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/pharma" class="{% if page == 'pharma' %}active{% endif %}">💊 Calcul d'heures Pharmacie</a>{% endif %}
-                    {% if 'pointage_edit' in permissions or 'admin' in permissions %}<a href="/emploi-du-temps" class="{% if page == 'schedule' %}active{% endif %}">📅 Emploi du temps</a>{% endif %}
-                    {% if 'pointage_admin' in permissions or 'admin' in permissions %}<a href="/alertes" class="{% if page == 'alertes' %}active{% endif %}">Alertes assiduité</a>{% endif %}
-                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/comparaison" class="{% if page == 'comparaison' %}active{% endif %}">Comparaison</a>{% endif %}
-                </div>
-            </div>
-            {% endif %}
+            {# v119 : Section GESTION DU TEMPS FUSIONNÉE dans IT — voir plus bas #}
             
             {# v116 : Section CRM — permission 'section_crm' OU sous-perms #}
             {% if 'section_crm' in permissions or 'visites' in permissions or 'proforma' in permissions or 'clients' in permissions or 'admin' in permissions %}
@@ -485,16 +471,29 @@
             </div>
             {% endif %}
             
-            {# v116 : Section IT — permission 'section_it' OU 'informatique' #}
-            {% if 'section_it' in permissions or 'informatique' in permissions or 'admin' in permissions %}
-            <!-- IT -->
+            {# v119 : Section IT FUSIONNÉE avec GESTION DU TEMPS — toutes les fonctions temps/IT regroupées #}
+            {% if 'section_it' in permissions or 'informatique' in permissions or 'section_temps' in permissions or 'traitement' in permissions or 'pointage_admin' in permissions or 'pointage_edit' in permissions or 'admin' in permissions %}
+            <!-- IT + GESTION DU TEMPS (fusionné v119) -->
             <div class="nav-section" id="sec-info" {% if user_role in ('informatique',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-info')">🖥️ IT <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
+                    {% if 'section_it' in permissions or 'informatique' in permissions or 'admin' in permissions %}
+                    <div style="font-size:10px;color:#888;padding:6px 8px 2px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">🖥️ INFORMATIQUE</div>
                     <a href="/it" class="{% if page == 'it' %}active{% endif %}">📊 Dashboard IT</a>
                     <a href="/it/parc" class="{% if page == 'it_parc' %}active{% endif %}">🖥️ Parc informatique</a>
                     <a href="/it/tickets" class="{% if page == 'it_tickets' %}active{% endif %}">🛠️ Helpdesk</a>
                     <a href="/it/recharge" class="{% if page == 'it_recharge' %}active{% endif %}" style="position:relative">📶 Recharge Internet{% if recharge_alerts_count and recharge_alerts_count > 0 %} <span style="background:#c53030;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ recharge_alerts_count }}</span>{% endif %}</a>
+                    {% endif %}
+                    {# v119 : Sous-bloc GESTION DU TEMPS dans IT #}
+                    {% if 'section_temps' in permissions or 'traitement' in permissions or 'pointage_admin' in permissions or 'pointage_edit' in permissions or 'admin' in permissions %}
+                    <div style="font-size:10px;color:#888;padding:8px 8px 2px;margin-top:4px;border-top:1px solid rgba(255,255,255,0.1);text-transform:uppercase;letter-spacing:0.5px;font-weight:700">⏱️ GESTION DU TEMPS</div>
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">Calcul d'heures</a>{% endif %}
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/dpci" class="{% if page == 'dpci' %}active{% endif %}">🏢 Calcul d'heures DPCI</a>{% endif %}
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/pharma" class="{% if page == 'pharma' %}active{% endif %}">💊 Calcul d'heures Pharmacie</a>{% endif %}
+                    {% if 'pointage_edit' in permissions or 'admin' in permissions %}<a href="/emploi-du-temps" class="{% if page == 'schedule' %}active{% endif %}">📅 Emploi du temps</a>{% endif %}
+                    {% if 'pointage_admin' in permissions or 'admin' in permissions %}<a href="/alertes" class="{% if page == 'alertes' %}active{% endif %}">Alertes assiduité</a>{% endif %}
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/comparaison" class="{% if page == 'comparaison' %}active{% endif %}">Comparaison</a>{% endif %}
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
