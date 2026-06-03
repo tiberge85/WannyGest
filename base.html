@@ -243,40 +243,40 @@
             <a href="/rapports-journaliers" class="{% if page == 'rapports_j' %}active{% endif %}">📝 Rapport journalier</a>
             {% endif %}
             
-            {% if 'traitement' in permissions %}
+            {# v116 : Section GESTION DU TEMPS — permission 'section_temps' OU 'traitement' OU 'pointage_admin' #}
+            {% if 'section_temps' in permissions or 'traitement' in permissions or 'pointage_admin' in permissions or 'pointage_edit' in permissions or 'admin' in permissions %}
             <!-- Gestion du temps -->
             <div class="nav-section" id="sec-temps">
                 <div class="nav-section-title" onclick="toggleSection('sec-temps')">⏱️ GESTION DU TEMPS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">Calcul d'heures</a>
-                    <a href="/dpci" class="{% if page == 'dpci' %}active{% endif %}">🏢 Calcul d'heures DPCI</a>
-                    <a href="/pharma" class="{% if page == 'pharma' %}active{% endif %}">💊 Calcul d'heures Pharmacie</a>
-                    <a href="/emploi-du-temps" class="{% if page == 'schedule' %}active{% endif %}">📅 Emploi du temps</a>
-                    <a href="/alertes" class="{% if page == 'alertes' %}active{% endif %}">Alertes assiduité</a>
-                    <a href="/comparaison" class="{% if page == 'comparaison' %}active{% endif %}">Comparaison</a>
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">Calcul d'heures</a>{% endif %}
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/dpci" class="{% if page == 'dpci' %}active{% endif %}">🏢 Calcul d'heures DPCI</a>{% endif %}
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/pharma" class="{% if page == 'pharma' %}active{% endif %}">💊 Calcul d'heures Pharmacie</a>{% endif %}
+                    {% if 'pointage_edit' in permissions or 'admin' in permissions %}<a href="/emploi-du-temps" class="{% if page == 'schedule' %}active{% endif %}">📅 Emploi du temps</a>{% endif %}
+                    {% if 'pointage_admin' in permissions or 'admin' in permissions %}<a href="/alertes" class="{% if page == 'alertes' %}active{% endif %}">Alertes assiduité</a>{% endif %}
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/comparaison" class="{% if page == 'comparaison' %}active{% endif %}">Comparaison</a>{% endif %}
                 </div>
             </div>
             {% endif %}
             
-            {% if 'visites' in permissions or 'proforma' in permissions or 'clients' in permissions %}
+            {# v116 : Section CRM — permission 'section_crm' OU sous-perms #}
+            {% if 'section_crm' in permissions or 'visites' in permissions or 'proforma' in permissions or 'clients' in permissions or 'admin' in permissions %}
             <!-- CRM -->
             <div class="nav-section" id="sec-crm" {% if user_role in ('commercial',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-crm')">🎯 CRM <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    {% if 'clients' in permissions %}<a href="/clients" class="{% if page == 'clients' %}active{% endif %}">Relation client</a>{% endif %}
-                    {% if 'clients' in permissions %}<a href="/prospects" class="{% if page == 'prospects' %}active{% endif %}">Prospects</a>{% endif %}
-                    {% if 'visites' in permissions %}<a href="/visites" class="{% if page == 'visites' %}active{% endif %}" style="position:relative">Gestion d'interventions{% if new_visites_count and new_visites_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_visites_count }}</span>{% endif %}</a>{% endif %}
-                    {% if 'proforma' in permissions %}<a href="/devis" class="{% if page == 'devis' %}active{% endif %}">Devis / Proformas</a>{% endif %}
-                    {% if 'proforma' in permissions %}<a href="/devis/templates" class="{% if page == 'devis_tpl' %}active{% endif %}">Modèles de devis</a>{% endif %}
-                    {% if 'contrats' in permissions %}<a href="/contrats" class="{% if page == 'contrats' %}active{% endif %}">Contrats</a>{% endif %}
-                    <a href="/projects" class="{% if page == 'projects' %}active{% endif %}" style="position:relative">🗺️ Roadmap{% if project_notifs_count and project_notifs_count > 0 %} <span style="background:#1976d2;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ project_notifs_count }}</span>{% endif %}</a>
+                    {% if 'clients' in permissions or 'admin' in permissions %}<a href="/clients" class="{% if page == 'clients' %}active{% endif %}">Relation client</a>{% endif %}
+                    {% if 'clients' in permissions or 'admin' in permissions %}<a href="/prospects" class="{% if page == 'prospects' %}active{% endif %}">Prospects</a>{% endif %}
+                    {% if 'visites' in permissions or 'admin' in permissions %}<a href="/visites" class="{% if page == 'visites' %}active{% endif %}" style="position:relative">Gestion d'interventions{% if new_visites_count and new_visites_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_visites_count }}</span>{% endif %}</a>{% endif %}
+                    {% if 'proforma' in permissions or 'admin' in permissions %}<a href="/devis" class="{% if page == 'devis' %}active{% endif %}">Devis / Proformas</a>{% endif %}
+                    {% if 'proforma' in permissions or 'admin' in permissions %}<a href="/devis/templates" class="{% if page == 'devis_tpl' %}active{% endif %}">Modèles de devis</a>{% endif %}
+                    {% if 'contrats' in permissions or 'admin' in permissions %}<a href="/contrats" class="{% if page == 'contrats' %}active{% endif %}">Contrats</a>{% endif %}
                 </div>
             </div>
             {% endif %}
             
-            {# v109 : Section GESTION DE PROJETS visible uniquement aux vrais gestionnaires #}
-            {# Les permissions transverses (livraison_intervention, controle_qualite) iront en OUTILS RAPIDES #}
-            {% if 'resp_projet' in permissions or 'admin' in permissions or user_role == 'gestionnaire_projet' %}
+            {# v116 : Section GESTION DE PROJETS — permission 'section_projets' OU 'resp_projet' #}
+            {% if 'section_projets' in permissions or 'resp_projet' in permissions or 'admin' in permissions or user_role == 'gestionnaire_projet' %}
             <div class="nav-section" id="sec-resp-proj" {% if user_role in ('gestionnaire_projet',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 GESTION DE PROJETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
@@ -300,7 +300,8 @@
             </div>
             {% endif %}
             
-            {% if 'tracking' in permissions or 'admin' in permissions %}
+            {# v116 : Section TRACKING GPS — permission 'section_tracking' OU 'tracking' #}
+            {% if 'section_tracking' in permissions or 'tracking' in permissions or 'admin' in permissions %}
             <!-- Tracking GPS -->
             <div class="nav-section" id="sec-tracking">
                 <div class="nav-section-title" onclick="toggleSection('sec-tracking')">📡 TRACKING GPS <span class="arrow">▼</span></div>
@@ -313,7 +314,8 @@
             </div>
             {% endif %}
             
-            {% if 'fichiers' in permissions %}
+            {# v116 : Section GESTION RH — permission 'section_rh' OU 'fichiers' #}
+            {% if 'section_rh' in permissions or 'fichiers' in permissions or 'admin' in permissions %}
             <!-- Gestion RH -->
             <div class="nav-section" id="sec-rh" {% if user_role in ('rh',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-rh')">👥 GESTION RH <span class="arrow">▼</span></div>
@@ -356,7 +358,8 @@
             {# ═══════════════════════════════════════════════════════════════ #}
             {# 💰 COMPTABILITÉ : normes comptables, états, lettrage, écritures   #}
             {# ═══════════════════════════════════════════════════════════════ #}
-            {% if 'compta_pro' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+            {# v116 : Section COMPTABILITÉ — permission 'section_compta' OU sous-perms #}
+            {% if 'section_compta' in permissions or 'compta_pro' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
             <div class="nav-section" id="sec-compta" {% if user_role in ('comptable', 'comptabilite') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-compta')">💰 COMPTABILITÉ <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
@@ -420,7 +423,7 @@
             {# v106 : les rôles avec uniquement 'caisse_sortie' ne voient PAS la section complète, #}
             {# juste un lien direct en bas de sidebar (rendu plus bas dans 'OUTILS RAPIDES'). #}
             {# ═══════════════════════════════════════════════════════════════ #}
-            {% set has_full_tresorerie = 'tresorerie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+            {% set has_full_tresorerie = 'section_tresorerie' in permissions or 'tresorerie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
             {% if has_full_tresorerie %}
             <div class="nav-section" id="sec-tresorerie">
                 <div class="nav-section-title" onclick="toggleSection('sec-tresorerie')">💵 TRÉSORERIE <span class="arrow">▼</span></div>
@@ -432,11 +435,10 @@
                     <div class="compta-subsection-title"><span class="dot"></span>CAISSE</div>
                     <a href="/tresorerie/caisse" class="{% if page == 'tresorerie_caisse' %}active{% endif %}">💰 Journal de caisse</a>
                     <a href="/caisse-sortie" class="{% if page == 'caisse_sortie' %}active{% endif %}">📤 Sorties caisse{% if caisse_pending %} <span class="badge">{{ caisse_pending }}</span>{% endif %}</a>
-                    <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">🧾 Pièces de caisse</a>
-                    {% if 'caisse_multi' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+                    <a href="/comptabilite/pieces" class="{% if page == 'pieces' %}active{% endif %}">📎 Reçus de paiement</a>
+                    {% if 'caisse_view' in permissions or 'caisse_multi' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
                     <a href="/comptabilite/caisses" class="{% if page == 'caisses' or page == 'caisse_detail' %}active{% endif %}">🏪 Multi-caisses</a>
                     {% endif %}
-                    <a href="/comptabilite/rapport-caisse" class="{% if page == 'rapport_caisse' %}active{% endif %}">📋 Rapport caisse</a>
                     
                     {# BANQUE #}
                     <div class="compta-subsection-title"><span class="dot"></span>BANQUE</div>
@@ -452,27 +454,19 @@
             </div>
             {% endif %}
             
-            {# Section Budgets départements (séparée) #}
-            {% if 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
+            {# v116 : Section BUDGETS — permission 'section_budgets' OU 'budget_view'/'budget_view_own' #}
+            {% if 'section_budgets' in permissions or 'budget_view' in permissions or 'budget_view_own' in permissions or 'admin' in permissions %}
             <div class="nav-section" id="sec-budget">
                 <div class="nav-section-title" onclick="toggleSection('sec-budget')">💼 BUDGETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Budgets départements</a>
+                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">{% if 'budget_view' in permissions or 'admin' in permissions %}💼 Budgets départements{% else %}💼 Mon budget département{% endif %}</a>
                 </div>
             </div>
             {% endif %}
+            {# v116 : ancien bloc dupliqué BUDGET supprimé — un seul bloc BUDGETS unifié #}
             
-            {# Section budget standalone : pour les responsables qui ont budget_view_own mais PAS comptabilite #}
-            {% if ('budget_view' in permissions or 'budget_view_own' in permissions) and 'comptabilite' not in permissions and 'admin' not in permissions %}
-            <div class="nav-section" id="sec-budget">
-                <div class="nav-section-title" onclick="toggleSection('sec-budget')">💼 BUDGET <span class="arrow">▼</span></div>
-                <div class="nav-section-items">
-                    <a href="/budgets" class="{% if page == 'budgets' %}active{% endif %}">💼 Mon budget département</a>
-                </div>
-            </div>
-            {% endif %}
-            
-            {% if 'centre_technique' in permissions or 'admin' in permissions %}
+            {# v116 : Section CENTRE TECHNIQUE — permission 'section_tech' OU 'centre_technique' #}
+            {% if 'section_tech' in permissions or 'centre_technique' in permissions or 'admin' in permissions %}
             <!-- Centre Technique -->
             <div class="nav-section" id="sec-tech" {% if user_role in ('technicien', 'tech_chef', 'centre_technique') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-tech')">🔧 CENTRE TECHNIQUE <span class="arrow">▼</span></div>
@@ -489,7 +483,8 @@
             </div>
             {% endif %}
             
-            {% if 'informatique' in permissions or 'admin' in permissions %}
+            {# v116 : Section IT — permission 'section_it' OU 'informatique' #}
+            {% if 'section_it' in permissions or 'informatique' in permissions or 'admin' in permissions %}
             <!-- IT -->
             <div class="nav-section" id="sec-info" {% if user_role in ('informatique',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-info')">🖥️ IT <span class="arrow">▼</span></div>
@@ -502,7 +497,8 @@
             </div>
             {% endif %}
             
-            {% if 'moyens_generaux' in permissions or 'comptabilite' in permissions or 'mg_view' in permissions or 'admin' in permissions %}
+            {# v116 : Section MOYENS GÉNÉRAUX — permission 'section_mg' OU sous-perms #}
+            {% if 'section_mg' in permissions or 'moyens_generaux' in permissions or 'comptabilite' in permissions or 'mg_view' in permissions or 'admin' in permissions %}
             <!-- Moyens Généraux (UNIFIÉ v59) -->
             <div class="nav-section" id="sec-moyens" {% if user_role in ('moyens_generaux', 'mg', 'magasinier') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-moyens')">
@@ -542,7 +538,8 @@
             </div>
             {% endif %}
             
-            {% if 'concierge' in permissions or 'admin' in permissions %}
+            {# v116 : Section CONCIERGERIE — permission 'section_concierge' OU 'concierge' #}
+            {% if 'section_concierge' in permissions or 'concierge' in permissions or 'admin' in permissions %}
             <!-- Conciergerie -->
             <div class="nav-section" id="sec-concierge" {% if user_role in ('concierge',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-concierge')">🔑 CONCIERGERIE <span class="arrow">▼</span></div>
@@ -557,12 +554,16 @@
             </div>
             {% endif %}
             
+            {# v116 : Lien CALENDRIER — permission 'section_calendrier' (par défaut tous le voient) #}
+            {% if 'section_calendrier' in permissions or 'admin' in permissions or current_user %}
             <!-- Outils communs (Calendrier) — order:150 = juste avant admin (200) -->
             <div style="padding:4px 0;order:150">
                 <a href="/rh/calendrier" class="{% if page == 'rh_calendrier' %}active{% endif %}" style="display:block;padding:8px 18px;color:rgba(255,255,255,0.85);text-decoration:none;font-size:13px">📅 Calendrier</a>
             </div>
+            {% endif %}
             
-            {% if 'admin' in permissions %}
+            {# v116 : Section ADMINISTRATION — permission 'section_admin' OU 'admin' #}
+            {% if 'section_admin' in permissions or 'admin' in permissions %}
             <!-- Administration -->
             <div class="nav-section" id="sec-admin">
                 <div class="nav-section-title" onclick="toggleSection('sec-admin')">⚙️ ADMINISTRATION <span class="arrow">▼</span></div>

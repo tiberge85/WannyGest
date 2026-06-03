@@ -1,32 +1,37 @@
-{% extends "base.html" %}{% block title %}WannyGest - Pièces de caisse{% endblock %}{% block content %}
-<div class="page-header"><h1>🧾 Pièces de caisse & Dépenses</h1>
-<button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Numériser</button></div>
+{% extends "base.html" %}{% block title %}WannyGest - Reçus de paiement{% endblock %}{% block content %}
+<div class="page-header"><h1>📎 Reçus de paiement (preuves justificatives)</h1>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Numériser un reçu</button></div>
+
+<div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#0d47a1">
+    💡 <strong>À propos des reçus de paiement</strong> — Cette section permet de <strong>numériser et archiver</strong> les reçus, factures et bons de paiement.
+    <strong>Aucune déduction</strong> n'est faite sur la caisse, aucune écriture comptable n'est générée. Les reçus servent uniquement de <strong>preuve justificative</strong>.
+    Pour comptabiliser une dépense, utilisez les <a href="/caisse-sortie" style="color:#1976d2;font-weight:700">sorties de caisse</a>.
+</div>
 
 <div class="rg" style="display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:16px">
 <div class="card" style="text-align:center"><div class="card-body" style="padding:20px">
-    <div style="font-size:28px;font-weight:800;color:#c53030">{{ '{:,.0f}'.format(total) }}</div>
-    <div style="font-size:11px;color:#888">Total dépenses (F)</div>
-    <div style="font-size:11px;color:#666;margin-top:8px">{{ pieces|length }} pièce(s) enregistrée(s)</div>
+    <div style="font-size:28px;font-weight:800;color:#1976d2">{{ '{:,.0f}'.format(total).replace(',', ' ') }}</div>
+    <div style="font-size:11px;color:#888">Total montants reçus (F) — informatif</div>
+    <div style="font-size:11px;color:#666;margin-top:8px">{{ pieces|length }} reçu(s) numérisé(s)</div>
 </div></div>
 <div class="card"><div class="card-header"><h3>📊 Par catégorie</h3></div><div class="card-body" style="padding:10px">
 {% for c in by_cat %}
 <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f0f0f0">
     <span style="font-size:12px;font-weight:600">{{ c.category }}</span>
-    <div><span style="font-size:12px;color:#c53030;font-weight:700">{{ '{:,.0f}'.format(c.total) }} F</span> <span style="font-size:10px;color:#888">({{ c.count }})</span></div>
+    <div><span style="font-size:12px;color:#1976d2;font-weight:700">{{ '{:,.0f}'.format(c.total).replace(',', ' ') }} F</span> <span style="font-size:10px;color:#888">({{ c.count }})</span></div>
 </div>{% endfor %}
 </div></div>
 </div>
 
-<div class="card"><div class="card-header"><h3>📋 Toutes les pièces</h3></div><div class="card-body">
+<div class="card"><div class="card-header"><h3>📋 Tous les reçus numérisés</h3></div><div class="card-body">
 {% if pieces %}<div class="table-wrap"><table>
-<thead><tr><th>Réf</th><th>Date</th><th>Description</th><th>Fournisseur</th><th>Caisse</th><th>Catégorie</th><th style="text-align:right">Montant</th><th>Pièce</th><th>Actions</th></tr></thead>
+<thead><tr><th>Réf</th><th>Date</th><th>Description</th><th>Fournisseur</th><th>Catégorie</th><th style="text-align:right">Montant</th><th>Preuve</th><th>Actions</th></tr></thead>
 <tbody>{% for p in pieces %}<tr>
 <td style="font-size:11px;font-weight:600">{{ p.reference }}</td>
 <td>{{ p.date }}</td><td>{{ p.description or '-' }}</td>
 <td>{{ p.supplier or '-' }}</td>
-<td style="font-size:11px;color:#1a7a6d;font-weight:600">💰 {{ p.caisse_nom or '—' }}</td>
 <td><span class="badge-s gold">{{ p.category }}</span></td>
-<td style="text-align:right;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(p.amount) }} F</td>
+<td style="text-align:right;font-weight:700;color:#1976d2">{{ '{:,.0f}'.format(p.amount).replace(',', ' ') }} F</td>
 <td>{% if p.file_path %}<a href="/uploads/pieces/{{ p.file_path }}" target="_blank" class="btn btn-outline btn-sm">👁️</a>{% else %}—{% endif %}</td>
 <td style="white-space:nowrap"><a href="/comptabilite/pieces/edit/{{ p.id }}" class="btn btn-outline btn-sm">✏️</a> <a href="/comptabilite/pieces/delete/{{ p.id }}" class="btn btn-sm" style="color:#c53030" onclick="return confirm('Supprimer ?')">🗑️</a></td>
 </tr>{% endfor %}</tbody></table></div>

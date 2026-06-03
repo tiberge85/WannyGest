@@ -1216,6 +1216,8 @@ try:
             'pointage',
             # Tracking
             'tracking',
+            # v116 : Sections sidebar pour coordinateur
+            'section_projets', 'section_tech', 'section_calendrier',
         ]
         nb_added_coord = 0
         for p in coord_defaults:
@@ -1471,6 +1473,95 @@ except Exception as _e:
     print(f"[v115-PlanComp] Erreur : {_e}", flush=True)
 
 
+# v116 : Migration colonnes refus comptable + comptabilise_par
+try:
+    from models import get_db as _v116m_db
+    _v116m = _v116m_db()
+    for col in ['refus_motif TEXT', 'refus_par TEXT', 'refus_par_role TEXT', 
+                'refus_at TEXT', 'comptabilise_par TEXT']:
+        try: _v116m.execute(f"ALTER TABLE caisse_sorties ADD COLUMN {col}")
+        except: pass
+    _v116m.commit()
+    _v116m.close()
+    print("[v116-Cols] Colonnes refus_motif/refus_par/comptabilise_par OK", flush=True)
+except Exception as _e:
+    print(f"[v116-Cols] Erreur : {_e}", flush=True)
+
+
+# v116 : Backfill des permissions de section pour tous les rôles
+# Attribue par défaut à chaque rôle ses sections sidebar appropriées
+# UNIQUEMENT au premier démarrage (flag v116_sections_done)
+try:
+    from models import get_db as _v116s_db
+    _v116s = _v116s_db()
+    flag = _v116s.execute("SELECT value FROM app_settings WHERE key='v116_sections_done'").fetchone()
+    if not flag:
+        # Mapping rôle → sections + permissions principales par défaut
+        sections_by_role = {
+            'admin': [
+                'section_temps','section_crm','section_projets','section_tracking',
+                'section_rh','section_compta','section_tresorerie','section_budgets',
+                'section_tech','section_it','section_mg','section_concierge',
+                'section_calendrier','section_admin',
+            ],
+            'dg': [
+                'section_crm','section_projets','section_tracking','section_rh',
+                'section_compta','section_tresorerie','section_budgets',
+                'section_tech','section_mg','section_calendrier','section_admin',
+            ],
+            'directeur': [
+                'section_crm','section_projets','section_tracking','section_rh',
+                'section_compta','section_tresorerie','section_budgets',
+                'section_tech','section_mg','section_calendrier','section_admin',
+            ],
+            'rh': ['section_temps','section_rh','section_budgets','section_calendrier'],
+            'comptable': ['section_compta','section_tresorerie','section_budgets','section_calendrier'],
+            'comptabilite': ['section_compta','section_tresorerie','section_budgets','section_calendrier'],
+            'tresorerie': ['section_tresorerie','section_compta','section_calendrier'],
+            'commercial': ['section_crm','section_calendrier'],
+            'gestionnaire_projet': ['section_projets','section_tech','section_calendrier'],
+            'coordinateur': ['section_projets','section_tech','section_calendrier'],
+            'technicien': ['section_tech','section_calendrier'],
+            'tech_chef': ['section_tech','section_tracking','section_calendrier'],
+            'centre_technique': ['section_tech','section_tracking','section_calendrier'],
+            # v116 : Informatique a UNIQUEMENT section_it — PAS section_temps
+            'informatique': ['section_it','section_calendrier'],
+            'moyens_generaux': ['section_mg','section_calendrier'],
+            'mg': ['section_mg','section_calendrier'],
+            'magasinier': ['section_mg','section_calendrier'],
+            'concierge': ['section_concierge','section_calendrier'],
+            'secretaire': ['section_calendrier','section_crm'],
+        }
+        nb_added = 0
+        for role, sections in sections_by_role.items():
+            for sec in sections:
+                try:
+                    exists = _v116s.execute(
+                        "SELECT 1 FROM permissions WHERE role=? AND permission=?",
+                        (role, sec)).fetchone()
+                    if not exists:
+                        _v116s.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, sec))
+                        nb_added += 1
+                except: pass
+        
+        # v116 : Bug fix — retirer 'traitement' du rôle informatique (pas adapté)
+        # Sauf si admin a explicitement attribué cette permission
+        nb_removed = 0
+        try:
+            info_traitement = _v116s.execute("SELECT 1 FROM permissions WHERE role='informatique' AND permission='traitement'").fetchone()
+            if info_traitement:
+                _v116s.execute("DELETE FROM permissions WHERE role='informatique' AND permission='traitement'")
+                nb_removed += 1
+        except: pass
+        
+        _v116s.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v116_sections_done', '1', datetime('now'))")
+        _v116s.commit()
+        print(f"[v116-Sections] {nb_added} permission(s) de section ajoutée(s) ; {nb_removed} permission(s) 'traitement' retirée(s) du rôle informatique", flush=True)
+    _v116s.close()
+except Exception as _e:
+    print(f"[v116-Sections] Erreur : {_e}", flush=True)
+
+
 # v114 : Helper pour récupérer l'id de la caisse de fonctionnement
 def get_caisse_fonctionnement_id():
     """Retourne l'id de la caisse de fonctionnement (créée auto par v114)."""
@@ -1580,7 +1671,14 @@ try:
                    # Achats / Fournisseurs
                    'achats', 'achats_edit', 'fournisseurs', 'fournisseurs_edit',
                    # Pointage
-                   'pointage', 'pointage_admin', 'pointage_dept', 'pointage_edit'])
+                   'pointage', 'pointage_admin', 'pointage_dept', 'pointage_edit',
+                   # v116 : Permissions de section sidebar (admin a TOUTES)
+                   'section_temps', 'section_crm', 'section_projets', 'section_tracking',
+                   'section_rh', 'section_compta', 'section_tresorerie', 'section_budgets',
+                   'section_tech', 'section_it', 'section_mg', 'section_concierge',
+                   'section_calendrier', 'section_admin',
+                   # v116 : Refus comptable
+                   'caisse_sortie_refus_compta'])
     from models import get_role_permissions as _grp
     # v110 : N'initialise QUE pour un rôle complètement vide (création initiale)
     # Plus de réinjection forcée quand l'admin enlève une permission
@@ -1610,74 +1708,38 @@ init_devis_tables()
 ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
 # Permission categories for admin display
 PERM_CATEGORIES = {
-    'Comptabilité': [
-        ('comptabilite', 'Comptabilité lecture'),
-        ('comptabilite_edit', 'Comptabilité modification'),
-        ('convertir_devis', 'Convertir devis'),
-        ('caisse_sortie', 'Caisse (entrées/sorties)'),
-        ('caisse_multi', 'Multi-caisses'),
-        ('grand_livre', 'Grand Livre'),
-        ('balance', 'Balance comptable'),
-        ('virement_demande', 'Demander virement banque→caisse'),
-        ('virement_valide', 'Valider virement (DG uniquement)'),
-    ],
-    'Comptabilité Pro (SYSCOHADA)': [
-        ('compta_pro', 'Module Comptabilité Pro - Lecture'),
-        ('compta_pro_edit', 'Saisir écritures (brouillard)'),
-        ('compta_pro_valide', 'Valider écritures'),
-        ('compta_pro_cloture', 'Clôturer périodes'),
-    ],
-    'Trésorerie': [
-        ('tresorerie', 'Module Trésorerie - Lecture'),
-        ('tresorerie_edit', 'Saisir mouvements caisse/banque'),
-        ('tresorerie_rapprochement', 'Rapprochement bancaire'),
-    ],
-    'Achats / Stock': [
-        ('achats', 'Voir les achats / fournisseurs / stock'),
-        ('achats_edit', 'Créer/Modifier achats, fournisseurs, commandes'),
-    ],
-    'Fournisseurs (suivi achats)': [
-        ('fournisseurs', 'Voir fournisseurs et achats'),
-        ('fournisseurs_edit', 'Créer/Modifier fournisseurs, achats, paiements'),
-    ],
-    'Budgets': [
-        ('budget_view', 'Voir les budgets (lecture globale)'),
-        ('budget_view_own', 'Voir uniquement le budget de son département'),
-        ('budget_edit', 'Créer/Modifier/Supprimer budgets'),
-    ],
-    'Pointage RH': [
-        ('pointage', 'Pointer (employé)'),
+    # ═══════════════════════════════════════════════════════════════
+    # v116 : SECTIONS SIDEBAR — exactement mappées à la matrice
+    # Chaque section sidebar a sa permission "_section" et ses sous-permissions
+    # ═══════════════════════════════════════════════════════════════
+    
+    '⏱️ GESTION DU TEMPS (Section sidebar)': [
+        ('section_temps', 'Voir la section GESTION DU TEMPS dans la sidebar'),
+        ('traitement', 'Calcul d\'heures (DPCI + Pharmacie)'),
+        ('pointage', 'Pointer (employé) — Mon pointage'),
         ('pointage_admin', 'Dashboard RH pointage : voir tous'),
         ('pointage_dept', 'Voir le pointage de son département'),
         ('pointage_edit', 'Configurer plannings + zones GPS + corriger'),
     ],
-    'Commercial / CRM': [
+    
+    '🎯 CRM (Section sidebar)': [
+        ('section_crm', 'Voir la section CRM dans la sidebar'),
         ('clients', 'Clients lecture'),
         ('clients_edit', 'Clients modification'),
         ('proforma', 'Devis lecture'),
         ('proforma_edit', 'Devis modification'),
         ('visites', 'Visites lecture'),
         ('visites_edit', 'Visites modification'),
+        ('convertir_devis', 'Convertir devis en facture'),
+        ('client_requests_view', 'Voir demandes clients (portail)'),
+        ('client_users_approve', 'Valider comptes clients (portail)'),
     ],
-    'Portail client': [
-        ('client_requests_view', 'Voir demandes clients'),
-        ('client_users_approve', 'Valider comptes clients'),
-    ],
-    'Concierge': [('concierge', 'Consultation'), ('concierge_edit', 'Création/Modification')],
-    'Technique': [
-        ('centre_technique', 'Centre technique'),
-        ('centre_technique_edit', 'Centre tech. modif'),
-        ('traitement', 'Traitement/DPCI'),
-        ('gps_itineraire', 'GPS / Itinéraire'),
-        ('controle_qualite', 'Contrôle qualité'),
-        ('livraison_intervention', 'Livraison chantier'),
-    ],
-    'Projets': [
+    
+    '📁 GESTION DE PROJETS (Section sidebar)': [
+        ('section_projets', 'Voir la section GESTION DE PROJETS dans la sidebar'),
         ('resp_projet', 'Resp. projet lecture'),
         ('resp_projet_edit', 'Resp. projet modif'),
         ('projets', 'Projets info'),
-    ],
-    'Roadmap (Workflow projets v89)': [
         ('roadmap_view', 'Voir la Roadmap (liste projets)'),
         ('roadmap_manage', 'Gérer projets (avancer étapes)'),
         ('roadmap_delete', 'Supprimer projets clôturés'),
@@ -1694,84 +1756,165 @@ PERM_CATEGORIES = {
         ('project_invoice', 'Facturer le solde'),
         ('project_payment', 'Valider paiement solde'),
     ],
-    'RH & Admin': [
-        ('fichiers', 'Employés/RH'),
+    
+    '📡 TRACKING GPS (Section sidebar)': [
+        ('section_tracking', 'Voir la section TRACKING GPS dans la sidebar'),
+        ('tracking', 'Voir le tracking GPS des techniciens'),
+        ('gps_itineraire', 'GPS / Itinéraire (planification)'),
+    ],
+    
+    '👥 GESTION RH (Section sidebar)': [
+        ('section_rh', 'Voir la section GESTION RH dans la sidebar'),
+        ('fichiers', 'Employés / Dossiers RH'),
         ('contrats', 'Contrats'),
         ('envoyer', 'Envoi paie'),
-        ('logs', 'Logs'),
-    ],
-    'Budget RH (v90)': [
         ('rh_budget_view', 'Voir Budget Prévisionnel RH'),
         ('rh_budget_edit', 'Modifier hypothèses & budget mensuel'),
         ('rh_budget_real', 'Saisir le réel mensuel (consommation)'),
+        ('rapports_j', 'Rapports journaliers — voir tous'),
     ],
-    'Gestion de Stock (v92)': [
+    
+    '💰 COMPTABILITÉ (Section sidebar)': [
+        ('section_compta', 'Voir la section COMPTABILITÉ dans la sidebar'),
+        ('comptabilite', 'Comptabilité lecture'),
+        ('comptabilite_edit', 'Comptabilité modification'),
+        ('grand_livre', 'Grand Livre'),
+        ('balance', 'Balance comptable'),
+        ('compta_pro', 'Module Comptabilité Pro - Lecture'),
+        ('compta_pro_edit', 'Saisir écritures (brouillard)'),
+        ('compta_pro_valide', 'Valider écritures'),
+        ('compta_pro_cloture', 'Clôturer périodes'),
+        ('mg_compta_validate', 'Valider/refuser les demandes MG côté Comptabilité'),
+    ],
+    
+    '💵 TRÉSORERIE (Section sidebar)': [
+        ('section_tresorerie', 'Voir la section TRÉSORERIE dans la sidebar'),
+        ('tresorerie', 'Module Trésorerie - Lecture'),
+        ('tresorerie_edit', 'Saisir mouvements caisse/banque'),
+        ('tresorerie_rapprochement', 'Rapprochement bancaire'),
+        ('virement_demande', 'Demander virement banque→caisse'),
+        ('virement_valide', 'Valider virement (DG/RH)'),
+    ],
+    
+    '💼 BUDGETS (Section sidebar)': [
+        ('section_budgets', 'Voir la section BUDGETS dans la sidebar'),
+        ('budget_view', 'Voir les budgets (lecture globale)'),
+        ('budget_view_own', 'Voir uniquement le budget de son département'),
+        ('budget_edit', 'Créer/Modifier/Supprimer budgets'),
+    ],
+    
+    '🔧 CENTRE TECHNIQUE (Section sidebar)': [
+        ('section_tech', 'Voir la section CENTRE TECHNIQUE dans la sidebar'),
+        ('centre_technique', 'Centre technique'),
+        ('centre_technique_edit', 'Centre tech. modif'),
+        ('controle_qualite', 'Contrôle qualité (intervention sur site)'),
+        ('livraison_intervention', 'Livraison chantier (intervention sur site)'),
+    ],
+    
+    '🖥️ IT — INFORMATIQUE (Section sidebar)': [
+        ('section_it', 'Voir la section IT — INFORMATIQUE dans la sidebar'),
+        ('informatique', 'Module Informatique (parc IT, tickets)'),
+    ],
+    
+    '🏠 MOYENS GÉNÉRAUX (Section sidebar)': [
+        ('section_mg', 'Voir la section MOYENS GÉNÉRAUX dans la sidebar'),
+        ('moyens_generaux', 'Module Moyens Généraux (lecture)'),
+        ('moyens_generaux_edit', 'Moyens Généraux modification'),
+        ('mg_view', 'Voir les demandes MG'),
+        ('mg_demande', 'Créer une demande MG'),
+        ('mg_valider', 'Valider/refuser une demande MG (en interne MG)'),
+        ('mg_gestion', 'Gérer (modifier/supprimer) les demandes MG'),
         ('stock_view', 'Voir le stock (catalogue + inventaire)'),
         ('stock_edit', 'Créer/modifier les articles du catalogue'),
         ('stock_in', 'Enregistrer entrées de stock'),
         ('stock_out', 'Enregistrer sorties de stock'),
         ('stock_inventory', 'Réaliser un inventaire physique'),
         ('stock_export', 'Exporter PDF/Excel du stock'),
-        ('stock_marges_edit', 'Modifier les marges prix de vente (v99)'),
+        ('stock_marges_edit', 'Modifier les marges prix de vente'),
+        ('achats', 'Voir les achats / fournisseurs / stock'),
+        ('achats_edit', 'Créer/Modifier achats, fournisseurs, commandes'),
+        ('fournisseurs', 'Voir fournisseurs et achats'),
+        ('fournisseurs_edit', 'Créer/Modifier fournisseurs, achats, paiements'),
+        ('creances_view', 'Voir les créances clients'),
+        ('creances_edit', 'Gérer les créances clients'),
+        ('creances_relance', 'Faire des relances clients'),
+        ('creances_export', 'Exporter les créances'),
     ],
-    'Remontées d\'Informations Terrain (v99)': [
+    
+    '🔑 CONCIERGERIE (Section sidebar)': [
+        ('section_concierge', 'Voir la section CONCIERGERIE dans la sidebar'),
+        ('concierge', 'Concierge consultation'),
+        ('concierge_edit', 'Concierge création / modification'),
+    ],
+    
+    '📅 CALENDRIER (Lien sidebar)': [
+        ('section_calendrier', 'Voir le lien 📅 Calendrier dans la sidebar'),
+    ],
+    
+    '⚙️ ADMINISTRATION (Section sidebar)': [
+        ('section_admin', 'Voir la section ADMINISTRATION dans la sidebar'),
+        ('admin', 'Accès administration complet'),
+        ('logs', 'Logs d\'activité'),
+        ('dashboard_general', 'Voir le tableau de bord général'),
+    ],
+    
+    # ═══════════════════════════════════════════════════════════════
+    # FONCTIONNALITÉS TRANSVERSES (regroupements logiques par module)
+    # ═══════════════════════════════════════════════════════════════
+    
+    'Tableau de bord & Notifications': [
+        ('dashboard', 'Voir le tableau de bord'),
+        ('chat', 'Chat interne'),
+    ],
+    
+    'Remontées d\'Informations Terrain': [
         ('field_report_create', 'Créer une remontée d\'information'),
         ('field_report_view_mine', 'Voir uniquement ses propres remontées'),
         ('field_report_view_all', 'Voir toutes les remontées'),
         ('field_report_analyze', 'Analyser une remontée'),
         ('field_report_transform', 'Transformer en projet/intervention/opportunité'),
         ('field_report_close', 'Classer sans suite'),
-        ('field_report_edit', 'Modifier une remontée (v100)'),
-        ('field_report_delete', 'Supprimer une remontée (v100)'),
-        ('field_report_print', 'Imprimer/Exporter PDF une remontée (v100)'),
+        ('field_report_edit', 'Modifier une remontée'),
+        ('field_report_delete', 'Supprimer une remontée'),
+        ('field_report_print', 'Imprimer/Exporter PDF une remontée'),
     ],
-    'Validation Comptable MG (v100)': [
-        ('mg_compta_validate', 'Valider/refuser les demandes Moyens Généraux côté Comptabilité'),
+    
+    'Sorties de Caisse (workflow signatures)': [
+        ('caisse_sortie', 'Demander une sortie de caisse'),
+        ('caisse_sortie_decision', 'Valider/refuser sorties (3ème signataire — DG ou RH)'),
+        ('caisse_sortie_comptabiliser', 'Comptabiliser le décaissement (Comptable ou DG/RH en secours)'),
+        ('caisse_sortie_refus_compta', 'Refuser à l\'étape décaissement (avec motif)'),
     ],
-    'Demandes Moyens Généraux (v113)': [
-        ('mg_view', 'Voir les demandes MG'),
-        ('mg_demande', 'Créer une demande MG'),
-        ('mg_valider', 'Valider/refuser une demande MG (en interne MG)'),
-        ('mg_gestion', 'Gérer (modifier/supprimer) les demandes MG'),
-    ],
-    'Multi-caisses (v110-v112)': [
+    
+    'Multi-caisses (administration)': [
         ('caisse_view', 'Voir le module Multi-caisses'),
+        ('caisse_multi', 'Multi-caisses (legacy)'),
         ('caisse_create', 'Créer une nouvelle caisse'),
         ('caisse_reset_zero', 'Vider une caisse à zéro (écriture d\'ajustement)'),
         ('caisse_delete', 'Désactiver une caisse (soft delete avec historique)'),
-        ('caisse_purge', 'Suppression DÉFINITIVE d\'une caisse + toutes ses traces (admin & RH)'),
+        ('caisse_purge', 'Suppression DÉFINITIVE d\'une caisse + traces (admin & RH)'),
         ('caisse_purge_all', 'PURGE TOTALE de toutes les caisses (admin uniquement)'),
     ],
-    'Décision Sortie de Caisse (v108-v109)': [
-        ('caisse_sortie_decision', 'Valider/refuser les sorties de caisse (3ème signataire — DG ou RH)'),
-        ('caisse_sortie_comptabiliser', 'Comptabiliser le décaissement final'),
-    ],
-    'Corbeille - Restauration (v112)': [
+    
+    'Corbeille - Restauration': [
         ('corbeille_view', 'Voir la corbeille (éléments supprimés)'),
         ('corbeille_restore', 'Restaurer des éléments depuis la corbeille'),
         ('corbeille_purge', 'Supprimer définitivement des éléments de la corbeille'),
     ],
-    'Backup BDD (v112)': [
+    
+    'Backup BDD': [
         ('backup_view', 'Voir la liste des sauvegardes BDD'),
         ('backup_inspect', 'Inspecter le contenu d\'un backup et récupérer des caisses'),
     ],
-    'Suivi Créances Clients (v92)': [
+    
+    'Suivi Créances Clients': [
+    ],
+    'Suivi Créances Clients': [
         ('creances_view', 'Voir le suivi des créances'),
         ('creances_edit', 'Créer/modifier les créances'),
         ('creances_relance', 'Enregistrer des relances'),
         ('creances_export', 'Exporter PDF/Excel des créances'),
     ],
-    'Général': [
-        ('dashboard', 'Dashboard'),
-        ('dashboard_general', 'Dashboard général'),
-        ('rapports_j', 'Rapports journaliers'),
-        ('chat', 'Chat'),
-        ('informatique', 'Informatique'),
-        ('moyens_generaux', 'Stock lecture'),
-        ('moyens_generaux_edit', 'Stock modification'),
-        ('tracking', 'Tracking GPS véhicules'),
-    ],
-    'Administration': [('admin', 'Admin système')],
 }
 
 # ALL_PERMISSIONS est dérivé automatiquement de PERM_CATEGORIES (source de vérité unique).
@@ -21852,11 +21995,18 @@ def caisse_decision(sid):
 @login_required
 def caisse_comptabiliser(sid):
     from models import get_db
-    """La comptabilité enregistre le décaissement.
-    v114 : Sync automatique au journal de caisse + déduction du solde."""
+    """La comptabilité (ou DG/RH en secours) enregistre le décaissement.
+    v114 : Sync automatique au journal de caisse + déduction du solde.
+    v116 : DG/RH peut décaisser à la place du comptable si celui-ci est absent."""
+    # v116 : contrôle d'accès — comptable OU DG/RH/admin
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur', 'rh'):
+        flash("⚠️ Seuls le comptable, le DG, le directeur, la RH ou l'admin peuvent décaisser une sortie", "error")
+        return redirect(url_for('caisse_sortie'))
+    
     conn = get_db()
-    conn.execute("UPDATE caisse_sorties SET comptabilise=1, comptabilise_at=? WHERE id=? AND status='valide'",
-                 (datetime.now().isoformat(), sid))
+    conn.execute("UPDATE caisse_sorties SET comptabilise=1, comptabilise_at=?, comptabilise_par=? WHERE id=? AND status='valide'",
+                 (datetime.now().isoformat(), user['full_name'], sid))
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
     if s:
         s = dict(s)
@@ -21898,7 +22048,90 @@ def caisse_comptabiliser(sid):
                 f"Sortie {s['reference']} — {s['beneficiaire']}", '658', '571', s['montant'], s['reference'])
         except: pass
     conn.commit(); conn.close()
-    flash("✅ Décaissement comptabilisé — solde caisse mis à jour + journal de caisse + écriture comptable", "success")
+    label = 'comptable' if user['role'] in ('comptable','comptabilite','tresorerie') else ('DG' if user['role'] in ('dg','directeur') else ('RH' if user['role']=='rh' else 'Admin'))
+    flash(f"✅ Décaissement effectué par {label} ({user['full_name']}) — solde caisse mis à jour + journal de caisse + écriture comptable", "success")
+    return redirect(url_for('caisse_sortie'))
+
+
+# v116 : Refus par la comptabilité (à l'étape décaissement)
+# Si la compta estime que la demande validée ne peut pas être décaissée (motif obligatoire)
+@app.route('/caisse-sortie/<int:sid>/refuser-compta', methods=['POST'])
+@login_required
+def caisse_refuser_compta(sid):
+    """v116 : Refus de la sortie par la comptabilité (étape décaissement).
+    Annule la sortie validée précédemment + libère l'écriture comptable.
+    Réservé à : comptable, comptabilite, tresorerie, admin, DG, directeur, RH."""
+    from models import get_db, recompute_budget_spent
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur', 'rh'):
+        flash("⚠️ Seul le comptable, le DG, le directeur, la RH ou l'admin peut refuser un décaissement", "error")
+        return redirect(url_for('caisse_sortie'))
+    motif = (request.form.get('motif', '') or '').strip()
+    if not motif or len(motif) < 5:
+        flash("⚠️ Motif de refus obligatoire (au moins 5 caractères)", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    
+    conn = get_db()
+    s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    if not s:
+        conn.close()
+        flash("Sortie introuvable", "error")
+        return redirect(url_for('caisse_sortie'))
+    s_dict = dict(s)
+    if s_dict.get('status') != 'valide' or s_dict.get('comptabilise'):
+        conn.close()
+        flash("⚠️ Cette sortie ne peut plus être refusée (statut actuel : " + s_dict.get('status','?') + ")", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    
+    # Ajouter les colonnes si manquantes
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN refus_motif TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN refus_par TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN refus_par_role TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN refus_at TEXT")
+    except: pass
+    try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN comptabilise_par TEXT")
+    except: pass
+    
+    role_label = 'Comptable' if user['role'] in ('comptable','comptabilite','tresorerie') else ('DG' if user['role'] in ('dg','directeur') else ('RH' if user['role']=='rh' else 'Admin'))
+    conn.execute("""UPDATE caisse_sorties SET 
+        status='refuse', 
+        refus_motif=?,
+        refus_par=?,
+        refus_par_role=?,
+        refus_at=?
+        WHERE id=?""",
+        (motif, user['full_name'], role_label, datetime.now().isoformat(), sid))
+    conn.commit()
+    
+    # Si budget département : recalculer
+    if s_dict.get('department'):
+        try:
+            budgets = conn.execute("SELECT id FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1",
+                (s_dict['department'],)).fetchall()
+            for b in budgets:
+                try: recompute_budget_spent(b['id'])
+                except: pass
+        except: pass
+    
+    # Notifier le demandeur
+    if s_dict.get('demandeur_id'):
+        try:
+            conn.execute("""INSERT INTO notifications (user_id, title, message, type, link, created_at)
+                VALUES (?,?,?,?,?,datetime('now'))""",
+                (s_dict['demandeur_id'], '❌ Sortie de caisse refusée',
+                 f"Votre demande {s_dict['reference']} a été refusée par {role_label} ({user['full_name']}). Motif : {motif}",
+                 'caisse_refus', f"/caisse-sortie/{sid}/preview"))
+        except: pass
+    
+    conn.commit(); conn.close()
+    
+    log_activity(session['user_id'], user['full_name'], 'Caisse',
+        f"Sortie {s_dict['reference']} REFUSÉE par {role_label} — motif : {motif[:60]}", request.remote_addr)
+    
+    flash(f"❌ Sortie refusée — Motif communiqué au demandeur via notification", "success")
     return redirect(url_for('caisse_sortie'))
 
 @app.route('/caisse-sortie/<int:sid>/edit', methods=['GET','POST'])
@@ -21954,7 +22187,8 @@ def caisse_signer(sid):
     # v115 : Contrôle d'accès par type de signature
     allowed_roles_by_sig = {
         'beneficiaire': None,  # Tout le monde
-        'caisse': ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur'),
+        # v116 : RH peut aussi signer la case caisse en l'absence du comptable
+        'caisse': ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur', 'rh'),
         'autorisation': ('admin', 'dg', 'directeur', 'rh'),  # DG ou RH UNIQUEMENT
     }
     
@@ -22528,6 +22762,8 @@ def rapports_attestation(champ_id):
 @app.route('/comptabilite/pieces')
 @permission_required('comptabilite')
 def pieces_caisse():
+    """v116 : Reçus de paiement — preuves justificatives uniquement, AUCUN impact comptable.
+    L'ancien nom était 'Pièces de caisse' mais provoquait des doubles déductions."""
     conn = _gdb()
     pieces = [dict(r) for r in conn.execute("SELECT * FROM pieces_caisse ORDER BY date DESC").fetchall()]
     # Enrich with caisse names
@@ -22543,7 +22779,10 @@ def pieces_caisse():
 @app.route('/comptabilite/pieces/add', methods=['POST'])
 @permission_required('comptabilite')
 def pieces_caisse_add():
-    ref = f"PC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    """v116 : Enregistrement d'un reçu de paiement = preuve scannée UNIQUEMENT.
+    Plus de déduction de caisse ni d'écriture comptable automatique.
+    Pour comptabiliser une dépense, passer par la sortie de caisse (qui elle déduit)."""
+    ref = f"REC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     file_path = ''
     if 'file' in request.files and request.files['file'].filename:
         f = request.files['file']
@@ -22560,7 +22799,7 @@ def pieces_caisse_add():
     supplier = request.form.get('supplier', '')
     description = request.form.get('description', '')
     date_op = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
-    # Caisse de rattachement
+    # v116 : caisse_id conservé en métadonnée mais NE DÉDUIT PLUS
     caisse_id_raw = request.form.get('caisse_id', '').strip()
     caisse_id = int(caisse_id_raw) if caisse_id_raw.isdigit() else None
     
@@ -22572,55 +22811,14 @@ def pieces_caisse_add():
         caisse_id=caisse_id,
         file_path=file_path, created_by=session['user_id'])
     
-    # Enregistrer aussi un mouvement de sortie sur la caisse choisie
-    caisse_nom = ''
-    if caisse_id:
-        conn_op = _gdb()
-        c_row = conn_op.execute("SELECT name FROM caisses WHERE id=?", (caisse_id,)).fetchone()
-        caisse_nom = c_row['name'] if c_row else ''
-        try:
-            conn_op.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by)
-                VALUES (?,?,?,?,?,?,?)""",
-                (caisse_id, 'sortie', amount,
-                 f"Dépense {ref} — {description[:40]}" + (f" ({supplier})" if supplier else ""),
-                 ref, category, session['user_id']))
-            # Update caisse balance
-            conn_op.execute("UPDATE caisses SET solde_actuel = solde_actuel - ? WHERE id=?", (amount, caisse_id))
-        except Exception: pass
-        conn_op.commit(); conn_op.close()
-    
-    # ==== AUTO-ÉCRITURE COMPTABLE (SYSCOHADA partie double) ====
-    cat_to_account = {
-        'achat':'601', 'achats':'601',
-        'fournisseur':'401', 'fournisseurs':'401',
-        'transport':'611', 'carburant':'611',
-        'services':'624', 'entretien':'624', 'maintenance':'624',
-        'loyer':'622',
-        'fourniture':'605', 'fournitures':'605',
-        'electricite':'606', 'eau':'606', 'telephone':'626', 'internet':'626',
-        'publicite':'627', 'marketing':'627',
-        'impots':'641', 'taxes':'641',
-        'personnel':'661', 'salaire':'661', 'salaires':'661',
-        'banque':'627', 'frais_bancaire':'627',
-        'divers':'658', 'autre':'658', 'autres':'658',
-    }
-    debit_account = cat_to_account.get(category.lower().replace(' ','_'), '658')
-    # Si un fournisseur est renseigné, on crédite 401 (dette fournisseur) sinon 571 (caisse directe)
-    credit_account = '401' if supplier else '571'
-    try:
-        conn2 = _gdb()
-        libelle = f"Dépense {ref} — {description[:40]}"
-        if supplier: libelle += f" ({supplier})"
-        if caisse_nom: libelle += f" · Caisse {caisse_nom}"
-        auto_ecriture(conn2, date_op, libelle, debit_account, credit_account, amount, ref)
-        conn2.commit(); conn2.close()
-    except Exception as e:
-        pass
+    # v116 : SUPPRIMÉ — Plus de déduction sur la caisse rattachée
+    # v116 : SUPPRIMÉ — Plus d'écriture comptable automatique
+    # Le reçu est uniquement une PREUVE numérisée d'une transaction déjà comptabilisée ailleurs.
     
     user = get_user_by_id(session['user_id'])
-    log_activity(session['user_id'], user['full_name'] if user else '?', 'Caisse',
-                 f"Pièce {ref} — {amount:,.0f} F (compte {debit_account}){' - Caisse '+caisse_nom if caisse_nom else ''}", request.remote_addr)
-    flash(f"Pièce {ref} — {amount:,.0f} F enregistrée (écriture : {debit_account} → {credit_account}){' · caisse ' + caisse_nom if caisse_nom else ''}", "success")
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Reçu',
+                 f"Reçu {ref} — {amount:,.0f} F (preuve uniquement, pas d'impact comptable)", request.remote_addr)
+    flash(f"📎 Reçu {ref} — {amount:,.0f} F enregistré comme preuve justificative (aucun impact sur la caisse ni la comptabilité)", "success")
     return redirect('/comptabilite/pieces')
 
 @app.route('/comptabilite/pieces/edit/<int:pid>', methods=['GET','POST'])
