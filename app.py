@@ -3680,6 +3680,9 @@ def traitement_generate():
         pdf_name = f"{base}_RAPPORT_DE_PRESENCE.pdf"
         output_path = os.path.join(job_dir, pdf_name)
         
+        # v126 : Lire le checkbox d'inversion auto (par défaut désactivé)
+        _auto_inv_night = str(request.form.get('auto_invert_night', '')).strip().lower() in ('1', 'true', 'on', 'yes')
+        
         generate_full_pdf(emps, output_path, provider_name, provider_info,
                          client_name, period, logo_path, hp=hp, client_info=client_info,
                          work_dir=job_dir, hp_weekend=hp_weekend, hourly_cost=hourly_cost,
@@ -3688,7 +3691,8 @@ def traitement_generate():
                          days_required_default=days_required_default,
                          employee_days_required=employee_days_required,
                          employee_hours=employee_hours,
-                         pause_minutes=global_pause_minutes)
+                         pause_minutes=global_pause_minutes,
+                         auto_invert_night=_auto_inv_night)
         
         if not os.path.exists(output_path):
             flash("Erreur génération PDF", "error")
@@ -26115,6 +26119,9 @@ def pharma_generate():
         provider_info = ''
         client_info = ''
         
+        # v126 : Lire le checkbox d'inversion auto (par défaut désactivé)
+        _auto_inv_night_pharma = str(request.form.get('auto_invert_night', '')).strip().lower() in ('1', 'true', 'on', 'yes')
+        
         generate_full_pdf(
             emps, tmp_out, provider_name, provider_info,
             pharmacy_name, period_str,
@@ -26124,6 +26131,7 @@ def pharma_generate():
             rest_days=rest_days_int,
             days_required_default=days_required_default,
             pause_minutes=global_pause_minutes,
+            auto_invert_night=_auto_inv_night_pharma,
         )
         
         # === v73 : Récap Pharmacie OPTIONNEL (checkbox dans le formulaire) ===

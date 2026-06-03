@@ -298,6 +298,24 @@
         </p>
     </div>
     
+    <!-- v126 : Option Inversion automatique poste de nuit -->
+    <div class="step" style="background:linear-gradient(135deg,#e3f2fd 0%,#bbdefb 100%);padding:14px;border-radius:10px;border-left:5px solid #1565c0;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <span style="background:#1565c0;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700">🌙</span>
+            <strong style="color:#0d47a1">Détection automatique des postes de nuit</strong>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px;color:#0d47a1;padding:8px;background:#fff;border-radius:6px">
+            <input type="checkbox" id="autoInvertNight" name="auto_invert_night" value="1" style="width:18px;height:18px;cursor:pointer">
+            <span>🔄 Inverser automatiquement l'EDT en poste de nuit si détecté</span>
+        </label>
+        <p style="font-size:11px;color:#666;margin:6px 0 0 4px">
+            <strong>Décoché par défaut.</strong> Si activé : quand le système détecte qu'un employé fait un poste de nuit
+            (arrivée ≥ 18:00 ET départ matin < 12:00) mais que l'EDT saisi est un EDT de jour (ex: 07:00-20:00),
+            il l'inversera automatiquement en 20:00-07:00 pour ce jour-là.
+            <strong>Ne s'applique que jour par jour</strong> — les autres jours du même employé ne sont pas affectés.
+        </p>
+    </div>
+    
     <!-- Submit -->
     <div style="margin-top:16px">
         <button type="submit" class="btn btn-orange btn-block" id="submitBtn" disabled style="padding:14px;font-size:16px;background:#7b1fa2;color:#fff">

@@ -170,13 +170,16 @@ def extract_from_excel(xlsx_path):
 
 def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
                          days_required_override=None, period_total_days=None,
-                         pause_minutes=0):
+                         pause_minutes=0, auto_invert_night=False):
     """Calcule les statistiques complètes d'un employé. 
     rest_days=liste des jours de repos (0=lundi..6=dimanche).
     days_required_override : si fourni, force le nombre de jours obligatoires (sinon calcul auto).
     period_total_days : si fourni, utilise ce total commun à TOUS les employés au lieu
     de len(records) qui varie par employé (cas où l'Excel a des dates manquantes pour
-    certains employés)."""
+    certains employés).
+    v126 : auto_invert_night : si True, inverse automatiquement l'EDT de jour en EDT
+    de nuit quand les pointages indiquent clairement un poste de nuit
+    (arrivée >= 18:00 ET départ < 12:00). Désactivé par défaut."""
     if rest_days is None: rest_days = []
     records = emp['records']
     total_required = 0
@@ -218,6 +221,23 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
         ad = t2m(rec['departure'])
         dur = t2m(rec['duration'])
         
+        # v126 : INVERSION AUTOMATIQUE EDT pour poste de nuit détecté (OPTIONNEL)
+        # Cette inversion s'active SEULEMENT si `auto_invert_night=True` (bouton coché).
+        # Conditions strictes pour éviter les faux positifs :
+        #   - arrivée >= 18:00 (1080 min) : vraiment en soirée
+        #   - départ > 0 ET départ < 12:00 (720 min) : vraiment le matin du lendemain
+        #   - planning saisi est de jour (ss < se, ex: 07:00-20:00)
+        # Si les 3 conditions sont remplies, inverser : 07:00-20:00 → 20:00-07:00.
+        night_swap_applied = False
+        if auto_invert_night:
+            is_night_shift_detected = (aa >= 1080 and ad > 0 and ad < 720)
+            is_planning_already_night = (ss > 0 and se > 0 and ss > se)
+            if is_night_shift_detected and not is_planning_already_night and ss > 0 and se > 0:
+                # Inversion : ce qui était début devient fin, et vice-versa
+                ss, se = se, ss
+                eff_start, eff_end = eff_end, eff_start
+                night_swap_applied = True
+        
         # Déterminer le jour de la semaine
         is_weekend = False
         is_rest_day = False
@@ -253,14 +273,16 @@ def calc_employee_stats(emp, hp=0, hp_weekend=0, hourly_cost=0, rest_days=None,
         if not is_rest_day:
             total_required += required
         
-        # v124 : Affichage = priorité à la saisie EXPLICITE de l'utilisateur (matched),
-        # sinon EDT d'origine du fichier. Cohérent avec le calcul.
+        # v124 + v125 : Affichage = priorité à la saisie EXPLICITE de l'utilisateur (matched),
+        # sinon EDT d'origine du fichier. Si swap nuit détecté → inverser l'affichage aussi.
         display_start = (rec.get('sched_start_matched')
                          or rec.get('sched_start_original')
                          or rec.get('sched_start', ''))
         display_end = (rec.get('sched_end_matched')
                        or rec.get('sched_end_original')
                        or rec.get('sched_end', ''))
+        if night_swap_applied:
+            display_start, display_end = display_end, display_start
         schedule_str = f"({display_start}_{display_end})"
         
         # Déterminer l'état
@@ -1368,7 +1390,7 @@ def gen_simple_pages(story, emps, all_stats, S, provider_name, provider_info, cl
 
 # ======================== GENERATION PDF COMPLETE ========================
 
-def generate_full_pdf(emps, output_path, provider_name, provider_info, client_name, period, logo_path=None, hp=0, client_info="", work_dir=None, hp_weekend=0, hourly_cost=0, employee_costs=None, rest_days=None, employee_rest_days=None, days_required_default=None, employee_days_required=None, employee_hours=None, pause_minutes=0):
+def generate_full_pdf(emps, output_path, provider_name, provider_info, client_name, period, logo_path=None, hp=0, client_info="", work_dir=None, hp_weekend=0, hourly_cost=0, employee_costs=None, rest_days=None, employee_rest_days=None, days_required_default=None, employee_days_required=None, employee_hours=None, pause_minutes=0, auto_invert_night=False):
     if not employee_costs: employee_costs = {}
     if rest_days is None: rest_days = []
     if employee_rest_days is None: employee_rest_days = {}
@@ -1414,7 +1436,8 @@ def generate_full_pdf(emps, output_path, provider_name, provider_info, client_na
         all_stats.append(calc_employee_stats(emp, emp_hp, hp_weekend, emp_cost, rest_days=emp_rest,
                                              days_required_override=emp_days_req,
                                              period_total_days=period_total_days,
-                                             pause_minutes=pause_minutes))
+                                             pause_minutes=pause_minutes,
+                                             auto_invert_night=auto_invert_night))
     
     # 1. Rapports individuels
     # v73 : afficher les colonnes Pause uniquement si la pause est activée
