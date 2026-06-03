@@ -1392,6 +1392,85 @@ except Exception as _e:
     print(f"[v114-Backfill] Erreur : {_e}", flush=True)
 
 
+# v115 : Sync caisses.solde_actuel avec le calcul réel (toujours, à chaque démarrage)
+# pour garantir cohérence avec les caisse_operations
+try:
+    from models import get_db as _v115_db
+    _v115 = _v115_db()
+    caisses_rows = _v115.execute("SELECT id, name, solde_initial FROM caisses").fetchall()
+    nb_synced = 0
+    for ca in caisses_rows:
+        cid = ca['id']
+        entrees = _v115.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (cid,)).fetchone()[0] or 0
+        sorties = _v115.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (cid,)).fetchone()[0] or 0
+        trans_in = _v115.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'", (cid,)).fetchone()[0] or 0
+        trans_out = _v115.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'", (cid,)).fetchone()[0] or 0
+        solde_reel = float(ca['solde_initial'] or 0) + float(entrees) + float(trans_in) - float(sorties) - float(trans_out)
+        old_row = _v115.execute("SELECT solde_actuel FROM caisses WHERE id=?", (cid,)).fetchone()
+        old_solde = float(old_row['solde_actuel'] or 0) if old_row else 0
+        if abs(old_solde - solde_reel) > 0.01:
+            _v115.execute("UPDATE caisses SET solde_actuel=? WHERE id=?", (solde_reel, cid))
+            nb_synced += 1
+    _v115.commit()
+    _v115.close()
+    if nb_synced > 0:
+        print(f"[v115-SoldeSync] {nb_synced} caisse(s) avec solde_actuel resynchronisé depuis les opérations", flush=True)
+except Exception as _e:
+    print(f"[v115-SoldeSync] Erreur : {_e}", flush=True)
+
+
+# v115 : Enrichissement du plan comptable existant — ajouter les sous-comptes manquants
+# (pour bilan comptable fonctionnel sur BDD existantes)
+try:
+    from models import get_db as _v115pc_db
+    _v115pc = _v115pc_db()
+    flag = _v115pc.execute("SELECT value FROM app_settings WHERE key='v115_plan_comptable_enriched'").fetchone()
+    if not flag:
+        comptes_add = [
+            # Sous-comptes Trésorerie
+            ('571','Caisse principale','actif','tresorerie','5'),
+            ('521','Banque locale','actif','tresorerie','5'),
+            ('580','Virements de fonds (interne)','actif','tresorerie','5'),
+            # Sous-comptes Charges (65*)
+            ('658','Charges diverses de gestion','passif','charges','6'),
+            ('601','Achats de marchandises','passif','charges','6'),
+            ('602','Achats matières premières','passif','charges','6'),
+            ('604','Achats stockés (fournitures)','passif','charges','6'),
+            ('605','Autres achats','passif','charges','6'),
+            ('612','Transport sur ventes','passif','charges','6'),
+            ('622','Locations','passif','charges','6'),
+            ('625','Entretien et réparations','passif','charges','6'),
+            ('626','Primes d\'assurance','passif','charges','6'),
+            ('632','Honoraires','passif','charges','6'),
+            ('661','Rémunérations directes','passif','charges','6'),
+            ('664','Charges sociales','passif','charges','6'),
+            # Sous-comptes Produits (75*)
+            ('758','Produits divers de gestion','actif','produits','7'),
+            ('701','Ventes de marchandises','actif','produits','7'),
+            ('706','Services vendus','actif','produits','7'),
+            # TVA
+            ('443','État TVA collectée','passif','dettes_circulant','4'),
+        ]
+        nb_added = 0
+        for num, lib, typ, cat, cls in comptes_add:
+            exists = _v115pc.execute("SELECT 1 FROM plan_comptable WHERE numero=?", (num,)).fetchone()
+            if not exists:
+                try:
+                    _v115pc.execute("INSERT INTO plan_comptable (numero, libelle, type, categorie, classe) VALUES (?,?,?,?,?)",
+                        (num, lib, typ, cat, cls))
+                    nb_added += 1
+                except: pass
+        _v115pc.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v115_plan_comptable_enriched', '1', datetime('now'))")
+        _v115pc.commit()
+        if nb_added > 0:
+            print(f"[v115-PlanComp] {nb_added} sous-compte(s) ajouté(s) au plan comptable", flush=True)
+        else:
+            print(f"[v115-PlanComp] Plan comptable déjà complet", flush=True)
+    _v115pc.close()
+except Exception as _e:
+    print(f"[v115-PlanComp] Erreur : {_e}", flush=True)
+
+
 # v114 : Helper pour récupérer l'id de la caisse de fonctionnement
 def get_caisse_fonctionnement_id():
     """Retourne l'id de la caisse de fonctionnement (créée auto par v114)."""
@@ -1405,6 +1484,39 @@ def get_caisse_fonctionnement_id():
             return int(row['value'])
     except: pass
     return None
+
+
+# v115 : Helper unifié pour calculer le solde de la caisse de fonctionnement
+# UNIQUE source de vérité : caisses.solde_initial + caisse_operations (entrées - sorties)
+def get_caisse_fonctionnement_solde():
+    """v115 : Calcule UNE SEULE FOIS le solde de la caisse de fonctionnement.
+    Évite les divergences entre les différentes interfaces.
+    Source de vérité : solde_initial + Σ entrées - Σ sorties depuis caisse_operations."""
+    cf_id = get_caisse_fonctionnement_id()
+    if not cf_id: return 0.0
+    try:
+        from models import get_db as _gdb_helper
+        conn = _gdb_helper()
+        row = conn.execute("SELECT solde_initial FROM caisses WHERE id=?", (cf_id,)).fetchone()
+        solde_init = float(row['solde_initial'] or 0) if row else 0
+        entrees = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'",
+            (cf_id,)).fetchone()[0] or 0
+        sorties = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'",
+            (cf_id,)).fetchone()[0] or 0
+        # v115 : aussi prendre les transferts (in et out)
+        trans_in = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'",
+            (cf_id,)).fetchone()[0] or 0
+        trans_out = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'",
+            (cf_id,)).fetchone()[0] or 0
+        conn.close()
+        return solde_init + float(entrees) + float(trans_in) - float(sorties) - float(trans_out)
+    except Exception as _e:
+        print(f"[v115] Erreur calcul solde caisse fonct: {_e}", flush=True)
+        return 0.0
 
 
 from models import migrate_v15
@@ -21442,9 +21554,13 @@ def caisse_sortie():
     for s in sorties:
         s['caisse_name'] = caisses_map.get(s.get('caisse_id'), '') if hasattr(s, 'get') else ''
     conn.close()
+    
+    # v115 : Solde unifié de la caisse de fonctionnement
+    solde_caisse_fonct = get_caisse_fonctionnement_solde()
+    
     return render_template('caisse_sortie.html', page='caisse_sortie', sorties=sorties, stats=stats, month=month,
         tab=tab, entrees=entrees, total_entrees=total_entrees, caisses=caisses,
-        voit_tout=voit_tout)
+        voit_tout=voit_tout, solde_caisse_fonct=solde_caisse_fonct)
 
 @app.route('/caisse-sortie/demande', methods=['GET','POST'])
 @login_required
@@ -21504,19 +21620,17 @@ def caisse_demande():
                     'Caisse', f"Demande sortie {ref} — {montant:,.0f} F", request.remote_addr)
         flash(f"Demande de sortie de caisse {ref} envoyée au DG pour validation", "success")
         return redirect(url_for('caisse_sortie'))
-    # GET : passer la caisse de fonctionnement au template (v114)
+    # GET : passer la caisse de fonctionnement au template (v114 + v115)
     conn = _gdb()
     caisses = [dict(r) for r in conn.execute("SELECT * FROM caisses WHERE is_active=1 ORDER BY name").fetchall()]
     cf_id = get_caisse_fonctionnement_id()
     caisse_fonct = None
     if cf_id:
-        # Recalculer le solde réel
         cf_row = conn.execute("SELECT * FROM caisses WHERE id=?", (cf_id,)).fetchone()
         if cf_row:
             caisse_fonct = dict(cf_row)
-            entrees = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (cf_id,)).fetchone()[0]
-            sorties = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (cf_id,)).fetchone()[0]
-            caisse_fonct['solde_actuel'] = (caisse_fonct.get('solde_initial') or 0) + entrees - sorties
+            # v115 : utiliser la fonction unifiée pour éviter les divergences
+            caisse_fonct['solde_actuel'] = get_caisse_fonctionnement_solde()
     conn.close()
     return render_template('caisse_demande.html', page='caisse_sortie', caisses=caisses, caisse_fonct=caisse_fonct)
 
@@ -21823,15 +21937,49 @@ def caisse_preview(sid):
 @app.route('/caisse-sortie/<int:sid>/signer', methods=['POST'])
 @login_required
 def caisse_signer(sid):
-    """Enregistre la signature (base64 canvas) dans une colonne dédiée."""
+    """v115 : Enregistre la signature (base64 canvas) dans une colonne dédiée.
+    Restreint par TYPE de signature et RÔLE de l'utilisateur :
+    - beneficiaire : tout utilisateur connecté (demandeur / bénéficiaire)
+    - caisse (contrôle caissier) : comptable, comptabilité, trésorerie, admin
+    - autorisation (DG/RH 3ème signataire) : admin, dg, directeur, rh UNIQUEMENT
+    """
     from models import get_db
+    user = get_user_by_id(session['user_id'])
+    if not user:
+        flash("Session expirée", "error")
+        return redirect(url_for('login'))
     sig_type = request.form.get('type', 'beneficiaire')
     sig_data = request.form.get('signature', '')
+    
+    # v115 : Contrôle d'accès par type de signature
+    allowed_roles_by_sig = {
+        'beneficiaire': None,  # Tout le monde
+        'caisse': ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur'),
+        'autorisation': ('admin', 'dg', 'directeur', 'rh'),  # DG ou RH UNIQUEMENT
+    }
+    
+    if sig_type not in allowed_roles_by_sig:
+        flash(f"⚠️ Type de signature invalide : {sig_type}", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    
+    allowed = allowed_roles_by_sig[sig_type]
+    if allowed is not None and user['role'] not in allowed:
+        if sig_type == 'autorisation':
+            flash(f"⚠️ La signature « Autorisation » est réservée au DG, au directeur, à la RH ou à l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
+        elif sig_type == 'caisse':
+            flash(f"⚠️ La signature « Caissier (contrôle) » est réservée à la comptabilité, la trésorerie ou l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
+        else:
+            flash(f"⚠️ Vous n'êtes pas autorisé à apposer cette signature ({user['role']})", "error")
+        return redirect(f'/caisse-sortie/{sid}/preview')
+    
     if sig_data and sig_type in ('beneficiaire', 'caisse', 'autorisation'):
         conn = get_db()
         conn.execute(f"UPDATE caisse_sorties SET sig_{sig_type}=? WHERE id=?", (sig_data, sid))
         conn.commit(); conn.close()
-        flash(f"Signature {sig_type} enregistrée ✓", "success")
+        log_activity(session['user_id'], user['full_name'], 'Caisse',
+            f"Signature {sig_type} apposée sur sortie #{sid} (rôle: {user['role']})", request.remote_addr)
+        label_map = {'beneficiaire':'Bénéficiaire', 'caisse':'Caissier (contrôle)', 'autorisation':'Autorisation (DG/RH)'}
+        flash(f"✅ Signature « {label_map.get(sig_type, sig_type)} » enregistrée", "success")
     return redirect(f'/caisse-sortie/{sid}/preview')
 
 @app.route('/caisse-sortie/<int:sid>/delete')
@@ -23782,11 +23930,10 @@ def compta_demandes_mg():
     
     conn.close()
     
-    # v107 : Solde de la caisse de fonctionnement pour aide à la décision
+    # v107 + v115 : Solde de la caisse de fonctionnement (calcul UNIFIÉ)
     solde_caisse = 0
     try:
-        from models import tresorerie_solde_caisse
-        solde_caisse = float(tresorerie_solde_caisse() or 0)
+        solde_caisse = get_caisse_fonctionnement_solde()
     except: pass
     
     return render_template('compta_demandes_mg.html', page='compta_demandes_mg',
@@ -23818,11 +23965,10 @@ def compta_demande_mg_preview(did):
     
     conn.close()
     
-    # v107 : Solde caisse pour aide à la décision
+    # v107 + v115 : Solde caisse pour aide à la décision (calcul UNIFIÉ)
     solde_caisse = 0
     try:
-        from models import tresorerie_solde_caisse
-        solde_caisse = float(tresorerie_solde_caisse() or 0)
+        solde_caisse = get_caisse_fonctionnement_solde()
     except: pass
     
     return render_template('compta_demande_mg_preview.html', page='compta_demandes_mg',

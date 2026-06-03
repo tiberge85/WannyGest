@@ -83,26 +83,40 @@
                 <img src="{{ s.sig_caisse }}" alt="Signature caisse">
                 <div style="font-size:10px;color:#2e7d32;margin-top:4px">✅ Signé</div>
             {% else %}
+                {# v115 : signature caisse réservée à comptable / comptabilité / trésorerie / admin #}
+                {% if current_user.role in ('admin','comptable','comptabilite','tresorerie','dg','directeur') %}
                 <canvas class="sig-canvas" id="sigCaisse"></canvas>
                 <div class="sig-actions">
                     <button class="btn btn-outline btn-sm" style="font-size:10px" onclick="clearCanvas('sigCaisse')">Effacer</button>
                     <button class="btn btn-green btn-sm" style="font-size:10px" onclick="submitSig('caisse','sigCaisse')">✍️ Signer</button>
                 </div>
+                {% else %}
+                <div style="background:#fff3e0;padding:8px;border-radius:6px;font-size:10px;color:#7a4a00;text-align:center;border:1px dashed #f29f2f">
+                    ⏳ En attente signature<br>du Caissier / Comptable
+                </div>
+                {% endif %}
             {% endif %}
         </div>
         
-        <!-- v108 : Autorisation (DG ou RH) — le 3ème signataire peut être l'un ou l'autre -->
+        <!-- v108 + v115 : Autorisation (DG ou RH) — UNIQUEMENT par admin, dg, directeur, rh -->
         <div class="sig-box">
             <h4>Autorisation (DG ou RH)</h4>
             {% if s.sig_autorisation %}
                 <img src="{{ s.sig_autorisation }}" alt="Signature autorisation">
                 <div style="font-size:10px;color:#2e7d32;margin-top:4px">✅ Signé{% if s.valideur_name %} par {{ s.valideur_name }}{% endif %}{% if s.valideur_role %} ({{ s.valideur_role }}){% endif %}</div>
             {% else %}
+                {# v115 : signature autorisation strictement réservée à admin/dg/directeur/rh #}
+                {% if current_user.role in ('admin','dg','directeur','rh') %}
                 <canvas class="sig-canvas" id="sigAuth"></canvas>
                 <div class="sig-actions">
                     <button class="btn btn-outline btn-sm" style="font-size:10px" onclick="clearCanvas('sigAuth')">Effacer</button>
                     <button class="btn btn-green btn-sm" style="font-size:10px" onclick="submitSig('autorisation','sigAuth')">✍️ Signer (DG ou RH)</button>
                 </div>
+                {% else %}
+                <div style="background:#ffebee;padding:8px;border-radius:6px;font-size:10px;color:#7f1d1d;text-align:center;border:1px dashed #c53030">
+                    🔒 Réservé à la <strong>Direction Générale</strong><br>ou à la <strong>Ressources Humaines</strong>
+                </div>
+                {% endif %}
             {% endif %}
         </div>
     </div>
