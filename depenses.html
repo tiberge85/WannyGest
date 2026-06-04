@@ -117,7 +117,7 @@
 <form method="post" action="/depenses/add">
     <div class="form-row">
         <div class="form-group"><label>Date *</label><input type="date" name="date" value="{{ today }}" required></div>
-        <div class="form-group"><label>Montant (F) *</label><input type="number" name="amount" step="100" min="1" required></div>
+        <div class="form-group"><label>Montant (F) *</label><input type="number" name="amount" step="1" min="0" required></div>
     </div>
     <div class="form-row">
         <div class="form-group"><label>Catégorie</label>
@@ -145,7 +145,7 @@
     </div>
     <div class="form-row">
         <div class="form-group"><label>Date *</label><input type="date" name="date" id="editDate" required></div>
-        <div class="form-group"><label>Montant (F) *</label><input type="number" name="amount" id="editAmount" step="100" min="1" required></div>
+        <div class="form-group"><label>Montant (F) *</label><input type="number" name="amount" id="editAmount" step="1" min="0" required></div>
     </div>
     <div class="form-row">
         <div class="form-group"><label>Catégorie</label><input type="text" name="category" id="editCategory" list="cats"></div>

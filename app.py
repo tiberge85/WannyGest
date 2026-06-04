@@ -25621,6 +25621,60 @@ def fournisseur_delete(sid):
     return redirect(url_for('fournisseurs_list'))
 
 
+# v134 : Admin peut supprimer DÉFINITIVEMENT un fournisseur (hard delete)
+@app.route('/fournisseurs/<int:sid>/hard-delete', methods=['POST'])
+@permission_required('admin')
+def fournisseur_hard_delete(sid):
+    """v134 : Admin peut supprimer définitivement un fournisseur de la BDD.
+    ATTENTION : suppression irréversible. Les achats liés sont aussi supprimés."""
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    if not user or user['role'] != 'admin':
+        flash("⚠️ Réservé à l'admin", "error")
+        return redirect('/fournisseurs')
+    
+    conn = _gdb()
+    try:
+        # Récupérer info pour snapshot
+        sup = conn.execute("SELECT * FROM suppliers WHERE id=?", (sid,)).fetchone()
+        if not sup:
+            flash("Fournisseur introuvable", "error")
+            conn.close()
+            return redirect('/fournisseurs')
+        
+        nom = sup['nom']
+        
+        # 1. Snapshot dans la corbeille
+        try:
+            import json
+            sup_dict = dict(sup)
+            try:
+                purchases = [dict(r) for r in conn.execute("SELECT * FROM supplier_purchases WHERE supplier_id=?", (sid,)).fetchall()]
+            except: purchases = []
+            sup_dict['_linked_purchases'] = purchases
+            conn.execute("""INSERT INTO trash_snapshots (entity_type, entity_id, entity_name, snapshot_json, deleted_by, deleted_by_name, deleted_at)
+                VALUES ('fournisseur', ?, ?, ?, ?, ?, datetime('now'))""",
+                (sid, nom, json.dumps(sup_dict, default=str), session['user_id'], user['full_name']))
+        except Exception as _e: print(f"[v134] snapshot fournisseur err : {_e}", flush=True)
+        
+        # 2. Supprimer les achats liés
+        try: conn.execute("DELETE FROM supplier_purchases WHERE supplier_id=?", (sid,))
+        except: pass
+        
+        # 3. Supprimer le fournisseur lui-même
+        conn.execute("DELETE FROM suppliers WHERE id=?", (sid,))
+        conn.commit()
+        
+        log_activity(session['user_id'], user['full_name'], 'Fournisseur',
+            f"Suppression DÉFINITIVE fournisseur #{sid} ({nom})", request.remote_addr)
+        
+        flash(f"🗑️ Fournisseur « {nom} » supprimé définitivement (et tous ses achats liés). Snapshot sauvegardé dans la corbeille.", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    finally:
+        conn.close()
+    return redirect('/fournisseurs')
+
+
 @app.route('/fournisseurs/export.csv')
 @permission_required_any('fournisseurs', 'admin')
 def fournisseurs_export_csv():
@@ -28385,6 +28439,75 @@ def tresorerie_caisse():
                           mouvements=mouvements, solde=solde, can_edit=can_edit,
                           date_from=date_from, date_to=date_to, sens_filter=sens_filter,
                           today=datetime.now().strftime('%Y-%m-%d'))
+
+
+# v134 : Admin peut supprimer définitivement un mouvement du journal de caisse/banque
+# Le solde est automatiquement réajusté (recrédit du compte débité ou retrait du compte crédité)
+# car les soldes sont calculés dynamiquement depuis tresorerie_mouvements.
+@app.route('/tresorerie/mouvement/<int:mid>/delete', methods=['POST'])
+@permission_required('admin')
+def tresorerie_mouvement_delete(mid):
+    """v134 : Admin supprime un mouvement du journal (caisse ou banque).
+    Comme le solde est calculé dynamiquement à partir des mouvements existants,
+    la suppression annule l'effet financier de l'opération de fait."""
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    if not user or user['role'] != 'admin':
+        flash("⚠️ Réservé à l'admin", "error")
+        return redirect(request.referrer or '/tresorerie/caisse')
+    
+    conn = _gdb()
+    try:
+        m = conn.execute("SELECT * FROM tresorerie_mouvements WHERE id=?", (mid,)).fetchone()
+        if not m:
+            flash("Mouvement introuvable", "error")
+            conn.close()
+            return redirect(request.referrer or '/tresorerie/caisse')
+        
+        m_dict = dict(m)
+        montant = m_dict.get('montant', 0)
+        sens = m_dict.get('sens', '')
+        type_mvt = m_dict.get('type', '')
+        libelle = m_dict.get('libelle', '')
+        ref = m_dict.get('reference', '')
+        ecriture_id = m_dict.get('ecriture_id')
+        
+        # 1. Snapshot dans la corbeille pour audit/restauration
+        try:
+            import json
+            conn.execute("""INSERT INTO trash_snapshots (entity_type, entity_id, entity_name, snapshot_json, deleted_by, deleted_by_name, deleted_at)
+                VALUES ('tresorerie_mouvement', ?, ?, ?, ?, ?, datetime('now'))""",
+                (mid, f"{libelle} ({montant:,.0f} F)", json.dumps(m_dict, default=str),
+                 session['user_id'], user['full_name']))
+        except Exception as _e: print(f"[v134] snapshot err : {_e}", flush=True)
+        
+        # 2. Si liée à une opération de caisse multi-caisses, marquer aussi
+        if ref:
+            try:
+                conn.execute("UPDATE caisse_operations SET reference=reference||' (mvt journal supprimé)' WHERE reference=?", (ref,))
+            except: pass
+        
+        # 3. Si liée à une écriture comptable en brouillard, la supprimer aussi
+        if ecriture_id:
+            try:
+                ec = conn.execute("SELECT statut FROM ecritures_comptables WHERE id=?", (ecriture_id,)).fetchone()
+                if ec and ec['statut'] in ('brouillard', 'brouillon', None):
+                    conn.execute("DELETE FROM ecritures_comptables WHERE id=?", (ecriture_id,))
+            except: pass
+        
+        # 4. Suppression du mouvement
+        conn.execute("DELETE FROM tresorerie_mouvements WHERE id=?", (mid,))
+        conn.commit()
+        
+        log_activity(session['user_id'], user['full_name'], 'Trésorerie',
+            f"Suppression mouvement #{mid} ({type_mvt}, {sens}, {montant:,.0f} F) — {libelle}",
+            request.remote_addr)
+        
+        flash(f"🗑️ Mouvement #{mid} supprimé ({montant:,.0f} F). Le solde est recalculé automatiquement.", "success")
+    except Exception as e:
+        flash(f"❌ Erreur suppression : {e}", "error")
+    finally:
+        conn.close()
+    return redirect(request.referrer or '/tresorerie/caisse')
 
 
 @app.route('/tresorerie/banque', methods=['GET', 'POST'])

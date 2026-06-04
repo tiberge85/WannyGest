@@ -3219,6 +3219,11 @@ function filterRecent() {
                     <button type="submit" class="btn btn-sm" style="background:#888;color:#fff;font-size:10px" title="Archiver">🗄️</button>
                 {% endif %}
             </form>
+            {# v134 : Suppression définitive admin uniquement #}
+            <form method="post" action="/fournisseurs/{{ s.id }}/hard-delete" style="display:inline"
+                onsubmit="return confirm('⚠️ ATTENTION — Suppression DÉFINITIVE\n\nFournisseur : {{ s.nom|e }}\n\nCette action :\n- Supprime le fournisseur de la BDD\n- Supprime tous les achats liés à ce fournisseur\n- Est IRRÉVERSIBLE (mais un snapshot est conservé dans la corbeille)\n\nÊtes-vous absolument sûr ?');">
+                <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px" title="🗑️ Supprimer définitivement (admin uniquement)">🗑️</button>
+            </form>
         {% endif %}
     </td>
 </tr>
@@ -3389,7 +3394,7 @@ function filterRecent() {
         <div><label style="font-size:11px;color:#888;display:block">Département</label>
             <input name="departement" id="ep_dept" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Montant (F)</label>
-            <input type="number" name="montant_total" id="ep_montant" step="100" min="0" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+            <input type="number" name="montant_total" id="ep_montant" step="1" min="0" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
     </div>
     <div style="margin-bottom:10px">
         <label style="font-size:11px;color:#888;display:block">Notes</label>
@@ -5018,7 +5023,7 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
         <div><label style="font-size:11px;color:#888;display:block">Date *</label>
             <input type="date" name="date" required value="{{ today }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Montant (F CFA) *</label>
-            <input type="number" name="montant" required step="100" min="1" placeholder="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+            <input type="number" name="montant" required step="1" min="0" placeholder="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
         <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Libellé *</label>
             <input name="libelle" required placeholder="Ex: Encaissement client X / Achat fournitures" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Compte contrepartie (SYSCOHADA)</label>
@@ -5046,7 +5051,7 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
 <div class="tr-card" style="padding:0;overflow:auto">
 {% if mouvements %}
 <table class="tr-table">
-<thead><tr><th>Date</th><th>Sens</th><th>Libellé</th><th>Référence</th><th>Source</th><th>Montant</th><th>Compta</th></tr></thead>
+<thead><tr><th>Date</th><th>Sens</th><th>Libellé</th><th>Référence</th><th>Source</th><th>Montant</th><th>Compta</th>{% if current_user and current_user.role == 'admin' %}<th>Actions</th>{% endif %}</tr></thead>
 <tbody>
 {% for m in mouvements %}
 <tr>
@@ -5057,6 +5062,14 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
     <td style="font-size:10px;color:#888">{{ m.source }}</td>
     <td class="num-cell" style="color:{% if m.sens == 'entree' %}#2e7d32{% else %}#c53030{% endif %}">{% if m.sens == 'entree' %}+{% else %}−{% endif %}{{ "{:,.0f}".format(m.montant) }}</td>
     <td>{% if m.ecriture_id %}<a href="/compta-pro/ecriture/{{ m.ecriture_id }}" style="font-size:10px;color:#7b1fa2">#{{ m.ecriture_id }}</a>{% else %}—{% endif %}</td>
+    {% if current_user and current_user.role == 'admin' %}
+    <td style="text-align:center">
+        <form method="post" action="/tresorerie/mouvement/{{ m.id }}/delete" style="display:inline"
+            onsubmit="return confirm('⚠️ Supprimer définitivement ce mouvement de {{ '{:,.0f}'.format(m.montant) }} F ?\n\nLe solde de la caisse sera recalculé automatiquement. L\'écriture comptable liée (si en brouillard) sera aussi supprimée.');">
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px;padding:3px 6px" title="Supprimer ce mouvement (admin uniquement)">🗑️</button>
+        </form>
+    </td>
+    {% endif %}
 </tr>
 {% endfor %}
 </tbody>
@@ -5141,7 +5154,7 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
         <input type="hidden" name="action" value="credit_compte">
         <input type="hidden" name="compte_id" id="creditCompteId">
         <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
-        <div class="form-group"><label>Montant (F CFA) *</label><input type="number" name="montant" required step="100" min="1" placeholder="0"></div>
+        <div class="form-group"><label>Montant (F CFA) *</label><input type="number" name="montant" required step="1" min="0" placeholder="0"></div>
         <div class="form-group"><label>Libellé / Motif</label><input name="libelle" placeholder="Ex: Apport, dépôt espèces, virement client..." style="width:100%"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
             <button type="button" class="btn btn-outline" onclick="document.getElementById('creditM').classList.remove('active')">Annuler</button>
@@ -5156,7 +5169,7 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
         <input type="hidden" name="action" value="debit_compte">
         <input type="hidden" name="compte_id" id="debitCompteId">
         <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ today }}" required></div>
-        <div class="form-group"><label>Montant (F CFA) *</label><input type="number" name="montant" required step="100" min="1" placeholder="0"></div>
+        <div class="form-group"><label>Montant (F CFA) *</label><input type="number" name="montant" required step="1" min="0" placeholder="0"></div>
         <div class="form-group"><label>Libellé / Motif</label><input name="libelle" placeholder="Ex: Retrait espèces, paiement fournisseur..." style="width:100%"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
             <button type="button" class="btn btn-outline" onclick="document.getElementById('debitM').classList.remove('active')">Annuler</button>
@@ -5238,7 +5251,7 @@ function openEditCompteModal(cid, nom, banque, num, solde, type_compte) {
         <div><label style="font-size:11px;color:#888;display:block">Date</label>
             <input type="date" name="date" required value="{{ today }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Montant *</label>
-            <input type="number" name="montant" required step="100" min="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+            <input type="number" name="montant" required step="1" min="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
         <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Libellé *</label>
             <input name="libelle" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Compte contrepartie</label>
@@ -5255,7 +5268,7 @@ function openEditCompteModal(cid, nom, banque, num, solde, type_compte) {
 <div class="tr-card" style="padding:0;overflow:auto">
 {% if mouvements %}
 <table class="tr-table">
-<thead><tr><th>Date</th><th>Banque</th><th>Sens</th><th>Mode</th><th>Libellé</th><th>Réf.</th><th>Montant</th><th>Statut</th><th>Compta</th></tr></thead>
+<thead><tr><th>Date</th><th>Banque</th><th>Sens</th><th>Mode</th><th>Libellé</th><th>Réf.</th><th>Montant</th><th>Statut</th><th>Compta</th>{% if current_user and current_user.role == 'admin' %}<th>Actions</th>{% endif %}</tr></thead>
 <tbody>
 {% for m in mouvements %}
 <tr>
@@ -5268,6 +5281,14 @@ function openEditCompteModal(cid, nom, banque, num, solde, type_compte) {
     <td class="num-cell" style="color:{% if m.sens == 'entree' %}#2e7d32{% else %}#c53030{% endif %}">{% if m.sens == 'entree' %}+{% else %}−{% endif %}{{ "{:,.0f}".format(m.montant) }}</td>
     <td>{% if m.statut == 'rapproche' %}<span style="color:#2e7d32;font-size:10px">✅ Rapproché</span>{% else %}<span style="color:#888;font-size:10px">📋 À rapprocher</span>{% endif %}</td>
     <td>{% if m.ecriture_id %}<a href="/compta-pro/ecriture/{{ m.ecriture_id }}" style="font-size:10px;color:#7b1fa2">#{{ m.ecriture_id }}</a>{% else %}—{% endif %}</td>
+    {% if current_user and current_user.role == 'admin' %}
+    <td style="text-align:center">
+        <form method="post" action="/tresorerie/mouvement/{{ m.id }}/delete" style="display:inline"
+            onsubmit="return confirm('⚠️ Supprimer définitivement ce mouvement bancaire de {{ '{:,.0f}'.format(m.montant) }} F ?\n\nLe solde du compte sera recalculé automatiquement.');">
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px;padding:3px 6px" title="Supprimer ce mouvement (admin uniquement)">🗑️</button>
+        </form>
+    </td>
+    {% endif %}
 </tr>
 {% endfor %}
 </tbody>

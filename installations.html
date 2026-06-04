@@ -1,4 +1,17 @@
 {% extends "base.html" %}{% block title %}WannyGest - Cartographie{% endblock %}{% block content %}
+<style>
+/* v134 : Fix carte Leaflet qui passe au-dessus du modal "Nouvelle installation".
+   Quand un modal est actif, on baisse drastiquement le z-index de la carte. */
+body:has(.modal-bg.active) #mapInstall,
+body:has(.modal-bg.active) .leaflet-container,
+body:has(.modal-bg.active) .leaflet-pane,
+body:has(.modal-bg.active) .leaflet-top,
+body:has(.modal-bg.active) .leaflet-bottom { z-index: 1 !important; }
+/* Sécurité supplémentaire : tous les éléments Leaflet doivent rester sous le modal */
+.leaflet-pane { z-index: 100 !important; }
+.leaflet-top, .leaflet-bottom { z-index: 100 !important; }
+.leaflet-control { z-index: 100 !important; }
+</style>
 {# v85 : pré-calcul des interventions par installation (utilisé pour carte + tableau) #}
 {% set int_count = {} %}
 {% for it in interventions %}{% set _ = int_count.update({it.installation_id: int_count.get(it.installation_id, 0) + 1}) %}{% endfor %}
