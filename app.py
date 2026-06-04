@@ -15270,6 +15270,7 @@ FIELD_REPORT_PRIORITIES = {
 FIELD_REPORT_STATUTS = {
     'recue': ('📥 Reçue', '#1976d2'),
     'en_analyse': ('🔍 En analyse', '#7b1fa2'),
+    'traitee': ('✅ Traitée', '#2e7d32'),  # v128 : Nouveau statut "Traitée" simple
     'transformee_projet': ('🎯 → Projet', '#0f5a51'),
     'transformee_intervention': ('🛠️ → Intervention', '#e8672a'),
     'transformee_opportunite': ('💼 → Opportunité', '#1565c0'),
@@ -15425,7 +15426,8 @@ def field_reports_list():
     
     # Séparer en 2 listes selon le statut
     to_treat_statuts = ('recue', 'en_analyse')
-    treated_statuts = ('transformee_projet', 'transformee_intervention', 'transformee_opportunite', 'classee')
+    # v128 : 'traitee' (statut simple) rejoint les remontées déjà exécutées
+    treated_statuts = ('traitee', 'transformee_projet', 'transformee_intervention', 'transformee_opportunite', 'classee')
     a_traiter = [r for r in filtered if r.get('statut') in to_treat_statuts]
     deja_executees = [r for r in filtered if r.get('statut') in treated_statuts]
     
@@ -15660,6 +15662,36 @@ def field_report_analyze(rid):
         _field_report_log(rid, 'Mise en analyse', notes[:200] if notes else None)
         _field_report_notify(rid, 'analyzed')
         flash("✅ Remontée mise en analyse", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect(f'/field-reports/{rid}')
+
+
+# v128 : Bouton « Traité » simple — le gestionnaire de projet marque la remontée
+# comme traitée sans la transformer en projet/intervention/opportunité.
+# Elle quitte alors le tableau « À traiter » pour rejoindre « Déjà exécutées ».
+@app.route('/field-reports/<int:rid>/mark-traitee', methods=['POST'])
+@permission_required_any('field_report_transform', 'field_report_close', 'admin')
+def field_report_mark_traitee(rid):
+    """v128 : Marquer comme Traitée (statut simple, sans transformation)."""
+    notes = (request.form.get('decision_notes', '') or '').strip()
+    try:
+        conn = _gdb()
+        user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+        user_name = user['full_name'] if user else 'Système'
+        decision_text = (notes or 'Traitement effectué')
+        conn.execute("""UPDATE field_reports SET statut='traitee',
+            decision=?, decision_date=date('now'),
+            decision_by=?, decision_by_name=?,
+            updated_at=datetime('now')
+            WHERE id=?""",
+            (decision_text, session.get('user_id'), user_name, rid))
+        conn.commit()
+        conn.close()
+        _field_report_log(rid, 'Marquée Traitée', decision_text[:200])
+        try: _field_report_notify(rid, 'traitee')
+        except: pass
+        flash("✅ Remontée marquée comme Traitée. Elle apparaît dans « Déjà exécutées ».", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect(f'/field-reports/{rid}')
@@ -23950,27 +23982,72 @@ def stock_redirect():
 @app.route('/fournisseurs')
 @permission_required_any('fournisseurs', 'achats', 'admin')
 def fournisseurs_list():
-    """Liste des fournisseurs avec total achats / payé / reste."""
+    """Liste des fournisseurs avec total achats / payé / reste.
+    v128 : Admin voit TOUS les fournisseurs (actifs + inactifs) pour ne rien manquer."""
     from models import get_supplier_summary
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    is_admin_view = user and user.get('role') == 'admin'
+    
     conn = _gdb()
     suppliers = []
     try:
-        suppliers = [dict(r) for r in conn.execute(
-            "SELECT * FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+        if is_admin_view:
+            # Admin : voit TOUT (actifs + inactifs/archivés)
+            suppliers = [dict(r) for r in conn.execute(
+                "SELECT * FROM suppliers ORDER BY COALESCE(is_active,1) DESC, nom").fetchall()]
+        else:
+            # Autres rôles : uniquement actifs
+            suppliers = [dict(r) for r in conn.execute(
+                "SELECT * FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
         for s in suppliers:
             summary = get_supplier_summary(s['id'])
             s.update(summary)
     except: pass
     
-    # Stats globales
-    grand_total = sum(s.get('total_purchases', 0) for s in suppliers)
-    grand_paid = sum(s.get('total_paid', 0) for s in suppliers)
+    # Stats globales (uniquement sur les actifs pour les totaux)
+    actives_only = [s for s in suppliers if (s.get('is_active') is None or s.get('is_active') == 1)]
+    grand_total = sum(s.get('total_purchases', 0) for s in actives_only)
+    grand_paid = sum(s.get('total_paid', 0) for s in actives_only)
     grand_rest = max(0, grand_total - grand_paid)
+    
+    # Compteurs
+    nb_actifs = len(actives_only)
+    nb_inactifs = len([s for s in suppliers if s.get('is_active') == 0])
     
     conn.close()
     return render_template('extra_pages.html', page='fournisseurs_list',
                           suppliers=suppliers, grand_total=grand_total,
-                          grand_paid=grand_paid, grand_rest=grand_rest)
+                          grand_paid=grand_paid, grand_rest=grand_rest,
+                          nb_actifs=nb_actifs, nb_inactifs=nb_inactifs,
+                          is_admin_view=is_admin_view)
+
+
+@app.route('/fournisseurs/<int:sid>/toggle-active', methods=['POST'])
+@permission_required_any('fournisseurs_edit', 'admin')
+def fournisseur_toggle_active(sid):
+    """v128 : Admin peut réactiver/désactiver un fournisseur."""
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    if not user or user.get('role') != 'admin':
+        flash("⚠️ Réservé à l'admin", "error")
+        return redirect('/fournisseurs')
+    conn = _gdb()
+    row = conn.execute("SELECT nom, COALESCE(is_active,1) as active FROM suppliers WHERE id=?", (sid,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Fournisseur introuvable", "error")
+        return redirect('/fournisseurs')
+    new_active = 0 if row['active'] else 1
+    try:
+        conn.execute("UPDATE suppliers SET is_active=? WHERE id=?", (new_active, sid))
+        conn.commit()
+        action = "réactivé" if new_active else "désactivé"
+        flash(f"✅ Fournisseur « {row['nom']} » {action}", "success")
+        log_activity(session['user_id'], user['full_name'], 'Fournisseur',
+                     f"Fournisseur #{sid} ({row['nom']}) {action}", request.remote_addr)
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    conn.close()
+    return redirect('/fournisseurs')
 
 
 @app.route('/fournisseurs/add', methods=['POST'])
@@ -23982,8 +24059,9 @@ def fournisseurs_add():
         return redirect(url_for('fournisseurs_list'))
     conn = _gdb()
     try:
-        conn.execute("""INSERT INTO suppliers (nom, telephone, email, adresse, contact, notes, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        # v128 : Forcer is_active=1 à la création
+        conn.execute("""INSERT INTO suppliers (nom, telephone, email, adresse, contact, notes, is_active, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?)""",
             (nom,
              request.form.get('telephone','').strip(),
              request.form.get('email','').strip(),

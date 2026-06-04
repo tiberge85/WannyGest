@@ -61,7 +61,8 @@
         {% endif %}
         
         <!-- Actions -->
-        {% set is_open = report.statut not in ('transformee_projet', 'transformee_intervention', 'transformee_opportunite', 'classee') %}
+        {# v128 : 'traitee' rejoint les statuts fermés #}
+        {% set is_open = report.statut not in ('traitee', 'transformee_projet', 'transformee_intervention', 'transformee_opportunite', 'classee') %}
         {% if is_open and ('field_report_analyze' in permissions or 'admin' in permissions) %}
         <div class="card" style="margin-bottom:14px;border-left:4px solid #7b1fa2">
             <div class="card-header"><h3 style="margin:0;color:#7b1fa2;font-size:14px">🔍 Analyser cette remontée</h3></div>
@@ -73,6 +74,28 @@
                             placeholder="Vos observations, contacts effectués, contexte technique...">{{ report.analyse_notes or '' }}</textarea>
                     </div>
                     <button type="submit" class="btn btn-primary btn-sm" style="background:#7b1fa2">🔍 Mettre en analyse</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+        
+        {# v128 : NOUVEAU bouton "Marquer comme Traitée" — action simple pour le GP #}
+        {% if is_open and ('field_report_transform' in permissions or 'field_report_close' in permissions or 'admin' in permissions) %}
+        <div class="card" style="margin-bottom:14px;border:2px solid #2e7d32">
+            <div class="card-header" style="background:#2e7d32;color:#fff"><h3 style="margin:0;color:#fff;font-size:14px">✅ Marquer comme Traitée (action simple)</h3></div>
+            <div class="card-body">
+                <p style="font-size:12px;color:#666;margin-bottom:10px">
+                    Utilisez ce bouton si la remontée a été <strong>traitée directement</strong> sans nécessiter de transformation en projet/intervention/opportunité.
+                    Elle quittera le tableau « À traiter » pour rejoindre « Déjà exécutées ».
+                </p>
+                <form method="post" action="/field-reports/{{ report.id }}/mark-traitee">
+                    <div class="form-group">
+                        <label>Commentaire / Résolution (optionnel)</label>
+                        <textarea name="decision_notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"
+                            placeholder="Ex: Résolu par téléphone avec le client, problème de configuration..."></textarea>
+                    </div>
+                    <button type="submit" class="btn" style="background:#2e7d32;color:#fff;font-weight:700;padding:10px 20px"
+                        onclick="return confirm('Marquer cette remontée comme Traitée ?');">✅ Marquer Traitée</button>
                 </form>
             </div>
         </div>

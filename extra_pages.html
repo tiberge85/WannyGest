@@ -3129,13 +3129,19 @@ function filterRecent() {
 
 {% elif page == 'fournisseurs_list' %}
 <div class="page-header">
-    <h1>🏭 Fournisseurs</h1>
+    <h1>🏭 Fournisseurs{% if is_admin_view and nb_inactifs %} <span style="font-size:12px;color:#888;font-weight:400">({{ nb_actifs }} actif(s) · {{ nb_inactifs }} archivé(s))</span>{% endif %}</h1>
     <div style="display:flex;gap:6px">
         <a href="/fournisseurs/export.csv" class="btn btn-outline btn-sm">📥 Export CSV</a>
         <button class="btn btn-sm" style="background:#7b1fa2;color:#fff" onclick="document.getElementById('recapModal').style.display='flex'">📊 Récap PDF période</button>
         <button class="btn btn-primary btn-sm" onclick="document.getElementById('newSupModal').style.display='flex'">+ Nouveau fournisseur</button>
     </div>
 </div>
+
+{% if is_admin_view and nb_inactifs > 0 %}
+<div style="background:#fff3e0;padding:8px 12px;border-radius:6px;font-size:11px;color:#7a4a00;margin-bottom:10px;border-left:3px solid #f29f2f">
+    💡 <strong>Vue admin</strong> : vous voyez aussi les fournisseurs archivés (lignes grisées). Bouton 🔄 pour les réactiver.
+</div>
+{% endif %}
 
 <!-- Modal récap PDF par période -->
 <div id="recapModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
@@ -3183,9 +3189,10 @@ function filterRecent() {
 <thead><tr><th>Fournisseur</th><th>Contact</th><th>Total achats</th><th>Payé</th><th>Reste</th><th>% payé</th><th>Actions</th></tr></thead>
 <tbody>
 {% for s in suppliers %}
-<tr>
+<tr{% if s.is_active == 0 %} style="background:#f5f5f5;opacity:0.65"{% endif %}>
     <td>
         <strong>{{ s.nom }}</strong>
+        {% if s.is_active == 0 %}<span style="background:#888;color:#fff;font-size:9px;padding:1px 5px;border-radius:4px;margin-left:6px">ARCHIVÉ</span>{% endif %}
         {% if s.adresse %}<br><span style="font-size:10px;color:#888">📍 {{ s.adresse }}</span>{% endif %}
     </td>
     <td style="font-size:11px">
@@ -3201,8 +3208,18 @@ function filterRecent() {
             <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#1a3a5c">{{ s.pct_paid|round|int }}%</div>
         </div>
     </td>
-    <td>
+    <td style="white-space:nowrap">
         <a href="/fournisseurs/{{ s.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px">📋 Détail</a>
+        {% if is_admin_view %}
+            <form method="post" action="/fournisseurs/{{ s.id }}/toggle-active" style="display:inline"
+                onsubmit="return confirm('{% if s.is_active == 0 %}Réactiver{% else %}Archiver{% endif %} le fournisseur {{ s.nom|e }} ?');">
+                {% if s.is_active == 0 %}
+                    <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:10px" title="Réactiver">🔄</button>
+                {% else %}
+                    <button type="submit" class="btn btn-sm" style="background:#888;color:#fff;font-size:10px" title="Archiver">🗄️</button>
+                {% endif %}
+            </form>
+        {% endif %}
     </td>
 </tr>
 {% endfor %}
