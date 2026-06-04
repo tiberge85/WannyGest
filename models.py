@@ -194,27 +194,48 @@ def init_db():
         );
     ''')
     
-    # Permissions par défaut — tous les rôles (v89 : ajout permissions Roadmap)
-    default_perms = {
-        'admin': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking', 'grand_livre', 'balance', 'client_users_approve', 'caisse_multi', 'gps_itineraire', 'virement_demande', 'virement_valide', 'client_requests_view', 'roadmap_view', 'roadmap_manage', 'roadmap_delete', 'project_create', 'project_advance', 'project_qc', 'project_deliver', 'project_plan', 'project_close', 'project_contract', 'project_progress', 'project_report', 'project_material', 'project_invoice', 'project_payment', 'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
-        'dg': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking', 'grand_livre', 'balance', 'caisse_multi', 'gps_itineraire', 'virement_valide', 'client_users_approve', 'client_requests_view', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
-        'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats', 'rapports_j', 'chat', 'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
-        'technicien': ['traitement', 'dashboard', 'visites', 'rapports_j', 'centre_technique', 'chat', 'gps_itineraire', 'roadmap_view', 'project_progress', 'project_report'],
-        'commercial': ['dashboard', 'clients', 'clients_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'contrats', 'rapports_j', 'chat', 'client_requests_view', 'roadmap_view', 'project_create', 'project_close', 'project_contract'],
-        'comptable': ['dashboard', 'comptabilite', 'comptabilite_edit', 'clients', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'chat', 'grand_livre', 'balance', 'caisse_multi', 'virement_demande', 'roadmap_view', 'project_invoice', 'project_payment'],
-        'moyens_generaux': ['dashboard', 'moyens_generaux', 'moyens_generaux_edit', 'clients', 'rapports_j', 'chat', 'roadmap_view', 'project_material'],
-        'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets', 'rapports_j', 'centre_technique', 'chat', 'gps_itineraire'],
-        'resp_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'proforma', 'chat', 'gps_itineraire', 'client_requests_view', 'controle_qualite', 'livraison_intervention', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
-        'gestionnaire_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'clients_edit', 'rapports_j', 'proforma', 'proforma_edit', 'visites', 'centre_technique', 'chat', 'gps_itineraire', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
-        'coordinateur': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'chat', 'gps_itineraire', 'client_requests_view', 'controle_qualite', 'livraison_intervention', 'centre_technique', 'visites', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
-        'proprietaire': ['dashboard', 'dashboard_general', 'clients', 'comptabilite', 'grand_livre', 'balance', 'rapports_j', 'logs', 'chat', 'tracking', 'admin'],
-    }
-    for role, perms in default_perms.items():
-        for perm in perms:
-            try:
-                conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
-            except:
-                pass
+    # v127 FIX MAJEUR : Permissions par défaut UNIQUEMENT au tout premier démarrage
+    # (création initiale de la BDD). Sinon, les modifications de l'admin sont préservées.
+    # On utilise un try/except car app_settings peut ne pas exister au tout 1er run.
+    _v127_already_seeded = False
+    try:
+        _v127_init_check = conn.execute(
+            "SELECT value FROM app_settings WHERE key='v127_default_perms_seeded'"
+        ).fetchone()
+        if _v127_init_check:
+            _v127_already_seeded = True
+    except Exception:
+        # Table app_settings n'existe pas encore — premier démarrage absolu
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+        except: pass
+    
+    if not _v127_already_seeded:
+        # Tout premier démarrage : appliquer les permissions par défaut
+        default_perms = {
+            'admin': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking', 'grand_livre', 'balance', 'client_users_approve', 'caisse_multi', 'gps_itineraire', 'virement_demande', 'virement_valide', 'client_requests_view', 'roadmap_view', 'roadmap_manage', 'roadmap_delete', 'project_create', 'project_advance', 'project_qc', 'project_deliver', 'project_plan', 'project_close', 'project_contract', 'project_progress', 'project_report', 'project_material', 'project_invoice', 'project_payment', 'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
+            'dg': ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general', 'envoyer', 'logs', 'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking', 'grand_livre', 'balance', 'caisse_multi', 'gps_itineraire', 'virement_valide', 'client_users_approve', 'client_requests_view', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
+            'rh': ['fichiers', 'clients', 'dashboard', 'envoyer', 'contrats', 'rapports_j', 'chat', 'rh_budget_view', 'rh_budget_edit', 'rh_budget_real'],
+            'technicien': ['traitement', 'dashboard', 'visites', 'rapports_j', 'centre_technique', 'chat', 'gps_itineraire', 'roadmap_view', 'project_progress', 'project_report'],
+            'commercial': ['dashboard', 'clients', 'clients_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit', 'contrats', 'rapports_j', 'chat', 'client_requests_view', 'roadmap_view', 'project_create', 'project_close', 'project_contract'],
+            'comptable': ['dashboard', 'comptabilite', 'comptabilite_edit', 'clients', 'caisse_sortie', 'rapports_j', 'convertir_devis', 'chat', 'grand_livre', 'balance', 'caisse_multi', 'virement_demande', 'roadmap_view', 'project_invoice', 'project_payment'],
+            'moyens_generaux': ['dashboard', 'moyens_generaux', 'moyens_generaux_edit', 'clients', 'rapports_j', 'chat', 'roadmap_view', 'project_material'],
+            'informatique': ['dashboard', 'informatique', 'traitement', 'visites', 'projets', 'rapports_j', 'centre_technique', 'chat', 'gps_itineraire'],
+            'resp_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'proforma', 'chat', 'gps_itineraire', 'client_requests_view', 'controle_qualite', 'livraison_intervention', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
+            'gestionnaire_projet': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'clients_edit', 'rapports_j', 'proforma', 'proforma_edit', 'visites', 'centre_technique', 'chat', 'gps_itineraire', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
+            'coordinateur': ['dashboard', 'resp_projet', 'resp_projet_edit', 'clients', 'rapports_j', 'chat', 'gps_itineraire', 'client_requests_view', 'controle_qualite', 'livraison_intervention', 'centre_technique', 'visites', 'roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver', 'project_plan'],
+            'proprietaire': ['dashboard', 'dashboard_general', 'clients', 'comptabilite', 'grand_livre', 'balance', 'rapports_j', 'logs', 'chat', 'tracking', 'admin'],
+        }
+        for role, perms in default_perms.items():
+            for perm in perms:
+                try:
+                    conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                except:
+                    pass
+        # Marquer comme initialisé — ne PLUS RÉINJECTER aux prochains démarrages
+        try:
+            conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v127_default_perms_seeded', '1')")
+        except: pass
     
     # Créer admin par défaut si aucun utilisateur
     cursor = conn.execute("SELECT COUNT(*) as cnt FROM users")

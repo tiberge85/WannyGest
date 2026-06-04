@@ -432,13 +432,19 @@ try:
         'dg':                   ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver'],
         'directeur':            ['roadmap_view', 'roadmap_manage', 'project_advance', 'project_qc', 'project_deliver'],
     }
-    for role, perms in V89_PERMS.items():
-        for perm in perms:
-            try: _v89_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
-            except: pass
-    _v89_conn.commit()
+    # v127 : N'injecter ces permissions qu'AU PREMIER démarrage. Les modifications
+    # ultérieures de l'admin sont préservées (plus de réinjection à chaque restart).
+    _v89_flag = _v89_conn.execute("SELECT 1 FROM app_settings WHERE key='v89_perms_seeded'").fetchone()
+    if not _v89_flag:
+        for role, perms in V89_PERMS.items():
+            for perm in perms:
+                try: _v89_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                except: pass
+        try: _v89_conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v89_perms_seeded', '1')")
+        except: pass
+        _v89_conn.commit()
+        print("[v89] Permissions Roadmap initialisées (1ère fois)", flush=True)
     _v89_conn.close()
-    print("[v89] Permissions Roadmap initialisées", flush=True)
 except Exception as _e:
     print(f"[v89] Erreur init permissions : {_e}", flush=True)
 
@@ -548,14 +554,19 @@ try:
         'comptable':       ['rh_budget_view'],
         'comptabilite':    ['rh_budget_view'],
     }
-    for role, perms in V90_PERMS.items():
-        for perm in perms:
-            try: _v90_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
-            except: pass
-    
+    # v127 : Permissions seulement au 1er démarrage
+    _v90_flag = _v90_conn.execute("SELECT 1 FROM app_settings WHERE key='v90_perms_seeded'").fetchone()
+    if not _v90_flag:
+        for role, perms in V90_PERMS.items():
+            for perm in perms:
+                try: _v90_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                except: pass
+        try: _v90_conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v90_perms_seeded', '1')")
+        except: pass
+        _v90_conn.commit()
+        print("[v90] Permissions Budget RH initialisées (1ère fois)", flush=True)
     _v90_conn.commit()
     _v90_conn.close()
-    print("[v90] Tables Budget RH + permissions initialisées", flush=True)
 except Exception as _e:
     print(f"[v90] Erreur init Budget RH : {_e}", flush=True)
 
@@ -624,14 +635,18 @@ try:
         'comptable':       ['stock_view', 'stock_export'],
         'comptabilite':    ['stock_view', 'stock_export'],
     }
-    for role, perms in V92_PERMS_STOCK.items():
-        for perm in perms:
-            try: _v92_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
-            except: pass
-    
+    # v127 : Permissions seulement au 1er démarrage
+    _v92s_flag = _v92_conn.execute("SELECT 1 FROM app_settings WHERE key='v92_stock_perms_seeded'").fetchone()
+    if not _v92s_flag:
+        for role, perms in V92_PERMS_STOCK.items():
+            for perm in perms:
+                try: _v92_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                except: pass
+        try: _v92_conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v92_stock_perms_seeded', '1')")
+        except: pass
+        print("[v92-Stock] Permissions Stock initialisées (1ère fois)", flush=True)
     _v92_conn.commit()
     _v92_conn.close()
-    print("[v92-Stock] Tables Gestion Stock + permissions initialisées", flush=True)
 except Exception as _e:
     print(f"[v92-Stock] Erreur init Stock : {_e}", flush=True)
 
@@ -810,14 +825,18 @@ try:
     V99_PERMS_FIELD['comptable'] = V99_PERMS_FIELD.get('comptable', []) + ['stock_marges_edit']
     V99_PERMS_FIELD['comptabilite'] = V99_PERMS_FIELD.get('comptabilite', []) + ['stock_marges_edit']
     
-    for role, perms in V99_PERMS_FIELD.items():
-        for perm in perms:
-            try: _v99b_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
-            except: pass
-    
+    # v127 : Permissions seulement au 1er démarrage
+    _v99f_flag = _v99b_conn.execute("SELECT 1 FROM app_settings WHERE key='v99_field_perms_seeded'").fetchone()
+    if not _v99f_flag:
+        for role, perms in V99_PERMS_FIELD.items():
+            for perm in perms:
+                try: _v99b_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                except: pass
+        try: _v99b_conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v99_field_perms_seeded', '1')")
+        except: pass
+        print("[v99-Field] Permissions Remontées initialisées (1ère fois)", flush=True)
     _v99b_conn.commit()
     _v99b_conn.close()
-    print("[v99-Field] Tables Remontées Informations + permissions initialisées", flush=True)
 except Exception as _e:
     print(f"[v99-Field] Erreur : {_e}", flush=True)
 
@@ -864,28 +883,32 @@ try:
                 _v100_conn.execute(f"ALTER TABLE achats_demandes ADD COLUMN {col_def}")
             except: pass  # existe déjà
     
-    # 3. Permissions v100
-    V100_PERMS = {
-        'admin':            ['field_report_edit', 'field_report_delete', 'field_report_print',
-                             'mg_compta_validate'],
-        'gestionnaire_projet': ['field_report_edit', 'field_report_delete', 'field_report_print'],
-        'comptable':        ['mg_compta_validate'],
-        'comptabilite':     ['mg_compta_validate'],
-        'dg':               ['mg_compta_validate', 'field_report_print'],
-        'directeur':        ['mg_compta_validate', 'field_report_print'],
-    }
-    for role, perms in V100_PERMS.items():
-        for perm in perms:
-            try: _v100_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+    # 3. Permissions v100 — v127 : seulement au 1er démarrage
+    _v100_flag = _v100_conn.execute("SELECT 1 FROM app_settings WHERE key='v100_perms_seeded'").fetchone()
+    if not _v100_flag:
+        V100_PERMS = {
+            'admin':            ['field_report_edit', 'field_report_delete', 'field_report_print',
+                                 'mg_compta_validate'],
+            'gestionnaire_projet': ['field_report_edit', 'field_report_delete', 'field_report_print'],
+            'comptable':        ['mg_compta_validate'],
+            'comptabilite':     ['mg_compta_validate'],
+            'dg':               ['mg_compta_validate', 'field_report_print'],
+            'directeur':        ['mg_compta_validate', 'field_report_print'],
+        }
+        for role, perms in V100_PERMS.items():
+            for perm in perms:
+                try: _v100_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                except: pass
+        # 4. Garantir que gestionnaire_projet a aussi toutes les perms field_report originales
+        GP_PERMS_ALL = ['field_report_create', 'field_report_view_all', 'field_report_view_mine',
+                        'field_report_analyze', 'field_report_transform', 'field_report_close',
+                        'field_report_edit', 'field_report_delete', 'field_report_print']
+        for perm in GP_PERMS_ALL:
+            try: _v100_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('gestionnaire_projet', ?)", (perm,))
             except: pass
-    
-    # 4. Garantir que gestionnaire_projet a aussi toutes les perms field_report originales
-    GP_PERMS_ALL = ['field_report_create', 'field_report_view_all', 'field_report_view_mine',
-                    'field_report_analyze', 'field_report_transform', 'field_report_close',
-                    'field_report_edit', 'field_report_delete', 'field_report_print']
-    for perm in GP_PERMS_ALL:
-        try: _v100_conn.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('gestionnaire_projet', ?)", (perm,))
+        try: _v100_conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v100_perms_seeded', '1')")
         except: pass
+        print("[v100] Permissions v100 initialisées (1ère fois)", flush=True)
     
     _v100_conn.commit()
     _v100_conn.close()
@@ -1685,28 +1708,40 @@ except Exception as _e:
     print(f"[v120-Migrations] Erreur : {_e}", flush=True)
 
 
-# v118 : RÉ-EXÉCUTION du retrait de 'traitement' pour informatique
-# (le bloc v116 ne se ré-exécutait pas car le flag était déjà à 1)
-# v118 force le nettoyage à chaque démarrage tant que cette permission est présente
+# v118 + v127 : Retrait des permissions inadaptées au rôle informatique
+# v127 FIX MAJEUR : N'EXÉCUTER QU'UNE SEULE FOIS via un flag dédié.
+# Avant v127, ce bloc s'exécutait à chaque démarrage et retirait les permissions
+# (traitement, pointage_admin, pointage_edit, pointage_dept) du rôle informatique,
+# annulant les ajouts manuels de l'admin. Désormais, l'admin garde le contrôle total.
 try:
-    from models import get_db as _v118_db
-    _v118 = _v118_db()
-    # Retrait des permissions inadaptées au rôle informatique
-    bad_perms_for_info = ['traitement', 'pointage_admin', 'pointage_edit', 'pointage_dept']
-    nb_removed = 0
-    for p in bad_perms_for_info:
-        try:
-            res = _v118.execute("DELETE FROM permissions WHERE role='informatique' AND permission=?", (p,))
-            if res.rowcount:
-                nb_removed += res.rowcount
-                print(f"[v118-CleanInfo] Permission '{p}' retirée du rôle informatique", flush=True)
-        except: pass
-    if nb_removed > 0:
-        _v118.commit()
-        print(f"[v118-CleanInfo] Total : {nb_removed} permission(s) inadaptée(s) retirée(s) du rôle informatique", flush=True)
-    _v118.close()
+    from models import get_db as _v127_db
+    _v127 = _v127_db()
+    _v127_already_done = _v127.execute(
+        "SELECT value FROM app_settings WHERE key='v118_clean_info_done'"
+    ).fetchone()
+    if not _v127_already_done:
+        # Première exécution UNIQUEMENT
+        bad_perms_for_info = ['traitement', 'pointage_admin', 'pointage_edit', 'pointage_dept']
+        nb_removed = 0
+        for p in bad_perms_for_info:
+            try:
+                res = _v127.execute("DELETE FROM permissions WHERE role='informatique' AND permission=?", (p,))
+                if res.rowcount:
+                    nb_removed += res.rowcount
+                    print(f"[v118-CleanInfo] Permission '{p}' retirée du rôle informatique (1ère exécution)", flush=True)
+            except: pass
+        if nb_removed > 0:
+            print(f"[v118-CleanInfo] Total : {nb_removed} permission(s) inadaptée(s) retirée(s) du rôle informatique (UNIQUE)", flush=True)
+        # Marquer comme fait — NE plus jamais re-exécuter
+        _v127.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v118_clean_info_done', '1')")
+        _v127.commit()
+        print("[v127-Perms] Migration v118-CleanInfo verrouillée. Les permissions admin restent inchangées aux prochains démarrages.", flush=True)
+    else:
+        # Migration déjà passée → ne rien faire. L'admin garde le contrôle.
+        pass
+    _v127.close()
 except Exception as _e:
-    print(f"[v118-CleanInfo] Erreur : {_e}", flush=True)
+    print(f"[v127-Perms] Erreur : {_e}", flush=True)
 
 
 # v114 : Helper pour récupérer l'id de la caisse de fonctionnement
@@ -1772,63 +1807,66 @@ migrate_v19()
 from modules_routes import modules_bp
 app.register_blueprint(modules_bp)
 
-# Ensure admin and concierge roles have default permissions
+# v127 FIX MAJEUR : Initialisation des permissions admin SANS écraser celles existantes
+# Avant v127 : update_role_permissions('admin', [...]) faisait DELETE puis INSERT à
+# chaque démarrage, ce qui annulait les permissions ajoutées manuellement par l'admin
+# via l'interface (notamment celles non listées dans le code source).
+# v127 : on AJOUTE les permissions par défaut SANS supprimer les existantes.
 try:
-    update_role_permissions('admin', ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general',
+    from models import get_db as _v127_admin_db
+    _v127_admin = _v127_admin_db()
+    _admin_default_perms = ['traitement', 'fichiers', 'clients', 'clients_edit', 'admin', 'dashboard', 'dashboard_general',
                    'envoyer', 'logs', 'concierge', 'concierge_edit',
                    'contrats', 'comptabilite', 'comptabilite_edit', 'visites', 'visites_edit', 'proforma', 'proforma_edit',
                    'moyens_generaux', 'moyens_generaux_edit', 'informatique', 'projets', 'caisse_sortie', 'rapports_j', 'convertir_devis',
                    'resp_projet', 'resp_projet_edit', 'centre_technique', 'centre_technique_edit', 'chat', 'tracking',
-                   # v47/v48/v49 additions
                    'grand_livre', 'balance', 'caisse_multi', 'gps_itineraire',
                    'virement_demande', 'virement_valide',
                    'client_requests_view', 'client_users_approve',
                    'controle_qualite', 'livraison_intervention',
-                   # v89 : Roadmap projets
                    'roadmap_view', 'roadmap_manage', 'roadmap_delete',
                    'project_create', 'project_advance', 'project_qc', 'project_deliver',
                    'project_plan', 'project_close', 'project_contract',
                    'project_progress', 'project_report', 'project_material',
                    'project_invoice', 'project_payment',
-                   # v90 : Budget prévisionnel RH
                    'rh_budget_view', 'rh_budget_edit', 'rh_budget_real',
-                   # v92 : Gestion de Stock + Suivi Créances
                    'stock_view', 'stock_edit', 'stock_in', 'stock_out', 'stock_inventory', 'stock_export',
                    'creances_view', 'creances_edit', 'creances_relance', 'creances_export',
-                   # v99 : Marges stock + Remontées Informations
                    'stock_marges_edit',
                    'field_report_create', 'field_report_view_all', 'field_report_view_mine', 'field_report_analyze',
                    'field_report_transform', 'field_report_close',
-                   # v100 : Actions remontées + validation compta MG
                    'field_report_edit', 'field_report_delete', 'field_report_print',
                    'mg_compta_validate',
-                   # v113 : Nouvelles permissions Multi-caisses + Corbeille + MG + Backup
                    'caisse_view', 'caisse_create', 'caisse_reset_zero',
                    'caisse_delete', 'caisse_purge', 'caisse_purge_all',
                    'caisse_sortie_decision', 'caisse_sortie_comptabiliser',
                    'corbeille_view', 'corbeille_restore', 'corbeille_purge',
                    'backup_view', 'backup_inspect',
                    'mg_view', 'mg_demande', 'mg_valider', 'mg_gestion',
-                   # v90 : Budget global
                    'budget_view', 'budget_view_own', 'budget_edit',
-                   # v95+ Compta Pro
                    'compta_pro', 'compta_pro_edit', 'compta_pro_valide', 'compta_pro_cloture',
-                   # v94 Trésorerie
                    'tresorerie', 'tresorerie_edit', 'tresorerie_rapprochement',
-                   # Achats / Fournisseurs
                    'achats', 'achats_edit', 'fournisseurs', 'fournisseurs_edit',
-                   # Pointage
                    'pointage', 'pointage_admin', 'pointage_dept', 'pointage_edit',
-                   # v116 : Permissions de section sidebar (admin a TOUTES)
                    'section_temps', 'section_crm', 'section_projets', 'section_tracking',
                    'section_rh', 'section_compta', 'section_tresorerie', 'section_budgets',
                    'section_tech', 'section_it', 'section_mg', 'section_concierge',
                    'section_calendrier', 'section_admin',
-                   # v116 : Refus comptable
-                   'caisse_sortie_refus_compta'])
+                   'caisse_sortie_refus_compta']
+    _admin_added = 0
+    for _p in _admin_default_perms:
+        try:
+            res = _v127_admin.execute(
+                "INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)",
+                ('admin', _p))
+            if res.rowcount:
+                _admin_added += 1
+        except: pass
+    if _admin_added > 0:
+        _v127_admin.commit()
+        print(f"[v127-Perms] {_admin_added} permission(s) par défaut ajoutée(s) à 'admin' (sans écraser les existantes).", flush=True)
     from models import get_role_permissions as _grp
     # v110 : N'initialise QUE pour un rôle complètement vide (création initiale)
-    # Plus de réinjection forcée quand l'admin enlève une permission
     if not _grp('concierge'):
         update_role_permissions('concierge', ['dashboard', 'concierge', 'rapports_j', 'chat'])
     if not _grp('proprietaire'):
@@ -1842,11 +1880,11 @@ try:
                    'leaves', 'absences', 'rh_contracts', 'rh_trainings', 'rh_announcements',
                    'traitement', 'fichiers', 'clients', 'rapports_j', 'chat', 'logs',
                    'alertes', 'comparaison'])
-    # v110 : technicien suit la même règle — UNIQUEMENT si vide
     if not _grp('technicien'):
         update_role_permissions('technicien', ['dashboard', 'traitement', 'informatique', 'centre_technique', 'centre_technique_edit', 'visites', 'visites_edit', 'rapports_j', 'chat'])
-    # v102 : 'resp_projet' fusionné dans 'gestionnaire_projet'
-except: pass
+    _v127_admin.close()
+except Exception as _err_v127:
+    print(f"[v127-Perms] Erreur init admin : {_err_v127}", flush=True)
 
 from models import (init_devis_tables, create_devis, get_all_devis, get_devis_by_id,
                     update_devis_status, get_devis_stats, get_next_devis_ref)
