@@ -16869,7 +16869,10 @@ def field_report_new():
     """Création d'une remontée d'information."""
     if request.method == 'GET':
         conn = _gdb()
-        clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+        # v138 : Liste enrichie (nom, code, ville) pour la recherche client
+        clients = [dict(r) for r in conn.execute(
+            "SELECT id, name, COALESCE(client_code,'') as client_code, COALESCE(city,'') as city, "
+            "COALESCE(sector,'') as sector FROM clients ORDER BY name").fetchall()]
         conn.close()
         return render_template('field_report_new.html', page='field_reports',
             clients=clients, types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES)

@@ -39,12 +39,26 @@
     <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">🏢 Sélection du client</h3></div>
     <div class="card-body">
         <div class="form-row">
-            <div class="form-group" style="flex:1">
-                <label>Client existant (sélection rapide)</label>
-                <select name="client_id" id="client_select" onchange="loadClientInfo()">
-                    <option value="">-- Choisir un client existant --</option>
-                    {% for c in clients %}<option value="{{ c.id }}" data-name="{{ c.name }}">{{ c.name }}</option>{% endfor %}
-                </select>
+            <div class="form-group" style="flex:1;position:relative">
+                <label>🔍 Rechercher un client existant</label>
+                <input type="text" id="client_search" autocomplete="off"
+                    placeholder="Tapez le nom, la ville ou le code client…"
+                    style="width:100%;padding:8px 12px;border:1.5px solid #1A7A6D;border-radius:7px"
+                    oninput="filterClients()" onfocus="filterClients()" onblur="hideDropdown()">
+                <input type="hidden" name="client_id" id="client_select" value="">
+                
+                <!-- Liste déroulante de résultats -->
+                <div id="client_dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;
+                    background:#fff;border:1.5px solid #1A7A6D;border-top:none;border-radius:0 0 8px 8px;
+                    max-height:280px;overflow-y:auto;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15)">
+                </div>
+                
+                <!-- Petit indicateur du client sélectionné -->
+                <div id="client_selected_badge" style="display:none;margin-top:6px;padding:6px 10px;
+                    background:#e8f5e9;border-radius:6px;font-size:11px;color:#1b5e20;border-left:3px solid #2e7d32">
+                    ✓ Client sélectionné : <strong id="client_selected_name"></strong>
+                    <a href="#" onclick="clearClient();return false" style="float:right;color:#c53030;font-weight:700">✖ Effacer</a>
+                </div>
             </div>
             <div class="form-group" style="flex:1">
                 <label>Ou nouveau client (saisie libre) *</label>
@@ -186,6 +200,95 @@
 </form>
 
 <script>
+// v138 : Liste des clients pour recherche rapide (depuis le contexte serveur)
+const ALL_CLIENTS = [
+    {% for c in clients %}{ id: {{ c.id }}, name: {{ c.name|tojson }}, code: {{ (c.client_code or '')|tojson }}, city: {{ (c.city or '')|tojson }}, sector: {{ (c.sector or '')|tojson }} }{% if not loop.last %},{% endif %}
+    {% endfor %}
+];
+
+function normalize(s) {
+    return (s || '').toString().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');  // enlève accents
+}
+
+function filterClients() {
+    const q = normalize(document.getElementById('client_search').value);
+    const dropdown = document.getElementById('client_dropdown');
+    
+    let matches = ALL_CLIENTS;
+    if (q.length > 0) {
+        matches = ALL_CLIENTS.filter(c => 
+            normalize(c.name).includes(q) ||
+            normalize(c.code).includes(q) ||
+            normalize(c.city).includes(q) ||
+            normalize(c.sector).includes(q)
+        );
+    }
+    
+    // Limite à 50 résultats pour la perf
+    matches = matches.slice(0, 50);
+    
+    if (matches.length === 0) {
+        dropdown.innerHTML = '<div style="padding:12px;color:#999;text-align:center;font-size:12px">Aucun client trouvé pour « ' + (q || '...') + ' »<br><span style="font-size:10px">Saisissez le nom dans le champ « Ou nouveau client » à droite.</span></div>';
+        dropdown.style.display = 'block';
+        return;
+    }
+    
+    dropdown.innerHTML = matches.map(c => {
+        const meta = [c.code, c.city, c.sector].filter(Boolean).join(' · ');
+        return `<div onmousedown="selectClient(${c.id}, ${JSON.stringify(c.name).replace(/"/g,'&quot;')})" 
+            style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:12px"
+            onmouseover="this.style.background='#e8f5e9'" 
+            onmouseout="this.style.background='#fff'">
+            <strong>${escapeHtml(c.name)}</strong>
+            ${meta ? '<div style="font-size:10px;color:#888;margin-top:2px">' + escapeHtml(meta) + '</div>' : ''}
+        </div>`;
+    }).join('');
+    dropdown.style.display = 'block';
+}
+
+function escapeHtml(s) {
+    return (s || '').toString()
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function selectClient(cid, name) {
+    document.getElementById('client_select').value = cid;
+    document.getElementById('client_name').value = name;
+    document.getElementById('client_search').value = name;
+    document.getElementById('client_dropdown').style.display = 'none';
+    // Afficher badge
+    document.getElementById('client_selected_name').textContent = name;
+    document.getElementById('client_selected_badge').style.display = 'block';
+    // Charger les infos complètes
+    loadClientInfo();
+}
+
+function clearClient() {
+    document.getElementById('client_select').value = '';
+    document.getElementById('client_name').value = '';
+    document.getElementById('client_search').value = '';
+    document.getElementById('client_selected_badge').style.display = 'none';
+    document.getElementById('clientFullInfo').style.display = 'none';
+    document.getElementById('sitesBlock').style.display = 'none';
+    document.getElementById('client_dropdown').style.display = 'none';
+}
+
+function hideDropdown() {
+    // Délai pour permettre le clic sur un élément avant fermeture
+    setTimeout(() => {
+        document.getElementById('client_dropdown').style.display = 'none';
+    }, 200);
+}
+
+// Fermer le dropdown au clic en dehors
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#client_search') && !e.target.closest('#client_dropdown')) {
+        document.getElementById('client_dropdown').style.display = 'none';
+    }
+});
+
 // Mappings pour libellés humains
 const SOURCE_LABELS = {prospect:'Prospect', recommandation:'Recommandation', salon:'Salon', site_web:'Site web', appel:'Appel', partenaire:'Partenaire'};
 const STATUS_LABELS = {actif:'✅ Actif', inactif:'⏸ Inactif', vip:'⭐ VIP'};
@@ -212,8 +315,8 @@ function setVal(id, val, labelMap) {
 }
 
 async function loadClientInfo() {
-    const sel = document.getElementById('client_select');
-    const cid = sel.value;
+    const cidEl = document.getElementById('client_select');
+    const cid = cidEl.value;
     const infoBlock = document.getElementById('clientFullInfo');
     const sitesBlock = document.getElementById('sitesBlock');
     const loadingMsg = document.getElementById('loadingMsg');
@@ -224,9 +327,6 @@ async function loadClientInfo() {
         return;
     }
     
-    // Synchroniser le nom client
-    document.getElementById('client_name').value = sel.options[sel.selectedIndex].dataset.name || '';
-    
     loadingMsg.style.display = 'block';
     
     try {
@@ -234,6 +334,9 @@ async function loadClientInfo() {
         if (!res.ok) throw new Error('API err');
         const data = await res.json();
         const c = data.client || {};
+        
+        // Synchroniser le nom client dans le champ saisie libre
+        document.getElementById('client_name').value = c.name || '';
         
         // 🏢 Entreprise
         setVal('ci_name', c.name);
