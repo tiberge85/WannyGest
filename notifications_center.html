@@ -59,11 +59,23 @@
             <option value="warning" {% if type_filter == 'warning' %}selected{% endif %}>Avertissement</option>
             <option value="error" {% if type_filter == 'error' %}selected{% endif %}>Erreur</option>
         </select>
+        {# v135 : Filtre par département du destinataire #}
+        {% if departments %}
+        <select name="dept" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px;background:#f0f9f7" title="Filtrer par département du destinataire">
+            <option value="">🏢 Tous départements</option>
+            {% for d in departments %}<option value="{{ d }}" {% if dept_filter == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+        </select>
+        {% endif %}
         <button type="submit" class="btn btn-primary btn-sm">🔎 Filtrer</button>
-        {% if q or module_filter or type_filter %}
+        {% if q or module_filter or type_filter or dept_filter %}
         <a href="/notifications" class="btn btn-outline btn-sm">↻ Réinitialiser</a>
         {% endif %}
     </form>
+    {% if dept_filter %}
+    <div style="margin-top:8px;font-size:11px;color:#0d47a1;background:#e3f2fd;padding:6px 10px;border-radius:6px">
+        🏢 Filtré par département : <strong>{{ dept_filter }}</strong>
+    </div>
+    {% endif %}
 </div></div>
 
 <!-- Liste -->

@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Nouvelle Proforma · {{ prospect.contact_name or prospect.company }}{% endblock %}
+{% block content %}
+
+<style>
+.pf-section { background:#fff; border-radius:10px; padding:14px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+.pf-section h3 { margin:0 0 10px; font-size:14px; color:#1a3a5c; border-bottom:2px solid #f0f0f0; padding-bottom:6px; }
+.pf-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.pf-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+.pf-grid-4 { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:8px; }
+.pf-field label { display:block; font-size:10px; color:#666; font-weight:600; margin-bottom:3px; text-transform:uppercase; letter-spacing:0.5px; }
+.pf-field input, .pf-field select, .pf-field textarea { width:100%; padding:7px 9px; border:1.5px solid #ddd; border-radius:6px; font-size:12px; }
+.pf-field input:focus, .pf-field select:focus { border-color:#1A7A6D; outline:none; }
+.pf-required { color:#c53030; }
+.items-table { width:100%; font-size:11px; border-collapse:collapse; }
+.items-table th { background:#1A7A6D; color:#fff; padding:8px 6px; text-align:left; font-size:11px; }
+.items-table td { padding:5px; border-bottom:1px solid #f0f0f0; }
+.items-table input { width:100%; padding:5px; border:1px solid #ddd; border-radius:4px; font-size:11px; }
+.items-table .num-input { text-align:right; }
+.row-total { font-weight:700; color:#1A7A6D; }
+.totals-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #eee; }
+.totals-row strong { font-family:monospace; }
+.totals-final { background:#1A7A6D; color:#fff; padding:10px 12px; border-radius:6px; font-size:15px; font-weight:700; }
+</style>
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+    <a href="/prospects/view/{{ prospect.id }}?tab=offres" class="btn btn-outline btn-sm">← Retour au prospect</a>
+    <h2 style="margin:0;font-size:16px;color:#1A7A6D">📄 Nouvelle Proforma</h2>
+    <span style="color:#888;font-size:13px">— {{ prospect.contact_name or prospect.company }}</span>
+</div>
+
+<form method="post" action="/prospects/view/{{ prospect.id }}/proforma/new" id="proformaForm">
+
+<!-- Bloc 1 : Identification -->
+<div class="pf-section">
+    <h3>📋 Identification de l'offre</h3>
+    <div class="pf-field" style="margin-bottom:10px">
+        <label>Sujet <span class="pf-required">*</span></label>
+        <input type="text" name="subject" required placeholder="Ex : Installation CCTV — Pharmacie XYZ" autofocus>
+    </div>
+    <div class="pf-grid">
+        <div class="pf-field">
+            <label>Liée à</label>
+            <select name="linked_to">
+                <option value="">— Aucun —</option>
+                <option value="prospect">Prospect</option>
+                <option value="lead">Lead commercial</option>
+                <option value="opportunite">Opportunité</option>
+                <option value="contrat">Contrat</option>
+            </select>
+        </div>
+        <div class="pf-field">
+            <label>Prospect</label>
+            <input type="text" value="{{ prospect.contact_name or prospect.company }}" readonly style="background:#f8f9fa">
+        </div>
+    </div>
+    <div class="pf-grid-3" style="margin-top:8px">
+        <div class="pf-field">
+            <label>Date d'émission <span class="pf-required">*</span></label>
+            <input type="date" name="date_emission" required value="{{ today }}">
+        </div>
+        <div class="pf-field">
+            <label>Date de validité</label>
+            <input type="date" name="date_validite">
+        </div>
+        <div class="pf-field">
+            <label>Attribuer à</label>
+            <select name="assigned_to">
+                <option value="">— Choisir —</option>
+                {% for u in users_list %}
+                <option value="{{ u.full_name }}">{{ u.full_name }} ({{ u.role }})</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    <div class="pf-grid-3" style="margin-top:8px">
+        <div class="pf-field">
+            <label>Devise</label>
+            <select name="currency">
+                <option value="XOF" selected>XOF (FCFA)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="USD">USD ($)</option>
+            </select>
+        </div>
+        <div class="pf-field">
+            <label>Type de remise</label>
+            <select name="discount_type">
+                <option value="before_tax">Avant TVA</option>
+                <option value="after_tax">Après TVA</option>
+                <option value="per_item">Par article</option>
+            </select>
+        </div>
+        <div class="pf-field">
+            <label>Statut</label>
+            <select name="status">
+                <option value="brouillon">📝 Brouillon</option>
+                <option value="envoyee">📤 Envoyée</option>
+                <option value="acceptee">✅ Acceptée</option>
+                <option value="refusee">❌ Refusée</option>
+                <option value="expiree">⏰ Expirée</option>
+            </select>
+        </div>
+    </div>
+    <div class="pf-grid" style="margin-top:8px">
+        <div class="pf-field">
+            <label>Tags</label>
+            <input type="text" name="tags" placeholder="ex: cctv, sécurité, prioritaire">
+        </div>
+        <div class="pf-field">
+            <label>Autoriser les commentaires</label>
+            <select name="allow_comments">
+                <option value="1" selected>Oui</option>
+                <option value="0">Non</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Bloc 2 : Coordonnées du destinataire -->
+<div class="pf-section">
+    <h3>👤 Pour (destinataire)</h3>
+    <div class="pf-field" style="margin-bottom:10px">
+        <label>Pour <span class="pf-required">*</span></label>
+        <input type="text" name="client_for" required value="{{ prospect.contact_name or prospect.company or '' }}">
+    </div>
+    <div class="pf-field" style="margin-bottom:8px">
+        <label>Adresse</label>
+        <input type="text" name="client_address" value="{{ prospect.address or '' }}">
+    </div>
+    <div class="pf-grid-3">
+        <div class="pf-field">
+            <label>Ville</label>
+            <input type="text" name="client_city" placeholder="Abidjan">
+        </div>
+        <div class="pf-field">
+            <label>Région</label>
+            <input type="text" name="client_region" placeholder="Lagunes">
+        </div>
+        <div class="pf-field">
+            <label>Pays</label>
+            <select name="client_country">
+                <option value="CI" selected>🇨🇮 Côte d'Ivoire</option>
+                <option value="SN">🇸🇳 Sénégal</option>
+                <option value="ML">🇲🇱 Mali</option>
+                <option value="BF">🇧🇫 Burkina Faso</option>
+                <option value="GH">🇬🇭 Ghana</option>
+                <option value="TG">🇹🇬 Togo</option>
+                <option value="BJ">🇧🇯 Bénin</option>
+            </select>
+        </div>
+    </div>
+    <div class="pf-grid-3" style="margin-top:8px">
+        <div class="pf-field">
+            <label>Code Postal</label>
+            <input type="text" name="client_postal" placeholder="00225">
+        </div>
+        <div class="pf-field">
+            <label>Email <span class="pf-required">*</span></label>
+            <input type="email" name="client_email" required value="{{ prospect.email or '' }}">
+        </div>
+        <div class="pf-field">
+            <label>Téléphone</label>
+            <input type="tel" name="client_phone" value="{{ prospect.tel or '' }}">
+        </div>
+    </div>
+</div>
+
+<!-- Bloc 3 : Éléments de la proforma -->
+<div class="pf-section">
+    <h3>🛒 Éléments de l'offre</h3>
+    <p style="font-size:11px;color:#666;margin-bottom:10px">
+        💡 Astuce : utilisez le champ de fusion <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">{proposal_items}</code> 
+        n'importe où dans le contenu de l'offre pour insérer le tableau complet.
+    </p>
+    <div style="margin-bottom:8px">
+        <label style="font-size:11px;color:#666">Type d'affichage des quantités :</label>
+        <label style="font-size:12px;margin-left:6px"><input type="radio" name="qty_display" value="qty" checked> Qté</label>
+        <label style="font-size:12px;margin-left:6px"><input type="radio" name="qty_display" value="hours"> Heures</label>
+        <label style="font-size:12px;margin-left:6px"><input type="radio" name="qty_display" value="qty_hours"> Qté/Heures</label>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="items-table" id="itemsTable">
+    <thead>
+        <tr>
+            <th style="width:20%">Désignation</th>
+            <th style="width:25%">Description</th>
+            <th style="width:8%">Qté</th>
+            <th style="width:12%">Prix unitaire</th>
+            <th style="width:9%">Remise %</th>
+            <th style="width:9%">Taxe %</th>
+            <th style="width:13%">Montant HT</th>
+            <th style="width:4%"></th>
+        </tr>
+    </thead>
+    <tbody id="itemsBody">
+        <tr id="row_1">
+            <td><input type="text" name="item_1_designation" placeholder="Article"></td>
+            <td><input type="text" name="item_1_description" placeholder="Description"></td>
+            <td><input type="number" class="num-input qty" name="item_1_qty" step="0.01" min="0" value="0" onchange="calcLine(1)"></td>
+            <td><input type="number" class="num-input prix" name="item_1_prix" step="0.01" min="0" value="0" onchange="calcLine(1)"></td>
+            <td><input type="number" class="num-input remise" name="item_1_remise_pct" step="0.01" min="0" max="100" value="0" onchange="calcLine(1)"></td>
+            <td><input type="number" class="num-input taxe" name="item_1_taxe" step="0.01" min="0" max="100" value="0" onchange="calcLine(1)"></td>
+            <td class="num-input row-total" id="ht_1">0.00</td>
+            <td style="text-align:center"><button type="button" onclick="delRow(1)" style="background:#c53030;color:#fff;border:0;padding:3px 8px;border-radius:4px;cursor:pointer">×</button></td>
+        </tr>
+    </tbody>
+    </table>
+    </div>
+    <button type="button" onclick="addRow()" class="btn btn-outline btn-sm" style="margin-top:8px">+ Ajouter une ligne</button>
+</div>
+
+<!-- Bloc 4 : Totaux -->
+<div class="pf-section">
+    <h3>💰 Totaux</h3>
+    <div style="max-width:400px;margin-left:auto">
+        <div class="totals-row">
+            <span>Total HT :</span>
+            <strong id="totalHT">0.00 <span id="curr1">XOF</span></strong>
+        </div>
+        <div class="totals-row" style="gap:6px">
+            <span>Remise :</span>
+            <div style="display:flex;gap:4px;align-items:center;flex:1;justify-content:flex-end">
+                <input type="number" name="remise_pct" id="remisePct" step="0.01" min="0" max="100" value="0" onchange="calcTotals()" style="width:60px;padding:3px;border:1px solid #ddd;border-radius:4px;text-align:right">
+                <span style="font-size:11px">%</span>
+                <strong id="remiseAmount" style="margin-left:8px">-0.00 <span id="curr2">XOF</span></strong>
+            </div>
+        </div>
+        <div class="totals-row">
+            <span>Petites fournitures :</span>
+            <input type="number" name="petites_fournitures" id="petitesFournitures" step="0.01" min="0" value="0" onchange="calcTotals()" style="width:120px;padding:3px;border:1px solid #ddd;border-radius:4px;text-align:right">
+        </div>
+        <div class="totals-row">
+            <span>Taxes :</span>
+            <strong id="taxesTotal">0.00 <span id="curr3">XOF</span></strong>
+        </div>
+        <div style="margin-top:10px" class="totals-final">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <span>Total TTC :</span>
+                <strong id="totalTTC">0.00 <span id="curr4">XOF</span></strong>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bloc 5 : Notes / contenu libre -->
+<div class="pf-section">
+    <h3>📝 Notes / Contenu libre</h3>
+    <textarea name="notes" rows="4" placeholder="Notes additionnelles, conditions, mentions légales… (vous pouvez utiliser {proposal_items} pour insérer le tableau)"></textarea>
+</div>
+
+<div style="display:flex;justify-content:space-between;gap:10px;margin-top:14px;flex-wrap:wrap">
+    <a href="/prospects/view/{{ prospect.id }}?tab=offres" class="btn btn-outline">Annuler</a>
+    <button type="submit" class="btn btn-primary" style="font-weight:700">💾 Enregistrer la proforma</button>
+</div>
+
+</form>
+
+<script>
+var rowCount = 1;
+
+function calcLine(i) {
+    var row = document.getElementById('row_' + i);
+    if (!row) return;
+    var qty = parseFloat(row.querySelector('.qty').value) || 0;
+    var prix = parseFloat(row.querySelector('.prix').value) || 0;
+    var remise = parseFloat(row.querySelector('.remise').value) || 0;
+    var ht = qty * prix * (1 - remise/100);
+    document.getElementById('ht_' + i).textContent = ht.toFixed(2);
+    calcTotals();
+}
+
+function addRow() {
+    rowCount++;
+    var i = rowCount;
+    var tbody = document.getElementById('itemsBody');
+    var tr = document.createElement('tr');
+    tr.id = 'row_' + i;
+    tr.innerHTML = `
+        <td><input type="text" name="item_${i}_designation" placeholder="Article"></td>
+        <td><input type="text" name="item_${i}_description" placeholder="Description"></td>
+        <td><input type="number" class="num-input qty" name="item_${i}_qty" step="0.01" min="0" value="0" onchange="calcLine(${i})"></td>
+        <td><input type="number" class="num-input prix" name="item_${i}_prix" step="0.01" min="0" value="0" onchange="calcLine(${i})"></td>
+        <td><input type="number" class="num-input remise" name="item_${i}_remise_pct" step="0.01" min="0" max="100" value="0" onchange="calcLine(${i})"></td>
+        <td><input type="number" class="num-input taxe" name="item_${i}_taxe" step="0.01" min="0" max="100" value="0" onchange="calcLine(${i})"></td>
+        <td class="num-input row-total" id="ht_${i}">0.00</td>
+        <td style="text-align:center"><button type="button" onclick="delRow(${i})" style="background:#c53030;color:#fff;border:0;padding:3px 8px;border-radius:4px;cursor:pointer">×</button></td>
+    `;
+    tbody.appendChild(tr);
+}
+
+function delRow(i) {
+    if (document.querySelectorAll('#itemsBody tr').length <= 1) {
+        alert('Au moins une ligne est requise');
+        return;
+    }
+    var row = document.getElementById('row_' + i);
+    if (row) { row.remove(); calcTotals(); }
+}
+
+function calcTotals() {
+    var total_ht = 0;
+    var taxes_total = 0;
+    document.querySelectorAll('#itemsBody tr').forEach(function(tr) {
+        var qty = parseFloat(tr.querySelector('.qty').value) || 0;
+        var prix = parseFloat(tr.querySelector('.prix').value) || 0;
+        var rem = parseFloat(tr.querySelector('.remise').value) || 0;
+        var tax = parseFloat(tr.querySelector('.taxe').value) || 0;
+        var ht = qty * prix * (1 - rem/100);
+        total_ht += ht;
+        taxes_total += ht * tax / 100;
+    });
+    var remise_pct = parseFloat(document.getElementById('remisePct').value) || 0;
+    var remise_amt = total_ht * remise_pct / 100;
+    var pet_fourn = parseFloat(document.getElementById('petitesFournitures').value) || 0;
+    var total_ttc = total_ht - remise_amt + pet_fourn + taxes_total;
+    
+    document.getElementById('totalHT').firstChild.nodeValue = total_ht.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ';
+    document.getElementById('remiseAmount').firstChild.nodeValue = '-' + remise_amt.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ';
+    document.getElementById('taxesTotal').firstChild.nodeValue = taxes_total.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ';
+    document.getElementById('totalTTC').firstChild.nodeValue = total_ttc.toLocaleString('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ';
+}
+
+// Mettre à jour la devise affichée
+document.querySelector('select[name="currency"]').addEventListener('change', function() {
+    var c = this.value;
+    document.querySelectorAll('[id^="curr"]').forEach(function(el) { el.textContent = c; });
+});
+
+calcTotals();
+</script>
+
+{% endblock %}

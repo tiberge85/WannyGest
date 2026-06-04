@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Proforma {{ offer.ref or offer.id }}{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+    <a href="/prospects/view/{{ prospect.id }}?tab=offres" class="btn btn-outline btn-sm">← Retour</a>
+    <h2 style="margin:0;font-size:16px;color:#1A7A6D">📄 Proforma {{ offer.ref or '#' ~ offer.id }}</h2>
+    <span class="badge-status pending" style="margin-left:auto">{{ offer.status or 'brouillon' }}</span>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">
+    <div>
+        <div class="card" style="margin-bottom:14px"><div class="card-body">
+            <h3 style="margin:0 0 12px;color:#1A7A6D">{{ offer.subject or offer.title }}</h3>
+            
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
+                <div><strong>📅 Date émission :</strong> {{ offer.date_emission or '—' }}</div>
+                <div><strong>⏰ Validité :</strong> {{ offer.date_validite or '—' }}</div>
+                <div><strong>💱 Devise :</strong> {{ offer.currency or 'XOF' }}</div>
+                <div><strong>👤 Attribué à :</strong> {{ offer.assigned_to or '—' }}</div>
+                <div><strong>🏷️ Tags :</strong> {{ offer.tags or '—' }}</div>
+                <div><strong>🔗 Liée à :</strong> {{ offer.linked_to or '—' }}</div>
+            </div>
+        </div></div>
+        
+        <div class="card" style="margin-bottom:14px"><div class="card-body">
+            <h3 style="margin:0 0 10px;font-size:13px;color:#1A7A6D">👤 Destinataire</h3>
+            <div style="font-size:12px;line-height:1.6">
+                <strong>{{ offer.client_for or prospect.contact_name }}</strong><br>
+                {{ offer.client_address or '' }}<br>
+                {{ offer.client_postal or '' }} {{ offer.client_city or '' }} {% if offer.client_region %}, {{ offer.client_region }}{% endif %}<br>
+                {{ offer.client_country or 'CI' }}<br>
+                📧 {{ offer.client_email or '—' }} · 📞 {{ offer.client_phone or '—' }}
+            </div>
+        </div></div>
+        
+        <div class="card" style="margin-bottom:14px"><div class="card-body">
+            <h3 style="margin:0 0 10px;font-size:13px;color:#1A7A6D">🛒 Éléments</h3>
+            <div style="overflow-x:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
+                <thead><tr style="background:#1A7A6D;color:#fff">
+                    <th style="padding:8px;text-align:left">Désignation</th>
+                    <th style="text-align:left">Description</th>
+                    <th>Qté</th>
+                    <th>P.U.</th>
+                    <th>Remise</th>
+                    <th>Taxe</th>
+                    <th style="text-align:right">Montant HT</th>
+                </tr></thead>
+                <tbody>
+                {% for it in items %}
+                <tr style="border-bottom:1px solid #f0f0f0">
+                    <td style="padding:6px;font-weight:600">{{ it.designation or '—' }}</td>
+                    <td style="font-size:11px;color:#555">{{ it.description or '' }}</td>
+                    <td style="text-align:right">{{ it.qty or 0 }}</td>
+                    <td style="text-align:right">{{ '{:,.2f}'.format(it.prix or 0) }}</td>
+                    <td style="text-align:right">{{ '{:,.0f}'.format(it.remise_pct or 0) }} %</td>
+                    <td style="text-align:right">{{ '{:,.0f}'.format(it.taxe or 0) }} %</td>
+                    <td style="text-align:right;font-weight:700;color:#1A7A6D">{{ '{:,.2f}'.format(it.montant_ht or 0) }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table></div>
+        </div></div>
+        
+        {% if offer.notes %}
+        <div class="card"><div class="card-body">
+            <h3 style="margin:0 0 8px;font-size:13px;color:#1A7A6D">📝 Notes</h3>
+            <div style="font-size:12px;white-space:pre-wrap">{{ offer.notes }}</div>
+        </div></div>
+        {% endif %}
+    </div>
+    
+    <!-- Sidebar : totaux -->
+    <div>
+        <div class="card"><div class="card-body">
+            <h3 style="margin:0 0 12px;font-size:13px;color:#1A7A6D">💰 Totaux</h3>
+            <table style="width:100%;font-size:13px">
+                <tr><td style="padding:5px 0">Total HT :</td><td style="text-align:right"><strong>{{ '{:,.2f}'.format(offer.total_ht or 0) }} {{ offer.currency or 'XOF' }}</strong></td></tr>
+                <tr><td style="padding:5px 0">Remise ({{ offer.remise_pct or 0 }}%) :</td><td style="text-align:right;color:#c53030">-{{ '{:,.2f}'.format(offer.remise_amount or 0) }} {{ offer.currency or 'XOF' }}</td></tr>
+                <tr><td style="padding:5px 0">Petites fournitures :</td><td style="text-align:right">{{ '{:,.2f}'.format(offer.petites_fournitures or 0) }} {{ offer.currency or 'XOF' }}</td></tr>
+                <tr><td style="padding:5px 0">Taxes :</td><td style="text-align:right">{{ '{:,.2f}'.format(offer.taxe_amount or 0) }} {{ offer.currency or 'XOF' }}</td></tr>
+                <tr style="border-top:2px solid #1A7A6D"><td style="padding:10px 0;font-weight:700;font-size:15px">Total TTC :</td><td style="text-align:right;color:#1A7A6D;font-weight:700;font-size:15px">{{ '{:,.2f}'.format(offer.total_ttc or 0) }} {{ offer.currency or 'XOF' }}</td></tr>
+            </table>
+        </div></div>
+    </div>
+</div>
+
+{% endblock %}

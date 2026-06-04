@@ -2573,9 +2573,21 @@ RH_NATURAL_PERMS = {
 }
 
 def _rh_bypass(user, perm):
-    """v133 : True si le rôle est 'rh' (manager RH) ET la permission est une perm RH naturelle."""
+    """v133/v135 : Bypass étendu pour la gestionnaire RH.
+    v135 : Si le rôle est 'rh' (manager RH), bypass TOTAL des permissions
+    sauf les routes ultra-sensibles (suppressions définitives, config système).
+    Le user a explicitement demandé que la RH ait accès à tout sans devoir être admin."""
     if not user: return False
-    if user.get('role') == 'rh' and perm in RH_NATURAL_PERMS:
+    role = user.get('role', '')
+    # v135 : Liste des permissions super-sensibles RÉSERVÉES strictement à l'admin
+    # (la RH ne peut pas y accéder même avec bypass — sécurité système)
+    ADMIN_ONLY_HARD_PERMS = {
+        'hard_delete', 'system_config', 'backup_restore', 'database_admin',
+    }
+    if perm in ADMIN_ONLY_HARD_PERMS:
+        return False
+    # Rôle 'rh' → bypass total pour tout sauf les perms ci-dessus
+    if role == 'rh':
         return True
     return False
 
@@ -9991,9 +10003,16 @@ def interventions_programme():
     today = datetime.now().strftime('%Y-%m-%d')
     date = request.args.get('date', today)
     user = get_user_by_id(session['user_id'])
+    # v135 : Tous les techniciens (et rôles manager) voient le programme complet du jour
+    # Avant : seul admin/dg/resp_projet voyait tout, les techniciens ne voyaient que leurs interventions
+    can_view_all = user and user['role'] in (
+        'admin','dg','directeur','resp_projet','coordinateur','gestionnaire_projet',
+        'technicien','tech_chef','chef_chantier','centre_technique','informatique',
+        'commercial','rh','comptable','comptabilite','moyens_generaux','secretaire'
+    )
     is_admin = user and user['role'] in ('admin','dg','resp_projet')
     
-    if is_admin:
+    if can_view_all:
         interventions = [dict(r) for r in conn.execute(
             "SELECT * FROM interventions WHERE scheduled_date=? ORDER BY scheduled_time, id", (date,)).fetchall()]
     else:
@@ -12580,6 +12599,72 @@ def compta_caisse_operation(cid):
     return redirect(f'/comptabilite/caisses/{cid}')
 
 
+# v135 : Admin peut supprimer une opération de caisse + recrédite le solde automatiquement
+@app.route('/comptabilite/caisses/<int:cid>/operation/<int:opid>/delete', methods=['POST'])
+@permission_required('admin')
+def compta_caisse_operation_delete(cid, opid):
+    """v135 : Admin supprime une opération individuelle d'une caisse.
+    Le solde de la caisse est automatiquement recalculé puisque calculé dynamiquement
+    depuis la SUM des opérations restantes."""
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    if not user or user['role'] != 'admin':
+        flash("⚠️ Réservé à l'admin", "error")
+        return redirect(f'/comptabilite/caisses/{cid}')
+    
+    conn = _gdb()
+    try:
+        op = conn.execute("SELECT * FROM caisse_operations WHERE id=? AND caisse_id=?", (opid, cid)).fetchone()
+        if not op:
+            flash("Opération introuvable", "error")
+            conn.close()
+            return redirect(f'/comptabilite/caisses/{cid}')
+        
+        op_dict = dict(op)
+        amount = op_dict.get('amount', 0)
+        op_type = op_dict.get('type', '')
+        description = op_dict.get('description', '')
+        ref = op_dict.get('reference', '')
+        
+        # 1. Snapshot dans la corbeille
+        try:
+            import json
+            conn.execute("""INSERT INTO trash_snapshots (entity_type, entity_id, entity_name, snapshot_json, deleted_by, deleted_by_name, deleted_at)
+                VALUES ('caisse_operation', ?, ?, ?, ?, ?, datetime('now'))""",
+                (opid, f"Caisse #{cid} — {op_type} {amount:,.0f} F", json.dumps(op_dict, default=str),
+                 session['user_id'], user['full_name']))
+        except Exception as _e: print(f"[v135] snapshot caisse_op err : {_e}", flush=True)
+        
+        # 2. Supprimer le mouvement journal lié (tresorerie_mouvements) si existe
+        if ref:
+            try:
+                tj = conn.execute("SELECT id, ecriture_id FROM tresorerie_mouvements WHERE reference=? AND type='caisse'", (ref,)).fetchone()
+                if tj:
+                    # Supprimer écriture comptable si en brouillard
+                    if tj['ecriture_id']:
+                        try:
+                            ec = conn.execute("SELECT statut FROM ecritures_comptables WHERE id=?", (tj['ecriture_id'],)).fetchone()
+                            if ec and ec['statut'] in ('brouillard','brouillon',None):
+                                conn.execute("DELETE FROM ecritures_comptables WHERE id=?", (tj['ecriture_id'],))
+                        except: pass
+                    conn.execute("DELETE FROM tresorerie_mouvements WHERE id=?", (tj['id'],))
+            except: pass
+        
+        # 3. Supprimer l'opération de caisse
+        conn.execute("DELETE FROM caisse_operations WHERE id=?", (opid,))
+        conn.commit()
+        
+        log_activity(session['user_id'], user['full_name'], 'Caisse',
+            f"Suppression opération #{opid} caisse #{cid} ({op_type}, {amount:,.0f} F) — {description}",
+            request.remote_addr)
+        
+        flash(f"🗑️ Opération #{opid} supprimée ({amount:,.0f} F). Le solde de la caisse est recalculé automatiquement.", "success")
+    except Exception as e:
+        flash(f"❌ Erreur : {e}", "error")
+    finally:
+        conn.close()
+    return redirect(f'/comptabilite/caisses/{cid}')
+
+
 def _sync_caisse_op_to_journal(conn, sens, date, montant, libelle, ref, user_id, caisse_id=None):
     """v103 + v114 : Synchronise une opération multi-caisses dans le journal de caisse (tresorerie_mouvements).
     Crée un mouvement type='caisse' avec le bon sens (entree/sortie). Idempotent via reference.
@@ -12848,6 +12933,7 @@ def notifications_page():
     filter_state = request.args.get('filter', 'all')  # all | unread | read
     module_filter = (request.args.get('module', '') or '').strip()
     type_filter = (request.args.get('type', '') or '').strip()
+    dept_filter = (request.args.get('dept', '') or '').strip()  # v135 : filtre par département
     q = (request.args.get('q', '') or '').strip()
     
     where_clauses = ["(user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?))"]
@@ -12863,6 +12949,10 @@ def notifications_page():
     if type_filter:
         where_clauses.append("type=?")
         params.append(type_filter)
+    # v135 : filtre par département du destinataire
+    if dept_filter:
+        where_clauses.append("user_id IN (SELECT id FROM users WHERE department=?)")
+        params.append(dept_filter)
     if q:
         where_clauses.append("(title LIKE ? OR message LIKE ?)")
         like = f"%{q}%"
@@ -12897,10 +12987,18 @@ def notifications_page():
         module_stats = {r['module']: {'total': r['nb'], 'unread': r['nb_unread'] or 0} for r in rows}
     except: pass
     
+    # v135 : Liste des départements distincts pour le filtre
+    departments = []
+    try:
+        departments = [r['department'] for r in conn.execute(
+            "SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != '' ORDER BY department").fetchall()]
+    except: pass
+    
     conn.close()
     return render_template('notifications_center.html', page='notifications',
         notifs=notifs, filter_state=filter_state, notif_counts=counts,
-        module_stats=module_stats, module_filter=module_filter, type_filter=type_filter, q=q)
+        module_stats=module_stats, module_filter=module_filter, type_filter=type_filter, q=q,
+        dept_filter=dept_filter, departments=departments)
 
 
 # v129 : Page préférences utilisateur — gestion des abonnements multi-canal
@@ -13705,6 +13803,135 @@ def prospect_offer_add(pid):
         amount=float(request.form.get('amount',0) or 0), status=request.form.get('status','brouillon'),
         description=request.form.get('description',''), created_by=session['user_id'])
     flash("Offre ajoutée","success"); return redirect(f'/prospects/view/{pid}?tab=offres')
+
+
+# v135 : Création d'une PROFORMA complète depuis un prospect (CRM > Offres)
+@app.route('/prospects/view/<int:pid>/proforma/new', methods=['GET', 'POST'])
+@login_required
+def prospect_proforma_new(pid):
+    """v135 : Création d'une proforma complète liée à un prospect CRM."""
+    from models import db_get_by_id
+    p = db_get_by_id('prospects', pid)
+    if not p:
+        flash("Prospect introuvable", "error")
+        return redirect('/prospects')
+    
+    conn = _gdb()
+    # Migrations pour enrichir prospect_offers avec les champs proforma
+    for col_def in [
+        "subject TEXT", "linked_to TEXT", "date_emission TEXT",
+        "date_validite TEXT", "assigned_to TEXT", "currency TEXT DEFAULT 'XOF'",
+        "discount_type TEXT", "tags TEXT", "allow_comments INTEGER DEFAULT 1",
+        "client_for TEXT", "client_address TEXT", "client_city TEXT",
+        "client_region TEXT", "client_country TEXT", "client_postal TEXT",
+        "client_email TEXT", "client_phone TEXT",
+        "items_json TEXT", "total_ht REAL DEFAULT 0", "remise_amount REAL DEFAULT 0",
+        "remise_pct REAL DEFAULT 0", "petites_fournitures REAL DEFAULT 0",
+        "taxe_amount REAL DEFAULT 0", "total_ttc REAL DEFAULT 0",
+        "ref TEXT", "notes TEXT"
+    ]:
+        try:
+            col_name = col_def.split()[0]
+            conn.execute(f"SELECT {col_name} FROM prospect_offers LIMIT 1")
+        except:
+            try: conn.execute(f"ALTER TABLE prospect_offers ADD COLUMN {col_def}")
+            except: pass
+    conn.commit()
+    
+    if request.method == 'POST':
+        # Parser les items dynamiques
+        items = []
+        i = 1
+        while request.form.get(f'item_{i}_designation') or request.form.get(f'item_{i}_qty'):
+            try:
+                qty = float(request.form.get(f'item_{i}_qty', 0) or 0)
+                prix = float(request.form.get(f'item_{i}_prix', 0) or 0)
+                remise_pct = float(request.form.get(f'item_{i}_remise_pct', 0) or 0)
+                taxe = float(request.form.get(f'item_{i}_taxe', 0) or 0)
+                montant_ht = qty * prix * (1 - remise_pct/100)
+                items.append({
+                    'designation': request.form.get(f'item_{i}_designation', '').strip(),
+                    'description': request.form.get(f'item_{i}_description', '').strip(),
+                    'qty': qty, 'prix': prix, 'remise_pct': remise_pct,
+                    'taxe': taxe, 'montant_ht': montant_ht,
+                })
+            except: pass
+            i += 1
+        
+        total_ht = sum(it['montant_ht'] for it in items)
+        remise_pct_glob = float(request.form.get('remise_pct', 0) or 0)
+        remise_amount = round(total_ht * remise_pct_glob / 100, 0) if remise_pct_glob > 0 else float(request.form.get('remise_amount', 0) or 0)
+        petites_fourn = float(request.form.get('petites_fournitures', 0) or 0)
+        taxe_amount = sum((it['montant_ht'] - (it['montant_ht'] * remise_pct_glob/100)) * it.get('taxe', 0) / 100 for it in items)
+        total_ttc = total_ht - remise_amount + petites_fourn + taxe_amount
+        
+        ref = f"PROF-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        title = (request.form.get('subject') or '').strip() or f"Proforma {ref}"
+        try:
+            conn.execute("""INSERT INTO prospect_offers
+                (prospect_id, title, amount, status, description, created_by, created_at,
+                 subject, linked_to, date_emission, date_validite, assigned_to,
+                 currency, discount_type, tags, allow_comments,
+                 client_for, client_address, client_city, client_region, client_country, client_postal,
+                 client_email, client_phone, items_json,
+                 total_ht, remise_amount, remise_pct, petites_fournitures, taxe_amount, total_ttc,
+                 ref, notes)
+                VALUES (?,?,?,?,?,?,datetime('now'),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (pid, title, total_ttc, request.form.get('status','brouillon'),
+                 request.form.get('notes',''), session['user_id'],
+                 request.form.get('subject',''), request.form.get('linked_to',''),
+                 request.form.get('date_emission', datetime.now().strftime('%Y-%m-%d')),
+                 request.form.get('date_validite',''), request.form.get('assigned_to',''),
+                 request.form.get('currency','XOF'), request.form.get('discount_type','before_tax'),
+                 request.form.get('tags',''),
+                 1 if request.form.get('allow_comments') in ('1','on','true') else 0,
+                 request.form.get('client_for',''), request.form.get('client_address',''),
+                 request.form.get('client_city',''), request.form.get('client_region',''),
+                 request.form.get('client_country','CI'), request.form.get('client_postal',''),
+                 request.form.get('client_email',''), request.form.get('client_phone',''),
+                 json.dumps(items),
+                 total_ht, remise_amount, remise_pct_glob, petites_fourn, taxe_amount, total_ttc,
+                 ref, request.form.get('notes','')))
+            conn.commit()
+            conn.close()
+            flash(f"✅ Proforma {ref} créée — Total TTC : {total_ttc:,.0f} XOF", "success")
+            return redirect(f'/prospects/view/{pid}?tab=offres')
+        except Exception as e:
+            conn.close()
+            flash(f"❌ Erreur : {e}", "error")
+            return redirect(f'/prospects/view/{pid}/proforma/new')
+    
+    # GET — afficher formulaire
+    users_list = [dict(r) for r in conn.execute(
+        "SELECT id, full_name, role FROM users WHERE COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
+    conn.close()
+    
+    p_dict = dict(p) if hasattr(p, 'keys') else p
+    return render_template('prospect_proforma_new.html', page='prospects',
+        prospect=p_dict, users_list=users_list,
+        today=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/prospects/view/<int:pid>/proforma/<int:oid>')
+@login_required
+def prospect_proforma_view(pid, oid):
+    """v135 : Voir le détail d'une proforma."""
+    conn = _gdb()
+    o = conn.execute("SELECT * FROM prospect_offers WHERE id=? AND prospect_id=?", (oid, pid)).fetchone()
+    if not o:
+        conn.close()
+        flash("Proforma introuvable", "error")
+        return redirect(f'/prospects/view/{pid}?tab=offres')
+    o_dict = dict(o)
+    items = []
+    if o_dict.get('items_json'):
+        try: items = json.loads(o_dict['items_json'])
+        except: items = []
+    p = conn.execute("SELECT * FROM prospects WHERE id=?", (pid,)).fetchone()
+    conn.close()
+    return render_template('prospect_proforma_view.html', page='prospects',
+        prospect=dict(p) if p else {}, offer=o_dict, items=items)
+
 
 @app.route('/prospects/view/<int:pid>/reminder/add', methods=['POST'])
 @login_required

@@ -78,7 +78,7 @@
     <div class="form-group"><label>Compte débit</label><select name="compte_debit">{% for c in comptes %}<option value="{{ c.numero }}">{{ c.numero }} - {{ c.libelle }}</option>{% endfor %}</select></div>
     <div class="form-group"><label>Compte crédit</label><select name="compte_credit">{% for c in comptes %}<option value="{{ c.numero }}">{{ c.numero }} - {{ c.libelle }}</option>{% endfor %}</select></div>
     <div class="form-group"><label>Libellé</label><input type="text" name="libelle" required placeholder="Description"></div>
-    <div class="form-group"><label>Montant</label><input type="number" name="montant" step="1" min="1" required></div>
+    <div class="form-group"><label>Montant</label><input type="number" name="montant" step="1" min="0" required></div>
     <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
 </form></div></div>
 

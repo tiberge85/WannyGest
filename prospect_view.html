@@ -60,17 +60,33 @@
 
 <!-- OFFRES -->
 {% elif tab == 'offres' %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <h3 style="margin:0;font-size:14px;color:#1A7A6D">📦 Offres / Proformas</h3>
+    <div style="display:flex;gap:6px">
+        <a href="/prospects/view/{{ prospect.id }}/proforma/new" class="btn btn-primary btn-sm" style="background:linear-gradient(135deg,#0f5a51,#1A7A6D);font-weight:600">
+            📄 Créer une proforma complète
+        </a>
+    </div>
+</div>
 <form method="post" action="/prospects/view/{{ prospect.id }}/offer/add" style="background:#f8faf9;padding:12px;border-radius:8px;margin-bottom:14px">
+    <div style="font-size:11px;color:#666;margin-bottom:6px">💡 Offre simple (rapide). Pour une proforma complète avec items, totaux, devise, etc., utilisez le bouton ci-dessus.</div>
     <div class="form-row"><div class="form-group"><label>Titre *</label><input type="text" name="title" required placeholder="Offre de prestation..."></div><div class="form-group"><label>Montant (FCFA)</label><input type="number" name="amount" step="1" min="0"></div></div>
     <div class="form-row"><div class="form-group"><label>Statut</label><select name="status"><option>brouillon</option><option>envoyee</option><option>acceptee</option><option>refusee</option></select></div><div class="form-group"><label>Description</label><input type="text" name="description" placeholder="Détails..."></div></div>
-    <button type="submit" class="btn btn-primary btn-sm">+ Ajouter une offre</button>
+    <button type="submit" class="btn btn-outline btn-sm">+ Ajouter une offre simple</button>
 </form>
-{% if offers %}<table style="width:100%;font-size:12px"><thead><tr><th>#</th><th>Titre</th><th>Montant</th><th>Statut</th><th>Date</th><th></th></tr></thead>
+{% if offers %}<table style="width:100%;font-size:12px"><thead><tr><th>Réf/Titre</th><th>Montant</th><th>Statut</th><th>Date</th><th>Actions</th></tr></thead>
 <tbody>{% for o in offers %}<tr>
-<td>{{ o.id }}</td><td>{{ o.title }}</td><td style="font-weight:700">{{ '{:,.0f}'.format(o.amount) }} F</td>
+<td>
+    <strong>{{ o.ref or ('#' ~ o.id) }}</strong><br>
+    <span style="font-size:11px;color:#666">{{ o.subject or o.title }}</span>
+</td>
+<td style="font-weight:700">{{ '{:,.0f}'.format(o.total_ttc or o.amount or 0) }} {{ o.currency or 'F' }}</td>
 <td><span class="badge-status {% if o.status=='acceptee' %}sent{% else %}pending{% endif %}">{{ o.status }}</span></td>
-<td style="font-size:10px">{{ o.created_at[:10] if o.created_at else '' }}</td>
-<td><a href="/prospects/view/{{ prospect.id }}/delete/offer/{{ o.id }}" style="color:#c53030;font-size:10px" onclick="return confirm('Supprimer ?')">🗑️</a></td>
+<td style="font-size:10px">{{ (o.date_emission or (o.created_at[:10] if o.created_at else '')) }}</td>
+<td style="white-space:nowrap">
+    {% if o.ref %}<a href="/prospects/view/{{ prospect.id }}/proforma/{{ o.id }}" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 6px">👁️</a>{% endif %}
+    <a href="/prospects/view/{{ prospect.id }}/delete/offer/{{ o.id }}" style="color:#c53030;font-size:10px" onclick="return confirm('Supprimer ?')">🗑️</a>
+</td>
 </tr>{% endfor %}</tbody></table>{% else %}<p style="color:#999;text-align:center;padding:20px">Aucune offre</p>{% endif %}
 
 <!-- TÂCHES -->
