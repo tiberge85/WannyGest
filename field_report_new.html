@@ -1,4 +1,8 @@
 {% extends "base.html" %}{% block title %}WannyGest - Nouvelle Remontée{% endblock %}{% block content %}
+{# v141 : Anti-cache pour s'assurer que les utilisateurs voient toujours la dernière version du JS #}
+<meta http-equiv="cache-control" content="no-cache, must-revalidate" />
+<meta http-equiv="expires" content="0" />
+<meta http-equiv="pragma" content="no-cache" />
 <style>
 .client-info-card { background:#fff; border-radius:10px; padding:14px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.08); border-left:4px solid #1A7A6D; }
 .client-info-card h4 { margin:0 0 10px; font-size:13px; color:#1A7A6D; font-weight:700; }
@@ -119,10 +123,15 @@
     </div>
 </div>
 
-<!-- BLOC SITES DU CLIENT (v137 / v140) -->
-<div id="sitesBlock" class="card" style="margin-bottom:14px;display:none">
-    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">🏷️ Code client / Site concerné par la remontée</h3></div>
+<!-- BLOC SITES DU CLIENT (v137 / v140 / v141) -->
+<div id="sitesBlock" class="card" style="margin-bottom:14px;display:none;border:2px solid #1A7A6D">
+    <div class="card-header" style="background:#1A7A6D;color:#fff;padding:10px"><h3 style="margin:0;color:#fff;font-size:14px">🏷️ Code client / Site concerné par la remontée</h3></div>
     <div class="card-body">
+        <!-- v141 : Compteur visible en haut -->
+        <div id="sitesCounter" style="padding:10px 12px;border-radius:8px;border-left:4px solid #2e7d32;margin-bottom:10px;font-size:12px">
+            Chargement…
+        </div>
+        
         <p style="font-size:11px;color:#666;margin:0 0 10px">
             <strong>Chaque site possède un code client unique.</strong> Sélectionnez le site concerné par la remontée, ou ajoutez un nouveau code client si la remontée concerne un emplacement non listé.
         </p>
@@ -339,9 +348,13 @@ async function loadClientInfo() {
     
     loadingMsg.style.display = 'block';
     
+    // v141 : Toujours afficher le bloc sites dès qu'un client est sélectionné
+    sitesBlock.style.display = 'block';
+    document.getElementById('sitesCounter').innerHTML = '⏳ Chargement des codes client / sites…';
+    
     try {
-        const res = await fetch(`/api/clients/${cid}/full-info`);
-        if (!res.ok) throw new Error('API err');
+        const res = await fetch(`/api/clients/${cid}/full-info`, {cache: 'no-store'});
+        if (!res.ok) throw new Error('Erreur API ' + res.status);
         const data = await res.json();
         const c = data.client || {};
         
@@ -378,12 +391,14 @@ async function loadClientInfo() {
         
         infoBlock.style.display = 'block';
         
-        // Affichage des sites
+        // v141 : Affichage des sites (toujours, même 0)
         renderSites(data.sites || []);
         sitesBlock.style.display = 'block';
     } catch (e) {
-        console.error(e);
-        alert('Impossible de charger les infos du client : ' + e.message);
+        console.error('[loadClientInfo] error:', e);
+        document.getElementById('sitesCounter').innerHTML = '❌ Erreur lors du chargement : ' + e.message + ' — vérifiez la console (F12) ou rafraîchissez la page.';
+        document.getElementById('sitesCounter').style.background = '#fde8e8';
+        document.getElementById('sitesCounter').style.color = '#c53030';
     } finally {
         loadingMsg.style.display = 'none';
     }
@@ -393,8 +408,24 @@ function renderSites(sites) {
     const container = document.getElementById('sitesList');
     container.innerHTML = '';
     
+    // v141 : Mettre à jour le compteur en haut
+    const counter = document.getElementById('sitesCounter');
+    if (counter) {
+        if (sites.length === 0) {
+            counter.innerHTML = '⚠️ <strong>Aucun code client / site existant</strong> pour ce client. Utilisez le formulaire ci-dessous pour en créer un.';
+            counter.style.background = '#fff3cd';
+            counter.style.borderLeftColor = '#f29f2f';
+            counter.style.color = '#856404';
+        } else {
+            counter.innerHTML = `✅ <strong>${sites.length} code(s) client / site(s) existant(s)</strong> pour ce client. Sélectionnez celui concerné par la remontée ou ajoutez-en un nouveau.`;
+            counter.style.background = '#e8f5e9';
+            counter.style.borderLeftColor = '#2e7d32';
+            counter.style.color = '#1b5e20';
+        }
+    }
+    
     if (sites.length === 0) {
-        container.innerHTML = '<div style="grid-column:1/-1;color:#999;font-style:italic;padding:10px;background:#f8f9fa;border-radius:6px;text-align:center">Aucun site existant pour ce client. Utilisez le bouton ci-dessous pour en ajouter un nouveau code client.</div>';
+        container.innerHTML = '<div style="grid-column:1/-1;color:#999;font-style:italic;padding:14px;background:#f8f9fa;border-radius:8px;text-align:center;border:2px dashed #ddd">📭 Aucun code client / site existant pour ce client.</div>';
         // Ouvrir directement le formulaire nouveau site
         document.getElementById('newSiteForm').style.display = 'block';
         return;
@@ -406,10 +437,10 @@ function renderSites(sites) {
         card.dataset.siteId = s.id;
         card.dataset.siteCode = s.site_code || '';
         card.onclick = function() { selectSite(s); };
-        // v140 : Code client (site_code) bien mis en évidence en haut
+        // v140/v141 : Code client (site_code) bien mis en évidence en haut
         card.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:start;gap:6px;margin-bottom:5px">
-                <span style="background:#1A7A6D;color:#fff;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;font-family:monospace">
+                <span style="background:#1A7A6D;color:#fff;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;font-family:monospace">
                     🏷️ ${s.site_code || 'NO-CODE'}
                 </span>
                 <span style="font-size:9px;color:#888;background:#f0f0f0;padding:2px 5px;border-radius:4px">${s.status || 'actif'}</span>

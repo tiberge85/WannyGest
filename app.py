@@ -1907,9 +1907,8 @@ CLOSURE_JUSTIFICATION_MOTIFS = {
 
 
 def get_user_pending_tasks(user_id, user_role=None):
-    """v139 : Récupère toutes les tâches en attente d'un utilisateur selon son rôle.
-    Retourne un dict avec catégories => liste de tâches.
-    Chaque tâche : {id, label, link, priority, type, category}"""
+    """v139 / v141 : Récupère toutes les tâches en attente d'un utilisateur selon son rôle.
+    v141 : Correction des URL → toutes vérifiées contre les routes réelles."""
     from models import get_db as _gdb_pt
     conn = _gdb_pt()
     result = {
@@ -1935,8 +1934,9 @@ def get_user_pending_tasks(user_id, user_role=None):
                 result['interventions'].append({
                     'id': r['id'], 'task_type': 'intervention',
                     'label': f"{r['reference']} — {r['type']} ({r['client_name'] or 'sans client'})",
-                    'link': f"/interventions/{r['id']}", 'status': r['status'],
-                    'date': r['scheduled_date'],
+                    # v141 : /interventions/<id> n'existe pas, on utilise /fiche
+                    'link': f"/interventions/{r['id']}/fiche",
+                    'status': r['status'], 'date': r['scheduled_date'],
                 })
         except: pass
         
@@ -1950,7 +1950,8 @@ def get_user_pending_tasks(user_id, user_role=None):
                 result['projets'].append({
                     'id': r['id'], 'task_type': 'projet',
                     'label': f"{r['reference']} — {r['title']} ({r['progress_pct']}%)",
-                    'link': f"/projects/{r['id']}", 'status': r['status'],
+                    'link': f"/projects/{r['id']}",  # ✅ existe
+                    'status': r['status'],
                 })
         except: pass
         
@@ -1961,10 +1962,11 @@ def get_user_pending_tasks(user_id, user_role=None):
                 WHERE user_id=? AND COALESCE(read,0)=0 AND COALESCE(priority,'normal') IN ('high','urgent','critical')
                 ORDER BY id DESC LIMIT 30""", (user_id,)).fetchall()
             for r in rows:
+                # v141 : si pas de link, utiliser /notifications/read/<id> qui redirige intelligemment
+                target_link = r['link'] if r['link'] else f"/notifications/read/{r['id']}"
                 result['notifications'].append({
                     'id': r['id'], 'task_type': 'notification',
-                    'label': f"{r['title']}",
-                    'link': r['link'] or f"/notifications/read/{r['id']}",
+                    'label': f"{r['title']}", 'link': target_link,
                     'priority': r['priority'],
                 })
         except: pass
@@ -1980,7 +1982,8 @@ def get_user_pending_tasks(user_id, user_role=None):
                     result['validations'].append({
                         'id': r['id'], 'task_type': 'ordre_virement',
                         'label': f"OV {r['reference']} — {r['beneficiaire']} ({r['montant']:,.0f} F)",
-                        'link': f"/ordres-virement/{r['id']}", 'status': 'à valider',
+                        # v141 : route détail n'existe pas, on pointe vers la liste
+                        'link': '/ordres-virement', 'status': 'à valider',
                     })
             except: pass
         
@@ -1999,7 +2002,7 @@ def get_user_pending_tasks(user_id, user_role=None):
             except: pass
         
         if user_role in ('moyens_generaux', 'mg', 'admin'):
-            # Demandes MG en attente
+            # Demandes MG en attente (table achats_demandes)
             try:
                 rows = conn.execute("""SELECT id, reference, designation, statut
                     FROM achats_demandes WHERE statut IN ('en_attente','soumise','transmise')
@@ -2008,7 +2011,8 @@ def get_user_pending_tasks(user_id, user_role=None):
                     result['validations'].append({
                         'id': r['id'], 'task_type': 'demande_achat',
                         'label': f"Demande {r['reference']} — {r['designation'] or '?'}",
-                        'link': f"/achats/demandes/{r['id']}", 'status': r['statut'],
+                        # v141 : pas de route détail, on pointe vers la liste achats
+                        'link': '/achats', 'status': r['statut'],
                     })
             except: pass
         
@@ -2022,7 +2026,8 @@ def get_user_pending_tasks(user_id, user_role=None):
                 result['remontees'].append({
                     'id': r['id'], 'task_type': 'field_report',
                     'label': f"{r['reference']} — {r['type_info']} ({r['priorite']})",
-                    'link': f"/field-reports/{r['id']}", 'status': r['statut'],
+                    'link': f"/field-reports/{r['id']}",  # ✅ existe
+                    'status': r['statut'],
                 })
         except: pass
         
@@ -2036,13 +2041,14 @@ def get_user_pending_tasks(user_id, user_role=None):
                     result['devis'].append({
                         'id': r['id'], 'task_type': 'devis',
                         'label': f"{r['reference']} — {r['client_name']} ({r['total_ttc']:,.0f} F)",
-                        'link': f"/devis/{r['id']}", 'status': r['status'],
+                        # v141 : /devis/<id> n'existe pas, on utilise /devis/edit/<id>
+                        'link': f"/devis/edit/{r['id']}",
+                        'status': r['status'],
                     })
             except: pass
     finally:
         conn.close()
     
-    # Calcul du total
     total = sum(len(v) for v in result.values())
     result['_total'] = total
     return result
@@ -3121,10 +3127,20 @@ def inject_globals():
                         "SELECT COUNT(*) FROM field_reports WHERE statut IN ('transformee_projet','transformee_opportunite') AND linked_project_id IS NULL"
                     ).fetchone()[0]
                 except: ctx['nouveau_projet_count'] = 0
+                # v141 : Indicateur de clôture journalière en attente
+                try:
+                    _today = datetime.now().strftime('%Y-%m-%d')
+                    _cr = _nc.execute(
+                        "SELECT status FROM daily_closures WHERE user_id=? AND date_closure=?",
+                        (user['id'], _today)).fetchone()
+                    # Pending = pas de clôture OU statut en_attente
+                    ctx['closure_pending'] = (not _cr) or (_cr['status'] in ('en_attente', None))
+                except: ctx['closure_pending'] = False
                 _nc.close()
             except: 
                 ctx['notif_count'] = 0
                 ctx['nouveau_projet_count'] = 0
+                ctx['closure_pending'] = False
             if 'fichiers' in perms or 'admin' in perms:
                 try:
                     from models import get_db as _gdb_abs
@@ -3799,9 +3815,41 @@ def two_fa_disable():
 
 @app.route('/logout')
 def logout():
+    """v141 : Bloque la déconnexion si la clôture journalière n'est pas effectuée.
+    Force l'utilisateur à terminer ses tâches ou justifier avant de pouvoir se déconnecter."""
+    if session.get('user_id'):
+        user_id = session['user_id']
+        today = datetime.now().strftime('%Y-%m-%d')
+        try:
+            conn = _gdb()
+            row = conn.execute("SELECT id, status FROM daily_closures WHERE user_id=? AND date_closure=?",
+                (user_id, today)).fetchone()
+            conn.close()
+            # Si la clôture du jour n'existe pas ou est en attente → bloquer
+            if not row or row['status'] in ('en_attente', None):
+                flash("⚠️ Vous devez clôturer votre journée avant de vous déconnecter. "
+                      "Terminez vos tâches en attente ou fournissez une justification.",
+                      "error")
+                return redirect('/closure/today')
+        except Exception as _e:
+            print(f"[v141] logout closure check err : {_e}", flush=True)
+    
     session.clear()
     flash("Déconnexion réussie", "success")
     return redirect(url_for('welcome'))
+
+
+# v141 : Logout d'urgence (admin uniquement) — bypass le contrôle de clôture
+@app.route('/logout/force', methods=['POST'])
+def logout_force():
+    """v141 : Déconnexion forcée — admin uniquement (ex: si bug bloquant)."""
+    if session.get('user_id'):
+        user = get_user_by_id(session['user_id'])
+        if user and user['role'] == 'admin':
+            session.clear()
+            flash("Déconnexion forcée (admin)", "warning")
+            return redirect(url_for('welcome'))
+    return redirect('/closure/today')
 
 
 # ======================== DASHBOARD ========================
