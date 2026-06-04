@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Centre de notifications{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>🔔 Centre de notifications</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            {{ notif_counts.total }} total · <strong style="color:#c53030">{{ notif_counts.unread }}</strong> non lues · {{ notif_counts.read }} lues
+        </p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/notifications/preferences" class="btn btn-outline btn-sm">⚙️ Préférences</a>
+        <a href="/notifications/mark-all-read" class="btn btn-primary btn-sm">✅ Tout marquer comme lu</a>
+    </div>
+</div>
+
+<!-- Filtres rapides état -->
+<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+    <a href="?filter=all" class="btn btn-sm {% if filter_state == 'all' %}btn-primary{% else %}btn-outline{% endif %}">
+        Toutes ({{ notif_counts.total }})
+    </a>
+    <a href="?filter=unread" class="btn btn-sm {% if filter_state == 'unread' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if filter_state == 'unread' %}background:#c53030;color:#fff{% endif %}">
+        🔴 Non lues ({{ notif_counts.unread }})
+    </a>
+    <a href="?filter=read" class="btn btn-sm {% if filter_state == 'read' %}btn-primary{% else %}btn-outline{% endif %}">
+        Lues ({{ notif_counts.read }})
+    </a>
+</div>
+
+<!-- Filtre par module -->
+{% if module_stats %}
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;background:#f8f9fa;padding:8px;border-radius:8px">
+    <span style="font-size:11px;color:#666;padding:4px 6px">Modules :</span>
+    <a href="?{% if filter_state != 'all' %}filter={{ filter_state }}{% endif %}" 
+       class="btn btn-sm {% if not module_filter %}btn-primary{% else %}btn-outline{% endif %}" style="font-size:11px;padding:3px 8px">
+        Tous
+    </a>
+    {% for mod, st in module_stats.items() %}
+    <a href="?{% if filter_state != 'all' %}filter={{ filter_state }}&{% endif %}module={{ mod }}" 
+       class="btn btn-sm {% if module_filter == mod %}btn-primary{% else %}btn-outline{% endif %}" style="font-size:11px;padding:3px 8px">
+        {{ mod }} ({{ st.total }}{% if st.unread > 0 %} · <strong style="color:#c53030">{{ st.unread }}</strong>{% endif %})
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Barre de recherche -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:10px">
+    <form method="get" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        {% if filter_state and filter_state != 'all' %}<input type="hidden" name="filter" value="{{ filter_state }}">{% endif %}
+        {% if module_filter %}<input type="hidden" name="module" value="{{ module_filter }}">{% endif %}
+        <input type="text" name="q" value="{{ q }}" placeholder="🔍 Rechercher dans les notifications…"
+            style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid #1A7A6D;border-radius:7px">
+        <select name="type" style="padding:8px 10px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Tous types</option>
+            <option value="info" {% if type_filter == 'info' %}selected{% endif %}>Info</option>
+            <option value="success" {% if type_filter == 'success' %}selected{% endif %}>Succès</option>
+            <option value="warning" {% if type_filter == 'warning' %}selected{% endif %}>Avertissement</option>
+            <option value="error" {% if type_filter == 'error' %}selected{% endif %}>Erreur</option>
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">🔎 Filtrer</button>
+        {% if q or module_filter or type_filter %}
+        <a href="/notifications" class="btn btn-outline btn-sm">↻ Réinitialiser</a>
+        {% endif %}
+    </form>
+</div></div>
+
+<!-- Liste -->
+<div class="card"><div class="card-body" style="padding:0">
+{% if notifs %}
+<div style="max-height:70vh;overflow-y:auto">
+{% for n in notifs %}
+<div style="padding:12px 14px;border-bottom:1px solid #eee;display:flex;gap:12px;align-items:flex-start;{% if not n.read %}background:#fff8e1{% endif %}">
+    <div style="flex-shrink:0;font-size:24px;width:36px;text-align:center">
+        {% if n.icon %}{{ n.icon }}
+        {% elif n.type == 'success' %}✅
+        {% elif n.type == 'warning' %}⚠️
+        {% elif n.type == 'error' %}❌
+        {% else %}🔔{% endif %}
+    </div>
+    <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px">
+            <strong style="font-size:13px;{% if not n.read %}color:#1a3a5c{% else %}color:#666{% endif %}">{{ n.title }}</strong>
+            {% if not n.read %}<span style="background:#c53030;color:#fff;font-size:9px;padding:1px 6px;border-radius:8px">NOUVEAU</span>{% endif %}
+            {% if n.module %}<span style="background:#e3f2fd;color:#0d47a1;font-size:9px;padding:1px 6px;border-radius:8px">{{ n.module }}</span>{% endif %}
+            {% if n.priority == 'high' %}<span style="background:#fff3e0;color:#e65100;font-size:9px;padding:1px 6px;border-radius:8px">⚡ URGENT</span>{% endif %}
+        </div>
+        {% if n.message %}<div style="font-size:12px;color:#555;line-height:1.4;margin-bottom:4px">{{ n.message }}</div>{% endif %}
+        <div style="font-size:10px;color:#999">{{ n.created_at[:16] if n.created_at else '' }}</div>
+    </div>
+    <div style="flex-shrink:0;display:flex;flex-direction:column;gap:4px">
+        {% if n.link %}
+        <a href="/notifications/read/{{ n.id }}" class="btn btn-primary btn-sm" style="font-size:10px;padding:3px 8px" title="Voir l'élément">👁️ Voir</a>
+        {% endif %}
+        {% if not n.read %}
+        <a href="/notifications/{{ n.id }}/mark-read" class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 8px" title="Marquer comme lue">✓</a>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">
+    <div style="font-size:42px;margin-bottom:8px">📭</div>
+    <div style="font-size:14px">Aucune notification{% if q or module_filter or type_filter %} pour ces filtres{% endif %}</div>
+    {% if q or module_filter or type_filter %}
+    <a href="/notifications" class="btn btn-outline btn-sm" style="margin-top:10px">↻ Réinitialiser les filtres</a>
+    {% endif %}
+</div>
+{% endif %}
+</div></div>
+
+<script>
+// Auto-refresh du compteur toutes les 30s
+setInterval(function() {
+    fetch('/api/notifications/count').then(r => r.json()).then(d => {
+        const badge = document.querySelector('.sidebar-notif-badge');
+        if (badge) {
+            if (d.unread > 0) {
+                badge.textContent = d.unread;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+    }).catch(()=>{});
+}, 30000);
+</script>
+
+{% endblock %}

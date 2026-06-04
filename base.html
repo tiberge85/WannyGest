@@ -228,7 +228,8 @@
             <a href="/pointage" class="{% if page == 'pointage_employee' %}active{% endif %}" style="background:linear-gradient(135deg,#1A7A6D,#0d5b50);color:#fff !important;font-weight:600">⏱️ Mon pointage</a>
             {% endif %}
             {% endif %}
-            <a href="/notifications" class="{% if page == 'notifications' %}active{% endif %}" style="position:relative">🔔 Notifications{% if notif_count %} <span class="badge">{{ notif_count }}</span>{% endif %}</a>
+            {# v129 : Badge notif non-lues + raccourci préférences #}
+            <a href="/notifications" class="{% if page == 'notifications' or page == 'notifications_prefs' %}active{% endif %}" style="position:relative">🔔 Notifications{% if notif_count %} <span class="badge sidebar-notif-badge" style="background:#c53030;color:#fff">{{ notif_count }}</span>{% else %}<span class="sidebar-notif-badge" style="display:none"></span>{% endif %}</a>
             {% if 'field_report_create' in permissions or 'field_report_view_all' in permissions or 'field_report_view_mine' in permissions or 'admin' in permissions %}
             <a href="/field-reports" class="{% if page == 'field_reports' %}active{% endif %}" style="background:linear-gradient(135deg,#7b1fa2,#4a148c);color:#fff !important;font-weight:600">📢 Remontées d'informations</a>
             {% endif %}
@@ -579,6 +580,11 @@
                     <a href="/historique" class="{% if page == 'historique' %}active{% endif %}">🕓 Historique</a>
                     <a href="/admin/security-logs" class="{% if page == 'security_logs' %}active{% endif %}">🛡️ Journal de sécurité</a>
                     <a href="/admin/2fa/setup" class="{% if page == '2fa_setup' %}active{% endif %}">🔐 Configuration 2FA</a>
+                    {# v129/v130 : Sous-menu Notifications (admin) #}
+                    <a href="/admin/notifications-config" class="{% if page == 'admin_notif_config' %}active{% endif %}">🔔 Notifications · Configuration</a>
+                    <a href="/admin/notifications-sent" class="{% if page == 'admin_notif_sent' %}active{% endif %}" style="padding-left:24px">📨 Notifications · Historique</a>
+                    <a href="/admin/notifications-subscriptions" class="{% if page == 'admin_notif_subscriptions' %}active{% endif %}" style="padding-left:24px">👥 Notifications · Abonnements</a>
+                    <a href="/admin/notifications-modules" class="{% if page == 'admin_notif_modules' %}active{% endif %}" style="padding-left:24px">📦 Notifications · Modules</a>
                     <a href="/admin/backup/list" class="{% if page == 'backup_list' %}active{% endif %}">💾 Sauvegardes BDD</a>
                     <a href="/executif" class="{% if page == 'executif' %}active{% endif %}">📊 Tableau exécutif</a>
                     <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">Logs d'activité</a>
@@ -1212,6 +1218,94 @@ function sortTable(tableId, colIndex, type){
             } catch(e){}
         }, 200);
     });
+})();
+</script>
+<!-- v130 : Enregistrement automatique du token FCM si Firebase est configuré -->
+<script>
+(function() {
+    // Vérifier si le navigateur supporte les notifications
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+    
+    // Demander la config Firebase
+    fetch('/api/notifications/fcm-config')
+        .then(r => r.json())
+        .then(cfg => {
+            if (!cfg || !cfg.apiKey || !cfg.messagingSenderId) {
+                // FCM pas configuré côté admin → on n'initialise rien
+                console.log('[WannyGest] FCM non configuré, push désactivé');
+                return;
+            }
+            
+            // Charger Firebase SDK
+            const loadScript = src => new Promise((resolve, reject) => {
+                if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+                const s = document.createElement('script');
+                s.src = src; s.onload = resolve; s.onerror = reject;
+                document.head.appendChild(s);
+            });
+            
+            Promise.all([
+                loadScript('https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js'),
+                loadScript('https://www.gstatic.com/firebasejs/9.6.1/firebase-messaging-compat.js')
+            ]).then(() => {
+                try {
+                    if (firebase.apps && firebase.apps.length === 0) firebase.initializeApp(cfg);
+                } catch (e) { console.warn('[WannyGest] Firebase init err', e); return; }
+                
+                const messaging = firebase.messaging();
+                
+                // Demander la permission de notification
+                Notification.requestPermission().then(perm => {
+                    if (perm !== 'granted') {
+                        console.log('[WannyGest] Permission notifications refusée');
+                        return;
+                    }
+                    // Récupérer le token
+                    const opts = cfg.vapidKey ? { vapidKey: cfg.vapidKey } : {};
+                    messaging.getToken(opts).then(token => {
+                        if (!token) return;
+                        // Enregistrer côté serveur
+                        const fd = new FormData();
+                        fd.append('token', token);
+                        fd.append('platform', 'web');
+                        fd.append('device_label', (navigator.userAgent || '').slice(0, 80));
+                        fetch('/api/notifications/fcm-register', {
+                            method: 'POST',
+                            body: fd,
+                            credentials: 'same-origin'
+                        }).then(() => console.log('[WannyGest] FCM token enregistré'));
+                    }).catch(err => console.warn('[WannyGest] getToken err', err));
+                });
+                
+                // Notifications en foreground (app ouverte)
+                messaging.onMessage(payload => {
+                    console.log('[WannyGest] Notification reçue (foreground)', payload);
+                    // Afficher une notification visuelle même app ouverte
+                    if (Notification.permission === 'granted' && payload.notification) {
+                        const n = new Notification(payload.notification.title, {
+                            body: payload.notification.body,
+                            icon: '/static/icon-192.png'
+                        });
+                        n.onclick = () => {
+                            window.focus();
+                            if (payload.data && payload.data.link) window.location.href = payload.data.link;
+                            n.close();
+                        };
+                    }
+                    // Rafraîchir le compteur sidebar
+                    fetch('/api/notifications/count').then(r => r.json()).then(d => {
+                        const badge = document.querySelector('.sidebar-notif-badge');
+                        if (badge && d.unread > 0) {
+                            badge.textContent = d.unread;
+                            badge.style.display = 'inline-block';
+                            badge.style.background = '#c53030';
+                            badge.style.color = '#fff';
+                        }
+                    }).catch(()=>{});
+                });
+            }).catch(err => console.warn('[WannyGest] Firebase SDK load err', err));
+        })
+        .catch(()=>{ /* FCM pas dispo, silencieux */ });
 })();
 </script>
 </body>

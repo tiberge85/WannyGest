@@ -1708,6 +1708,427 @@ except Exception as _e:
     print(f"[v120-Migrations] Erreur : {_e}", flush=True)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# v129 : SYSTÈME COMPLET DE NOTIFICATIONS MULTI-CANAL
+# Tables : préférences user, tokens FCM, outbox (file d'envoi async)
+# Canaux : interne, push (FCM), email (SMTP), WhatsApp (Twilio)
+# ═══════════════════════════════════════════════════════════════════
+try:
+    from models import get_db as _v129_db
+    _v129 = _v129_db()
+    
+    # Préférences de notification par utilisateur + canal
+    _v129.execute("""CREATE TABLE IF NOT EXISTS notif_user_prefs (
+        user_id INTEGER NOT NULL,
+        channel TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, channel)
+    )""")
+    # Index pour requêtes rapides
+    _v129.execute("CREATE INDEX IF NOT EXISTS idx_notif_prefs_user ON notif_user_prefs(user_id)")
+    
+    # Tokens Firebase Cloud Messaging par device
+    _v129.execute("""CREATE TABLE IF NOT EXISTS notif_fcm_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        platform TEXT,
+        device_label TEXT,
+        active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_seen TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    _v129.execute("CREATE INDEX IF NOT EXISTS idx_fcm_user ON notif_fcm_tokens(user_id)")
+    
+    # Outbox : file d'envoi pour les canaux externes (push/email/whatsapp)
+    # Permet la retry et le traitement async par un worker
+    _v129.execute("""CREATE TABLE IF NOT EXISTS notif_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        channel TEXT NOT NULL,
+        recipient TEXT,
+        subject TEXT,
+        body TEXT,
+        payload TEXT,
+        notification_id INTEGER,
+        status TEXT DEFAULT 'pending',
+        attempts INTEGER DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        sent_at TEXT
+    )""")
+    _v129.execute("CREATE INDEX IF NOT EXISTS idx_outbox_status ON notif_outbox(status)")
+    _v129.execute("CREATE INDEX IF NOT EXISTS idx_outbox_user ON notif_outbox(user_id)")
+    
+    # Enrichissement de la table notifications : ajout module + priority
+    for col_def in [
+        "module TEXT",
+        "priority TEXT DEFAULT 'normal'",
+        "icon TEXT",
+        "data TEXT",
+    ]:
+        try:
+            col_name = col_def.split()[0]
+            check = _v129.execute(f"SELECT {col_name} FROM notifications LIMIT 1")
+        except:
+            try: _v129.execute(f"ALTER TABLE notifications ADD COLUMN {col_def}")
+            except: pass
+    
+    # v129 : ajout colonne phone à users (pour WhatsApp)
+    try:
+        _v129.execute("SELECT phone FROM users LIMIT 1")
+    except:
+        try: _v129.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+        except: pass
+    
+    _v129.commit()
+    _v129.close()
+    print("[v129-Notif] Tables notifications multi-canal OK", flush=True)
+except Exception as _e:
+    print(f"[v129-Notif] Erreur : {_e}", flush=True)
+
+
+# v130 : Table activation par module (admin peut désactiver un module entier)
+try:
+    from models import get_db as _v130_db
+    _v130 = _v130_db()
+    _v130.execute("""CREATE TABLE IF NOT EXISTS notif_module_enabled (
+        module TEXT PRIMARY KEY,
+        enabled INTEGER DEFAULT 1,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_by INTEGER
+    )""")
+    # Initialiser tous les modules à 'activé' au 1er démarrage
+    _v130_flag = _v130.execute("SELECT 1 FROM app_settings WHERE key='v130_modules_seeded'").fetchone()
+    if not _v130_flag:
+        for mod in ('projets','interventions','remontees','validations','factures',
+                    'demandes','comptabilite','rh','systeme','clients','tresorerie'):
+            try: _v130.execute("INSERT OR IGNORE INTO notif_module_enabled (module, enabled) VALUES (?,1)", (mod,))
+            except: pass
+        try: _v130.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('v130_modules_seeded', '1')")
+        except: pass
+        _v130.commit()
+        print("[v130-Notif] Modules de notification initialisés", flush=True)
+    _v130.close()
+except Exception as _e:
+    print(f"[v130-Notif] Erreur : {_e}", flush=True)
+
+
+# v129 : Helpers de notification multi-canal
+# Ces helpers sont attachés à app après init des modèles plus bas dans le fichier.
+NOTIF_CHANNELS = ('internal', 'push', 'email', 'whatsapp')
+
+# Catégories disponibles pour les préférences (groupées par usage)
+NOTIF_CATEGORIES = {
+    'interventions': '🛠️ Interventions (nouvelle, replanification, terminée)',
+    'projets':       '🎯 Projets (création, transitions de workflow)',
+    'remontees':     '📢 Remontées d\'informations terrain',
+    'validations':   '✅ Validations (devis, paie, MG, virements)',
+    'factures':      '🧾 Factures et paiements',
+    'demandes':      '📥 Demandes (clients, internes)',
+    'comptabilite':  '💰 Comptabilité (validations, écritures)',
+    'rh':            '👥 RH (congés, paie, pointage)',
+    'systeme':       '⚙️ Système (compte, sécurité, maintenance)',
+}
+
+
+def get_user_notif_prefs(user_id):
+    """v129 : Récupère les préférences de notification d'un utilisateur.
+    Retourne dict { channel: enabled_bool }. Défaut : tous activés."""
+    conn = _gdb()
+    rows = conn.execute("SELECT channel, enabled FROM notif_user_prefs WHERE user_id=?", (user_id,)).fetchall()
+    conn.close()
+    prefs = {ch: True for ch in NOTIF_CHANNELS}  # défaut
+    for r in rows:
+        prefs[r['channel']] = bool(r['enabled'])
+    return prefs
+
+
+def set_user_notif_pref(user_id, channel, enabled):
+    """v129 : Définit la préférence de canal pour un user."""
+    if channel not in NOTIF_CHANNELS: return False
+    conn = _gdb()
+    try:
+        conn.execute("""INSERT INTO notif_user_prefs (user_id, channel, enabled, updated_at)
+            VALUES (?,?,?,datetime('now'))
+            ON CONFLICT(user_id, channel) DO UPDATE SET enabled=excluded.enabled, updated_at=datetime('now')""",
+            (user_id, channel, 1 if enabled else 0))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_notif_config(key, default=''):
+    """Lecture d'une config (smtp, fcm, whatsapp) depuis app_settings."""
+    conn = _gdb()
+    try:
+        row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+        return row['value'] if row else default
+    except:
+        return default
+    finally:
+        conn.close()
+
+
+def set_notif_config(key, value):
+    """Écriture d'une config dans app_settings."""
+    conn = _gdb()
+    try:
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?,?)", (key, str(value)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _send_email_smtp(to_email, subject, body, html=None):
+    """v129 : Envoi d'un email via SMTP. Lit la config dans app_settings.
+    Retourne (success: bool, error: str|None)."""
+    smtp_host = get_notif_config('smtp_host')
+    if not smtp_host:
+        return False, 'SMTP non configuré'
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        port = int(get_notif_config('smtp_port', '587') or '587')
+        user = get_notif_config('smtp_user', '')
+        pwd = get_notif_config('smtp_password', '')
+        from_addr = get_notif_config('smtp_from', user or 'noreply@ramyaci.tech')
+        use_tls = get_notif_config('smtp_tls', '1') == '1'
+        
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = from_addr
+        msg['To'] = to_email
+        msg.attach(MIMEText(body or '', 'plain', 'utf-8'))
+        if html:
+            msg.attach(MIMEText(html, 'html', 'utf-8'))
+        
+        with smtplib.SMTP(smtp_host, port, timeout=10) as s:
+            if use_tls:
+                s.starttls()
+            if user and pwd:
+                s.login(user, pwd)
+            s.send_message(msg)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def _send_push_fcm(user_id, title, body, link=None):
+    """v129 : Envoi d'une notification push via Firebase Cloud Messaging.
+    Récupère les tokens actifs de l'utilisateur depuis notif_fcm_tokens.
+    Retourne (success: bool, error: str|None).
+    
+    PRÉREQUIS : configurer fcm_server_key dans /admin/notifications-config.
+    Coté client (mobile/web), enregistrer le token via POST /api/notifications/fcm-register."""
+    server_key = get_notif_config('fcm_server_key')
+    if not server_key:
+        return False, 'FCM non configuré (manque fcm_server_key)'
+    conn = _gdb()
+    tokens = [r['token'] for r in conn.execute(
+        "SELECT token FROM notif_fcm_tokens WHERE user_id=? AND active=1", (user_id,)).fetchall()]
+    conn.close()
+    if not tokens:
+        return False, 'Aucun token FCM enregistré pour ce user'
+    try:
+        import urllib.request, urllib.error, json as _json
+        sent = 0
+        for tok in tokens:
+            payload = {
+                'to': tok,
+                'notification': {'title': title, 'body': body},
+                'data': {'link': link or '/dashboard'},
+            }
+            req = urllib.request.Request(
+                'https://fcm.googleapis.com/fcm/send',
+                data=_json.dumps(payload).encode('utf-8'),
+                headers={
+                    'Content-Type': 'application/json',
+                    'Authorization': f'key={server_key}',
+                })
+            try:
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    if resp.status == 200:
+                        sent += 1
+            except: pass
+        return (sent > 0), (None if sent > 0 else 'Tous les envois FCM ont échoué')
+    except Exception as e:
+        return False, str(e)
+
+
+def _send_whatsapp_twilio(to_phone, body):
+    """v129 : Envoi WhatsApp via Twilio API. Préparation — nécessite compte Twilio.
+    Configuration : twilio_sid, twilio_token, twilio_whatsapp_from (ex: 'whatsapp:+14155238886')."""
+    sid = get_notif_config('twilio_sid')
+    token = get_notif_config('twilio_token')
+    from_num = get_notif_config('twilio_whatsapp_from')
+    if not (sid and token and from_num):
+        return False, 'WhatsApp non configuré (manque twilio_sid/token/whatsapp_from)'
+    try:
+        import urllib.request, urllib.parse, base64
+        if not to_phone.startswith('whatsapp:'):
+            to_phone = f'whatsapp:{to_phone}'
+        data = urllib.parse.urlencode({'From': from_num, 'To': to_phone, 'Body': body}).encode('utf-8')
+        auth = base64.b64encode(f'{sid}:{token}'.encode()).decode()
+        req = urllib.request.Request(
+            f'https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json',
+            data=data,
+            headers={'Content-Type': 'application/x-www-form-urlencoded',
+                     'Authorization': f'Basic {auth}'})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            return (resp.status in (200, 201)), None
+    except Exception as e:
+        return False, str(e)
+
+
+def is_module_notif_enabled(module):
+    """v130 : Retourne True si le module est activé pour les notifications.
+    Si pas de ligne dans notif_module_enabled, considère activé par défaut."""
+    if not module: return True
+    conn = _gdb()
+    try:
+        row = conn.execute("SELECT enabled FROM notif_module_enabled WHERE module=?", (module,)).fetchone()
+        return True if not row else bool(row['enabled'])
+    except: return True
+    finally: conn.close()
+
+
+def notify_user(user_id, title, message, link=None, type='info', module=None,
+                priority='normal', icon=None, channels=None, force=False):
+    """v129/v130 : POINT D'ENTRÉE UNIQUE pour notifier un utilisateur.
+    v130 : si le module est globalement désactivé par l'admin, ne fait rien (sauf force=True).
+    """
+    if not user_id: return None
+    # v130 : Respect du switch global par module
+    if module and not force and not is_module_notif_enabled(module):
+        return None
+    if channels is None:
+        channels = ('internal', 'push', 'email', 'whatsapp')
+    
+    conn = _gdb()
+    # 1. Notification interne (toujours créée)
+    try:
+        cur = conn.execute("""INSERT INTO notifications
+            (user_id, type, title, message, link, module, priority, icon, read, created_at)
+            VALUES (?,?,?,?,?,?,?,?,0,datetime('now'))""",
+            (user_id, type, title, message, link, module, priority, icon))
+        notif_id = cur.lastrowid
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return None
+    
+    # 2. Récupérer les préférences et infos user
+    try:
+        user_row = conn.execute("SELECT email, phone, full_name FROM users WHERE id=?", (user_id,)).fetchone()
+    except:
+        user_row = conn.execute("SELECT email, full_name FROM users WHERE id=?", (user_id,)).fetchone()
+    user_email = user_row['email'] if user_row else ''
+    user_phone = ''
+    try:
+        user_phone = user_row['phone'] if user_row else ''
+        if user_phone is None: user_phone = ''
+    except: user_phone = ''
+    
+    prefs_rows = conn.execute("SELECT channel, enabled FROM notif_user_prefs WHERE user_id=?", (user_id,)).fetchall()
+    prefs = {ch: True for ch in NOTIF_CHANNELS}
+    for r in prefs_rows:
+        prefs[r['channel']] = bool(r['enabled'])
+    conn.close()
+    
+    # 3. Pour chaque canal externe, ajouter dans l'outbox si activé
+    def _outbox_add(channel, recipient, subject, body):
+        try:
+            c = _gdb()
+            c.execute("""INSERT INTO notif_outbox
+                (user_id, channel, recipient, subject, body, notification_id, status)
+                VALUES (?,?,?,?,?,?,'pending')""",
+                (user_id, channel, recipient, subject, body, notif_id))
+            c.commit(); c.close()
+        except: pass
+    
+    def _outbox_mark_sent(channel):
+        try:
+            c = _gdb()
+            c.execute("""UPDATE notif_outbox SET status='sent', sent_at=datetime('now')
+                WHERE user_id=? AND channel=? AND notification_id=? AND status='pending'""",
+                (user_id, channel, notif_id))
+            c.commit(); c.close()
+        except: pass
+    
+    def _outbox_mark_failed(channel, err):
+        try:
+            c = _gdb()
+            c.execute("""UPDATE notif_outbox SET status='failed', last_error=?, attempts=COALESCE(attempts,0)+1
+                WHERE user_id=? AND channel=? AND notification_id=? AND status='pending'""",
+                (str(err)[:300], user_id, channel, notif_id))
+            c.commit(); c.close()
+        except: pass
+    
+    # PUSH
+    if 'push' in channels and (force or prefs.get('push', True)):
+        _outbox_add('push', '', title, message)
+        ok, err = _send_push_fcm(user_id, title, message, link)
+        if ok: _outbox_mark_sent('push')
+        else: _outbox_mark_failed('push', err)
+    
+    # EMAIL
+    if 'email' in channels and (force or prefs.get('email', True)) and user_email:
+        _outbox_add('email', user_email, title, message)
+        body_text = f"{message}\n\n"
+        if link:
+            base = get_notif_config('app_url', 'https://rapport-pointage.ramyaci.tech')
+            full_link = link if link.startswith('http') else f"{base}{link}"
+            body_text += f"Lien direct : {full_link}\n"
+        body_text += "\n— WannyGest (RAMYA Technologie)"
+        ok, err = _send_email_smtp(user_email, f"[WannyGest] {title}", body_text)
+        if ok: _outbox_mark_sent('email')
+        else: _outbox_mark_failed('email', err)
+    
+    # WHATSAPP
+    if 'whatsapp' in channels and (force or prefs.get('whatsapp', True)) and user_phone:
+        _outbox_add('whatsapp', user_phone, title, message)
+        full_msg = f"*{title}*\n{message}"
+        if link:
+            base = get_notif_config('app_url', 'https://rapport-pointage.ramyaci.tech')
+            full_link = link if link.startswith('http') else f"{base}{link}"
+            full_msg += f"\n{full_link}"
+        ok, err = _send_whatsapp_twilio(user_phone, full_msg)
+        if ok: _outbox_mark_sent('whatsapp')
+        else: _outbox_mark_failed('whatsapp', err)
+    
+    return notif_id
+
+
+def notify_role(role, title, message, link=None, **kwargs):
+    """v129 : Notifie TOUS les utilisateurs d'un rôle."""
+    conn = _gdb()
+    users = conn.execute("SELECT id FROM users WHERE role=? AND COALESCE(is_active,1)=1", (role,)).fetchall()
+    conn.close()
+    ids = []
+    for u in users:
+        nid = notify_user(u['id'], title, message, link=link, **kwargs)
+        if nid: ids.append(nid)
+    return ids
+
+
+def notify_roles(roles, title, message, link=None, **kwargs):
+    """v129 : Notifie tous les utilisateurs ayant l'un des rôles spécifiés."""
+    if not roles: return []
+    conn = _gdb()
+    placeholders = ','.join(['?'] * len(roles))
+    users = conn.execute(f"SELECT DISTINCT id FROM users WHERE role IN ({placeholders}) AND COALESCE(is_active,1)=1", tuple(roles)).fetchall()
+    conn.close()
+    ids = []
+    for u in users:
+        nid = notify_user(u['id'], title, message, link=link, **kwargs)
+        if nid: ids.append(nid)
+    return ids
+
+
 # v118 + v127 : Retrait des permissions inadaptées au rôle informatique
 # v127 FIX MAJEUR : N'EXÉCUTER QU'UNE SEULE FOIS via un flag dédié.
 # Avant v127, ce bloc s'exécutait à chaque démarrage et retirait les permissions
@@ -11709,26 +12130,30 @@ def ordres_virement_new():
              session['user_id'], user['full_name']))
         conn.commit()
         
-        # Notifier les DG
+        # v130 : Notifier les DG via notify_user (multi-canal push/email/whatsapp)
         try:
+            type_display = type_virement.replace('_to_',' → ').replace('caisse','Caisse').replace('banque','Banque')
             dg_users = conn.execute("SELECT id FROM users WHERE role IN ('admin','dg','directeur')").fetchall()
-            for d in dg_users:
-                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
-                    VALUES (?,?,?,?,?,datetime('now'))""",
-                    (d['id'], 'ordre_virement',
-                     f"📋 Nouvel ordre de virement {ref}",
-                     f"{user['full_name']} demande un virement de {amount:,.0f} F ({type_virement.replace('_to_',' → ').replace('caisse','Caisse').replace('banque','Banque')}). Validation requise.",
-                     "/ordres-virement"))
             conn.commit()
+            conn.close()
+            for d in dg_users:
+                notify_user(d['id'],
+                    title=f"📋 Nouvel ordre de virement {ref}",
+                    message=f"{user['full_name']} demande un virement de {amount:,.0f} F ({type_display}). Validation requise.",
+                    link="/ordres-virement",
+                    type='info', module='tresorerie', icon='💸', priority='high')
         except Exception as _e:
-            print(f"[v120] Erreur notif DG : {_e}", flush=True)
+            print(f"[v130] Erreur notif DG virement : {_e}", flush=True)
+            try: conn.close()
+            except: pass
         
         log_activity(session['user_id'], user['full_name'], 'Virement',
             f"Ordre {ref} créé — {type_virement} — {amount:,.0f} F", request.remote_addr)
         flash(f"✅ Ordre de virement {ref} créé — en attente de validation DG", "success")
     except Exception as e:
         flash(f"❌ Erreur : {e}", "error")
-    conn.close()
+        try: conn.close()
+        except: pass
     return redirect('/ordres-virement')
 
 
@@ -11843,23 +12268,25 @@ def ordres_virement_valider(oid):
         conn.execute("""UPDATE ordres_virement SET status='valide',
             validated_by=?, validated_by_name=?, validated_at=? WHERE id=?""",
             (session['user_id'], user['full_name'], now_iso, oid))
-        
-        # Notifier le demandeur
-        if o.get('requested_by'):
-            conn.execute("""INSERT INTO notifications (user_id, type, title, message, link, created_at)
-                VALUES (?,?,?,?,?,datetime('now'))""",
-                (o['requested_by'], 'ordre_virement',
-                 f"✅ Ordre de virement {ref} validé",
-                 f"Votre demande de {amount:,.0f} F a été validée par {user['full_name']} ({user['role']}).",
-                 "/ordres-virement"))
-        
         conn.commit()
+        requester_id = o.get('requested_by')
+        conn.close()
+        
+        # v130 : Notifier le demandeur via notify_user multi-canal
+        if requester_id:
+            notify_user(requester_id,
+                title=f"✅ Ordre de virement {ref} validé",
+                message=f"Votre demande de {amount:,.0f} F a été validée par {user['full_name']} ({user['role']}).",
+                link="/ordres-virement",
+                type='success', module='tresorerie', icon='✅', priority='normal')
+        
         log_activity(session['user_id'], user['full_name'], 'Virement',
             f"Ordre {ref} VALIDÉ par DG — {typ} — {amount:,.0f} F", request.remote_addr)
         flash(f"✅ Ordre {ref} validé et exécuté — {amount:,.0f} F transférés", "success")
     except Exception as e:
         flash(f"❌ Erreur exécution : {e}", "error")
-    conn.close()
+        try: conn.close()
+        except: pass
     return redirect('/ordres-virement')
 
 
@@ -12300,37 +12727,468 @@ def intervention_rapport(iid):
 @app.route('/notifications')
 @login_required
 def notifications_page():
-    """Liste des notifications avec filtres (tous, non lu, lu) et compteurs temps réel."""
+    """v129 : Centre de notifications enrichi — filtres avancés + recherche + module."""
     conn = _gdb()
     user = get_user_by_id(session['user_id'])
+    user_email = user.get('email', '') if user else ''
+    
     filter_state = request.args.get('filter', 'all')  # all | unread | read
-    # Where clause selon le filtre
-    where_filter = ""
+    module_filter = (request.args.get('module', '') or '').strip()
+    type_filter = (request.args.get('type', '') or '').strip()
+    q = (request.args.get('q', '') or '').strip()
+    
+    where_clauses = ["(user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?))"]
+    params = [session['user_id'], user_email]
+    
     if filter_state == 'unread':
-        where_filter = "AND COALESCE(read, 0) = 0"
+        where_clauses.append("COALESCE(read,0)=0")
     elif filter_state == 'read':
-        where_filter = "AND COALESCE(read, 0) = 1"
+        where_clauses.append("COALESCE(read,0)=1")
+    if module_filter:
+        where_clauses.append("module=?")
+        params.append(module_filter)
+    if type_filter:
+        where_clauses.append("type=?")
+        params.append(type_filter)
+    if q:
+        where_clauses.append("(title LIKE ? OR message LIKE ?)")
+        like = f"%{q}%"
+        params.extend([like, like])
     
-    notifs = [dict(r) for r in conn.execute(f"""SELECT * FROM notifications 
-        WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?))
-        {where_filter}
-        ORDER BY created_at DESC LIMIT 100""",
-        (session['user_id'], user.get('email',''))).fetchall()]
+    where_sql = " AND ".join(where_clauses)
+    notifs = [dict(r) for r in conn.execute(
+        f"SELECT * FROM notifications WHERE {where_sql} ORDER BY created_at DESC LIMIT 200",
+        tuple(params)).fetchall()]
     
-    # Compteurs temps réel
+    # Compteurs temps réel (sans filtres pour vue globale)
     counts = conn.execute("""SELECT 
         COUNT(*) as total,
-        SUM(CASE WHEN COALESCE(read,0) = 0 THEN 1 ELSE 0 END) as unread,
-        SUM(CASE WHEN COALESCE(read,0) = 1 THEN 1 ELSE 0 END) as read
+        SUM(CASE WHEN COALESCE(read,0)=0 THEN 1 ELSE 0 END) as unread,
+        SUM(CASE WHEN COALESCE(read,0)=1 THEN 1 ELSE 0 END) as read
         FROM notifications
         WHERE user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)""",
-        (session['user_id'], user.get('email',''))).fetchone()
+        (session['user_id'], user_email)).fetchone()
     counts = dict(counts) if counts else {'total':0, 'unread':0, 'read':0}
     counts = {k: int(v or 0) for k, v in counts.items()}
     
+    # Stats par module (pour affichage des chips)
+    module_stats = {}
+    try:
+        rows = conn.execute("""SELECT module, COUNT(*) as nb, 
+            SUM(CASE WHEN COALESCE(read,0)=0 THEN 1 ELSE 0 END) as nb_unread
+            FROM notifications
+            WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?))
+            AND module IS NOT NULL AND module != ''
+            GROUP BY module ORDER BY nb DESC""",
+            (session['user_id'], user_email)).fetchall()
+        module_stats = {r['module']: {'total': r['nb'], 'unread': r['nb_unread'] or 0} for r in rows}
+    except: pass
+    
     conn.close()
-    return render_template('rh_conges.html', page='notifications', notifs=notifs,
-                          filter_state=filter_state, notif_counts=counts)
+    return render_template('notifications_center.html', page='notifications',
+        notifs=notifs, filter_state=filter_state, notif_counts=counts,
+        module_stats=module_stats, module_filter=module_filter, type_filter=type_filter, q=q)
+
+
+# v129 : Page préférences utilisateur — gestion des abonnements multi-canal
+@app.route('/notifications/preferences', methods=['GET', 'POST'])
+@login_required
+def notifications_preferences():
+    """v129 : L'utilisateur choisit Push/Email/WhatsApp ON/OFF + numéro WhatsApp."""
+    user = get_user_by_id(session['user_id'])
+    if request.method == 'POST':
+        for ch in NOTIF_CHANNELS:
+            enabled = request.form.get(f'pref_{ch}') == '1'
+            set_user_notif_pref(session['user_id'], ch, enabled)
+        # Mise à jour du téléphone (pour WhatsApp)
+        new_phone = (request.form.get('phone', '') or '').strip()
+        if new_phone:
+            conn = _gdb()
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+            except: pass
+            try:
+                conn.execute("UPDATE users SET phone=? WHERE id=?", (new_phone, session['user_id']))
+                conn.commit()
+            except: pass
+            conn.close()
+        flash("✅ Préférences enregistrées", "success")
+        return redirect('/notifications/preferences')
+    
+    prefs = get_user_notif_prefs(session['user_id'])
+    
+    # Récupérer téléphone et tokens FCM
+    conn = _gdb()
+    try:
+        u_row = conn.execute("SELECT phone FROM users WHERE id=?", (session['user_id'],)).fetchone()
+        user_phone = u_row['phone'] if u_row and u_row['phone'] else ''
+    except: user_phone = ''
+    try:
+        fcm_tokens = [dict(r) for r in conn.execute(
+            "SELECT id, platform, device_label, active, created_at, last_seen FROM notif_fcm_tokens WHERE user_id=? ORDER BY last_seen DESC",
+            (session['user_id'],)).fetchall()]
+    except: fcm_tokens = []
+    conn.close()
+    
+    # État des canaux côté admin (pour avertir l'utilisateur si un canal n'est pas configuré)
+    admin_status = {
+        'email_configured': bool(get_notif_config('smtp_host')),
+        'push_configured': bool(get_notif_config('fcm_server_key')),
+        'whatsapp_configured': bool(get_notif_config('twilio_sid')),
+    }
+    
+    return render_template('notifications_preferences.html', page='notifications_prefs',
+        prefs=prefs, user_email=user.get('email',''), user_phone=user_phone,
+        fcm_tokens=fcm_tokens, admin_status=admin_status,
+        channels=NOTIF_CHANNELS)
+
+
+# v129 : Endpoint FCM — enregistrement d'un token (appelé côté client après init Firebase)
+@app.route('/api/notifications/fcm-config')
+def api_fcm_config():
+    """v129 : Renvoie la config Firebase pour init côté client.
+    Stockée dans app_settings sous clé fcm_web_config (JSON)."""
+    import json
+    raw = get_notif_config('fcm_web_config', '')
+    try:
+        cfg = json.loads(raw) if raw else {}
+    except:
+        cfg = {}
+    return jsonify(cfg)
+
+
+@app.route('/firebase-messaging-sw.js')
+def fcm_service_worker():
+    """v129 : Sert le service worker FCM à la racine (requis par Firebase)."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), 'firebase-messaging-sw.js')
+    if os.path.exists(path):
+        with open(path, 'r') as f:
+            content = f.read()
+        return content, 200, {'Content-Type': 'application/javascript'}
+    return '', 404
+
+
+@app.route('/api/notifications/fcm-register', methods=['POST'])
+@login_required
+def api_fcm_register_token():
+    """v129 : Le client (mobile/web) appelle cet endpoint après obtention du token FCM."""
+    token = (request.form.get('token', '') or request.json.get('token', '') if request.is_json else '').strip() if request.is_json else (request.form.get('token', '') or '').strip()
+    platform = (request.form.get('platform', '') or '').strip() if not request.is_json else (request.json.get('platform', '') if request.json else '')
+    device_label = (request.form.get('device_label', '') or '').strip() if not request.is_json else (request.json.get('device_label', '') if request.json else '')
+    if not token:
+        return jsonify({'ok': False, 'error': 'token required'}), 400
+    conn = _gdb()
+    try:
+        conn.execute("""INSERT INTO notif_fcm_tokens (user_id, token, platform, device_label, active, created_at, last_seen)
+            VALUES (?,?,?,?,1,datetime('now'),datetime('now'))
+            ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, platform=excluded.platform,
+                device_label=excluded.device_label, active=1, last_seen=datetime('now')""",
+            (session['user_id'], token, platform, device_label))
+        conn.commit()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/notifications/fcm-unregister/<int:tid>', methods=['POST'])
+@login_required
+def api_fcm_unregister_token(tid):
+    """v129 : Désactive un token FCM (logout d'un device)."""
+    conn = _gdb()
+    try:
+        conn.execute("UPDATE notif_fcm_tokens SET active=0 WHERE id=? AND user_id=?", (tid, session['user_id']))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+# v129 : Page admin — configuration SMTP / FCM / WhatsApp
+@app.route('/admin/notifications-config', methods=['GET', 'POST'])
+@permission_required('admin')
+def admin_notifications_config():
+    """v129 : Configuration des canaux externes."""
+    if request.method == 'POST':
+        # SMTP
+        for key in ('smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'smtp_from', 'smtp_tls',
+                    'fcm_server_key', 'twilio_sid', 'twilio_token', 'twilio_whatsapp_from',
+                    'app_url'):
+            val = (request.form.get(key, '') or '').strip()
+            # Ne pas écraser le mot de passe SMTP s'il est vide (UI affiche '***')
+            if key == 'smtp_password' and val in ('', '***'):
+                continue
+            set_notif_config(key, val)
+        flash("✅ Configuration enregistrée", "success")
+        return redirect('/admin/notifications-config')
+    
+    # Lecture des valeurs
+    cfg = {}
+    for key in ('smtp_host', 'smtp_port', 'smtp_user', 'smtp_from', 'smtp_tls',
+                'fcm_server_key', 'twilio_sid', 'twilio_whatsapp_from', 'app_url'):
+        cfg[key] = get_notif_config(key)
+    cfg['smtp_password_set'] = bool(get_notif_config('smtp_password'))
+    cfg['twilio_token_set'] = bool(get_notif_config('twilio_token'))
+    
+    # Stats outbox
+    conn = _gdb()
+    outbox_stats = {}
+    try:
+        for st in ('pending', 'sent', 'failed'):
+            outbox_stats[st] = conn.execute("SELECT COUNT(*) FROM notif_outbox WHERE status=?", (st,)).fetchone()[0]
+    except: outbox_stats = {'pending':0, 'sent':0, 'failed':0}
+    
+    # Derniers échecs
+    try:
+        recent_failures = [dict(r) for r in conn.execute(
+            """SELECT o.*, u.full_name as user_name FROM notif_outbox o
+            LEFT JOIN users u ON u.id=o.user_id
+            WHERE o.status='failed' ORDER BY o.id DESC LIMIT 20""").fetchall()]
+    except: recent_failures = []
+    conn.close()
+    
+    return render_template('admin_notif_config.html', page='admin_notif_config',
+        cfg=cfg, outbox_stats=outbox_stats, recent_failures=recent_failures)
+
+
+@app.route('/admin/notifications-config/test-email', methods=['POST'])
+@permission_required('admin')
+def admin_test_email():
+    """v129 : Test rapide d'envoi email."""
+    to = (request.form.get('to', '') or '').strip()
+    if not to:
+        flash("⚠️ Email destinataire requis", "error")
+        return redirect('/admin/notifications-config')
+    ok, err = _send_email_smtp(to, "[WannyGest] Test email", 
+        "Ceci est un email de test envoyé depuis WannyGest. Si vous le recevez, la configuration SMTP fonctionne.\n\n— WannyGest")
+    if ok:
+        flash(f"✅ Email test envoyé à {to}", "success")
+    else:
+        flash(f"❌ Échec envoi : {err}", "error")
+    return redirect('/admin/notifications-config')
+
+
+@app.route('/admin/notifications-config/retry-outbox', methods=['POST'])
+@permission_required('admin')
+def admin_retry_outbox():
+    """v129 : Réessaie les envois failed/pending dans l'outbox."""
+    conn = _gdb()
+    items = [dict(r) for r in conn.execute(
+        "SELECT * FROM notif_outbox WHERE status IN ('pending','failed') ORDER BY id ASC LIMIT 100").fetchall()]
+    conn.close()
+    nb_ok = nb_fail = 0
+    for it in items:
+        ch = it['channel']
+        ok, err = False, 'canal inconnu'
+        if ch == 'email':
+            ok, err = _send_email_smtp(it['recipient'], it['subject'] or '(sans objet)', it['body'] or '')
+        elif ch == 'push':
+            ok, err = _send_push_fcm(it['user_id'], it['subject'] or 'WannyGest', it['body'] or '')
+        elif ch == 'whatsapp':
+            ok, err = _send_whatsapp_twilio(it['recipient'], it['body'] or '')
+        c = _gdb()
+        if ok:
+            c.execute("UPDATE notif_outbox SET status='sent', sent_at=datetime('now') WHERE id=?", (it['id'],))
+            nb_ok += 1
+        else:
+            c.execute("UPDATE notif_outbox SET attempts=COALESCE(attempts,0)+1, last_error=? WHERE id=?", (str(err)[:300], it['id']))
+            nb_fail += 1
+        c.commit(); c.close()
+    flash(f"📤 Retry : {nb_ok} envoyé(s), {nb_fail} échec(s)", "success" if nb_ok else "warning")
+    return redirect('/admin/notifications-config')
+
+
+# ═══════════════════════════════════════════════════════════════════
+# v130 : ADMINISTRATION AVANCÉE DES NOTIFICATIONS
+# - Historique des notifications envoyées (toutes les notifs de tous les users)
+# - Renvoi d'une notification
+# - Gestion des abonnements par utilisateur
+# - Activation/désactivation par module
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route('/admin/notifications-sent')
+@permission_required('admin')
+def admin_notifications_sent():
+    """v130 : Historique global des notifications envoyées (admin)."""
+    conn = _gdb()
+    q = (request.args.get('q', '') or '').strip()
+    module_filter = (request.args.get('module', '') or '').strip()
+    user_filter = request.args.get('user_id', '').strip()
+    status_filter = request.args.get('status', '').strip()  # read/unread/all
+    
+    where_clauses = ['1=1']
+    params = []
+    if q:
+        where_clauses.append("(n.title LIKE ? OR n.message LIKE ?)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    if module_filter:
+        where_clauses.append("n.module=?")
+        params.append(module_filter)
+    if user_filter:
+        try:
+            params.append(int(user_filter))
+            where_clauses.append("n.user_id=?")
+        except: pass
+    if status_filter == 'read':
+        where_clauses.append("COALESCE(n.read,0)=1")
+    elif status_filter == 'unread':
+        where_clauses.append("COALESCE(n.read,0)=0")
+    
+    where_sql = ' AND '.join(where_clauses)
+    notifs = [dict(r) for r in conn.execute(f"""
+        SELECT n.*, u.full_name as user_name, u.email as user_email
+        FROM notifications n
+        LEFT JOIN users u ON u.id = n.user_id
+        WHERE {where_sql}
+        ORDER BY n.created_at DESC LIMIT 200
+    """, tuple(params)).fetchall()]
+    
+    # Stats globales
+    stats = {'total': 0, 'unread': 0, 'today': 0}
+    try:
+        stats['total'] = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
+        stats['unread'] = conn.execute("SELECT COUNT(*) FROM notifications WHERE COALESCE(read,0)=0").fetchone()[0]
+        stats['today'] = conn.execute("SELECT COUNT(*) FROM notifications WHERE date(created_at) = date('now')").fetchone()[0]
+    except: pass
+    
+    # Liste users pour le filtre
+    users = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
+    
+    # Stats par module
+    try:
+        module_counts = {r['module']: r['nb'] for r in conn.execute(
+            "SELECT module, COUNT(*) as nb FROM notifications WHERE module IS NOT NULL AND module != '' GROUP BY module ORDER BY nb DESC"
+        ).fetchall()}
+    except: module_counts = {}
+    
+    conn.close()
+    return render_template('admin_notif_sent.html', page='admin_notif_sent',
+        notifs=notifs, stats=stats, users=users, module_counts=module_counts,
+        q=q, module_filter=module_filter, user_filter=user_filter, status_filter=status_filter)
+
+
+@app.route('/admin/notifications-sent/<int:nid>/resend', methods=['POST'])
+@permission_required('admin')
+def admin_notif_resend(nid):
+    """v130 : Renvoie une notification (la duplique et la pousse sur les canaux activés)."""
+    conn = _gdb()
+    n = conn.execute("SELECT * FROM notifications WHERE id=?", (nid,)).fetchone()
+    conn.close()
+    if not n:
+        flash("⚠️ Notification introuvable", "error")
+        return redirect('/admin/notifications-sent')
+    new_nid = notify_user(
+        n['user_id'],
+        title=f"[Renvoi] {n['title']}",
+        message=n['message'],
+        link=n['link'],
+        type=n['type'] or 'info',
+        module=n['module'],
+        priority=n['priority'] or 'normal',
+        icon=n['icon'],
+    )
+    if new_nid:
+        flash(f"✅ Notification renvoyée (nouvelle ID #{new_nid})", "success")
+    else:
+        flash("⚠️ Échec du renvoi (module désactivé ?)", "warning")
+    return redirect('/admin/notifications-sent')
+
+
+@app.route('/admin/notifications-subscriptions', methods=['GET', 'POST'])
+@permission_required('admin')
+def admin_notif_subscriptions():
+    """v130 : Page admin pour gérer les préférences de tous les utilisateurs."""
+    conn = _gdb()
+    
+    if request.method == 'POST':
+        # Soumission : mettre à jour les préférences d'un utilisateur
+        target_user_id = int(request.form.get('user_id', 0) or 0)
+        if target_user_id:
+            for ch in NOTIF_CHANNELS:
+                enabled = request.form.get(f'pref_{ch}') == '1'
+                # Utiliser un INSERT/UPDATE direct (pas la fonction qui ne gère qu'un user)
+                conn.execute("""INSERT INTO notif_user_prefs (user_id, channel, enabled, updated_at)
+                    VALUES (?,?,?,datetime('now'))
+                    ON CONFLICT(user_id, channel) DO UPDATE SET enabled=excluded.enabled, updated_at=datetime('now')""",
+                    (target_user_id, ch, 1 if enabled else 0))
+            conn.commit()
+            flash(f"✅ Préférences mises à jour pour user #{target_user_id}", "success")
+        conn.close()
+        return redirect('/admin/notifications-subscriptions')
+    
+    # GET : afficher la liste de tous les utilisateurs avec leurs prefs
+    users = [dict(r) for r in conn.execute(
+        "SELECT id, full_name, email, role FROM users WHERE COALESCE(is_active,1)=1 ORDER BY role, full_name"
+    ).fetchall()]
+    
+    # Récupérer toutes les prefs en un coup
+    all_prefs = {}
+    for r in conn.execute("SELECT user_id, channel, enabled FROM notif_user_prefs").fetchall():
+        all_prefs.setdefault(r['user_id'], {})[r['channel']] = bool(r['enabled'])
+    
+    # Compter les tokens FCM par user
+    fcm_counts = {}
+    try:
+        for r in conn.execute("SELECT user_id, COUNT(*) as nb FROM notif_fcm_tokens WHERE active=1 GROUP BY user_id").fetchall():
+            fcm_counts[r['user_id']] = r['nb']
+    except: pass
+    
+    # Enrichir chaque user
+    for u in users:
+        u['prefs'] = all_prefs.get(u['id'], {ch: True for ch in NOTIF_CHANNELS})
+        # Compléter avec True pour les canaux non définis
+        for ch in NOTIF_CHANNELS:
+            if ch not in u['prefs']:
+                u['prefs'][ch] = True
+        u['fcm_count'] = fcm_counts.get(u['id'], 0)
+    
+    conn.close()
+    return render_template('admin_notif_subscriptions.html', page='admin_notif_subscriptions',
+        users=users, channels=NOTIF_CHANNELS)
+
+
+@app.route('/admin/notifications-modules', methods=['GET', 'POST'])
+@permission_required('admin')
+def admin_notif_modules():
+    """v130 : Activer/désactiver les notifications par module."""
+    conn = _gdb()
+    
+    if request.method == 'POST':
+        for mod in request.form.getlist('module'):
+            enabled = request.form.get(f'enabled_{mod}') == '1'
+            conn.execute("""INSERT INTO notif_module_enabled (module, enabled, updated_at, updated_by)
+                VALUES (?,?,datetime('now'),?)
+                ON CONFLICT(module) DO UPDATE SET enabled=excluded.enabled, updated_at=datetime('now'), updated_by=excluded.updated_by""",
+                (mod, 1 if enabled else 0, session.get('user_id')))
+        conn.commit()
+        conn.close()
+        flash("✅ Configuration des modules enregistrée", "success")
+        return redirect('/admin/notifications-modules')
+    
+    # GET
+    rows = conn.execute("SELECT module, enabled, updated_at FROM notif_module_enabled ORDER BY module").fetchall()
+    module_settings = {r['module']: {'enabled': bool(r['enabled']), 'updated_at': r['updated_at']} for r in rows}
+    
+    # Compter les notifs par module
+    notif_counts = {}
+    try:
+        for r in conn.execute("SELECT module, COUNT(*) as nb FROM notifications WHERE module IS NOT NULL GROUP BY module").fetchall():
+            notif_counts[r['module']] = r['nb']
+    except: pass
+    
+    conn.close()
+    return render_template('admin_notif_modules.html', page='admin_notif_modules',
+        module_settings=module_settings, notif_counts=notif_counts,
+        categories=NOTIF_CATEGORIES)
+
+
+@app.route('/notifications/__legacy_old')
+@login_required
+def _legacy_notifications_page_unused():
+    """v129 : Ancienne route remplacée par notifications_page() ci-dessus. Conservée vide pour mémoire."""
+    return redirect('/notifications')
 
 
 @app.route('/notifications/mark-all-read', methods=['POST', 'GET'])
@@ -15365,17 +16223,17 @@ def _field_report_notify(report_id, action):
         if action == 'transformed' and report.get('auteur_id'):
             target_user_ids.add(report['auteur_id'])
         
-        # Créer les notifications directement en BDD
+        # v130 : Utiliser notify_user() pour bénéficier du dispatching multi-canal
+        # (push FCM + email SMTP + WhatsApp Twilio + interne)
+        conn.close()  # On ferme avant car notify_user ouvre sa propre connexion
         for uid in target_user_ids:
             try:
-                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
-                    VALUES (?,?,?,?,?)""",
-                    (uid, 'field_report', title, message, link))
+                notify_user(uid, title=title, message=message, link=link,
+                    type='info', module='remontees', icon='📢',
+                    priority='high' if report.get('priorite') == 'urgent' else 'normal')
             except: pass
-        conn.commit()
-        conn.close()
     except Exception as e:
-        print(f"[v102-Field] Notif error: {e}", flush=True)
+        print(f"[v130-Field] Notif error: {e}", flush=True)
 
 
 def _filter_field_reports(reports, statut=None, priorite=None, type_info=None, q=None):
@@ -25046,26 +25904,35 @@ def mg_demandes_add():
             WHERE id=?""", 
             (montant_calc if montant_calc > 0 else None, did))
         
-        # Notifier les comptables
+        # v130 : Notifier les comptables via notify_user multi-canal
         try:
             users_compta = conn.execute("""SELECT id FROM users 
                 WHERE role IN ('comptable','comptabilite','dg','directeur','admin') AND is_active=1""").fetchall()
-            for u in users_compta:
-                existing = conn.execute("""SELECT id FROM notifications 
-                    WHERE user_id=? AND message LIKE ? AND type='mg_demande'""",
-                    (u['id'], f"%{ref}%")).fetchone()
-                if existing: continue
-                try:
-                    conn.execute("""INSERT INTO notifications (user_id, type, title, message, link) 
-                        VALUES (?,?,?,?,?)""",
-                        (u['id'], 'mg_demande', f"💰 Demande MG à valider",
-                         f"{ref} — Validation budgétaire requise",
-                         '/comptabilite/demandes-mg'))
-                except: pass
-        except: pass
-    
-    conn.commit()
-    conn.close()
+            target_compta_ids = [u['id'] for u in users_compta]
+            # Anti-doublon : vérifier qu'aucune notif similaire récente n'existe
+            existing_ids = set()
+            for uid in target_compta_ids:
+                ex = conn.execute("""SELECT id FROM notifications 
+                    WHERE user_id=? AND message LIKE ? AND type='info' AND module='comptabilite'
+                    AND date(created_at) = date('now')""",
+                    (uid, f"%{ref}%")).fetchone()
+                if ex: existing_ids.add(uid)
+            conn.commit()
+            conn.close()
+            for uid in target_compta_ids:
+                if uid in existing_ids: continue
+                notify_user(uid,
+                    title=f"💰 Demande MG à valider",
+                    message=f"{ref} — Validation budgétaire requise",
+                    link='/comptabilite/demandes-mg',
+                    type='info', module='comptabilite', icon='💰', priority='normal')
+        except Exception as _e:
+            try: conn.close()
+            except: pass
+            print(f"[v130-MG] notif err : {_e}", flush=True)
+    else:
+        conn.commit()
+        conn.close()
     
     if can_self_validate:
         flash(f"✅ Demande {ref} créée et transmise à la Comptabilité ({nb_items} article{'s' if nb_items > 1 else ''})", "success")

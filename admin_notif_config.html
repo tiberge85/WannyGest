@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Configuration des notifications{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h1>⚙️ Configuration des canaux de notification</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">SMTP (Email) · Firebase (Push) · Twilio (WhatsApp)</p>
+    </div>
+    <a href="/notifications" class="btn btn-outline btn-sm">← Centre notifications</a>
+</div>
+
+<!-- Stats outbox -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">
+    <div class="card"><div class="card-body" style="padding:12px;border-left:4px solid #f29f2f">
+        <div style="font-size:22px;font-weight:800;color:#f29f2f">{{ outbox_stats.pending or 0 }}</div>
+        <div style="font-size:11px;color:#888">📤 En attente</div>
+    </div></div>
+    <div class="card"><div class="card-body" style="padding:12px;border-left:4px solid #2e7d32">
+        <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ outbox_stats.sent or 0 }}</div>
+        <div style="font-size:11px;color:#888">✅ Envoyés</div>
+    </div></div>
+    <div class="card"><div class="card-body" style="padding:12px;border-left:4px solid #c53030">
+        <div style="font-size:22px;font-weight:800;color:#c53030">{{ outbox_stats.failed or 0 }}</div>
+        <div style="font-size:11px;color:#888">❌ Échecs</div>
+    </div></div>
+    {% if outbox_stats.failed or outbox_stats.pending %}
+    <form method="post" action="/admin/notifications-config/retry-outbox" style="margin:0">
+        <button type="submit" class="btn btn-primary" style="height:100%;width:100%">🔄 Réessayer les envois</button>
+    </form>
+    {% endif %}
+</div>
+
+<form method="post" action="/admin/notifications-config">
+
+<!-- Application -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 10px;font-size:13px;color:#1a3a5c">🌐 URL de base de l'application</h3>
+    <input type="url" name="app_url" value="{{ cfg.app_url or 'https://rapport-pointage.ramyaci.tech' }}"
+        placeholder="https://rapport-pointage.ramyaci.tech"
+        style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    <p style="font-size:11px;color:#666;margin:4px 0 0">Utilisée dans les emails et WhatsApp pour générer des liens cliquables.</p>
+</div></div>
+
+<!-- SMTP / Email -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 10px;font-size:14px;color:#1a3a5c">
+        ✉️ Configuration SMTP (Email)
+        {% if cfg.smtp_host %}<span style="background:#e8f5e9;color:#2e7d32;font-size:11px;padding:2px 8px;border-radius:6px;margin-left:6px">Configuré</span>{% else %}<span style="background:#fff3e0;color:#7a4a00;font-size:11px;padding:2px 8px;border-radius:6px;margin-left:6px">Non configuré</span>{% endif %}
+    </h3>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:8px">
+        <div>
+            <label style="font-size:11px;color:#666">Serveur SMTP</label>
+            <input type="text" name="smtp_host" value="{{ cfg.smtp_host }}" placeholder="smtp.gmail.com"
+                style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#666">Port</label>
+            <input type="number" name="smtp_port" value="{{ cfg.smtp_port or '587' }}" placeholder="587"
+                style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+        <div>
+            <label style="font-size:11px;color:#666">Utilisateur</label>
+            <input type="text" name="smtp_user" value="{{ cfg.smtp_user }}" placeholder="noreply@ramyaci.tech"
+                style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#666">Mot de passe {% if cfg.smtp_password_set %}<span style="font-size:9px;color:#2e7d32">(défini · laisser vide pour ne pas changer)</span>{% endif %}</label>
+            <input type="password" name="smtp_password" value="{% if cfg.smtp_password_set %}***{% endif %}" autocomplete="new-password"
+                style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+        <div>
+            <label style="font-size:11px;color:#666">Expéditeur (From)</label>
+            <input type="email" name="smtp_from" value="{{ cfg.smtp_from }}" placeholder="WannyGest <noreply@ramyaci.tech>"
+                style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#666">TLS</label>
+            <select name="smtp_tls" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="1" {% if cfg.smtp_tls != '0' %}selected{% endif %}>Oui</option>
+                <option value="0" {% if cfg.smtp_tls == '0' %}selected{% endif %}>Non</option>
+            </select>
+        </div>
+    </div>
+    <p style="font-size:11px;color:#666;margin-top:10px">
+        💡 Exemples : Gmail (smtp.gmail.com:587 avec mot de passe app), SendGrid (smtp.sendgrid.net:587), AWS SES.
+    </p>
+</div></div>
+
+<!-- Firebase Cloud Messaging -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 10px;font-size:14px;color:#1a3a5c">
+        📱 Firebase Cloud Messaging (Push mobile)
+        {% if cfg.fcm_server_key %}<span style="background:#e8f5e9;color:#2e7d32;font-size:11px;padding:2px 8px;border-radius:6px;margin-left:6px">Configuré</span>{% else %}<span style="background:#fff3e0;color:#7a4a00;font-size:11px;padding:2px 8px;border-radius:6px;margin-left:6px">Non configuré</span>{% endif %}
+    </h3>
+    <label style="font-size:11px;color:#666">Server Key (Cloud Messaging API · Legacy)</label>
+    <input type="text" name="fcm_server_key" value="{{ cfg.fcm_server_key }}"
+        placeholder="AAAA... (~150 caractères, obtenu dans Firebase Console)"
+        style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace;font-size:11px">
+    <p style="font-size:11px;color:#666;margin-top:8px">
+        💡 <strong>Comment obtenir la clé</strong> : Firebase Console → Paramètres du projet → Cloud Messaging → Cloud Messaging API (Legacy) → Server key.
+        Activez d'abord l'API si nécessaire.
+    </p>
+</div></div>
+
+<!-- WhatsApp / Twilio -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 10px;font-size:14px;color:#1a3a5c">
+        💬 Twilio WhatsApp Business API
+        {% if cfg.twilio_sid %}<span style="background:#e8f5e9;color:#2e7d32;font-size:11px;padding:2px 8px;border-radius:6px;margin-left:6px">Configuré</span>{% else %}<span style="background:#fff3e0;color:#7a4a00;font-size:11px;padding:2px 8px;border-radius:6px;margin-left:6px">Non configuré</span>{% endif %}
+    </h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+        <div>
+            <label style="font-size:11px;color:#666">Account SID</label>
+            <input type="text" name="twilio_sid" value="{{ cfg.twilio_sid }}" placeholder="AC..."
+                style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace;font-size:11px">
+        </div>
+        <div>
+            <label style="font-size:11px;color:#666">Auth Token {% if cfg.twilio_token_set %}<span style="font-size:9px;color:#2e7d32">(défini)</span>{% endif %}</label>
+            <input type="password" name="twilio_token" value="{% if cfg.twilio_token_set %}***{% endif %}" autocomplete="new-password"
+                style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+    </div>
+    <label style="font-size:11px;color:#666">Numéro WhatsApp expéditeur</label>
+    <input type="text" name="twilio_whatsapp_from" value="{{ cfg.twilio_whatsapp_from }}" placeholder="whatsapp:+14155238886"
+        style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
+    <p style="font-size:11px;color:#666;margin-top:8px">
+        💡 Format : <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">whatsapp:+225XXXXXXXX</code>. 
+        Pour les tests, utilisez le numéro Sandbox Twilio (whatsapp:+14155238886).
+    </p>
+</div></div>
+
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;align-items:center">
+        <input type="email" id="testEmail" placeholder="email@test.com" 
+            style="padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+        <button type="button" class="btn btn-outline btn-sm"
+            onclick="var em=document.getElementById('testEmail').value; if(em){ var f=document.createElement('form'); f.method='post'; f.action='/admin/notifications-config/test-email'; var i=document.createElement('input'); i.type='hidden'; i.name='to'; i.value=em; f.appendChild(i); document.body.appendChild(f); f.submit(); }">
+            📨 Test email
+        </button>
+    </div>
+    <button type="submit" class="btn btn-primary">💾 Enregistrer la configuration</button>
+</div>
+
+</form>
+
+<!-- Échecs récents -->
+{% if recent_failures %}
+<div class="card" style="margin-top:14px"><div class="card-body">
+    <h3 style="margin:0 0 10px;font-size:13px;color:#c53030">❌ Échecs récents (20 derniers)</h3>
+    <table style="width:100%;font-size:11px">
+        <thead><tr style="background:#ffebee;color:#c53030">
+            <th style="padding:6px;text-align:left">Date</th>
+            <th>Utilisateur</th>
+            <th>Canal</th>
+            <th>Destinataire</th>
+            <th>Sujet</th>
+            <th>Erreur</th>
+            <th>Tentatives</th>
+        </tr></thead>
+        <tbody>
+        {% for f in recent_failures %}
+        <tr style="border-bottom:1px solid #f0f0f0">
+            <td style="padding:6px">{{ (f.created_at or '')[:16] }}</td>
+            <td>{{ f.user_name or '—' }}</td>
+            <td>{{ f.channel }}</td>
+            <td style="font-size:10px">{{ f.recipient or '—' }}</td>
+            <td style="font-size:10px">{{ (f.subject or '')[:40] }}</td>
+            <td style="font-size:10px;color:#c53030" title="{{ f.last_error }}">{{ (f.last_error or '')[:50] }}</td>
+            <td style="text-align:center">{{ f.attempts or 1 }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div></div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Préférences notifications{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h1>⚙️ Mes préférences de notifications</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Choisissez les canaux par lesquels vous souhaitez recevoir vos notifications</p>
+    </div>
+    <a href="/notifications" class="btn btn-outline btn-sm">← Centre de notifications</a>
+</div>
+
+<form method="post" action="/notifications/preferences">
+
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 12px;font-size:14px;color:#1a3a5c">🔔 Canaux de notification</h3>
+    
+    <!-- Push -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:#f8f9fa;border-radius:8px;margin-bottom:10px;border-left:4px solid {% if admin_status.push_configured %}#2e7d32{% else %}#888{% endif %}">
+        <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:22px">📱</span>
+                <strong>Notifications Push mobile</strong>
+                {% if admin_status.push_configured %}
+                    <span style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;border-radius:6px">Configuré</span>
+                {% else %}
+                    <span style="background:#fff3e0;color:#7a4a00;font-size:10px;padding:2px 6px;border-radius:6px">⚠️ Non configuré côté admin</span>
+                {% endif %}
+            </div>
+            <p style="font-size:11px;color:#666;margin:6px 0 0">Recevez les alertes sur votre smartphone Android/iPhone, même app fermée.</p>
+        </div>
+        <label class="switch" style="position:relative;display:inline-block;width:50px;height:26px">
+            <input type="checkbox" name="pref_push" value="1" {% if prefs.push %}checked{% endif %} style="opacity:0;width:0;height:0">
+            <span style="position:absolute;cursor:pointer;inset:0;background:{% if prefs.push %}#2e7d32{% else %}#ccc{% endif %};transition:.3s;border-radius:26px">
+                <span style="position:absolute;height:20px;width:20px;left:{% if prefs.push %}27px{% else %}3px{% endif %};bottom:3px;background:white;transition:.3s;border-radius:50%"></span>
+            </span>
+        </label>
+    </div>
+    
+    <!-- Email -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:#f8f9fa;border-radius:8px;margin-bottom:10px;border-left:4px solid {% if admin_status.email_configured %}#2e7d32{% else %}#888{% endif %}">
+        <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:22px">✉️</span>
+                <strong>Notifications Email</strong>
+                {% if admin_status.email_configured %}
+                    <span style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;border-radius:6px">Configuré</span>
+                {% else %}
+                    <span style="background:#fff3e0;color:#7a4a00;font-size:10px;padding:2px 6px;border-radius:6px">⚠️ Non configuré côté admin</span>
+                {% endif %}
+            </div>
+            <p style="font-size:11px;color:#666;margin:6px 0 0">Emails envoyés à <strong>{{ user_email or 'aucun email défini' }}</strong> pour les événements importants.</p>
+        </div>
+        <label class="switch" style="position:relative;display:inline-block;width:50px;height:26px">
+            <input type="checkbox" name="pref_email" value="1" {% if prefs.email %}checked{% endif %} style="opacity:0;width:0;height:0">
+            <span style="position:absolute;cursor:pointer;inset:0;background:{% if prefs.email %}#2e7d32{% else %}#ccc{% endif %};transition:.3s;border-radius:26px">
+                <span style="position:absolute;height:20px;width:20px;left:{% if prefs.email %}27px{% else %}3px{% endif %};bottom:3px;background:white;transition:.3s;border-radius:50%"></span>
+            </span>
+        </label>
+    </div>
+    
+    <!-- WhatsApp -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:#f8f9fa;border-radius:8px;margin-bottom:10px;border-left:4px solid {% if admin_status.whatsapp_configured %}#2e7d32{% else %}#888{% endif %}">
+        <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:22px">💬</span>
+                <strong>Notifications WhatsApp</strong>
+                {% if admin_status.whatsapp_configured %}
+                    <span style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;border-radius:6px">Configuré</span>
+                {% else %}
+                    <span style="background:#fff3e0;color:#7a4a00;font-size:10px;padding:2px 6px;border-radius:6px">⚠️ Non configuré côté admin</span>
+                {% endif %}
+            </div>
+            <p style="font-size:11px;color:#666;margin:6px 0 0">Messages WhatsApp envoyés à votre numéro pour les alertes urgentes.</p>
+            <div style="margin-top:6px">
+                <label style="font-size:11px;color:#666">📱 Mon numéro WhatsApp (format +225...) :</label>
+                <input type="tel" name="phone" value="{{ user_phone }}" placeholder="+22501234567"
+                    style="width:100%;max-width:280px;padding:6px 8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;margin-top:3px">
+            </div>
+        </div>
+        <label class="switch" style="position:relative;display:inline-block;width:50px;height:26px">
+            <input type="checkbox" name="pref_whatsapp" value="1" {% if prefs.whatsapp %}checked{% endif %} style="opacity:0;width:0;height:0">
+            <span style="position:absolute;cursor:pointer;inset:0;background:{% if prefs.whatsapp %}#2e7d32{% else %}#ccc{% endif %};transition:.3s;border-radius:26px">
+                <span style="position:absolute;height:20px;width:20px;left:{% if prefs.whatsapp %}27px{% else %}3px{% endif %};bottom:3px;background:white;transition:.3s;border-radius:50%"></span>
+            </span>
+        </label>
+    </div>
+    
+    <!-- Internal (toujours activé, juste indicatif) -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:#e3f2fd;border-radius:8px;border-left:4px solid #1565c0">
+        <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:22px">🔔</span>
+                <strong>Notifications dans l'application</strong>
+                <span style="background:#1565c0;color:#fff;font-size:10px;padding:2px 6px;border-radius:6px">Toujours actif</span>
+            </div>
+            <p style="font-size:11px;color:#0d47a1;margin:6px 0 0">Le centre de notifications interne reste toujours accessible.</p>
+        </div>
+    </div>
+</div></div>
+
+<!-- Tokens FCM -->
+{% if fcm_tokens %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 10px;font-size:14px;color:#1a3a5c">📱 Mes appareils enregistrés (Push)</h3>
+    <p style="font-size:11px;color:#666;margin-bottom:10px">Liste des appareils qui peuvent recevoir vos notifications push.</p>
+    <table style="width:100%;font-size:12px">
+        <thead><tr style="background:#1a3a5c;color:#fff">
+            <th style="padding:6px;text-align:left">Plateforme</th>
+            <th style="text-align:left">Appareil</th>
+            <th>Statut</th>
+            <th>Dernière vue</th>
+            <th></th>
+        </tr></thead>
+        <tbody>
+        {% for t in fcm_tokens %}
+        <tr style="border-bottom:1px solid #f0f0f0">
+            <td style="padding:6px">{{ t.platform or 'web' }}</td>
+            <td>{{ t.device_label or '—' }}</td>
+            <td>{% if t.active %}<span style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;border-radius:6px">Actif</span>{% else %}<span style="background:#ffebee;color:#c53030;font-size:10px;padding:2px 6px;border-radius:6px">Inactif</span>{% endif %}</td>
+            <td style="font-size:10px">{{ (t.last_seen or '')[:16] }}</td>
+            <td>
+                <button type="button" class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 6px"
+                    onclick="fetch('/api/notifications/fcm-unregister/{{ t.id }}', {method:'POST'}).then(()=>location.reload())">🗑️</button>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div></div>
+{% endif %}
+
+<div style="display:flex;justify-content:flex-end;gap:8px">
+    <a href="/notifications" class="btn btn-outline">Annuler</a>
+    <button type="submit" class="btn btn-primary">💾 Enregistrer les préférences</button>
+</div>
+
+</form>
+
+{% endblock %}

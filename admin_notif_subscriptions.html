@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Abonnements notifications{% endblock %}
+{% block content %}
+
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>👥 Abonnements des utilisateurs</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Gérer les canaux de notification activés pour chaque utilisateur</p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/admin/notifications-sent" class="btn btn-outline btn-sm">📨 Notifs envoyées</a>
+        <a href="/admin/notifications-modules" class="btn btn-outline btn-sm">📦 Modules</a>
+        <a href="/admin/notifications-config" class="btn btn-outline btn-sm">⚙️ Configuration</a>
+    </div>
+</div>
+
+<div style="background:#e3f2fd;padding:10px;border-radius:6px;font-size:12px;color:#0d47a1;margin-bottom:14px;border-left:3px solid #1565c0">
+    💡 <strong>Comment ça fonctionne</strong> : par défaut, tous les canaux sont activés pour tous les utilisateurs.
+    Vous pouvez désactiver certains canaux par utilisateur. L'utilisateur peut aussi gérer ses propres préférences via 
+    <code>/notifications/preferences</code>.
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+<div style="overflow-x:auto"><table style="width:100%;font-size:12px">
+<thead><tr style="background:#1a3a5c;color:#fff">
+    <th style="padding:8px;text-align:left">Utilisateur</th>
+    <th style="text-align:left">Rôle</th>
+    <th style="text-align:left">Email</th>
+    <th style="text-align:center" title="Notifications dans l'application">🔔 App</th>
+    <th style="text-align:center" title="Notifications Push mobile">📱 Push</th>
+    <th style="text-align:center" title="Notifications par email">✉️ Email</th>
+    <th style="text-align:center" title="Notifications WhatsApp">💬 WhatsApp</th>
+    <th style="text-align:center" title="Appareils enregistrés (FCM tokens)">📲 Devices</th>
+    <th>Action</th>
+</tr></thead>
+<tbody>
+{% for u in users %}
+<tr style="border-bottom:1px solid #f0f0f0">
+    <td style="padding:8px;font-weight:600">{{ u.full_name }}</td>
+    <td style="padding:8px"><span style="background:#f0f4f8;color:#1a3a5c;font-size:10px;padding:2px 6px;border-radius:6px">{{ u.role }}</span></td>
+    <td style="padding:8px;font-size:10px">{{ u.email or '—' }}</td>
+    <form method="post" action="/admin/notifications-subscriptions" id="form_u_{{ u.id }}" style="display:contents">
+        <input type="hidden" name="user_id" value="{{ u.id }}">
+        <td style="padding:8px;text-align:center">
+            <input type="checkbox" name="pref_internal" value="1" {% if u.prefs.internal %}checked{% endif %}
+                style="width:18px;height:18px;accent-color:#2e7d32">
+        </td>
+        <td style="padding:8px;text-align:center">
+            <input type="checkbox" name="pref_push" value="1" {% if u.prefs.push %}checked{% endif %}
+                style="width:18px;height:18px;accent-color:#2e7d32">
+        </td>
+        <td style="padding:8px;text-align:center">
+            <input type="checkbox" name="pref_email" value="1" {% if u.prefs.email %}checked{% endif %}
+                style="width:18px;height:18px;accent-color:#2e7d32">
+        </td>
+        <td style="padding:8px;text-align:center">
+            <input type="checkbox" name="pref_whatsapp" value="1" {% if u.prefs.whatsapp %}checked{% endif %}
+                style="width:18px;height:18px;accent-color:#2e7d32">
+        </td>
+    </form>
+    <td style="padding:8px;text-align:center">
+        {% if u.fcm_count > 0 %}<span style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:2px 6px;border-radius:6px">{{ u.fcm_count }}</span>
+        {% else %}<span style="color:#bbb">—</span>{% endif %}
+    </td>
+    <td style="padding:8px;text-align:center">
+        <button type="submit" form="form_u_{{ u.id }}" class="btn btn-primary btn-sm" style="font-size:10px;padding:3px 8px">💾 Save</button>
+    </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+</div></div>
+
+{% endblock %}

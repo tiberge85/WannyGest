@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Modules notifications{% endblock %}
+{% block content %}
+
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📦 Activation des notifications par module</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Désactivez globalement les notifications d'un module entier (ex: pause des notifs RH pendant maintenance).
+        </p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/admin/notifications-sent" class="btn btn-outline btn-sm">📨 Notifs envoyées</a>
+        <a href="/admin/notifications-subscriptions" class="btn btn-outline btn-sm">👥 Abonnements</a>
+        <a href="/admin/notifications-config" class="btn btn-outline btn-sm">⚙️ Configuration</a>
+    </div>
+</div>
+
+<div style="background:#fff3e0;padding:10px;border-radius:6px;font-size:12px;color:#7a4a00;margin-bottom:14px;border-left:3px solid #f29f2f">
+    ⚠️ <strong>Attention</strong> : désactiver un module supprime <em>toutes</em> les notifications de ce module pour <em>tous</em> les utilisateurs.
+    L'utilisateur n'a aucun moyen de les réactiver de son côté tant que vous ne réactivez pas le module ici.
+</div>
+
+<form method="post" action="/admin/notifications-modules">
+<div class="card"><div class="card-body" style="padding:0">
+<table style="width:100%;font-size:12px">
+<thead><tr style="background:#1a3a5c;color:#fff">
+    <th style="padding:10px;text-align:left">Module</th>
+    <th style="text-align:left">Description</th>
+    <th style="text-align:center">État</th>
+    <th style="text-align:center">Notifs émises</th>
+    <th style="text-align:center">Activer</th>
+</tr></thead>
+<tbody>
+{% for mod_key, mod_label in categories.items() %}
+{% set settings = module_settings.get(mod_key, {'enabled': True}) %}
+<tr style="border-bottom:1px solid #f0f0f0;{% if not settings.enabled %}background:#ffebee;opacity:0.85{% endif %}">
+    <td style="padding:10px;font-weight:700">
+        <code style="background:#f0f4f8;padding:2px 6px;border-radius:4px;color:#1a3a5c">{{ mod_key }}</code>
+    </td>
+    <td style="padding:10px">{{ mod_label }}</td>
+    <td style="padding:10px;text-align:center">
+        {% if settings.enabled %}
+            <span style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:3px 10px;border-radius:6px;font-weight:700">✅ ACTIF</span>
+        {% else %}
+            <span style="background:#ffebee;color:#c53030;font-size:10px;padding:3px 10px;border-radius:6px;font-weight:700">🚫 DÉSACTIVÉ</span>
+        {% endif %}
+    </td>
+    <td style="padding:10px;text-align:center">
+        {% set nb = notif_counts.get(mod_key, 0) %}
+        {% if nb %}<strong>{{ nb }}</strong>{% else %}<span style="color:#bbb">0</span>{% endif %}
+    </td>
+    <td style="padding:10px;text-align:center">
+        <input type="hidden" name="module" value="{{ mod_key }}">
+        <label class="switch" style="position:relative;display:inline-block;width:50px;height:26px">
+            <input type="checkbox" name="enabled_{{ mod_key }}" value="1" {% if settings.enabled %}checked{% endif %} style="opacity:0;width:0;height:0" onchange="this.nextElementSibling.style.background=this.checked?'#2e7d32':'#ccc';this.nextElementSibling.querySelector('span').style.left=this.checked?'27px':'3px'">
+            <span style="position:absolute;cursor:pointer;inset:0;background:{% if settings.enabled %}#2e7d32{% else %}#ccc{% endif %};transition:.3s;border-radius:26px">
+                <span style="position:absolute;height:20px;width:20px;left:{% if settings.enabled %}27px{% else %}3px{% endif %};bottom:3px;background:white;transition:.3s;border-radius:50%"></span>
+            </span>
+        </label>
+    </td>
+</tr>
+{% endfor %}
+</tbody></table>
+</div></div>
+
+<div style="display:flex;justify-content:flex-end;margin-top:14px;gap:8px">
+    <button type="submit" class="btn btn-primary">💾 Enregistrer les modules</button>
+</div>
+</form>
+
+{% endblock %}
