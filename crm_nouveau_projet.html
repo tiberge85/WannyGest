@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - CRM · Nouveau Projet{% endblock %}
+{% block content %}
+
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>🎯 CRM · Nouveau Projet</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Remontées transformées en <strong>projet</strong> ou <strong>opportunité</strong> commerciale, 
+            prêtes à être démarrées dans la roadmap.
+        </p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/projects" class="btn btn-outline btn-sm">🗺️ Voir la roadmap</a>
+        <a href="/field-reports" class="btn btn-outline btn-sm">📢 Remontées</a>
+    </div>
+</div>
+
+<!-- KPIs -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+    <div class="card"><div class="card-body" style="padding:14px;border-left:4px solid #0f5a51">
+        <div style="font-size:22px;font-weight:800;color:#0f5a51">{{ counts.projet }}</div>
+        <div style="font-size:11px;color:#888">🎯 → Projet</div>
+    </div></div>
+    <div class="card"><div class="card-body" style="padding:14px;border-left:4px solid #1565c0">
+        <div style="font-size:22px;font-weight:800;color:#1565c0">{{ counts.opportunite }}</div>
+        <div style="font-size:11px;color:#888">💼 → Opportunité</div>
+    </div></div>
+    <div class="card"><div class="card-body" style="padding:14px;border-left:4px solid #f29f2f">
+        <div style="font-size:22px;font-weight:800;color:#f29f2f">{{ counts.pending }}</div>
+        <div style="font-size:11px;color:#888">⏳ En attente de projet</div>
+    </div></div>
+    <div class="card"><div class="card-body" style="padding:14px;border-left:4px solid #2e7d32">
+        <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ counts.converted }}</div>
+        <div style="font-size:11px;color:#888">✅ Convertis</div>
+    </div></div>
+</div>
+
+<!-- Filtres -->
+<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+    <a href="/crm/nouveau-projet" class="btn btn-sm {% if not filter_type %}btn-primary{% else %}btn-outline{% endif %}">
+        Tous ({{ counts.total }})
+    </a>
+    <a href="/crm/nouveau-projet?type=projet" class="btn btn-sm {% if filter_type == 'projet' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if filter_type == 'projet' %}background:#0f5a51;color:#fff{% endif %}">
+        🎯 Projets ({{ counts.projet }})
+    </a>
+    <a href="/crm/nouveau-projet?type=opportunite" class="btn btn-sm {% if filter_type == 'opportunite' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if filter_type == 'opportunite' %}background:#1565c0;color:#fff{% endif %}">
+        💼 Opportunités ({{ counts.opportunite }})
+    </a>
+</div>
+
+<!-- Tableau -->
+<div class="card"><div class="card-body" style="padding:0">
+{% if reports %}
+<div style="overflow-x:auto"><table style="width:100%;font-size:12px">
+<thead><tr style="background:#1A7A6D;color:#fff">
+    <th style="padding:8px;text-align:left">Référence</th>
+    <th style="text-align:left">Type</th>
+    <th style="text-align:left">Date décision</th>
+    <th style="text-align:left">Client / Site</th>
+    <th style="text-align:left">Origine</th>
+    <th style="text-align:left">Priorité</th>
+    <th style="text-align:left">Décidé par</th>
+    <th style="text-align:left">Notes</th>
+    <th style="text-align:center">État</th>
+    <th style="text-align:center">Action</th>
+</tr></thead>
+<tbody>
+{% for r in reports %}
+<tr style="border-bottom:1px solid #e0f2f1;{% if r._is_converted %}background:#f5f5f5;opacity:0.85{% endif %}">
+    <td style="padding:8px;font-weight:600">
+        <a href="/field-reports/{{ r.id }}" style="color:#1A7A6D">{{ r.reference }}</a>
+    </td>
+    <td style="padding:8px">
+        {% if r._is_projet %}
+        <span style="background:#0f5a51;color:#fff;font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600">🎯 Projet</span>
+        {% else %}
+        <span style="background:#1565c0;color:#fff;font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600">💼 Opportunité</span>
+        {% endif %}
+    </td>
+    <td style="padding:8px;font-size:10px">{{ (r.decision_date or '')[:10] }}</td>
+    <td style="padding:8px">
+        <strong>{{ r.client_name }}</strong>
+        {% if r.site_name %}<br><small style="color:#888">📍 {{ r.site_name }}</small>{% endif %}
+    </td>
+    <td style="padding:8px;font-size:11px">{{ r._type_origin_label }}</td>
+    <td style="padding:8px">
+        <span style="background:{{ r._prio_color }};color:#fff;font-size:10px;padding:2px 6px;border-radius:6px">{{ r._prio_label }}</span>
+    </td>
+    <td style="padding:8px;font-size:11px">{{ r.decision_by_name or '—' }}</td>
+    <td style="padding:8px;max-width:200px;font-size:11px;color:#555">
+        {{ (r.description or '')[:80] }}{% if (r.description or '')|length > 80 %}…{% endif %}
+    </td>
+    <td style="padding:8px;text-align:center">
+        {% if r._is_converted %}
+            <span style="background:#e8f5e9;color:#2e7d32;font-size:9px;padding:2px 6px;border-radius:6px">✅ Converti</span>
+        {% else %}
+            <span style="background:#fff3e0;color:#7a4a00;font-size:9px;padding:2px 6px;border-radius:6px">⏳ À démarrer</span>
+        {% endif %}
+    </td>
+    <td style="padding:8px;text-align:center;white-space:nowrap">
+        {% if r._is_converted and r.linked_project_id %}
+            <a href="/projects/{{ r.linked_project_id }}" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">👁️ Projet</a>
+        {% else %}
+            <a href="/projects/new?from_field_report={{ r.id }}&type={{ 'projet' if r._is_projet else 'opportunite' }}" 
+               class="btn btn-sm" style="background:#0f5a51;color:#fff;font-size:10px;padding:3px 8px;font-weight:600">
+                ➕ Créer le projet
+            </a>
+        {% endif %}
+        <a href="/field-reports/{{ r.id }}" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">👁️</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div style="text-align:center;padding:40px;color:#888">
+    <div style="font-size:42px">📭</div>
+    <div style="margin-top:8px">
+        Aucune remontée transformée en projet ou opportunité pour le moment.
+    </div>
+    <p style="font-size:11px;margin-top:10px">
+        Les remontées arrivent ici quand le gestionnaire de projet les transforme en 
+        <strong>« Projet »</strong> ou <strong>« Opportunité »</strong> depuis 
+        <a href="/field-reports" style="color:#1A7A6D">📢 Remontées d'informations</a>.
+    </p>
+</div>
+{% endif %}
+</div></div>
+
+<div style="background:#e3f2fd;padding:12px;border-radius:8px;font-size:11px;color:#0d47a1;margin-top:14px;border-left:3px solid #1565c0">
+    💡 <strong>Comment ça fonctionne</strong> : depuis cette page, créez le projet dans la roadmap via 
+    <strong>« ➕ Créer le projet »</strong>. Une fois le projet créé, la remontée d'origine reste liée et son statut 
+    passe à « Convertie ». Vous pouvez retrouver l'historique complet de chaque remontée en cliquant sur sa référence.
+</div>
+
+{% endblock %}

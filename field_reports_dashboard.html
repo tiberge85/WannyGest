@@ -152,7 +152,52 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════ -->
-<!-- TABLEAU 2 : REMONTÉES DÉJÀ EXÉCUTÉES (transformee_* + classee)     -->
+<!-- v131 — TABLEAU 2 : REMONTÉES EN COURS D'EXÉCUTION (intervention)    -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="card" style="border-top:4px solid #f29f2f;margin-bottom:18px">
+    <div class="card-header" style="background:#fff3e0">
+        <h3 style="color:#b8561f;margin:0">⏳ Remontées en cours d'exécution ({{ (en_execution or [])|length }})</h3>
+        <p style="font-size:11px;color:#7a4a00;margin:4px 0 0">Remontées transformées en intervention avec un technicien assigné — en attente de la fin des travaux</p>
+    </div>
+    <div class="card-body" style="padding:0">
+{% if en_execution %}
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead><tr style="background:#f29f2f;color:#fff">
+    <th style="padding:8px;text-align:left">Référence</th>
+    <th style="text-align:left">Date constat</th>
+    <th style="text-align:left">Client / Site</th>
+    <th style="text-align:left">Type</th>
+    <th style="text-align:left">Priorité</th>
+    <th style="text-align:left">🛠️ Technicien</th>
+    <th style="text-align:left">📅 Date prévue</th>
+    <th style="text-align:left">État intervention</th>
+    <th style="text-align:center">Action</th>
+</tr></thead>
+<tbody>
+{% for r in en_execution %}
+<tr style="border-bottom:1px solid #ffe0b2;background:#fffbe7">
+    <td style="padding:8px;font-weight:600">{{ r.reference }}</td>
+    <td style="padding:8px">{{ r.date_constat }}</td>
+    <td style="padding:8px"><strong>{{ r.client_name }}</strong>{% if r.site_name %}<br><small style="color:#888">{{ r.site_name }}</small>{% endif %}</td>
+    <td style="padding:8px">{{ r.type_label }}</td>
+    <td style="padding:8px"><span style="background:{{ r.priorite_color }};color:#fff;font-size:10px;padding:2px 6px;border-radius:6px">{{ r.priorite_label }}</span></td>
+    <td style="padding:8px">{% if r._tech_name %}<strong>{{ r._tech_name }}</strong>{% else %}<span style="color:#bbb">non assigné</span>{% endif %}</td>
+    <td style="padding:8px">{% if r._intervention_status %}<span style="background:#e3f2fd;color:#0d47a1;font-size:10px;padding:2px 6px;border-radius:6px">{{ r._intervention_status }}</span>{% else %}—{% endif %}</td>
+    <td style="padding:8px">{% if r.linked_intervention_id %}<a href="/interventions/{{ r.linked_intervention_id }}/fiche" style="font-size:11px">Voir intervention →</a>{% endif %}</td>
+    <td style="padding:8px;text-align:center">
+        <a href="/field-reports/{{ r.id }}" class="btn btn-sm" style="background:#f29f2f;color:#fff;font-size:10px">👁️ Voir</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div style="padding:24px;text-align:center;color:#888">Aucune remontée en cours d'exécution</div>
+{% endif %}
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TABLEAU 3 : REMONTÉES DÉJÀ EXÉCUTÉES (transformee_projet/opportunite + classee + traitee) -->
 <!-- ═══════════════════════════════════════════════════════════════════ -->
 <div class="card" style="border-top:4px solid #2e7d32">
     <div class="card-header" style="background:#e8f5e9">

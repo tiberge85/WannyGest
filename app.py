@@ -2780,8 +2780,16 @@ def inject_globals():
                 _nc = _ndb()
                 ctx['notif_count'] = _nc.execute("SELECT COUNT(*) FROM notifications WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)) AND read=0",
                     (user['id'], user.get('email',''))).fetchone()[0]
+                # v131 : Compteur de remontées en attente de création de projet/opportunité
+                try:
+                    ctx['nouveau_projet_count'] = _nc.execute(
+                        "SELECT COUNT(*) FROM field_reports WHERE statut IN ('transformee_projet','transformee_opportunite') AND linked_project_id IS NULL"
+                    ).fetchone()[0]
+                except: ctx['nouveau_projet_count'] = 0
                 _nc.close()
-            except: ctx['notif_count'] = 0
+            except: 
+                ctx['notif_count'] = 0
+                ctx['nouveau_projet_count'] = 0
             if 'fichiers' in perms or 'admin' in perms:
                 try:
                     from models import get_db as _gdb_abs
@@ -4258,7 +4266,61 @@ def clients_page():
     return render_template('clients.html', page='clients', clients=clients, can_edit=can_edit)
 
 
-# v83 : Export base clients en Excel
+# ═══════════════════════════════════════════════════════════════════
+# v131 : CRM > Nouveau Projet — Liste les remontées transformées en
+# projet ou opportunité, en attente de création du projet roadmap
+# ═══════════════════════════════════════════════════════════════════
+@app.route('/crm/nouveau-projet')
+@permission_required_any('clients', 'resp_projet', 'admin')
+def crm_nouveau_projet():
+    """v131 : Onglet CRM > Nouveau Projet. Liste les remontées avec statut
+    'transformee_projet' ou 'transformee_opportunite' qui n'ont pas encore
+    été converties en projet roadmap. Lien direct vers création de projet."""
+    conn = _gdb()
+    
+    filter_type = (request.args.get('type', '') or '').strip()  # 'projet' | 'opportunite' | ''
+    
+    where_clauses = ["statut IN ('transformee_projet', 'transformee_opportunite')"]
+    params = []
+    if filter_type == 'projet':
+        where_clauses = ["statut = 'transformee_projet'"]
+    elif filter_type == 'opportunite':
+        where_clauses = ["statut = 'transformee_opportunite'"]
+    
+    where_sql = ' AND '.join(where_clauses)
+    
+    # Liste avec infos d'origine
+    reports = [dict(r) for r in conn.execute(f"""
+        SELECT * FROM field_reports
+        WHERE {where_sql}
+        ORDER BY decision_date DESC NULLS LAST, updated_at DESC
+    """, tuple(params)).fetchall()]
+    
+    # Enrichir : statut label, type label, priorité
+    for r in reports:
+        r['_is_projet'] = r['statut'] == 'transformee_projet'
+        r['_is_opportunite'] = r['statut'] == 'transformee_opportunite'
+        r['_type_origin_label'] = FIELD_REPORT_TYPES.get(r.get('type_info'), r.get('type_info'))
+        pl = FIELD_REPORT_PRIORITIES.get(r.get('priorite'), (r.get('priorite'), '#888'))
+        r['_prio_label'] = pl[0]
+        r['_prio_color'] = pl[1]
+        # Indique si déjà converti en projet (linked_project_id rempli)
+        r['_is_converted'] = bool(r.get('linked_project_id'))
+    
+    # Compteurs
+    counts = {
+        'projet': sum(1 for r in reports if r['_is_projet']),
+        'opportunite': sum(1 for r in reports if r['_is_opportunite']),
+        'converted': sum(1 for r in reports if r['_is_converted']),
+        'pending': sum(1 for r in reports if not r['_is_converted']),
+    }
+    counts['total'] = len(reports)
+    
+    conn.close()
+    return render_template('crm_nouveau_projet.html', page='crm_nouveau_projet',
+        reports=reports, counts=counts, filter_type=filter_type)
+
+
 @app.route('/clients/export')
 @permission_required('clients')
 def clients_export():
@@ -10734,6 +10796,11 @@ def intervention_deliver(iid):
         try: conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
         except: pass
     
+    conn.commit()
+    # v131 : Si cette intervention est liée à une remontée, synchroniser le statut
+    try: _sync_remontee_status_from_intervention(iid)
+    except Exception as _e: print(f"[v131] sync err : {_e}", flush=True)
+    
     # Notifier le client — lui demander d'évaluer
     _notify_client(conn, iid, f"📦 Chantier livré — {inter['reference']}",
         f"Votre chantier « {inter['title']} » est livré. Bon de livraison {bon_ref}. Merci de nous laisser une note et un commentaire depuis votre portail !")
@@ -12694,6 +12761,9 @@ def intervention_status(iid, status):
         labels = {'en_cours':'En cours','travaux_termines':'Travaux terminés','controle_qualite':'Contrôle qualité','livre':'Livré','annulee':'Annulée'}
         flash(f"Statut → {labels.get(status, status)}", "success")
     conn.close()
+    # v131 : Si l'intervention est liée à une remontée, synchroniser le statut
+    try: _sync_remontee_status_from_intervention(iid)
+    except: pass
     return redirect(request.referrer or '/interventions')
 
 @app.route('/interventions/<int:iid>/rapport', methods=['POST'])
@@ -16128,7 +16198,8 @@ FIELD_REPORT_PRIORITIES = {
 FIELD_REPORT_STATUTS = {
     'recue': ('📥 Reçue', '#1976d2'),
     'en_analyse': ('🔍 En analyse', '#7b1fa2'),
-    'traitee': ('✅ Traitée', '#2e7d32'),  # v128 : Nouveau statut "Traitée" simple
+    'en_execution': ('⏳ En cours d\'exécution', '#f29f2f'),  # v131 : technicien assigné, en attente fin
+    'traitee': ('✅ Traitée', '#2e7d32'),
     'transformee_projet': ('🎯 → Projet', '#0f5a51'),
     'transformee_intervention': ('🛠️ → Intervention', '#e8672a'),
     'transformee_opportunite': ('💼 → Opportunité', '#1565c0'),
@@ -16282,21 +16353,32 @@ def field_reports_list():
     q = (request.args.get('q', '') or '').strip()
     filtered = _filter_field_reports(all_reports, statut_f, priorite_f, type_f, q)
     
-    # Séparer en 2 listes selon le statut
+    # v131 : Séparer en 3 listes — À traiter / En exécution / Déjà exécutées
     to_treat_statuts = ('recue', 'en_analyse')
-    # v128 : 'traitee' (statut simple) rejoint les remontées déjà exécutées
-    treated_statuts = ('traitee', 'transformee_projet', 'transformee_intervention', 'transformee_opportunite', 'classee')
+    in_execution_statuts = ('en_execution', 'transformee_intervention')  # technicien assigné
+    treated_statuts = ('traitee', 'transformee_projet', 'transformee_opportunite', 'classee')
     a_traiter = [r for r in filtered if r.get('statut') in to_treat_statuts]
+    en_execution = [r for r in filtered if r.get('statut') in in_execution_statuts]
     deja_executees = [r for r in filtered if r.get('statut') in treated_statuts]
     
-    # Enrichir affichage pour les deux listes
-    for lst in (a_traiter, deja_executees):
+    # Enrichir affichage
+    for lst in (a_traiter, en_execution, deja_executees):
         for r in lst:
             sl = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))
             pl = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))
             r['statut_label'] = sl[0]; r['statut_color'] = sl[1]
             r['priorite_label'] = pl[0]; r['priorite_color'] = pl[1]
             r['type_label'] = FIELD_REPORT_TYPES.get(r['type_info'], r['type_info'])
+            # v131 : Pour en_execution, récupérer le nom du technicien depuis l'intervention liée
+            if r.get('linked_intervention_id'):
+                try:
+                    tech_row = conn.execute(
+                        "SELECT technician_name, status FROM interventions WHERE id=?",
+                        (r['linked_intervention_id'],)).fetchone()
+                    if tech_row:
+                        r['_tech_name'] = tech_row['technician_name']
+                        r['_intervention_status'] = tech_row['status']
+                except: pass
     
     # Stats globales (sans filtres pour les KPI)
     if can_view_all:
@@ -16333,7 +16415,7 @@ def field_reports_list():
     conn.close()
     
     return render_template('field_reports_dashboard.html', page='field_reports',
-        a_traiter=a_traiter, deja_executees=deja_executees,
+        a_traiter=a_traiter, en_execution=en_execution, deja_executees=deja_executees,
         stats=stats, stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
         top_auteurs=top_auteurs,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
@@ -16500,9 +16582,28 @@ def field_report_detail(rid):
     files = [dict(r) for r in conn.execute(
         "SELECT * FROM field_reports_files WHERE report_id=? ORDER BY uploaded_at DESC", (rid,)).fetchall()]
     
+    # v131 : Liste des techniciens (pour transformer en intervention)
+    technicians = []
+    try:
+        technicians = [dict(r) for r in conn.execute(
+            """SELECT id, full_name, role FROM users 
+            WHERE role IN ('technicien','tech_chef','centre_technique','informatique') 
+            AND COALESCE(is_active,1)=1 ORDER BY full_name""").fetchall()]
+    except: pass
+    
+    # v131 : Si remontée déjà transformée en intervention, récupérer infos intervention
+    linked_intervention = None
+    if report.get('linked_intervention_id'):
+        try:
+            linked_intervention = dict(conn.execute(
+                "SELECT * FROM interventions WHERE id=?",
+                (report['linked_intervention_id'],)).fetchone() or {})
+        except: pass
+    
     conn.close()
     return render_template('field_report_detail.html', page='field_reports',
-        report=report, history=history, files=files,
+        report=report, history=history, files=files, technicians=technicians,
+        linked_intervention=linked_intervention,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS)
 
 
@@ -16558,43 +16659,152 @@ def field_report_mark_traitee(rid):
 @app.route('/field-reports/<int:rid>/transform', methods=['POST'])
 @permission_required('field_report_transform')
 def field_report_transform(rid):
-    """Transformer en projet, intervention ou opportunité."""
-    decision = request.form.get('decision', '').strip()  # 'projet', 'intervention', 'opportunite'
+    """v131 : Transformer en projet, intervention ou opportunité.
+    - intervention : technicien obligatoire → crée une intervention liée, statut 'en_execution'
+    - projet : remontée visible dans CRM > Nouveau Projet
+    - opportunite : remontée visible dans CRM > Nouveau Projet
+    - classer : ferme la remontée"""
+    decision = request.form.get('decision', '').strip()
     notes = request.form.get('decision_notes', '').strip()
+    technician_id = request.form.get('technician_id', '').strip()
+    scheduled_date = request.form.get('scheduled_date', '').strip()
     
     if decision not in ('projet', 'intervention', 'opportunite', 'classer'):
         flash("Décision invalide", "error")
         return redirect(f'/field-reports/{rid}')
     
-    statut_map = {
-        'projet': 'transformee_projet',
-        'intervention': 'transformee_intervention',
-        'opportunite': 'transformee_opportunite',
-        'classer': 'classee',
-    }
-    new_statut = statut_map[decision]
+    # v131 : Pour intervention, technicien OBLIGATOIRE
+    if decision == 'intervention':
+        if not technician_id or not technician_id.isdigit():
+            flash("⚠️ Vous devez assigner un technicien pour transformer en intervention", "error")
+            return redirect(f'/field-reports/{rid}')
+        try: technician_id = int(technician_id)
+        except: technician_id = 0
+        if not technician_id:
+            flash("⚠️ Technicien invalide", "error")
+            return redirect(f'/field-reports/{rid}')
     
     user = get_user_by_id(session.get('user_id')) if session.get('user_id') else None
     try:
         conn = _gdb()
+        report = dict(conn.execute("SELECT * FROM field_reports WHERE id=?", (rid,)).fetchone())
+        
+        # === Workflow spécifique selon la décision ===
+        new_intervention_id = None
+        
+        if decision == 'intervention':
+            # v131 : Créer une intervention dans le Centre Technique liée à cette remontée
+            tech_row = conn.execute("SELECT id, full_name FROM users WHERE id=? AND COALESCE(is_active,1)=1", (technician_id,)).fetchone()
+            if not tech_row:
+                conn.close()
+                flash("⚠️ Technicien introuvable ou inactif", "error")
+                return redirect(f'/field-reports/{rid}')
+            
+            int_ref = f"INT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            int_title = f"Intervention suite remontée {report['reference']}"
+            int_desc = f"Remontée d'origine : {report['reference']}\nClient : {report['client_name']}\nType : {report['type_info']}\nDescription : {report['description']}"
+            if notes:
+                int_desc += f"\n\nNotes coordinateur : {notes}"
+            
+            priority_map = {'urgent': 'urgent', 'eleve': 'haute', 'moyen': 'normale', 'faible': 'basse'}
+            int_priority = priority_map.get(report.get('priorite'), 'normale')
+            
+            cur = conn.execute("""INSERT INTO interventions
+                (reference, title, type, client_id, client_name, site_address,
+                 technician_id, technician_name, scheduled_date, status, priority,
+                 description, created_by, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,'planifiee',?,?,?,datetime('now'))""",
+                (int_ref, int_title, 'curative',
+                 report.get('client_id'), report['client_name'], report.get('site_address') or report.get('site_name'),
+                 technician_id, tech_row['full_name'],
+                 scheduled_date or datetime.now().strftime('%Y-%m-%d'),
+                 int_priority, int_desc, session['user_id']))
+            new_intervention_id = cur.lastrowid
+            
+            # v131 : statut remontée = en_execution (technicien assigné, en attente fin)
+            new_statut = 'en_execution'
+        elif decision == 'projet':
+            new_statut = 'transformee_projet'
+        elif decision == 'opportunite':
+            new_statut = 'transformee_opportunite'
+        else:  # classer
+            new_statut = 'classee'
+        
+        # Mettre à jour la remontée
         conn.execute("""UPDATE field_reports SET statut=?, decision=?, decision_date=datetime('now'),
-            decision_by=?, decision_by_name=?, updated_at=datetime('now') WHERE id=?""",
+            decision_by=?, decision_by_name=?, linked_intervention_id=?,
+            updated_at=datetime('now') WHERE id=?""",
             (new_statut, decision, session.get('user_id'),
-             user['full_name'] if user else None, rid))
+             user['full_name'] if user else None,
+             new_intervention_id, rid))
         conn.commit()
         conn.close()
+        
         action_label = {
-            'projet': 'Transformée en projet',
-            'intervention': 'Transformée en intervention',
-            'opportunite': 'Transformée en opportunité commerciale',
+            'projet': 'Transformée en projet (visible dans CRM > Nouveau Projet)',
+            'intervention': f'Transformée en intervention (assignée à {tech_row["full_name"] if decision == "intervention" else "?"})',
+            'opportunite': 'Transformée en opportunité (visible dans CRM > Nouveau Projet)',
             'classer': 'Classée sans suite',
         }[decision]
         _field_report_log(rid, action_label, notes[:200] if notes else None)
         _field_report_notify(rid, 'transformed')
+        
+        # v131 : Notification spécifique au technicien si intervention
+        if decision == 'intervention' and new_intervention_id:
+            try:
+                notify_user(technician_id,
+                    title=f"🛠️ Nouvelle intervention assignée : {int_ref}",
+                    message=f"Client : {report['client_name']} · Date prévue : {scheduled_date or 'à définir'} · Priorité : {int_priority.upper()}",
+                    link=f"/interventions/{new_intervention_id}/fiche",
+                    type='info', module='interventions', icon='🛠️',
+                    priority='high' if int_priority in ('urgent','haute') else 'normal')
+            except Exception as _e:
+                print(f"[v131] notif tech err : {_e}", flush=True)
+        
         flash(f"✅ {action_label}", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect(f'/field-reports/{rid}')
+
+
+# v131 : Quand une intervention liée à une remontée est marquée comme terminée,
+# la remontée passe automatiquement à 'traitee'. Helper appelable depuis le code intervention.
+def _sync_remontee_status_from_intervention(intervention_id):
+    """v131 : Si une intervention liée à une remontée passe à un statut final
+    (terminee, livre), met la remontée en 'traitee'."""
+    if not intervention_id: return
+    try:
+        conn = _gdb()
+        int_row = conn.execute("SELECT status FROM interventions WHERE id=?", (intervention_id,)).fetchone()
+        if not int_row: 
+            conn.close(); return
+        if int_row['status'] not in ('terminee', 'termine', 'livre'):
+            conn.close(); return
+        report = conn.execute(
+            "SELECT id, reference, auteur_id FROM field_reports WHERE linked_intervention_id=?",
+            (intervention_id,)).fetchone()
+        if not report:
+            conn.close(); return
+        if report:
+            conn.execute("""UPDATE field_reports SET statut='traitee',
+                updated_at=datetime('now') WHERE id=?""", (report['id'],))
+            conn.commit()
+            report_id = report['id']
+            report_ref = report['reference']
+            auteur_id = report['auteur_id']
+            conn.close()
+            # Notifier l'auteur et les GP
+            try:
+                notify_user(auteur_id if auteur_id else 1,
+                    title=f"✅ Remontée {report_ref} traitée",
+                    message=f"L'intervention liée a été terminée. La remontée passe en statut 'Traitée'.",
+                    link=f"/field-reports/{report_id}",
+                    type='success', module='remontees', icon='✅')
+            except: pass
+        else:
+            conn.close()
+    except Exception as e:
+        print(f"[v131] sync remontee from intervention err : {e}", flush=True)
 
 
 @app.route('/field-reports/dashboard')
