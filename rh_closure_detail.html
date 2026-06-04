@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Détail clôture {{ closure.user_name }}{% endblock %}
+{% block content %}
+<style>
+.detail-card { background:#fff; padding:14px; border-radius:10px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+.badge { padding:3px 8px; border-radius:10px; font-size:10px; font-weight:700; }
+.just-item { padding:10px; background:#f8f9fa; border-radius:8px; margin-bottom:6px; border-left:3px solid #f29f2f; }
+</style>
+
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>📋 Clôture #{{ closure.id }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            {{ closure.user_name }} ({{ closure.user_role }}{% if closure.user_dept %} · {{ closure.user_dept }}{% endif %}) — {{ closure.date_closure }}
+        </p>
+    </div>
+    <a href="/rh/closures?date={{ closure.date_closure }}" class="btn btn-outline btn-sm">← Tableau de bord</a>
+</div>
+
+<!-- État de la clôture -->
+<div class="detail-card">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">📊 État de la clôture</h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;font-size:12px">
+        <div>
+            <div style="font-size:10px;color:#888">Statut</div>
+            <div>
+            {% if closure.status == 'cloturee' %}<span class="badge" style="background:#e8f5e9;color:#1b5e20">✅ Clôturée complètement</span>
+            {% elif closure.status == 'partielle' %}<span class="badge" style="background:#fff3cd;color:#856404">⚠️ Partielle (avec justifications)</span>
+            {% elif closure.status == 'cloturee_exception' %}<span class="badge" style="background:#e3f2fd;color:#0d47a1">🔓 Validation exceptionnelle</span>
+            {% else %}<span class="badge" style="background:#fde8e8;color:#c53030">⏳ {{ closure.status }}</span>
+            {% endif %}
+            </div>
+        </div>
+        <div>
+            <div style="font-size:10px;color:#888">Heure de clôture</div>
+            <div><strong>{{ closure.closure_time or '—' }}</strong></div>
+        </div>
+        <div>
+            <div style="font-size:10px;color:#888">Tâches en attente</div>
+            <div><strong>{{ closure.pending_count or 0 }}</strong></div>
+        </div>
+        <div>
+            <div style="font-size:10px;color:#888">Tâches justifiées</div>
+            <div><strong>{{ closure.justified_count or 0 }}</strong></div>
+        </div>
+    </div>
+    {% if closure.notes %}
+    <div style="margin-top:10px;padding:8px;background:#f8f9fa;border-radius:6px;font-size:12px">
+        <strong>📝 Notes utilisateur :</strong> {{ closure.notes }}
+    </div>
+    {% endif %}
+    {% if closure.exception_validated_by %}
+    <div style="margin-top:10px;padding:8px;background:#e3f2fd;border-radius:6px;font-size:12px">
+        <strong>🔓 Validation exceptionnelle par :</strong> {{ closure.validator_name }}<br>
+        <strong>Motif :</strong> {{ closure.exception_motif }}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Justifications -->
+<div class="detail-card">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">📝 Justifications soumises ({{ justifications|length }})</h3>
+    {% if justifications %}
+        {% for j in justifications %}
+        <div class="just-item">
+            <div style="display:flex;justify-content:space-between;align-items:start;gap:10px">
+                <div style="flex:1">
+                    <strong>{{ j.task_label }}</strong>
+                    {% if j.task_link %}<a href="{{ j.task_link }}" style="font-size:10px;color:#1A7A6D;margin-left:6px">👁️ Voir</a>{% endif %}
+                </div>
+                <span class="badge" style="background:#fff3cd;color:#856404">{{ motifs.get(j.motif, j.motif) }}</span>
+            </div>
+            {% if j.motif_detail %}
+            <div style="font-size:11px;color:#666;margin-top:5px;padding-left:8px;border-left:2px solid #ddd">
+                {{ j.motif_detail }}
+            </div>
+            {% endif %}
+            <div style="font-size:10px;color:#999;margin-top:5px">
+                {{ j.task_type }} #{{ j.task_id }} · {{ j.created_at[:16] }}
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <p style="color:#888;font-style:italic;text-align:center;padding:14px">Aucune justification soumise</p>
+    {% endif %}
+</div>
+
+<!-- Demandes d'explication -->
+<div class="detail-card">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">❓ Demandes d'explication ({{ explanations|length }})</h3>
+    
+    {% if current_user.role in ('admin','dg','directeur','rh','directrice_rh') %}
+    <details style="margin-bottom:12px">
+        <summary style="cursor:pointer;color:#1A7A6D;font-weight:600;font-size:12px">+ Envoyer une nouvelle demande d'explication</summary>
+        <form method="post" action="/rh/closures/{{ closure.id }}/explanation" style="margin-top:10px;background:#f8f9fa;padding:12px;border-radius:8px">
+            <div style="margin-bottom:8px">
+                <label style="font-size:11px;color:#666">Sujet</label>
+                <input type="text" name="subject" placeholder="Sujet de la demande"
+                    style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+            </div>
+            <div style="margin-bottom:10px">
+                <label style="font-size:11px;color:#666">Message *</label>
+                <textarea name="message" rows="4" required placeholder="Détaillez votre demande d'explication…"
+                    style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">📨 Envoyer la demande</button>
+        </form>
+    </details>
+    {% endif %}
+    
+    {% if explanations %}
+        {% for e in explanations %}
+        <div style="padding:10px;background:#fff8e1;border-radius:8px;margin-bottom:6px;border-left:3px solid #f29f2f">
+            <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+                <div style="flex:1">
+                    <strong>{{ e.subject or 'Demande d\'explication' }}</strong>
+                    <div style="font-size:11px;color:#666;margin-top:3px">{{ e.message_rh }}</div>
+                </div>
+                <span class="badge" style="background:{% if e.status == 'envoyee' %}#fff3cd;color:#856404{% elif e.status == 'repondue' %}#e8f5e9;color:#1b5e20{% else %}#f0f0f0;color:#666{% endif %}">
+                    {% if e.status == 'envoyee' %}⏳ En attente{% elif e.status == 'repondue' %}✅ Répondue{% else %}📁 {{ e.status }}{% endif %}
+                </span>
+            </div>
+            <div style="font-size:10px;color:#888;margin-top:5px">
+                Par {{ e.hr_name }} · {{ e.sent_at[:16] }}
+            </div>
+            {% if e.response_user %}
+            <div style="margin-top:8px;padding:8px;background:#e8f5e9;border-radius:6px;font-size:12px">
+                <strong>💬 Réponse utilisateur :</strong><br>{{ e.response_user }}
+                <div style="font-size:10px;color:#666;margin-top:4px">{{ e.responded_at[:16] if e.responded_at else '' }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+    <p style="color:#888;font-style:italic;text-align:center;padding:14px">Aucune demande d'explication</p>
+    {% endif %}
+</div>
+
+<!-- Validation exceptionnelle (si pas encore clôturée) -->
+{% if closure.status in ('en_attente','partielle') and current_user.role in ('admin','dg','directeur','rh','directrice_rh') %}
+<div class="detail-card" style="border:2px dashed #1565c0">
+    <h3 style="margin:0 0 10px;color:#0d47a1;font-size:14px">🔓 Validation exceptionnelle</h3>
+    <p style="font-size:11px;color:#666">En tant que responsable hiérarchique ou RH, vous pouvez forcer la clôture de cette journée malgré les tâches en attente. Cette action sera tracée.</p>
+    <form method="post" action="/closure/exception/{{ closure.id }}">
+        <div style="margin-bottom:8px">
+            <label style="font-size:11px;color:#666">Motif d'exception *</label>
+            <textarea name="motif_exception" rows="3" required placeholder="Précisez la raison de cette validation exceptionnelle…"
+                style="width:100%;padding:8px;border:1.5px solid #1565c0;border-radius:6px"></textarea>
+        </div>
+        <button type="submit" class="btn" style="background:#1565c0;color:#fff" 
+            onclick="return confirm('⚠️ Valider exceptionnellement cette clôture ? Cette action sera tracée.');">
+            🔓 Valider la clôture exceptionnellement
+        </button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

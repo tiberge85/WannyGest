@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Demande d'explication{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>❓ Demande d'explication RH</h1>
+    <a href="/dashboard" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+
+<div style="background:#fff;padding:18px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);max-width:700px">
+    <div style="background:#fff8e1;padding:12px;border-radius:8px;border-left:4px solid #f29f2f;margin-bottom:14px">
+        <strong>De :</strong> {{ exp.hr_name }} (RH)<br>
+        <strong>Le :</strong> {{ exp.sent_at[:16] }}<br>
+        {% if exp.subject %}<strong>Sujet :</strong> {{ exp.subject }}<br>{% endif %}
+        <hr style="margin:8px 0;border:0;border-top:1px solid #f29f2f">
+        <strong>Message :</strong><br>
+        <span style="white-space:pre-wrap">{{ exp.message_rh }}</span>
+    </div>
+
+    {% if exp.status == 'envoyee' %}
+    <form method="post">
+        <h3 style="margin:0 0 8px;color:#1A7A6D;font-size:14px">💬 Votre réponse</h3>
+        <textarea name="response" rows="6" required placeholder="Expliquez le contexte, ce qui s'est passé, etc."
+            style="width:100%;padding:10px;border:1.5px solid #1A7A6D;border-radius:7px;font-family:inherit"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+            <a href="/dashboard" class="btn btn-outline">Plus tard</a>
+            <button type="submit" class="btn btn-primary">📤 Envoyer ma réponse</button>
+        </div>
+    </form>
+    {% elif exp.response_user %}
+    <div style="background:#e8f5e9;padding:12px;border-radius:8px;border-left:4px solid #2e7d32">
+        <strong>✅ Votre réponse</strong> (envoyée le {{ exp.responded_at[:16] if exp.responded_at else '' }})<br>
+        <span style="white-space:pre-wrap">{{ exp.response_user }}</span>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

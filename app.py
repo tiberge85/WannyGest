@@ -1815,6 +1815,255 @@ except Exception as _e:
     print(f"[v130-Notif] Erreur : {_e}", flush=True)
 
 
+# v139 : Clôture journalière obligatoire — Tables
+try:
+    from models import get_db as _gdb_v139
+    _v139 = _gdb_v139()
+    
+    # Clôtures journalières
+    _v139.execute("""CREATE TABLE IF NOT EXISTS daily_closures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        date_closure TEXT NOT NULL,
+        closure_time TEXT,
+        status TEXT DEFAULT 'en_attente',
+        pending_count INTEGER DEFAULT 0,
+        justified_count INTEGER DEFAULT 0,
+        completed_count INTEGER DEFAULT 0,
+        exception_validated_by INTEGER,
+        exception_motif TEXT,
+        last_activity_at TEXT,
+        notes TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, date_closure)
+    )""")
+    
+    # Justifications de tâches non terminées
+    _v139.execute("""CREATE TABLE IF NOT EXISTS closure_justifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        closure_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        task_type TEXT NOT NULL,
+        task_id INTEGER,
+        task_label TEXT,
+        task_link TEXT,
+        motif TEXT NOT NULL,
+        motif_detail TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    )""")
+    
+    # Demandes d'explication RH
+    _v139.execute("""CREATE TABLE IF NOT EXISTS closure_explanations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        closure_id INTEGER,
+        user_id INTEGER NOT NULL,
+        hr_user_id INTEGER NOT NULL,
+        subject TEXT,
+        message_rh TEXT,
+        response_user TEXT,
+        status TEXT DEFAULT 'envoyee',
+        sent_at TEXT DEFAULT (datetime('now')),
+        responded_at TEXT,
+        archived_at TEXT
+    )""")
+    
+    # Scores mensuels par user
+    _v139.execute("""CREATE TABLE IF NOT EXISTS closure_scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        days_worked INTEGER DEFAULT 0,
+        days_closed INTEGER DEFAULT 0,
+        days_partial INTEGER DEFAULT 0,
+        days_late INTEGER DEFAULT 0,
+        days_missing INTEGER DEFAULT 0,
+        tasks_completed INTEGER DEFAULT 0,
+        tasks_pending INTEGER DEFAULT 0,
+        tasks_justified INTEGER DEFAULT 0,
+        explanations_count INTEGER DEFAULT 0,
+        score_pct REAL DEFAULT 0,
+        rating TEXT,
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, year, month)
+    )""")
+    
+    _v139.commit()
+    _v139.close()
+    print("[v139-Closure] Tables clôture journalière OK", flush=True)
+except Exception as _e:
+    print(f"[v139-Closure] Erreur : {_e}", flush=True)
+
+
+# v139 : Motifs prédéfinis de justification
+CLOSURE_JUSTIFICATION_MOTIFS = {
+    'attente_client':       '⏳ En attente du client',
+    'attente_fournisseur':  '🏭 En attente d\'un fournisseur',
+    'attente_service':      '🏢 En attente d\'un autre service',
+    'intervention_reportee':'📅 Intervention reportée',
+    'probleme_technique':   '🔧 Problème technique',
+    'autre':                '📝 Autre motif',
+}
+
+
+def get_user_pending_tasks(user_id, user_role=None):
+    """v139 : Récupère toutes les tâches en attente d'un utilisateur selon son rôle.
+    Retourne un dict avec catégories => liste de tâches.
+    Chaque tâche : {id, label, link, priority, type, category}"""
+    from models import get_db as _gdb_pt
+    conn = _gdb_pt()
+    result = {
+        'interventions':     [],
+        'projets':           [],
+        'notifications':     [],
+        'validations':       [],
+        'rapports':          [],
+        'remontees':         [],
+        'devis':             [],
+        'commandes':         [],
+        'others':            [],
+    }
+    
+    try:
+        # 1. Interventions assignées non clôturées
+        try:
+            rows = conn.execute("""SELECT id, reference, type, status, scheduled_date, client_name
+                FROM interventions 
+                WHERE technician_id=? AND status NOT IN ('cloturee','annulee','close')
+                ORDER BY scheduled_date, id LIMIT 50""", (user_id,)).fetchall()
+            for r in rows:
+                result['interventions'].append({
+                    'id': r['id'], 'task_type': 'intervention',
+                    'label': f"{r['reference']} — {r['type']} ({r['client_name'] or 'sans client'})",
+                    'link': f"/interventions/{r['id']}", 'status': r['status'],
+                    'date': r['scheduled_date'],
+                })
+        except: pass
+        
+        # 2. Projets dont l'utilisateur est coordinateur et non clôturés
+        try:
+            rows = conn.execute("""SELECT id, reference, title, status, current_step, progress_pct
+                FROM wf_projects
+                WHERE coordinator_id=? AND status NOT IN ('cloture','annule')
+                ORDER BY id DESC LIMIT 30""", (user_id,)).fetchall()
+            for r in rows:
+                result['projets'].append({
+                    'id': r['id'], 'task_type': 'projet',
+                    'label': f"{r['reference']} — {r['title']} ({r['progress_pct']}%)",
+                    'link': f"/projects/{r['id']}", 'status': r['status'],
+                })
+        except: pass
+        
+        # 3. Notifications importantes non lues (priority high)
+        try:
+            rows = conn.execute("""SELECT id, title, link, priority, module
+                FROM notifications
+                WHERE user_id=? AND COALESCE(read,0)=0 AND COALESCE(priority,'normal') IN ('high','urgent','critical')
+                ORDER BY id DESC LIMIT 30""", (user_id,)).fetchall()
+            for r in rows:
+                result['notifications'].append({
+                    'id': r['id'], 'task_type': 'notification',
+                    'label': f"{r['title']}",
+                    'link': r['link'] or f"/notifications/read/{r['id']}",
+                    'priority': r['priority'],
+                })
+        except: pass
+        
+        # 4. Validations en attente selon le rôle
+        if user_role in ('dg', 'directeur', 'admin'):
+            # Ordres de virement à valider
+            try:
+                rows = conn.execute("""SELECT id, reference, beneficiaire, montant
+                    FROM ordres_virement WHERE statut IN ('en_attente_dg','en_attente_validation','attente_dg')
+                    ORDER BY id DESC LIMIT 30""").fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'ordre_virement',
+                        'label': f"OV {r['reference']} — {r['beneficiaire']} ({r['montant']:,.0f} F)",
+                        'link': f"/ordres-virement/{r['id']}", 'status': 'à valider',
+                    })
+            except: pass
+        
+        if user_role in ('comptable', 'comptabilite', 'admin'):
+            # Acomptes en attente de comptabilisation
+            try:
+                rows = conn.execute("""SELECT id, reference, montant, libelle
+                    FROM caisse_operations WHERE statut='en_attente_compta'
+                    ORDER BY id DESC LIMIT 20""").fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'caisse_op',
+                        'label': f"Op caisse #{r['id']} — {r['libelle'] or '?'} ({r['montant']:,.0f} F)",
+                        'link': '/comptabilite/caisses', 'status': 'à comptabiliser',
+                    })
+            except: pass
+        
+        if user_role in ('moyens_generaux', 'mg', 'admin'):
+            # Demandes MG en attente
+            try:
+                rows = conn.execute("""SELECT id, reference, designation, statut
+                    FROM achats_demandes WHERE statut IN ('en_attente','soumise','transmise')
+                    ORDER BY id DESC LIMIT 30""").fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'demande_achat',
+                        'label': f"Demande {r['reference']} — {r['designation'] or '?'}",
+                        'link': f"/achats/demandes/{r['id']}", 'status': r['statut'],
+                    })
+            except: pass
+        
+        # 5. Remontées non encore traitées (auteur du user)
+        try:
+            rows = conn.execute("""SELECT id, reference, type_info, priorite, statut
+                FROM field_reports
+                WHERE auteur_id=? AND statut IN ('recue','en_analyse','en_execution')
+                ORDER BY id DESC LIMIT 20""", (user_id,)).fetchall()
+            for r in rows:
+                result['remontees'].append({
+                    'id': r['id'], 'task_type': 'field_report',
+                    'label': f"{r['reference']} — {r['type_info']} ({r['priorite']})",
+                    'link': f"/field-reports/{r['id']}", 'status': r['statut'],
+                })
+        except: pass
+        
+        # 6. Devis non envoyés ou en cours
+        if user_role in ('commercial', 'admin', 'dg', 'coordinateur'):
+            try:
+                rows = conn.execute("""SELECT id, reference, client_name, total_ttc, status
+                    FROM devis WHERE created_by=? AND status IN ('brouillon','envoye','en_negociation')
+                    ORDER BY id DESC LIMIT 20""", (user_id,)).fetchall()
+                for r in rows:
+                    result['devis'].append({
+                        'id': r['id'], 'task_type': 'devis',
+                        'label': f"{r['reference']} — {r['client_name']} ({r['total_ttc']:,.0f} F)",
+                        'link': f"/devis/{r['id']}", 'status': r['status'],
+                    })
+            except: pass
+    finally:
+        conn.close()
+    
+    # Calcul du total
+    total = sum(len(v) for v in result.values())
+    result['_total'] = total
+    return result
+
+
+def get_or_create_today_closure(user_id):
+    """v139 : Retourne (ou crée) la clôture du jour pour cet utilisateur."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM daily_closures WHERE user_id=? AND date_closure=?",
+        (user_id, today)).fetchone()
+    if not row:
+        conn.execute("INSERT INTO daily_closures (user_id, date_closure, status, created_at) VALUES (?,?,?,datetime('now'))",
+            (user_id, today, 'en_attente'))
+        conn.commit()
+        row = conn.execute("SELECT * FROM daily_closures WHERE user_id=? AND date_closure=?",
+            (user_id, today)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 # v129 : Helpers de notification multi-canal
 # Ces helpers sont attachés à app après init des modèles plus bas dans le fichier.
 NOTIF_CHANNELS = ('internal', 'push', 'email', 'whatsapp')
@@ -12962,6 +13211,384 @@ def intervention_rapport(iid):
 
 
 # ======================== NOTIFICATIONS ========================
+
+# v139 : ============== CLÔTURE JOURNALIÈRE ==============
+
+@app.route('/closure/today')
+@login_required
+def closure_today():
+    """v139 : Page de clôture journalière. Affiche les tâches en attente.
+    Si aucune en attente : possibilité de clôturer.
+    Sinon : justifier ou compléter."""
+    user = get_user_by_id(session['user_id'])
+    if not user:
+        return redirect('/login')
+    
+    closure = get_or_create_today_closure(user['id'])
+    pending = get_user_pending_tasks(user['id'], user['role'])
+    
+    # Récupérer les justifications déjà saisies pour cette clôture
+    conn = _gdb()
+    justifications = [dict(r) for r in conn.execute(
+        "SELECT * FROM closure_justifications WHERE closure_id=? ORDER BY id",
+        (closure['id'],)).fetchall()]
+    # Mapper par task_type + task_id pour facile lookup côté template
+    justified_map = {}
+    for j in justifications:
+        key = f"{j['task_type']}_{j['task_id']}"
+        justified_map[key] = j
+    conn.close()
+    
+    return render_template('closure_today.html', page='closure',
+        closure=closure, pending=pending,
+        motifs=CLOSURE_JUSTIFICATION_MOTIFS,
+        justifications=justifications,
+        justified_map=justified_map,
+        total_pending=pending['_total'])
+
+
+@app.route('/closure/justify', methods=['POST'])
+@login_required
+def closure_justify():
+    """v139 : Enregistre une justification pour une tâche non terminée."""
+    user_id = session['user_id']
+    closure_id = int(request.form.get('closure_id', 0))
+    task_type = request.form.get('task_type', '').strip()
+    task_id = request.form.get('task_id', '').strip()
+    task_label = request.form.get('task_label', '').strip()
+    task_link = request.form.get('task_link', '').strip()
+    motif = request.form.get('motif', '').strip()
+    motif_detail = request.form.get('motif_detail', '').strip()
+    
+    if not motif or motif not in CLOSURE_JUSTIFICATION_MOTIFS:
+        flash("Motif invalide", "error")
+        return redirect('/closure/today')
+    
+    conn = _gdb()
+    # Vérifier que la clôture appartient au user
+    own = conn.execute("SELECT id FROM daily_closures WHERE id=? AND user_id=?",
+        (closure_id, user_id)).fetchone()
+    if not own:
+        conn.close()
+        flash("Clôture invalide", "error")
+        return redirect('/closure/today')
+    
+    # Supprimer ancienne justification si elle existe (remplacement)
+    conn.execute("DELETE FROM closure_justifications WHERE closure_id=? AND task_type=? AND task_id=?",
+        (closure_id, task_type, int(task_id) if task_id.isdigit() else None))
+    
+    conn.execute("""INSERT INTO closure_justifications 
+        (closure_id, user_id, task_type, task_id, task_label, task_link, motif, motif_detail, created_at)
+        VALUES (?,?,?,?,?,?,?,?,datetime('now'))""",
+        (closure_id, user_id, task_type, int(task_id) if task_id.isdigit() else None,
+         task_label, task_link, motif, motif_detail))
+    conn.commit()
+    conn.close()
+    
+    flash("✅ Justification enregistrée", "success")
+    return redirect('/closure/today')
+
+
+@app.route('/closure/submit', methods=['POST'])
+@login_required
+def closure_submit():
+    """v139 : Soumet la clôture journalière.
+    Si toutes les tâches sont soit terminées soit justifiées → cloturee
+    Sinon → bloque et redirige vers la page."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    closure = get_or_create_today_closure(user['id'])
+    pending = get_user_pending_tasks(user['id'], user['role'])
+    
+    conn = _gdb()
+    # Justifications existantes
+    just_count = conn.execute("SELECT COUNT(*) FROM closure_justifications WHERE closure_id=?",
+        (closure['id'],)).fetchone()[0]
+    
+    # Pour clôturer : soit aucune tâche, soit toutes les tâches restantes ont une justification
+    total_pending = pending['_total']
+    
+    if total_pending > 0 and just_count < total_pending:
+        conn.close()
+        flash(f"⚠️ Impossible de clôturer : {total_pending - just_count} tâche(s) sans justification", "error")
+        return redirect('/closure/today')
+    
+    # Notes optionnelles
+    notes = request.form.get('notes', '').strip()
+    
+    status = 'cloturee' if total_pending == 0 else 'partielle'
+    conn.execute("""UPDATE daily_closures 
+        SET closure_time=datetime('now'),
+            status=?,
+            pending_count=?,
+            justified_count=?,
+            notes=?,
+            last_activity_at=datetime('now')
+        WHERE id=?""",
+        (status, total_pending, just_count, notes, closure['id']))
+    conn.commit()
+    conn.close()
+    
+    log_activity(user['id'], user['full_name'], 'Clôture',
+        f"Clôture journalière {status} ({total_pending} en attente, {just_count} justifiées)",
+        request.remote_addr)
+    
+    # Notification au responsable RH si clôture partielle (justifications soumises)
+    if status == 'partielle':
+        try:
+            notify_roles(['rh','directrice_rh','admin'],
+                title=f"📋 Clôture partielle : {user['full_name']}",
+                message=f"L'utilisateur {user['full_name']} a clôturé sa journée avec {just_count} tâche(s) justifiée(s). À examiner.",
+                link=f"/rh/closures/user/{user['id']}",
+                type='info', module='rh', icon='📋', priority='normal')
+        except: pass
+    
+    flash(f"✅ Journée clôturée — Statut : {status}", "success")
+    return redirect('/dashboard')
+
+
+@app.route('/closure/exception/<int:closure_id>', methods=['POST'])
+@login_required
+def closure_exception(closure_id):
+    """v139 : Validation exceptionnelle par admin/responsable.
+    Permet de clôturer une journée même si des tâches restent ouvertes sans justification."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','directeur','rh','directrice_rh'):
+        flash("⛔ Réservé aux responsables hiérarchiques et RH", "error")
+        return redirect('/dashboard')
+    
+    motif = request.form.get('motif_exception', '').strip()
+    if not motif:
+        flash("Motif d'exception requis", "error")
+        return redirect(f'/rh/closures/{closure_id}')
+    
+    conn = _gdb()
+    c = conn.execute("SELECT user_id FROM daily_closures WHERE id=?", (closure_id,)).fetchone()
+    if not c:
+        conn.close()
+        flash("Clôture introuvable", "error")
+        return redirect('/rh/closures')
+    
+    conn.execute("""UPDATE daily_closures
+        SET status='cloturee_exception',
+            closure_time=datetime('now'),
+            exception_validated_by=?,
+            exception_motif=?,
+            last_activity_at=datetime('now')
+        WHERE id=?""",
+        (user['id'], motif, closure_id))
+    conn.commit()
+    conn.close()
+    
+    log_activity(user['id'], user['full_name'], 'Clôture exception',
+        f"Validation exceptionnelle clôture #{closure_id} — {motif}",
+        request.remote_addr)
+    
+    # Notifier l'utilisateur concerné
+    try:
+        notify_user(c['user_id'],
+            title=f"✅ Clôture validée exceptionnellement",
+            message=f"Votre clôture journalière a été validée exceptionnellement par {user['full_name']}. Motif : {motif}",
+            link='/dashboard', module='rh', priority='normal')
+    except: pass
+    
+    flash("✅ Clôture validée exceptionnellement", "success")
+    return redirect(f'/rh/closures/{closure_id}')
+
+
+# ============== TABLEAU DE BORD RH ==============
+
+@app.route('/rh/closures')
+@login_required
+def rh_closures_dashboard():
+    """v139 : Tableau de bord RH des clôtures journalières.
+    Accessible à : admin, dg, directeur, rh, directrice_rh."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','directeur','rh','directrice_rh'):
+        flash("⛔ Accès réservé aux responsables et RH", "error")
+        return redirect('/dashboard')
+    
+    date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    
+    conn = _gdb()
+    # Tous les users actifs
+    all_users = [dict(r) for r in conn.execute(
+        "SELECT id, username, full_name, role, COALESCE(department,'') as department FROM users WHERE COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
+    
+    # Clôtures du jour
+    closures = {dict(r)['user_id']: dict(r) for r in conn.execute(
+        "SELECT * FROM daily_closures WHERE date_closure=?", (date_filter,)).fetchall()}
+    
+    # Stats agrégées
+    cloturees = sum(1 for c in closures.values() if c['status'] == 'cloturee')
+    partielles = sum(1 for c in closures.values() if c['status'] == 'partielle')
+    exceptions = sum(1 for c in closures.values() if c['status'] == 'cloturee_exception')
+    non_cloturees = len(all_users) - len(closures)
+    
+    # Demandes d'explication en cours
+    explanations_count = conn.execute(
+        "SELECT COUNT(*) FROM closure_explanations WHERE status='envoyee'").fetchone()[0]
+    
+    # Construire la liste enrichie pour affichage
+    users_view = []
+    for u in all_users:
+        c = closures.get(u['id'])
+        users_view.append({
+            **u,
+            'closure': c,
+            'closure_status': c['status'] if c else 'non_demande',
+            'closure_time': c['closure_time'] if c else None,
+            'pending_count': c['pending_count'] if c else None,
+            'justified_count': c['justified_count'] if c else None,
+        })
+    
+    # Trier : non clôturé > partielle > exception > clôturé
+    sort_order = {'non_demande':0, 'en_attente':1, 'partielle':2, 'cloturee_exception':3, 'cloturee':4}
+    users_view.sort(key=lambda x: (sort_order.get(x['closure_status'], 5), x['full_name']))
+    
+    conn.close()
+    
+    return render_template('rh_closures_dashboard.html', page='rh_closures',
+        users_view=users_view, date_filter=date_filter,
+        stats={
+            'total': len(all_users),
+            'cloturees': cloturees,
+            'partielles': partielles,
+            'exceptions': exceptions,
+            'non_cloturees': non_cloturees,
+            'explanations': explanations_count,
+        })
+
+
+@app.route('/rh/closures/<int:closure_id>')
+@login_required
+def rh_closure_detail(closure_id):
+    """v139 : Détail d'une clôture (vue RH/responsable)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','directeur','rh','directrice_rh'):
+        flash("⛔ Accès refusé", "error")
+        return redirect('/dashboard')
+    
+    conn = _gdb()
+    c = conn.execute("""SELECT dc.*, u.full_name as user_name, u.role as user_role,
+                        u.department as user_dept, u.email as user_email,
+                        ev.full_name as validator_name
+                        FROM daily_closures dc
+                        LEFT JOIN users u ON u.id = dc.user_id
+                        LEFT JOIN users ev ON ev.id = dc.exception_validated_by
+                        WHERE dc.id=?""", (closure_id,)).fetchone()
+    if not c:
+        conn.close()
+        flash("Clôture introuvable", "error")
+        return redirect('/rh/closures')
+    
+    closure = dict(c)
+    justifications = [dict(r) for r in conn.execute(
+        "SELECT * FROM closure_justifications WHERE closure_id=? ORDER BY id",
+        (closure_id,)).fetchall()]
+    explanations = [dict(r) for r in conn.execute(
+        "SELECT ce.*, h.full_name as hr_name FROM closure_explanations ce LEFT JOIN users h ON h.id = ce.hr_user_id WHERE ce.closure_id=? ORDER BY ce.sent_at DESC",
+        (closure_id,)).fetchall()]
+    conn.close()
+    
+    return render_template('rh_closure_detail.html', page='rh_closures',
+        closure=closure, justifications=justifications,
+        explanations=explanations,
+        motifs=CLOSURE_JUSTIFICATION_MOTIFS)
+
+
+@app.route('/rh/closures/<int:closure_id>/explanation', methods=['POST'])
+@login_required
+def rh_send_explanation(closure_id):
+    """v139 : Le RH envoie une demande d'explication à l'utilisateur concerné."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','dg','directeur','rh','directrice_rh'):
+        flash("⛔ Réservé aux RH/responsables", "error")
+        return redirect(f'/rh/closures/{closure_id}')
+    
+    subject = request.form.get('subject', '').strip()
+    message = request.form.get('message', '').strip()
+    if not message:
+        flash("Message requis", "error")
+        return redirect(f'/rh/closures/{closure_id}')
+    
+    conn = _gdb()
+    c = conn.execute("SELECT user_id FROM daily_closures WHERE id=?", (closure_id,)).fetchone()
+    if not c:
+        conn.close()
+        flash("Clôture introuvable", "error")
+        return redirect('/rh/closures')
+    
+    conn.execute("""INSERT INTO closure_explanations
+        (closure_id, user_id, hr_user_id, subject, message_rh, status, sent_at)
+        VALUES (?,?,?,?,?,?,datetime('now'))""",
+        (closure_id, c['user_id'], user['id'],
+         subject or 'Demande d\'explication', message, 'envoyee'))
+    conn.commit()
+    exp_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    
+    # Notification à l'utilisateur
+    try:
+        notify_user(c['user_id'],
+            title=f"❓ Demande d'explication RH",
+            message=f"{user['full_name']} vous demande des explications : {subject or message[:80]}",
+            link=f"/closure/explanation/{exp_id}",
+            type='warning', module='rh', icon='❓', priority='high')
+    except: pass
+    
+    log_activity(user['id'], user['full_name'], 'Clôture',
+        f"Demande d'explication envoyée à user #{c['user_id']} (clôture #{closure_id})",
+        request.remote_addr)
+    
+    flash("✅ Demande d'explication envoyée", "success")
+    return redirect(f'/rh/closures/{closure_id}')
+
+
+@app.route('/closure/explanation/<int:exp_id>', methods=['GET', 'POST'])
+@login_required
+def closure_explanation_respond(exp_id):
+    """v139 : L'utilisateur consulte la demande d'explication et y répond."""
+    user_id = session['user_id']
+    conn = _gdb()
+    e = conn.execute("""SELECT ce.*, h.full_name as hr_name
+                       FROM closure_explanations ce
+                       LEFT JOIN users h ON h.id = ce.hr_user_id
+                       WHERE ce.id=? AND ce.user_id=?""", (exp_id, user_id)).fetchone()
+    if not e:
+        conn.close()
+        flash("Demande introuvable", "error")
+        return redirect('/dashboard')
+    
+    if request.method == 'POST':
+        response = request.form.get('response', '').strip()
+        if not response:
+            conn.close()
+            flash("Réponse vide", "error")
+            return redirect(f'/closure/explanation/{exp_id}')
+        
+        conn.execute("UPDATE closure_explanations SET response_user=?, status='repondue', responded_at=datetime('now') WHERE id=?",
+            (response, exp_id))
+        conn.commit()
+        
+        # Notifier le RH
+        try:
+            notify_user(e['hr_user_id'],
+                title=f"💬 Réponse à votre demande d'explication",
+                message=f"L'utilisateur a répondu à votre demande : {response[:100]}",
+                link=f"/rh/closures/{e['closure_id'] or 0}",
+                type='info', module='rh', icon='💬', priority='normal')
+        except: pass
+        
+        conn.close()
+        flash("✅ Réponse envoyée", "success")
+        return redirect('/dashboard')
+    
+    e_dict = dict(e)
+    conn.close()
+    return render_template('closure_explanation.html', page='closure', exp=e_dict)
+
 
 @app.route('/notifications')
 @login_required
