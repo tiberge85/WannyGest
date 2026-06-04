@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Paiements à valider{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h1>💵 Paiements en attente</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Factures envoyées aux clients par les agents recouvreurs. Validez le paiement à la réception.
+        </p>
+    </div>
+    <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+{% if items %}
+<div style="background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    {% for it in items %}
+    <div style="padding:14px;border:2px solid #f29f2f;background:#fff8e1;border-radius:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:280px">
+                <div style="font-size:14px;font-weight:700;color:#b8561f">
+                    🧾 {{ it.invoice_number or '#'~it.id }} — {{ it.client_name }}
+                </div>
+                <div style="font-size:11px;color:#666;margin-top:4px">
+                    Réf remontée : <a href="/field-reports/{{ it.field_report_id }}" style="color:#1565c0">{{ it.fr_ref }}</a>
+                    · Envoyée par <strong>{{ it.recovery_agent_name or '?' }}</strong>
+                    · {{ it.recovery_sent_at[:16] if it.recovery_sent_at else '' }}
+                </div>
+                <div style="font-size:11px;color:#0d4a18;margin-top:6px;background:#fff;padding:5px 8px;border-radius:5px;display:inline-block">
+                    💵 Caisse cible : <strong>{{ it.caisse_name or '?' }}</strong>
+                </div>
+                {% if it.recovery_notes %}
+                <div style="font-size:11px;color:#666;margin-top:5px;font-style:italic">
+                    📝 {{ it.recovery_notes }}
+                </div>
+                {% endif %}
+            </div>
+            <div style="text-align:right">
+                <div style="font-size:10px;color:#888">Montant attendu</div>
+                <div style="font-size:24px;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(it.amount) }} XOF</div>
+            </div>
+        </div>
+        
+        <form method="post" action="/caissiere/paiement/{{ it.id }}/valider"
+            onsubmit="return confirm('Valider le paiement de ce client ?\nLe montant sera crédité dans la caisse {{ it.caisse_name }}.');"
+            style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px;background:#fff;border-radius:8px;border:1px dashed #ddd">
+            <div style="flex:1;min-width:200px">
+                <label style="font-size:10px;color:#666;display:block">💰 Montant effectivement reçu (XOF) *</label>
+                <input type="number" name="amount_received" required step="1" min="0" 
+                    value="{{ it.amount|int }}"
+                    style="width:100%;padding:8px;border:1.5px solid #2e7d32;border-radius:5px;font-size:14px;font-weight:700">
+                <small style="font-size:10px;color:#666">Modifiez si paiement partiel ou différent</small>
+            </div>
+            <div>
+                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;padding:10px 18px;font-weight:700;margin-top:14px">
+                    ✅ Valider paiement → Créditer caisse
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    <div style="font-size:40px;margin-bottom:10px">📭</div>
+    <p style="font-size:14px;margin:0">Aucun paiement en attente pour le moment</p>
+    <p style="font-size:11px;margin-top:8px">Les paiements en attente des agents recouvreurs apparaîtront ici.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -409,8 +409,38 @@
                     {% if 'mg_compta_validate' in permissions or 'admin' in permissions or user_role in ('comptable','comptabilite','dg','directeur') %}
                     <a href="/comptabilite/demandes-mg" class="{% if page == 'compta_demandes_mg' %}active{% endif %}" style="position:relative">📋 Demandes MG à valider{% if compta_demandes_pending and compta_demandes_pending > 0 %} <span class="badge" style="background:#e8672a;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ compta_demandes_pending }}</span>{% endif %}</a>
                     {% endif %}
+                    {# v142 : Factures à éditer (workflow remontée → facture) #}
+                    {% if 'facture_edit' in permissions or 'admin' in permissions or user_role in ('comptable','comptabilite') %}
+                    <a href="/recouvrement/factures-a-editer" class="{% if page == 'factures_a_editer' %}active{% endif %}" style="background:linear-gradient(135deg,#f29f2f,#e8672a);color:#fff !important;font-weight:600;margin-top:4px">🧾 Factures à éditer</a>
+                    {% endif %}
                     {% endif %}
                     
+                </div>
+            </div>
+            {% endif %}
+            
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {# v142 : SECTION AGENT RECOUVREUR (nouveau rôle) #}
+            {# ═══════════════════════════════════════════════════════════════ #}
+            {% if 'section_recouvrement' in permissions or 'recouvrement_view' in permissions or 'admin' in permissions %}
+            <div class="nav-section" id="sec-recouvrement" {% if user_role == 'agent_recouvreur' %}data-primary="true"{% endif %}>
+                <div class="nav-section-title" onclick="toggleSection('sec-recouvrement')" style="background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff">
+                    📤 RECOUVREMENT <span class="arrow">▼</span>
+                </div>
+                <div class="nav-section-items">
+                    <a href="/recouvrement" class="{% if page == 'recouvrement' %}active{% endif %}">📋 Factures à recouvrer</a>
+                </div>
+            </div>
+            {% endif %}
+            
+            {# v142 : SECTION CAISSIÈRE (nouveau rôle) #}
+            {% if 'section_caissiere' in permissions or 'caissiere_view' in permissions or 'admin' in permissions %}
+            <div class="nav-section" id="sec-caissiere" {% if user_role == 'caissiere' %}data-primary="true"{% endif %}>
+                <div class="nav-section-title" onclick="toggleSection('sec-caissiere')" style="background:linear-gradient(135deg,#2e7d32,#1b5e20);color:#fff">
+                    💵 CAISSIÈRE <span class="arrow">▼</span>
+                </div>
+                <div class="nav-section-items">
+                    <a href="/caissiere/paiements" class="{% if page == 'caissiere_paiements' %}active{% endif %}">💵 Paiements à valider</a>
                 </div>
             </div>
             {% endif %}

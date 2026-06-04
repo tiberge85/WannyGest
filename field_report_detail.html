@@ -101,6 +101,104 @@
         </div>
         {% endif %}
         
+        {# v142 : Technicien marque la remontée comme exécutée → DG/RH notifié pour décision facturation #}
+        {% if report.statut in ('en_execution','transformee_intervention') and ('field_report_execute' in permissions or 'admin' in permissions) and not report.executed_at %}
+        <div class="card" style="margin-bottom:14px;border:2px solid #5e35b1">
+            <div class="card-header" style="background:#5e35b1;color:#fff"><h3 style="margin:0;color:#fff;font-size:14px">🛠️ Marquer la remontée comme EXÉCUTÉE (technicien)</h3></div>
+            <div class="card-body">
+                <p style="font-size:12px;color:#666;margin-bottom:10px">
+                    Lorsque vous avez <strong>terminé votre intervention</strong>, marquez la remontée comme exécutée.
+                    Le DG/RH sera notifié et décidera si l'intervention est facturable.
+                </p>
+                <form method="post" action="/field-reports/{{ report.id }}/execute">
+                    <div class="form-group">
+                        <label>Notes d'exécution (description du travail effectué)</label>
+                        <textarea name="execution_notes" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"
+                            placeholder="Ex: Remplacement de la carte mère, configuration réseau, formation utilisateur..."></textarea>
+                    </div>
+                    <button type="submit" class="btn" style="background:#5e35b1;color:#fff;font-weight:700;padding:10px 20px"
+                        onclick="return confirm('Marquer cette remontée comme EXÉCUTÉE ? Le DG/RH sera notifié pour la décision de facturation.');">
+                        🛠️ Marquer EXÉCUTÉE → Notifier DG/RH
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+        
+        {# v142 : Affichage de l'exécution si déjà faite #}
+        {% if report.executed_at %}
+        <div class="card" style="margin-bottom:14px;border:2px solid #2e7d32;background:#e8f5e9">
+            <div class="card-body">
+                <h3 style="margin:0 0 8px;color:#1b5e20;font-size:13px">✅ Remontée exécutée</h3>
+                <div style="font-size:12px;color:#1b5e20">
+                    📅 {{ report.executed_at[:16] }} 
+                    {% if report.execution_notes %}
+                    <br>📝 <strong>Notes :</strong> {{ report.execution_notes }}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        {# v142 : Décision de facturation par DG/RH/Admin (si remontée exécutée + pas encore décidée) #}
+        {% if report.executed_at and report.facturable is none and ('facturation_decision' in permissions or 'admin' in permissions) %}
+        <div class="card" style="margin-bottom:14px;border:2px solid #f29f2f">
+            <div class="card-header" style="background:#f29f2f;color:#fff"><h3 style="margin:0;color:#fff;font-size:14px">💰 Décision de facturation (DG / RH)</h3></div>
+            <div class="card-body">
+                <p style="font-size:12px;color:#666;margin-bottom:14px">
+                    Cette remontée a été exécutée par le technicien. <strong>Décidez si elle doit être facturée au client.</strong>
+                </p>
+                <form method="post" action="/field-reports/{{ report.id }}/decide-facturation">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px">
+                        <label style="display:block;padding:12px;border:2px solid #2e7d32;border-radius:10px;background:#f1f8f3;cursor:pointer">
+                            <input type="radio" name="facturable" value="1" required onchange="document.getElementById('cost_block').style.display='block'">
+                            <strong style="color:#2e7d32">✅ Oui, facturable</strong>
+                            <p style="font-size:11px;color:#666;margin:5px 0 0">Le coût sera envoyé à la comptabilité pour édition de la facture</p>
+                        </label>
+                        <label style="display:block;padding:12px;border:2px solid #c53030;border-radius:10px;background:#fde8e8;cursor:pointer">
+                            <input type="radio" name="facturable" value="0" required onchange="document.getElementById('cost_block').style.display='none'">
+                            <strong style="color:#c53030">❌ Non facturable</strong>
+                            <p style="font-size:11px;color:#666;margin:5px 0 0">Garantie, geste commercial, contrat de maintenance...</p>
+                        </label>
+                    </div>
+                    
+                    <div id="cost_block" style="display:none;margin-bottom:12px">
+                        <label style="font-weight:600;color:#1A7A6D">💰 Coût de l'intervention (XOF) *</label>
+                        <input type="number" name="cost_amount" step="1" min="0" 
+                            style="width:100%;padding:10px;border:2px solid #1A7A6D;border-radius:7px;font-size:16px;font-weight:700">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Motif / Justification (optionnel)</label>
+                        <textarea name="motif" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"
+                            placeholder="Ex: Contrat de maintenance, dépannage hors garantie, intervention exceptionnelle..."></textarea>
+                    </div>
+                    
+                    <button type="submit" class="btn" style="background:#f29f2f;color:#fff;font-weight:700;padding:10px 20px">
+                        💰 Valider la décision
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+        
+        {# v142 : Affichage de la décision de facturation si déjà prise #}
+        {% if report.facturable is not none %}
+        <div class="card" style="margin-bottom:14px;background:{% if report.facturable %}#e8f5e9{% else %}#fde8e8{% endif %}">
+            <div class="card-body">
+                <h3 style="margin:0 0 8px;font-size:13px;color:{% if report.facturable %}#1b5e20{% else %}#c53030{% endif %}">
+                    {% if report.facturable %}💰 Facturable — {{ '{:,.0f}'.format(report.cost_amount or 0) }} XOF{% else %}❌ Non facturable{% endif %}
+                </h3>
+                {% if report.facturation_motif %}
+                <div style="font-size:11px;color:#666">📝 {{ report.facturation_motif }}</div>
+                {% endif %}
+                <div style="font-size:10px;color:#888;margin-top:5px">
+                    Décidé le {{ report.facturation_decided_at[:16] if report.facturation_decided_at else '?' }}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
         {% if is_open and ('field_report_transform' in permissions or 'admin' in permissions) %}
         <div class="card" style="margin-bottom:14px;border:2px solid #1A7A6D">
             <div class="card-header" style="background:#1A7A6D;color:#fff"><h3 style="margin:0;color:#fff;font-size:14px">🎯 Transformer cette remontée</h3></div>

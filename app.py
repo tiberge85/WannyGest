@@ -1895,6 +1895,170 @@ except Exception as _e:
     print(f"[v139-Closure] Erreur : {_e}", flush=True)
 
 
+# v142 : Workflow remontée → facturation → recouvrement → paiement
+try:
+    from models import get_db as _gdb_v142
+    _v142 = _gdb_v142()
+    
+    # Migration field_reports : ajouter colonnes d'exécution + décision facturation
+    for col_def in [
+        "executed_by INTEGER",
+        "executed_at TEXT",
+        "execution_notes TEXT",
+        "facturable INTEGER",  # NULL=pas décidé, 0=non, 1=oui
+        "cost_amount REAL",
+        "cost_currency TEXT DEFAULT 'XOF'",
+        "facturation_decided_by INTEGER",
+        "facturation_decided_at TEXT",
+        "facturation_motif TEXT",
+    ]:
+        col_name = col_def.split()[0]
+        try: _v142.execute(f"SELECT {col_name} FROM field_reports LIMIT 1")
+        except:
+            try: _v142.execute(f"ALTER TABLE field_reports ADD COLUMN {col_def}")
+            except: pass
+    
+    # Table dédiée au workflow facturation/recouvrement (suit le cycle complet)
+    _v142.execute("""CREATE TABLE IF NOT EXISTS field_report_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        field_report_id INTEGER NOT NULL,
+        intervention_id INTEGER,
+        amount REAL NOT NULL,
+        currency TEXT DEFAULT 'XOF',
+        
+        -- Décision facturation
+        decided_by INTEGER NOT NULL,
+        decided_at TEXT DEFAULT (datetime('now')),
+        decision_motif TEXT,
+        
+        -- Édition facture (comptabilité)
+        invoice_number TEXT,
+        emitted_by INTEGER,
+        emitted_at TEXT,
+        invoice_pdf_path TEXT,
+        
+        -- Recouvrement (agent recouvreur)
+        recovery_agent_id INTEGER,
+        recovery_status TEXT DEFAULT 'a_emettre',
+        recovery_sent_at TEXT,
+        recovery_method TEXT,
+        recovery_delivered_at TEXT,
+        recovery_notes TEXT,
+        
+        -- Caisse cible (choisie par recouvreur)
+        target_caisse_id INTEGER,
+        target_caisse_chosen_at TEXT,
+        
+        -- Validation paiement (caissière)
+        payment_amount_received REAL,
+        payment_received_at TEXT,
+        payment_validated_by INTEGER,
+        payment_validated_at TEXT,
+        
+        status TEXT DEFAULT 'en_attente_decision',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )""")
+    
+    # Index
+    try: _v142.execute("CREATE INDEX IF NOT EXISTS idx_fri_status ON field_report_invoices(status)")
+    except: pass
+    try: _v142.execute("CREATE INDEX IF NOT EXISTS idx_fri_recovery_agent ON field_report_invoices(recovery_agent_id)")
+    except: pass
+    try: _v142.execute("CREATE INDEX IF NOT EXISTS idx_fri_caisse ON field_report_invoices(target_caisse_id)")
+    except: pass
+    
+    # v142 : Nouvelles permissions pour le workflow recouvrement
+    NEW_PERMS_V142 = [
+        # Décision de facturation (DG/RH/admin)
+        ('admin', 'facturation_decision'),
+        ('dg', 'facturation_decision'),
+        ('directeur', 'facturation_decision'),
+        ('rh', 'facturation_decision'),
+        ('directrice_rh', 'facturation_decision'),
+        
+        # Édition facture (comptabilité)
+        ('admin', 'facture_edit'),
+        ('comptable', 'facture_edit'),
+        ('comptabilite', 'facture_edit'),
+        
+        # Recouvrement (nouveau rôle agent_recouvreur)
+        ('admin', 'recouvrement_view'),
+        ('admin', 'recouvrement_edit'),
+        ('agent_recouvreur', 'recouvrement_view'),
+        ('agent_recouvreur', 'recouvrement_edit'),
+        ('agent_recouvreur', 'section_recouvrement'),
+        ('agent_recouvreur', 'dashboard'),
+        ('agent_recouvreur', 'dashboard_general'),
+        ('agent_recouvreur', 'clients'),
+        ('agent_recouvreur', 'pointage'),
+        ('agent_recouvreur', 'pointage_view'),
+        ('agent_recouvreur', 'section_calendrier'),
+        
+        # Caissière (nouveau rôle)
+        ('admin', 'caissiere_view'),
+        ('admin', 'caissiere_validate'),
+        ('caissiere', 'caissiere_view'),
+        ('caissiere', 'caissiere_validate'),
+        ('caissiere', 'section_caissiere'),
+        ('caissiere', 'dashboard'),
+        ('caissiere', 'dashboard_general'),
+        ('caissiere', 'pointage'),
+        ('caissiere', 'pointage_view'),
+        ('caissiere', 'section_calendrier'),
+        ('caissiere', 'tresorerie'),  # vue caisse
+        
+        # Marquer remontée exécutée (technicien)
+        ('admin', 'field_report_execute'),
+        ('technicien', 'field_report_execute'),
+        ('tech_chef', 'field_report_execute'),
+        ('chef_chantier', 'field_report_execute'),
+        ('centre_technique', 'field_report_execute'),
+        ('informatique', 'field_report_execute'),
+    ]
+    
+    # Flag d'idempotence
+    fl = _v142.execute("SELECT value FROM app_settings WHERE key='v142_perms_seeded'").fetchone()
+    if not fl:
+        n_added = 0
+        for role, perm in NEW_PERMS_V142:
+            try:
+                exists = _v142.execute("SELECT 1 FROM permissions WHERE role=? AND permission=?", (role, perm)).fetchone()
+                if not exists:
+                    _v142.execute("INSERT INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                    n_added += 1
+            except: pass
+        try:
+            _v142.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v142_perms_seeded', '1', datetime('now'))")
+        except: pass
+        print(f"[v142-Workflow] {n_added} permissions ajoutées (workflow recouvrement)", flush=True)
+    
+    _v142.commit()
+    _v142.close()
+    print("[v142-Workflow] Tables + permissions OK", flush=True)
+except Exception as _e:
+    print(f"[v142-Workflow] Erreur : {_e}", flush=True)
+
+
+# v142 : Constantes
+FACTURATION_RECOVERY_STATUS = {
+    'en_attente_decision':   '⏳ En attente décision DG/RH',
+    'non_facturable':        '❌ Non facturable',
+    'a_facturer':            '💰 À facturer',
+    'facture_editee':        '🧾 Facture éditée',
+    'en_recouvrement':       '📤 En recouvrement',
+    'caisse_choisie':        '💵 En attente paiement',
+    'paye':                  '✅ Payé',
+    'classee':               '📁 Classée',
+}
+RECOVERY_METHODS = {
+    'mail':      '📧 Envoyé par mail',
+    'imprime':   '🖨️ Imprimé',
+    'depose':    '📍 Déposé au client',
+    'mixte':     '🔀 Mixte (mail + dépôt)',
+}
+
+
 # v139 : Motifs prédéfinis de justification
 CLOSURE_JUSTIFICATION_MOTIFS = {
     'attente_client':       '⏳ En attente du client',
@@ -2031,6 +2195,26 @@ def get_user_pending_tasks(user_id, user_role=None):
                 })
         except: pass
         
+        # v142 : Coordinateur — TOUTES les remontées non traitées (visibilité globale)
+        if user_role in ('coordinateur', 'gestionnaire_projet', 'resp_projet', 'admin'):
+            try:
+                rows = conn.execute("""SELECT id, reference, type_info, priorite, statut, client_name
+                    FROM field_reports
+                    WHERE statut IN ('recue','en_analyse','en_execution','executee')
+                    ORDER BY id DESC LIMIT 50""").fetchall()
+                # Filtrer pour éviter les doublons avec les remontées de l'auteur
+                existing_ids = {r['id'] for r in result['remontees']}
+                for r in rows:
+                    if r['id'] in existing_ids: continue
+                    result['remontees'].append({
+                        'id': r['id'], 'task_type': 'field_report_coord',
+                        'label': f"📋 {r['reference']} — {r['type_info']} ({r['client_name'] or 'sans client'})",
+                        'link': f"/field-reports/{r['id']}",
+                        'status': r['statut'],
+                        'priority': 'high' if r['priorite'] in ('urgent','critique') else 'medium',
+                    })
+            except: pass
+        
         # 6. Devis non envoyés ou en cours
         if user_role in ('commercial', 'admin', 'dg', 'coordinateur'):
             try:
@@ -2044,6 +2228,67 @@ def get_user_pending_tasks(user_id, user_role=None):
                         # v141 : /devis/<id> n'existe pas, on utilise /devis/edit/<id>
                         'link': f"/devis/edit/{r['id']}",
                         'status': r['status'],
+                    })
+            except: pass
+        
+        # v142 : Agent recouvreur — factures à envoyer/déposer
+        if user_role in ('agent_recouvreur', 'admin'):
+            try:
+                rows = conn.execute("""SELECT id, invoice_number, amount FROM field_report_invoices
+                    WHERE status IN ('facture_editee','en_recouvrement')
+                    ORDER BY emitted_at LIMIT 30""").fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'facture_recouvrement',
+                        'label': f"📤 Facture {r['invoice_number'] or '#'+str(r['id'])} à recouvrer ({r['amount']:,.0f} XOF)",
+                        'link': '/recouvrement', 'status': 'à envoyer',
+                        'priority': 'high',
+                    })
+            except: pass
+        
+        # v142 : Caissière — paiements en attente de validation
+        if user_role in ('caissiere', 'admin'):
+            try:
+                rows = conn.execute("""SELECT id, invoice_number, amount FROM field_report_invoices
+                    WHERE status='caisse_choisie'
+                    ORDER BY recovery_sent_at LIMIT 30""").fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'paiement_caisse',
+                        'label': f"💵 Paiement {r['invoice_number'] or '#'+str(r['id'])} à valider ({r['amount']:,.0f} XOF)",
+                        'link': '/caissiere/paiements', 'status': 'à encaisser',
+                        'priority': 'high',
+                    })
+            except: pass
+        
+        # v142 : DG/RH — décisions de facturation en attente
+        if user_role in ('dg', 'directeur', 'rh', 'directrice_rh', 'admin'):
+            try:
+                rows = conn.execute("""SELECT id, reference, client_name FROM field_reports
+                    WHERE statut='executee' AND facturable IS NULL
+                    ORDER BY executed_at LIMIT 30""").fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'decision_facturation',
+                        'label': f"💰 Décision facturation : {r['reference']} ({r['client_name']})",
+                        'link': f"/field-reports/{r['id']}", 'status': 'à décider',
+                        'priority': 'high',
+                    })
+            except: pass
+        
+        # v142 : Comptabilité — factures à éditer
+        if user_role in ('comptable', 'comptabilite', 'admin'):
+            try:
+                rows = conn.execute("""SELECT fri.id, fri.amount, fr.client_name FROM field_report_invoices fri
+                    JOIN field_reports fr ON fr.id = fri.field_report_id
+                    WHERE fri.status='a_facturer'
+                    ORDER BY fri.created_at LIMIT 30""").fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'facture_a_editer',
+                        'label': f"🧾 Facture à éditer : {r['client_name']} ({r['amount']:,.0f} XOF)",
+                        'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
+                        'priority': 'high',
                     })
             except: pass
     finally:
@@ -17257,6 +17502,7 @@ FIELD_REPORT_STATUTS = {
     'recue': ('📥 Reçue', '#1976d2'),
     'en_analyse': ('🔍 En analyse', '#7b1fa2'),
     'en_execution': ('⏳ En cours d\'exécution', '#f29f2f'),  # v131 : technicien assigné, en attente fin
+    'executee': ('🛠️ Exécutée (en attente facturation)', '#5e35b1'),  # v142 : technicien a terminé
     'traitee': ('✅ Traitée', '#2e7d32'),
     'transformee_projet': ('🎯 → Projet', '#0f5a51'),
     'transformee_intervention': ('🛠️ → Intervention', '#e8672a'),
@@ -17821,6 +18067,397 @@ def field_report_mark_traitee(rid):
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect(f'/field-reports/{rid}')
+
+
+# ============= v142 : WORKFLOW REMONTÉE → FACTURE → RECOUVREMENT → PAIEMENT =============
+
+@app.route('/field-reports/<int:rid>/execute', methods=['POST'])
+@permission_required_any('field_report_execute', 'admin')
+def field_report_execute(rid):
+    """v142 : Le technicien marque une remontée comme exécutée.
+    Notifie automatiquement DG + RH pour décision de facturation."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    notes = (request.form.get('execution_notes','') or '').strip()
+    conn = _gdb()
+    try:
+        # Mettre à jour la remontée
+        conn.execute("""UPDATE field_reports
+            SET executed_by=?, executed_at=datetime('now'),
+                execution_notes=?, statut='executee',
+                updated_at=datetime('now')
+            WHERE id=?""",
+            (user['id'], notes, rid))
+        conn.commit()
+        
+        # Récupérer les infos
+        r = conn.execute("SELECT reference, client_name, type_info, priorite FROM field_reports WHERE id=?", (rid,)).fetchone()
+        conn.close()
+        
+        _field_report_log(rid, 'Exécutée', f"Technicien : {user['full_name']} — {notes[:200]}")
+        
+        # Notification DG + RH (décision facturation)
+        try:
+            notify_roles(['dg','directeur','rh','directrice_rh','admin'],
+                title=f"💰 Décision de facturation : {r['reference']}",
+                message=f"Le technicien {user['full_name']} a terminé la remontée {r['reference']} ({r['client_name']}). "
+                        f"À décider : cette intervention est-elle facturable ?",
+                link=f"/field-reports/{rid}",
+                type='warning', module='remontees', icon='💰', priority='high')
+        except Exception as _e: print(f"[v142] notif decision err : {_e}", flush=True)
+        
+        flash("✅ Remontée marquée exécutée — DG/RH notifié(e)s pour décision de facturation", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect(f'/field-reports/{rid}')
+
+
+@app.route('/field-reports/<int:rid>/decide-facturation', methods=['POST'])
+@permission_required_any('facturation_decision', 'admin')
+def field_report_decide_facturation(rid):
+    """v142 : DG/RH décide si la remontée est facturable.
+    Si oui → saisit le montant + notifie comptabilité.
+    Si non → classe la remontée."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    is_facturable = request.form.get('facturable') == '1'
+    cost_str = (request.form.get('cost_amount','') or '0').replace(',','.').strip()
+    motif = (request.form.get('motif','') or '').strip()
+    
+    try:
+        cost = float(cost_str or 0)
+    except:
+        cost = 0
+    
+    if is_facturable and cost <= 0:
+        flash("⚠️ Si facturable, le montant doit être > 0", "error")
+        return redirect(f'/field-reports/{rid}')
+    
+    conn = _gdb()
+    try:
+        r = conn.execute("SELECT reference, client_name FROM field_reports WHERE id=?", (rid,)).fetchone()
+        if not r:
+            conn.close()
+            flash("Remontée introuvable", "error")
+            return redirect('/field-reports')
+        
+        # Mettre à jour la remontée
+        conn.execute("""UPDATE field_reports
+            SET facturable=?, cost_amount=?, cost_currency='XOF',
+                facturation_decided_by=?, facturation_decided_at=datetime('now'),
+                facturation_motif=?,
+                updated_at=datetime('now')
+            WHERE id=?""",
+            (1 if is_facturable else 0, cost if is_facturable else 0,
+             user['id'], motif, rid))
+        
+        if is_facturable:
+            # Créer l'enregistrement facture/recouvrement
+            cur = conn.execute("""INSERT INTO field_report_invoices
+                (field_report_id, amount, currency, decided_by, decided_at,
+                 decision_motif, status, created_at, updated_at)
+                VALUES (?,?,?,?,datetime('now'),?,'a_facturer',datetime('now'),datetime('now'))""",
+                (rid, cost, 'XOF', user['id'], motif))
+            invoice_workflow_id = cur.lastrowid
+            conn.commit()
+            conn.close()
+            
+            _field_report_log(rid, 'Décision facturer',
+                f"Facturable {cost:,.0f} XOF — décidée par {user['full_name']}")
+            
+            # Notifier la comptabilité
+            try:
+                notify_roles(['comptable','comptabilite','admin'],
+                    title=f"🧾 Nouvelle facture à éditer : {r['reference']}",
+                    message=f"Le DG/RH a décidé de facturer la remontée {r['reference']} "
+                            f"({r['client_name']}) pour {cost:,.0f} XOF. "
+                            f"Veuillez éditer la facture pour le client.",
+                    link=f"/recouvrement/factures-a-editer",
+                    type='info', module='factures', icon='🧾', priority='high')
+            except: pass
+            
+            flash(f"✅ Facturation décidée ({cost:,.0f} XOF) — Comptabilité notifiée", "success")
+        else:
+            # Non facturable → classer
+            conn.execute("UPDATE field_reports SET statut='classee' WHERE id=?", (rid,))
+            conn.commit()
+            conn.close()
+            _field_report_log(rid, 'Non facturable', motif or 'Décision non facturable')
+            flash("📁 Remontée marquée non facturable et classée", "info")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    
+    return redirect(f'/field-reports/{rid}')
+
+
+# ============= COMPTABILITÉ : Éditer la facture =============
+
+@app.route('/recouvrement/factures-a-editer')
+@permission_required_any('facture_edit', 'admin')
+def factures_a_editer():
+    """v142 : Liste des remontées 'a_facturer' que la comptabilité doit transformer en facture."""
+    conn = _gdb()
+    items = [dict(r) for r in conn.execute("""
+        SELECT fri.*, fr.reference as fr_ref, fr.client_name, fr.type_info,
+               u.full_name as decided_by_name
+        FROM field_report_invoices fri
+        JOIN field_reports fr ON fr.id = fri.field_report_id
+        LEFT JOIN users u ON u.id = fri.decided_by
+        WHERE fri.status='a_facturer'
+        ORDER BY fri.created_at DESC""").fetchall()]
+    conn.close()
+    return render_template('recouvrement_factures_a_editer.html', page='factures_a_editer', items=items)
+
+
+@app.route('/recouvrement/facture/<int:fri_id>/edit', methods=['POST'])
+@permission_required_any('facture_edit', 'admin')
+def edit_invoice_v142(fri_id):
+    """v142 : Comptabilité édite la facture (génère numéro + notifie agent recouvreur)."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    invoice_number = (request.form.get('invoice_number','') or '').strip()
+    if not invoice_number:
+        # Auto-générer
+        invoice_number = f"FAC-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    
+    conn = _gdb()
+    try:
+        fri = conn.execute("""SELECT fri.*, fr.client_name, fr.reference as fr_ref
+                              FROM field_report_invoices fri
+                              JOIN field_reports fr ON fr.id = fri.field_report_id
+                              WHERE fri.id=?""", (fri_id,)).fetchone()
+        if not fri:
+            conn.close()
+            flash("Facture introuvable", "error")
+            return redirect('/recouvrement/factures-a-editer')
+        
+        conn.execute("""UPDATE field_report_invoices
+            SET invoice_number=?, emitted_by=?, emitted_at=datetime('now'),
+                status='facture_editee',
+                updated_at=datetime('now')
+            WHERE id=?""",
+            (invoice_number, user['id'], fri_id))
+        conn.commit()
+        conn.close()
+        
+        # Notifier les agents recouvreurs
+        try:
+            notify_roles(['agent_recouvreur','admin'],
+                title=f"📤 Nouvelle facture à recouvrer : {invoice_number}",
+                message=f"Facture {invoice_number} ({fri['client_name']}, {fri['amount']:,.0f} XOF) "
+                        f"prête à être envoyée/déposée au client.",
+                link='/recouvrement',
+                type='info', module='factures', icon='📤', priority='high')
+        except: pass
+        
+        flash(f"✅ Facture {invoice_number} éditée — Agent recouvreur notifié", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/recouvrement/factures-a-editer')
+
+
+# ============= AGENT RECOUVREUR : envoi + caisse =============
+
+@app.route('/recouvrement')
+@permission_required_any('recouvrement_view', 'admin')
+def recouvrement_dashboard():
+    """v142 : Dashboard de l'agent recouvreur — factures à recouvrer."""
+    conn = _gdb()
+    
+    # Factures à recouvrer (status: facture_editee, en_recouvrement, caisse_choisie)
+    items = [dict(r) for r in conn.execute("""
+        SELECT fri.*, fr.reference as fr_ref, fr.client_name,
+               u.full_name as emitted_by_name,
+               cs.name as caisse_name
+        FROM field_report_invoices fri
+        JOIN field_reports fr ON fr.id = fri.field_report_id
+        LEFT JOIN users u ON u.id = fri.emitted_by
+        LEFT JOIN caisses cs ON cs.id = fri.target_caisse_id
+        WHERE fri.status IN ('facture_editee','en_recouvrement','caisse_choisie')
+        ORDER BY fri.emitted_at""").fetchall()]
+    
+    # Liste des caisses disponibles
+    caisses = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
+    
+    conn.close()
+    
+    return render_template('recouvrement_dashboard.html', page='recouvrement',
+        items=items, caisses=caisses,
+        recovery_methods=RECOVERY_METHODS)
+
+
+@app.route('/recouvrement/<int:fri_id>/envoyer', methods=['POST'])
+@permission_required_any('recouvrement_edit', 'admin')
+def recouvrement_envoyer(fri_id):
+    """v142 : L'agent recouvreur marque la facture comme envoyée/déposée + choisit la caisse."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    method = (request.form.get('method','') or '').strip()
+    caisse_id_str = (request.form.get('caisse_id','') or '').strip()
+    notes = (request.form.get('notes','') or '').strip()
+    
+    if method not in RECOVERY_METHODS:
+        flash("⚠️ Méthode d'envoi invalide", "error")
+        return redirect('/recouvrement')
+    if not caisse_id_str.isdigit():
+        flash("⚠️ Caisse cible requise", "error")
+        return redirect('/recouvrement')
+    
+    caisse_id = int(caisse_id_str)
+    
+    conn = _gdb()
+    try:
+        fri = conn.execute("""SELECT fri.*, fr.client_name
+                              FROM field_report_invoices fri
+                              JOIN field_reports fr ON fr.id = fri.field_report_id
+                              WHERE fri.id=?""", (fri_id,)).fetchone()
+        if not fri:
+            conn.close()
+            flash("Facture introuvable", "error")
+            return redirect('/recouvrement')
+        
+        caisse = conn.execute("SELECT name FROM caisses WHERE id=?", (caisse_id,)).fetchone()
+        
+        conn.execute("""UPDATE field_report_invoices
+            SET recovery_agent_id=?, recovery_status=?, recovery_sent_at=datetime('now'),
+                recovery_method=?, recovery_notes=?,
+                target_caisse_id=?, target_caisse_chosen_at=datetime('now'),
+                status='caisse_choisie',
+                updated_at=datetime('now')
+            WHERE id=?""",
+            (user['id'], 'envoyee', method, notes, caisse_id, fri_id))
+        conn.commit()
+        conn.close()
+        
+        # Notifier la caissière de la caisse choisie
+        try:
+            notify_roles(['caissiere','admin'],
+                title=f"💵 Paiement en attente : {fri['invoice_number'] or fri['fr_ref'] if 'fr_ref' in dict(fri).keys() else fri_id}",
+                message=f"Facture envoyée au client {fri['client_name']} pour {fri['amount']:,.0f} XOF. "
+                        f"Caisse : {caisse['name'] if caisse else caisse_id}. "
+                        f"À valider à réception du paiement.",
+                link='/caissiere/paiements',
+                type='warning', module='tresorerie', icon='💵', priority='high')
+        except: pass
+        
+        flash(f"✅ Facture marquée envoyée ({RECOVERY_METHODS.get(method, method)}) — Caissière notifiée", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/recouvrement')
+
+
+# ============= CAISSIÈRE : Valide les paiements =============
+
+@app.route('/caissiere/paiements')
+@permission_required_any('caissiere_view', 'admin')
+def caissiere_paiements():
+    """v142 : Dashboard caissière — paiements en attente de validation."""
+    conn = _gdb()
+    items = [dict(r) for r in conn.execute("""
+        SELECT fri.*, fr.reference as fr_ref, fr.client_name,
+               u.full_name as recovery_agent_name,
+               cs.name as caisse_name
+        FROM field_report_invoices fri
+        JOIN field_reports fr ON fr.id = fri.field_report_id
+        LEFT JOIN users u ON u.id = fri.recovery_agent_id
+        LEFT JOIN caisses cs ON cs.id = fri.target_caisse_id
+        WHERE fri.status='caisse_choisie'
+        ORDER BY fri.recovery_sent_at""").fetchall()]
+    conn.close()
+    
+    return render_template('caissiere_paiements.html', page='caissiere_paiements',
+        items=items)
+
+
+@app.route('/caissiere/paiement/<int:fri_id>/valider', methods=['POST'])
+@permission_required_any('caissiere_validate', 'admin')
+def caissiere_valider(fri_id):
+    """v142 : Caissière valide le paiement — crédite la caisse + clôt le workflow."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    amount_str = (request.form.get('amount_received','') or '').replace(',','.').strip()
+    try:
+        amount_received = float(amount_str or 0)
+    except:
+        amount_received = 0
+    
+    if amount_received <= 0:
+        flash("⚠️ Montant reçu invalide", "error")
+        return redirect('/caissiere/paiements')
+    
+    conn = _gdb()
+    try:
+        fri = conn.execute("""SELECT fri.*, fr.client_name, fr.reference as fr_ref
+                              FROM field_report_invoices fri
+                              JOIN field_reports fr ON fr.id = fri.field_report_id
+                              WHERE fri.id=?""", (fri_id,)).fetchone()
+        if not fri:
+            conn.close()
+            flash("Paiement introuvable", "error")
+            return redirect('/caissiere/paiements')
+        
+        # 1. Marquer le paiement comme validé
+        conn.execute("""UPDATE field_report_invoices
+            SET payment_amount_received=?, payment_received_at=datetime('now'),
+                payment_validated_by=?, payment_validated_at=datetime('now'),
+                status='paye',
+                updated_at=datetime('now')
+            WHERE id=?""",
+            (amount_received, user['id'], fri_id))
+        
+        # 2. Créer une opération d'entrée dans la caisse cible
+        ref = f"PAY-{fri['invoice_number'] or 'FRI'+str(fri_id)}"
+        try:
+            conn.execute("""INSERT INTO caisse_operations
+                (caisse_id, type, amount, description, reference, created_by, created_at)
+                VALUES (?,'entree',?,?,?,?,datetime('now'))""",
+                (fri['target_caisse_id'], amount_received,
+                 f"Paiement facture {fri['invoice_number'] or fri['fr_ref']} — {fri['client_name']}",
+                 ref, user['id']))
+            
+            # 3. Synchroniser dans le journal de trésorerie
+            try:
+                _sync_caisse_op_to_journal(conn, 'entree', datetime.now().strftime('%Y-%m-%d'),
+                    amount_received, 
+                    f"Paiement facture {fri['invoice_number'] or fri['fr_ref']} ({fri['client_name']})",
+                    ref, user['id'], caisse_id=fri['target_caisse_id'])
+            except Exception as _e: print(f"[v142] sync journal err : {_e}", flush=True)
+        except Exception as _e: print(f"[v142] caisse op err : {_e}", flush=True)
+        
+        conn.commit()
+        conn.close()
+        
+        log_activity(user['id'], user['full_name'], 'Caisse',
+            f"Validation paiement facture {fri['invoice_number'] or fri_id} : {amount_received:,.0f} XOF",
+            request.remote_addr)
+        
+        # Notifier la chaîne
+        try:
+            # Notifier l'agent recouvreur
+            if fri['recovery_agent_id']:
+                notify_user(fri['recovery_agent_id'],
+                    title=f"✅ Paiement reçu : {fri['invoice_number']}",
+                    message=f"La caissière {user['full_name']} a validé le paiement de "
+                            f"{amount_received:,.0f} XOF pour {fri['client_name']}.",
+                    link='/recouvrement', module='tresorerie', priority='normal')
+            # Notifier la comptabilité
+            notify_roles(['comptable','comptabilite','admin'],
+                title=f"💰 Paiement encaissé : {fri['invoice_number']}",
+                message=f"Encaissement {amount_received:,.0f} XOF — {fri['client_name']}",
+                link='/comptabilite/caisses',
+                type='success', module='comptabilite', icon='💰', priority='normal')
+        except: pass
+        
+        flash(f"✅ Paiement validé — Caisse créditée de {amount_received:,.0f} XOF", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/caissiere/paiements')
 
 
 @app.route('/field-reports/<int:rid>/transform', methods=['POST'])

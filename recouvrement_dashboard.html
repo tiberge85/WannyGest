@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Recouvrement{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h1>📤 Tableau de bord Recouvrement</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Factures éditées à envoyer/déposer aux clients + choix de la caisse pour le paiement.
+        </p>
+    </div>
+    <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+{% if items %}
+<div style="background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    {% for it in items %}
+    <div style="padding:12px;border:1.5px solid #ddd;border-radius:10px;margin-bottom:10px;
+        {% if it.status == 'caisse_choisie' %}background:#e8f5e9;border-color:#2e7d32{% else %}background:#fff8e1;border-color:#f29f2f{% endif %}">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:280px">
+                <div style="font-size:13px;font-weight:700;color:#1A7A6D">
+                    🧾 {{ it.invoice_number or '#'~it.id }} — {{ it.client_name }}
+                </div>
+                <div style="font-size:11px;color:#666;margin-top:3px">
+                    Réf remontée : <a href="/field-reports/{{ it.field_report_id }}" style="color:#1565c0">{{ it.fr_ref }}</a>
+                    · Éditée par {{ it.emitted_by_name or '?' }} 
+                    · {{ it.emitted_at[:16] if it.emitted_at else '' }}
+                </div>
+                {% if it.status == 'caisse_choisie' %}
+                <div style="font-size:11px;color:#1b5e20;margin-top:5px">
+                    ✅ Envoyé via <strong>{{ recovery_methods.get(it.recovery_method, it.recovery_method) }}</strong>
+                    · Caisse : <strong>{{ it.caisse_name or '?' }}</strong>
+                    · En attente de paiement
+                </div>
+                {% endif %}
+            </div>
+            <div style="text-align:right">
+                <div style="font-size:18px;font-weight:700;color:#1A7A6D">{{ '{:,.0f}'.format(it.amount) }} XOF</div>
+            </div>
+        </div>
+        
+        {% if it.status in ('facture_editee','en_recouvrement') %}
+        <form method="post" action="/recouvrement/{{ it.id }}/envoyer" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px;background:#fff;border-radius:8px">
+            <div style="flex:1;min-width:160px">
+                <label style="font-size:10px;color:#666;display:block">📤 Méthode d'envoi *</label>
+                <select name="method" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:12px">
+                    <option value="">-- Choisir --</option>
+                    {% for mk, mv in recovery_methods.items() %}
+                    <option value="{{ mk }}">{{ mv }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="flex:1;min-width:180px">
+                <label style="font-size:10px;color:#666;display:block">💵 Caisse cible *</label>
+                <select name="caisse_id" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:12px">
+                    <option value="">-- Choisir une caisse --</option>
+                    {% for c in caisses %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="flex:2;min-width:200px">
+                <label style="font-size:10px;color:#666;display:block">📝 Notes</label>
+                <input type="text" name="notes" placeholder="Optionnel (date dépôt, contact, etc.)" 
+                    style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:12px">
+            </div>
+            <div>
+                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;padding:8px 14px;margin-top:14px">
+                    📤 Marquer envoyé + Notifier caissière
+                </button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    <div style="font-size:40px;margin-bottom:10px">📭</div>
+    <p style="font-size:14px;margin:0">Aucune facture à recouvrer pour le moment</p>
+    <p style="font-size:11px;margin-top:8px">Les factures éditées par la comptabilité apparaîtront ici.</p>
+</div>
+{% endif %}
+{% endblock %}
