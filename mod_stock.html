@@ -137,7 +137,7 @@
     <div class="form-row"><div class="form-group"><label>Référence</label><input type="text" name="reference" placeholder="CAM-001"></div>
     <div class="form-group"><label>Catégorie</label><input type="text" name="category" placeholder="Caméras, Câbles..." list="catList"></div></div>
     <div class="form-row"><div class="form-group"><label>Quantité initiale</label><input type="number" name="quantity" value="0" min="0"></div>
-    <div class="form-group"><label>Prix unitaire (F)</label><input type="number" name="unit_price" step="500" value="0"></div></div>
+    <div class="form-group"><label>Prix unitaire (F)</label><input type="number" name="unit_price" step="1" value="0"></div></div>
     <div class="form-row"><div class="form-group"><label>Stock minimum</label><input type="number" name="min_stock" value="0"></div>
     <div class="form-group"><label>Emplacement</label><input type="text" name="location" placeholder="Magasin A" list="locList"></div></div>
     <div class="form-group"><label>📷 Image de l'article</label><input type="file" name="image" accept=".jpg,.jpeg,.png,.webp" style="padding:8px;border:1.5px dashed #ccc;border-radius:8px;width:100%"></div>
@@ -153,7 +153,7 @@
     <div class="form-group"><label>Désignation *</label><input type="text" name="name" id="e_name" required></div>
     <div class="form-row"><div class="form-group"><label>Référence</label><input type="text" name="reference" id="e_ref"></div>
     <div class="form-group"><label>Catégorie</label><input type="text" name="category" id="e_cat" list="catList"></div></div>
-    <div class="form-row"><div class="form-group"><label>Prix unitaire</label><input type="number" name="unit_price" id="e_price" step="500"></div>
+    <div class="form-row"><div class="form-group"><label>Prix unitaire</label><input type="number" name="unit_price" id="e_price" step="1"></div>
     <div class="form-group"><label>Stock minimum</label><input type="number" name="min_stock" id="e_min"></div></div>
     <div class="form-group"><label>Emplacement</label><input type="text" name="location" id="e_loc" list="locList"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button><button type="submit" class="btn btn-primary">💾 Sauvegarder</button></div>

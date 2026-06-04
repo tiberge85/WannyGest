@@ -107,6 +107,7 @@
                         data-seuil="{{ a.seuil_alerte or 2 }}"
                         data-prix="{{ a.prix_unitaire or 0 }}"
                         data-notes="{{ a.notes or '' }}"
+                        data-stock-initial="{{ a.stock_initial or 0 }}"
                         style="color:#1976d2" title="Modifier">✏️</button>
                     <form method="post" action="/mg/stock/article/{{ a.id }}/recompute-prices" style="display:inline" title="Recalculer prix de vente">
                         <button type="submit" class="btn btn-sm" style="color:#7b1fa2">🔄</button>
@@ -178,7 +179,7 @@
     <div class="form-row">
         <div class="form-group"><label>Seuil alerte</label><input type="number" name="seuil_alerte" value="2" min="0"></div>
         <div class="form-group"><label>Stock initial</label><input type="number" name="stock_initial" value="0" min="0"></div>
-        <div class="form-group"><label>Prix d'achat (FCFA) *</label><input type="number" name="prix_unitaire" value="0" min="0" step="100" required></div>
+        <div class="form-group"><label>Prix d'achat (FCFA) *</label><input type="number" name="prix_unitaire" value="0" min="0" step="1" required></div>
     </div>
     <div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:10px;border-radius:6px;font-size:11px;color:#0d47a1;margin-bottom:12px">
         💡 Les <strong>prix de vente</strong> (Particulier, PME, Grande Entreprise) seront calculés automatiquement selon les marges configurées.
@@ -201,7 +202,17 @@
     </div>
     <div class="form-row">
         <div class="form-group"><label>Seuil alerte</label><input type="number" name="seuil_alerte" id="ed_seuil" min="0"></div>
-        <div class="form-group"><label>Prix d'achat (FCFA)</label><input type="number" name="prix_unitaire" id="ed_prix" min="0" step="100"></div>
+        <div class="form-group"><label>Prix d'achat (FCFA)</label><input type="number" name="prix_unitaire" id="ed_prix" min="0" step="1"></div>
+    </div>
+    {# v140 : Permettre l'ajustement du stock initial directement #}
+    <div class="form-group">
+        <label>📦 Stock initial (ajustement direct)</label>
+        <input type="number" name="stock_initial" id="ed_stock_initial" min="0" step="1" 
+            placeholder="Laisser vide pour ne pas changer">
+        <small style="color:#666;font-size:11px">
+            💡 Permet de corriger directement le stock de référence. L'ajustement sera tracé dans le journal d'activité.
+            Le stock actuel = stock initial + entrées − sorties.
+        </small>
     </div>
     <div style="background:#fff3cd;border-left:4px solid #e8672a;padding:10px;border-radius:6px;font-size:11px;color:#856404;margin-bottom:12px">
         ⚠️ Modifier le <strong>prix d'achat</strong> recalcule automatiquement les 3 prix de vente.
@@ -214,7 +225,7 @@
 </form></div></div>
 
 <script>
-function editArt(id, ref, designation, categorie, unite, seuil, prix, notes) {
+function editArt(id, ref, designation, categorie, unite, seuil, prix, notes, stockInitial) {
     document.getElementById('editForm').action = '/mg/stock/article/' + id + '/edit';
     document.getElementById('ed_ref_display').textContent = ref;
     document.getElementById('ed_designation').value = designation;
@@ -223,6 +234,12 @@ function editArt(id, ref, designation, categorie, unite, seuil, prix, notes) {
     document.getElementById('ed_seuil').value = seuil;
     document.getElementById('ed_prix').value = prix;
     document.getElementById('ed_notes').value = notes;
+    // v140 : pré-remplir le stock initial actuel pour permettre l'ajustement
+    if (typeof stockInitial !== 'undefined') {
+        document.getElementById('ed_stock_initial').value = stockInitial || 0;
+    } else {
+        document.getElementById('ed_stock_initial').value = '';
+    }
     document.getElementById('editArtModal').classList.add('active');
 }
 document.addEventListener('DOMContentLoaded', function() {
@@ -232,7 +249,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 this.dataset.id, this.dataset.reference || '',
                 this.dataset.designation || '', this.dataset.categorie || '',
                 this.dataset.unite || 'UNITE', parseInt(this.dataset.seuil) || 2,
-                parseFloat(this.dataset.prix) || 0, this.dataset.notes || ''
+                parseFloat(this.dataset.prix) || 0, this.dataset.notes || '',
+                parseInt(this.dataset.stockInitial) || 0
             );
         });
     });

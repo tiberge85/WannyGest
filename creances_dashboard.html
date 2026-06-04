@@ -181,7 +181,7 @@
         <div class="form-group"><label>Date échéance</label><input type="date" name="date_echeance" placeholder="Auto +30j"></div>
     </div>
     <div class="form-row">
-        <div class="form-group"><label>Montant HT *</label><input type="number" name="montant_ht" required min="0" step="100"></div>
+        <div class="form-group"><label>Montant HT *</label><input type="number" name="montant_ht" required min="0" step="1"></div>
         <div class="form-group"><label>TVA (%)</label><input type="number" name="tva_rate" value="18" min="0" max="100" step="0.5"></div>
         <div class="form-group"><label>Mode paiement</label>
             <select name="mode_paiement">
@@ -207,7 +207,7 @@
 <!-- Modal édition (paiement reçu) -->
 <div class="modal-bg" id="editCrModal"><div class="modal" style="max-width:500px"><h3>💵 Enregistrer un paiement / Modifier</h3>
 <form method="post" id="editCrForm">
-    <div class="form-group"><label>Montant payé (cumulé)</label><input type="number" name="montant_paye" id="ec_paye" min="0" step="100" required></div>
+    <div class="form-group"><label>Montant payé (cumulé)</label><input type="number" name="montant_paye" id="ec_paye" min="0" step="1" required></div>
     <div class="form-group"><label>Statut</label>
         <select name="statut" id="ec_statut">
             <option value="en_cours">En cours</option>

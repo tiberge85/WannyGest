@@ -16444,19 +16444,55 @@ def mg_stock_article_add():
 def mg_stock_article_edit(aid):
     try:
         conn = _gdb()
-        conn.execute("""UPDATE mg_stock_articles SET
-            designation=?, categorie=?, unite=?, seuil_alerte=?, prix_unitaire=?, notes=?,
-            updated_at=datetime('now') WHERE id=?""",
-            (request.form.get('designation','').strip(),
-             request.form.get('categorie','').strip(),
-             request.form.get('unite','UNITE').strip(),
-             int(request.form.get('seuil_alerte','2') or 2),
-             float(request.form.get('prix_unitaire','0').replace(',','.') or 0),
-             request.form.get('notes',''), aid))
+        # v140 : Permettre la modification du stock_initial (ajustement d'inventaire)
+        stock_initial_str = request.form.get('stock_initial', '').strip()
+        update_stock = stock_initial_str != ''
+        log_msg = None  # v140 : log différé pour éviter database is locked
+        
+        if update_stock:
+            new_stock = int(stock_initial_str or 0)
+            old = conn.execute("SELECT stock_initial, designation FROM mg_stock_articles WHERE id=?", (aid,)).fetchone()
+            old_dict = dict(old) if old else {}
+            old_stock = old_dict.get('stock_initial', 0)
+            old_desig = old_dict.get('designation', '?')
+            
+            conn.execute("""UPDATE mg_stock_articles SET
+                designation=?, categorie=?, unite=?, seuil_alerte=?, prix_unitaire=?, notes=?,
+                stock_initial=?,
+                updated_at=datetime('now') WHERE id=?""",
+                (request.form.get('designation','').strip(),
+                 request.form.get('categorie','').strip(),
+                 request.form.get('unite','UNITE').strip(),
+                 int(request.form.get('seuil_alerte','2') or 2),
+                 float(request.form.get('prix_unitaire','0').replace(',','.') or 0),
+                 request.form.get('notes',''),
+                 new_stock, aid))
+            
+            # Préparer le log d'ajustement (différé après close)
+            if old_dict and new_stock != old_stock:
+                log_msg = f"Ajustement stock article #{aid} ({old_desig}) : {old_stock} → {new_stock}"
+        else:
+            conn.execute("""UPDATE mg_stock_articles SET
+                designation=?, categorie=?, unite=?, seuil_alerte=?, prix_unitaire=?, notes=?,
+                updated_at=datetime('now') WHERE id=?""",
+                (request.form.get('designation','').strip(),
+                 request.form.get('categorie','').strip(),
+                 request.form.get('unite','UNITE').strip(),
+                 int(request.form.get('seuil_alerte','2') or 2),
+                 float(request.form.get('prix_unitaire','0').replace(',','.') or 0),
+                 request.form.get('notes',''), aid))
+        
         # v99 : recalculer les prix de vente après modification du prix unitaire
         _recompute_article_prices(conn, aid)
         conn.commit(); conn.close()
-        flash("✅ Article modifié (prix de vente recalculés)", "success")
+        
+        # v140 : log_activity APRÈS close pour éviter database is locked
+        if log_msg:
+            user = get_user_by_id(session['user_id'])
+            log_activity(session['user_id'], user['full_name'] if user else '?',
+                'Stock', log_msg, request.remote_addr)
+        
+        flash("✅ Article modifié" + (" (stock ajusté)" if update_stock else "") + " — prix de vente recalculés", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect(request.referrer or '/mg/stock/catalogue')
@@ -17457,7 +17493,8 @@ def field_reports_full_list():
 @app.route('/api/clients/<int:cid>/full-info')
 @login_required
 def api_client_full_info(cid):
-    """v137 : Retourne en JSON toutes les infos d'un client + ses sites (installations).
+    """v137 / v140 : Retourne en JSON toutes les infos d'un client + ses sites (installations).
+    v140 : Ajoute un site_code unique à chaque site (auto-généré depuis client_code si absent).
     Utilisé par /field-reports/new pour le pré-remplissage dynamique."""
     conn = _gdb()
     try:
@@ -17467,20 +17504,43 @@ def api_client_full_info(cid):
             return jsonify({'error': 'Client introuvable'}), 404
         
         client_dict = dict(client)
+        client_code = (client_dict.get('client_code') or f"CL-{cid:04d}")
+        
+        # v140 : Migration site_code dans installations si pas encore présente
+        try:
+            conn.execute("SELECT site_code FROM installations LIMIT 1")
+        except:
+            try: conn.execute("ALTER TABLE installations ADD COLUMN site_code TEXT")
+            except: pass
+            conn.commit()
         
         # Récupérer les sites (installations) du client
         sites = []
         try:
             sites_rows = conn.execute(
-                "SELECT id, site_name, zone, address, equipment_type, equipment_count, status "
-                "FROM installations WHERE client_id=? ORDER BY site_name",
+                "SELECT id, site_name, zone, address, equipment_type, equipment_count, status, "
+                "COALESCE(site_code,'') as site_code "
+                "FROM installations WHERE client_id=? ORDER BY id",
                 (cid,)).fetchall()
             sites = [dict(r) for r in sites_rows]
-        except: pass
+            
+            # v140 : Auto-générer le site_code s'il manque, basé sur le code client
+            for idx, s in enumerate(sites, 1):
+                if not s.get('site_code'):
+                    auto_code = f"{client_code}-S{idx}"
+                    s['site_code'] = auto_code
+                    # Persister le code généré
+                    try:
+                        conn.execute("UPDATE installations SET site_code=? WHERE id=?", (auto_code, s['id']))
+                    except: pass
+            conn.commit()
+        except Exception as _e:
+            print(f"[v140] sites err: {_e}", flush=True)
         
         conn.close()
         return jsonify({
             'client': client_dict,
+            'client_code': client_code,
             'sites': sites,
             'sites_count': len(sites),
         })
@@ -17514,6 +17574,7 @@ def field_report_new():
     site_name = request.form.get('site_name', '').strip()
     site_address = request.form.get('site_address', '').strip()
     site_zone = request.form.get('site_zone', '').strip()  # v137
+    site_code = request.form.get('site_code', '').strip()  # v140 : code client du site
     create_site = request.form.get('create_site') in ('1', 'on', 'true')  # v137
     
     if not description:
@@ -17529,36 +17590,57 @@ def field_report_new():
         if row: client_name = row['name']
         conn.close()
     
-    # v137 : Création automatique du site si demandée
+    # v137 / v140 : Création automatique du site si demandée
     if create_site and site_name and client_id and client_id.isdigit():
         try:
             conn = _gdb()
-            # Vérifier qu'il n'existe pas déjà
+            # v140 : Assurer la colonne site_code
+            try: conn.execute("SELECT site_code FROM installations LIMIT 1")
+            except:
+                try: conn.execute("ALTER TABLE installations ADD COLUMN site_code TEXT")
+                except: pass
+            
+            # Vérifier qu'il n'existe pas déjà (par nom OU code client)
             existing = conn.execute(
-                "SELECT id FROM installations WHERE client_id=? AND LOWER(site_name)=LOWER(?)",
-                (int(client_id), site_name)).fetchone()
+                "SELECT id FROM installations WHERE client_id=? AND (LOWER(site_name)=LOWER(?) OR (? != '' AND site_code=?))",
+                (int(client_id), site_name, site_code, site_code)).fetchone()
             if not existing:
+                # Auto-générer le site_code s'il est vide
+                if not site_code:
+                    # Récupérer le client_code et compter les sites existants
+                    cl = conn.execute("SELECT client_code FROM clients WHERE id=?", (int(client_id),)).fetchone()
+                    code_prefix = (cl['client_code'] if cl and cl['client_code'] else f"CL-{int(client_id):04d}")
+                    nb_existing = conn.execute("SELECT COUNT(*) FROM installations WHERE client_id=?",
+                        (int(client_id),)).fetchone()[0]
+                    site_code = f"{code_prefix}-S{nb_existing + 1}"
+                
                 conn.execute("""INSERT INTO installations
-                    (client_id, client_name, site_name, zone, address, status, created_by, created_at)
-                    VALUES (?,?,?,?,?,'actif',?,datetime('now'))""",
-                    (int(client_id), client_name, site_name, site_zone, site_address,
+                    (client_id, client_name, site_name, zone, address, site_code, status, created_by, created_at)
+                    VALUES (?,?,?,?,?,?,'actif',?,datetime('now'))""",
+                    (int(client_id), client_name, site_name, site_zone, site_address, site_code,
                      session.get('user_id')))
                 conn.commit()
-                print(f"[v137] Site créé : {site_name} pour client {client_id}", flush=True)
+                print(f"[v140] Site créé : {site_code} ({site_name}) pour client {client_id}", flush=True)
             conn.close()
         except Exception as _e:
-            print(f"[v137] err création site : {_e}", flush=True)
+            print(f"[v140] err création site : {_e}", flush=True)
     
     ref = _gen_field_report_ref()
     try:
         conn = _gdb()
+        # v140 : Assurer la colonne site_code dans field_reports
+        try: conn.execute("SELECT site_code FROM field_reports LIMIT 1")
+        except:
+            try: conn.execute("ALTER TABLE field_reports ADD COLUMN site_code TEXT")
+            except: pass
+        
         cur = conn.execute("""INSERT INTO field_reports 
-            (reference, client_id, client_name, site_name, site_address, type_info,
+            (reference, client_id, client_name, site_name, site_address, site_code, type_info,
              description, priorite, date_constat, auteur_id, auteur_name, statut,
              created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,'recue',datetime('now'),datetime('now'))""",
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recue',datetime('now'),datetime('now'))""",
             (ref, int(client_id) if client_id and client_id.isdigit() else None,
-             client_name or 'Non spécifié', site_name, site_address, type_info,
+             client_name or 'Non spécifié', site_name, site_address, site_code, type_info,
              description, priorite, date_constat,
              session.get('user_id'),
              user['full_name'] if user else 'Anonyme'))

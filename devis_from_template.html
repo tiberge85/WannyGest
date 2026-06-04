@@ -14,7 +14,7 @@
 <div class="item-row" style="display:grid;grid-template-columns:3fr 1fr 1fr 1fr 40px;gap:6px;margin-bottom:4px">
     <input type="text" name="designation[]" value="{{ item.designation }}" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
     <input type="number" name="qty[]" value="{{ item.quantity }}" min="1" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
-    <input type="number" name="price[]" value="{{ item.unit_price }}" step="500" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    <input type="number" name="price[]" value="{{ item.unit_price }}" step="1" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
     <div style="padding:7px;font-size:12px;font-weight:600;text-align:right" class="line-total">{{ '{:,.0f}'.format(item.quantity * item.unit_price) }}</div>
     <button type="button" onclick="this.parentElement.remove()" style="background:#fde8e8;border:none;border-radius:6px;cursor:pointer;color:#c53030">✕</button>
 </div>
@@ -34,7 +34,7 @@
 function fillClient(){var o=document.getElementById('clientSel').selectedOptions[0];}
 function addDevisRow(){
     var d=document.createElement('div');d.className='item-row';d.style.cssText='display:grid;grid-template-columns:3fr 1fr 1fr 1fr 40px;gap:6px;margin-bottom:4px';
-    d.innerHTML='<input type="text" name="designation[]" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><input type="number" name="qty[]" value="1" min="1" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><input type="number" name="price[]" value="0" step="500" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><div style="padding:7px;font-size:12px"></div><button type="button" onclick="this.parentElement.remove()" style="background:#fde8e8;border:none;border-radius:6px;cursor:pointer;color:#c53030">✕</button>';
+    d.innerHTML='<input type="text" name="designation[]" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><input type="number" name="qty[]" value="1" min="1" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><input type="number" name="price[]" value="0" step="1" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><div style="padding:7px;font-size:12px"></div><button type="button" onclick="this.parentElement.remove()" style="background:#fde8e8;border:none;border-radius:6px;cursor:pointer;color:#c53030">✕</button>';
     document.getElementById('devisItems').appendChild(d);
 }
 </script>

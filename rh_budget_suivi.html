@@ -46,7 +46,7 @@
                 <tr style="border-bottom:1px solid #eee">
                     <td style="padding:6px 8px">Masse salariale brute</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.masse_salariale).replace(',', ' ') }}</td>
-                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_masse_salariale" value="{{ m.real_masse_salariale or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_masse_salariale" value="{{ m.real_masse_salariale or '' }}" step="1" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
                     <td style="text-align:right;padding:6px 8px;color:{% if ecart_masse and ecart_masse > 0 %}#c53030{% elif ecart_masse and ecart_masse < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_masse).replace(',', ' ') if ecart_masse else '-' }}</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:+.1f}%'.format(ecart_masse / m.masse_salariale * 100) if ecart_masse and m.masse_salariale else '-' }}</td>
                 </tr>
@@ -54,7 +54,7 @@
                 <tr style="border-bottom:1px solid #eee">
                     <td style="padding:6px 8px">Charges patronales</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.charges_patronales).replace(',', ' ') }}</td>
-                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_charges_patronales" value="{{ m.real_charges_patronales or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_charges_patronales" value="{{ m.real_charges_patronales or '' }}" step="1" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
                     <td style="text-align:right;padding:6px 8px;color:{% if ecart_ch and ecart_ch > 0 %}#c53030{% elif ecart_ch and ecart_ch < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_ch).replace(',', ' ') if ecart_ch else '-' }}</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">-</td>
                 </tr>
@@ -62,7 +62,7 @@
                 <tr style="border-bottom:1px solid #eee">
                     <td style="padding:6px 8px">Budget recrutement</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.total_recrutement).replace(',', ' ') }}</td>
-                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_recrutement" value="{{ m.real_recrutement or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_recrutement" value="{{ m.real_recrutement or '' }}" step="1" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
                     <td style="text-align:right;padding:6px 8px;color:{% if ecart_r and ecart_r > 0 %}#c53030{% elif ecart_r and ecart_r < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_r).replace(',', ' ') if ecart_r else '-' }}</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">-</td>
                 </tr>
@@ -70,7 +70,7 @@
                 <tr style="border-bottom:1px solid #eee">
                     <td style="padding:6px 8px">Budget formation</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.formation).replace(',', ' ') }}</td>
-                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_formation" value="{{ m.real_formation or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_formation" value="{{ m.real_formation or '' }}" step="1" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
                     <td style="text-align:right;padding:6px 8px;color:{% if ecart_f and ecart_f > 0 %}#c53030{% elif ecart_f and ecart_f < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_f).replace(',', ' ') if ecart_f else '-' }}</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">-</td>
                 </tr>
@@ -78,7 +78,7 @@
                 <tr style="border-bottom:1px solid #eee">
                     <td style="padding:6px 8px">Frais annexes</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">{{ '{:,.0f}'.format(m.total_frais_annexes).replace(',', ' ') }}</td>
-                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_frais_annexes" value="{{ m.real_frais_annexes or '' }}" step="100" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
+                    <td style="text-align:right;padding:6px 8px"><input type="number" name="real_frais_annexes" value="{{ m.real_frais_annexes or '' }}" step="1" style="width:140px;text-align:right;padding:4px;border:1px solid #ddd;border-radius:4px"></td>
                     <td style="text-align:right;padding:6px 8px;color:{% if ecart_a and ecart_a > 0 %}#c53030{% elif ecart_a and ecart_a < 0 %}#2e7d32{% else %}#888{% endif %};font-weight:600">{{ '{:+,.0f}'.format(ecart_a).replace(',', ' ') if ecart_a else '-' }}</td>
                     <td style="text-align:right;padding:6px 8px;color:#888">-</td>
                 </tr>

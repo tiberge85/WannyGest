@@ -68,7 +68,7 @@
             <div style="flex:3"><label style="font-size:11px">Désignation</label><input type="text" name="item_1_designation" id="desig_1" required placeholder="Ex: CAMERA FIXE ANALOGIQUE" list="stockList"></div>
             <div style="flex:2"><label style="font-size:11px">Détail</label><input type="text" name="item_1_detail" id="detail_1" placeholder="HYBRID LIGHT"></div>
             <div style="flex:0 0 60px"><label style="font-size:11px">Qté</label><input type="number" name="item_1_qty" value="1" min="1"></div>
-            <div style="flex:0 0 100px"><label style="font-size:11px">Prix unit.</label><input type="number" name="item_1_prix" id="prix_1" step="500" value="0"></div>
+            <div style="flex:0 0 100px"><label style="font-size:11px">Prix unit.</label><input type="number" name="item_1_prix" id="prix_1" step="1" value="0"></div>
             <div style="flex:0 0 80px"><label style="font-size:11px">Remise</label><input type="number" name="item_1_remise" value="0"></div>
         </div>
     </div>
@@ -110,7 +110,7 @@ function addItem() {
         <div style="flex:3"><input type="text" name="item_${itemCount}_designation" id="desig_${itemCount}" required placeholder="Désignation" list="stockList"></div>
         <div style="flex:2"><input type="text" name="item_${itemCount}_detail" id="detail_${itemCount}" placeholder="Détail"></div>
         <div style="flex:0 0 60px"><input type="number" name="item_${itemCount}_qty" value="1" min="1"></div>
-        <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" id="prix_${itemCount}" step="500" value="0"></div>
+        <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" id="prix_${itemCount}" step="1" value="0"></div>
         <div style="flex:0 0 80px"><input type="number" name="item_${itemCount}_remise" value="0"></div>
         <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px;padding:4px">×</button>
     </div>`;

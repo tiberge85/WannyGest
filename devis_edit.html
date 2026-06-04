@@ -63,13 +63,13 @@
             <div style="flex:3"><label style="font-size:11px">Désignation</label><input type="text" name="item_{{ loop.index }}_designation" id="desig_{{ loop.index }}" value="{{ item.designation }}" required></div>
             <div style="flex:2"><label style="font-size:11px">Détail</label><input type="text" name="item_{{ loop.index }}_detail" id="detail_{{ loop.index }}" value="{{ item.detail or '' }}"></div>
             <div style="flex:0 0 60px"><label style="font-size:11px">Qté</label><input type="number" name="item_{{ loop.index }}_qty" value="{{ item.qty }}" min="1"></div>
-            <div style="flex:0 0 100px"><label style="font-size:11px">Prix</label><input type="number" name="item_{{ loop.index }}_prix" id="prix_{{ loop.index }}" value="{{ item.prix }}" step="500"></div>
+            <div style="flex:0 0 100px"><label style="font-size:11px">Prix</label><input type="number" name="item_{{ loop.index }}_prix" id="prix_{{ loop.index }}" value="{{ item.prix }}" step="1"></div>
             <div style="flex:0 0 80px"><label style="font-size:11px">Remise</label><input type="number" name="item_{{ loop.index }}_remise" value="{{ item.remise or 0 }}"></div>
             {% else %}
             <div style="flex:3"><input type="text" name="item_{{ loop.index }}_designation" id="desig_{{ loop.index }}" value="{{ item.designation }}" required></div>
             <div style="flex:2"><input type="text" name="item_{{ loop.index }}_detail" id="detail_{{ loop.index }}" value="{{ item.detail or '' }}"></div>
             <div style="flex:0 0 60px"><input type="number" name="item_{{ loop.index }}_qty" value="{{ item.qty }}" min="1"></div>
-            <div style="flex:0 0 100px"><input type="number" name="item_{{ loop.index }}_prix" id="prix_{{ loop.index }}" value="{{ item.prix }}" step="500"></div>
+            <div style="flex:0 0 100px"><input type="number" name="item_{{ loop.index }}_prix" id="prix_{{ loop.index }}" value="{{ item.prix }}" step="1"></div>
             <div style="flex:0 0 80px"><input type="number" name="item_{{ loop.index }}_remise" value="{{ item.remise or 0 }}"></div>
             <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px">×</button>
             {% endif %}
@@ -193,7 +193,7 @@ function addItem(){itemCount++;document.getElementById('items').insertAdjacentHT
     <div style="flex:3"><input type="text" name="item_${itemCount}_designation" id="desig_${itemCount}" required></div>
     <div style="flex:2"><input type="text" name="item_${itemCount}_detail" id="detail_${itemCount}"></div>
     <div style="flex:0 0 60px"><input type="number" name="item_${itemCount}_qty" value="1" min="1"></div>
-    <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" id="prix_${itemCount}" step="500" value="0"></div>
+    <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" id="prix_${itemCount}" step="1" value="0"></div>
     <div style="flex:0 0 80px"><input type="number" name="item_${itemCount}_remise" value="0"></div>
     <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px">×</button></div>`);}
 function fillFromStock(){var s=document.getElementById('stockSelect');if(!s||!s.value)return;var o=s.options[s.selectedIndex];

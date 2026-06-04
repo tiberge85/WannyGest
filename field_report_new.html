@@ -119,41 +119,51 @@
     </div>
 </div>
 
-<!-- BLOC SITES DU CLIENT (v137) -->
+<!-- BLOC SITES DU CLIENT (v137 / v140) -->
 <div id="sitesBlock" class="card" style="margin-bottom:14px;display:none">
-    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">📍 Site concerné par la remontée</h3></div>
+    <div class="card-header"><h3 style="margin:0;color:#1A7A6D;font-size:14px">🏷️ Code client / Site concerné par la remontée</h3></div>
     <div class="card-body">
         <p style="font-size:11px;color:#666;margin:0 0 10px">
-            Sélectionnez l'un des sites existants du client, ou ajoutez un nouveau site si la remontée concerne un emplacement différent.
+            <strong>Chaque site possède un code client unique.</strong> Sélectionnez le site concerné par la remontée, ou ajoutez un nouveau code client si la remontée concerne un emplacement non listé.
         </p>
+        
+        <!-- Bandeau du site sélectionné (v140) -->
+        <div id="selectedSiteBanner" style="display:none;padding:8px 12px;background:#e8f5e9;border-left:3px solid #2e7d32;border-radius:6px;margin-bottom:10px;font-size:12px;color:#1b5e20"></div>
         
         <!-- Liste des sites existants -->
         <div id="sitesList" class="sites-grid"></div>
         
         <!-- Bouton "Nouveau site" -->
         <div class="new-site-toggle" id="newSiteToggle" onclick="toggleNewSite()" style="margin-top:10px">
-            ➕ <strong>Ajouter un nouveau site</strong> (la remontée ne concerne pas les sites listés)
+            ➕ <strong>Ajouter un nouveau code client</strong> (la remontée concerne un emplacement non listé)
         </div>
         
         <!-- Formulaire nouveau site (caché par défaut) -->
         <div id="newSiteForm" style="display:none;margin-top:12px;background:#f8faf9;padding:12px;border-radius:8px;border:1px solid #1A7A6D">
             <div class="form-row">
                 <div class="form-group" style="flex:1">
-                    <label>Nom du nouveau site *</label>
+                    <label>🏷️ Code client du site</label>
+                    <input type="text" name="site_code" id="newSiteCode" placeholder="Ex: CL-001-S3 (auto-généré si vide)"
+                        style="font-family:monospace;font-weight:600">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label>Nom du site *</label>
                     <input type="text" name="site_name" id="newSiteName" placeholder="Ex: Agence Cocody Plateau">
                 </div>
+            </div>
+            <div class="form-row">
                 <div class="form-group" style="flex:1">
                     <label>Zone</label>
                     <input type="text" name="site_zone" id="newSiteZone" placeholder="Ex: Cocody">
                 </div>
-            </div>
-            <div class="form-group">
-                <label>Adresse du site</label>
-                <input type="text" name="site_address" id="newSiteAddress" placeholder="Ex: Boulevard Latrille, Abidjan">
+                <div class="form-group" style="flex:2">
+                    <label>Adresse du site</label>
+                    <input type="text" name="site_address" id="newSiteAddress" placeholder="Ex: Boulevard Latrille, Abidjan">
+                </div>
             </div>
             <label style="font-size:11px;color:#666">
                 <input type="checkbox" name="create_site" value="1" id="createSiteCheckbox" checked>
-                Créer ce site dans le catalogue des installations
+                Créer ce nouveau code client / site dans le catalogue des installations
             </label>
         </div>
     </div>
@@ -384,7 +394,7 @@ function renderSites(sites) {
     container.innerHTML = '';
     
     if (sites.length === 0) {
-        container.innerHTML = '<div style="grid-column:1/-1;color:#999;font-style:italic;padding:10px;background:#f8f9fa;border-radius:6px;text-align:center">Aucun site existant pour ce client. Utilisez le bouton ci-dessous pour en ajouter un.</div>';
+        container.innerHTML = '<div style="grid-column:1/-1;color:#999;font-style:italic;padding:10px;background:#f8f9fa;border-radius:6px;text-align:center">Aucun site existant pour ce client. Utilisez le bouton ci-dessous pour en ajouter un nouveau code client.</div>';
         // Ouvrir directement le formulaire nouveau site
         document.getElementById('newSiteForm').style.display = 'block';
         return;
@@ -394,8 +404,16 @@ function renderSites(sites) {
         const card = document.createElement('div');
         card.className = 'site-card';
         card.dataset.siteId = s.id;
+        card.dataset.siteCode = s.site_code || '';
         card.onclick = function() { selectSite(s); };
+        // v140 : Code client (site_code) bien mis en évidence en haut
         card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:start;gap:6px;margin-bottom:5px">
+                <span style="background:#1A7A6D;color:#fff;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;font-family:monospace">
+                    🏷️ ${s.site_code || 'NO-CODE'}
+                </span>
+                <span style="font-size:9px;color:#888;background:#f0f0f0;padding:2px 5px;border-radius:4px">${s.status || 'actif'}</span>
+            </div>
             <div class="site-name">${s.site_name || 'Site sans nom'}</div>
             <div class="site-detail">📍 ${s.zone || ''}${s.address ? ' · ' + s.address : ''}</div>
             ${s.equipment_type ? `<div class="site-detail">🔧 ${s.equipment_type}${s.equipment_count ? ' (' + s.equipment_count + ')' : ''}</div>` : ''}
@@ -413,8 +431,16 @@ function selectSite(site) {
     document.getElementById('newSiteName').value = site.site_name || '';
     document.getElementById('newSiteZone').value = site.zone || '';
     document.getElementById('newSiteAddress').value = site.address || '';
+    // v140 : pré-remplir le site_code aussi
+    const sc = document.getElementById('newSiteCode');
+    if (sc) sc.value = site.site_code || '';
     document.getElementById('createSiteCheckbox').checked = false;  // existe déjà
-    // Garder le formulaire visible (lecture seule conceptuel mais éditable)
+    // Indication visuelle dans le bandeau de sélection
+    const banner = document.getElementById('selectedSiteBanner');
+    if (banner) {
+        banner.style.display = 'block';
+        banner.innerHTML = `✓ Site sélectionné : <strong>${site.site_code || '?'}</strong> — ${site.site_name || ''}`;
+    }
     document.getElementById('newSiteForm').style.display = 'block';
 }
 
@@ -427,7 +453,11 @@ function toggleNewSite() {
         document.getElementById('newSiteName').value = '';
         document.getElementById('newSiteZone').value = '';
         document.getElementById('newSiteAddress').value = '';
+        const sc = document.getElementById('newSiteCode');
+        if (sc) sc.value = '';
         document.getElementById('createSiteCheckbox').checked = true;
+        const banner = document.getElementById('selectedSiteBanner');
+        if (banner) banner.style.display = 'none';
     } else {
         f.style.display = 'none';
     }

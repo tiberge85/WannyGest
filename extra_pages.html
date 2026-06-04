@@ -3333,7 +3333,7 @@ function filterRecent() {
         <div><label style="font-size:11px;color:#888;display:block">Catégorie</label>
             <input name="categorie" placeholder="Équipement" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Montant total (F CFA) *</label>
-            <input type="number" name="montant_total" required min="0" step="100" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            <input type="number" name="montant_total" required min="0" step="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Date</label>
             <input type="date" name="date" value="{{ today_str if today_str else '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Date échéance</label>
@@ -3495,7 +3495,7 @@ function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes) {
     <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
         <input type="hidden" name="action" value="add_payment">
         <div><label style="font-size:11px;color:#888;display:block">Montant (F CFA) *</label>
-            <input type="number" name="montant" required min="1" max="{{ purchase.reste|int }}" step="100" placeholder="Max: {{ '{:,.0f}'.format(purchase.reste) }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+            <input type="number" name="montant" required min="1" max="{{ purchase.reste|int }}" step="1" placeholder="Max: {{ '{:,.0f}'.format(purchase.reste) }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Date *</label>
             <input type="date" name="date" required value="{{ today_str if today_str else '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Mode</label>
@@ -5202,7 +5202,7 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
                 <option value="placement">📈 Compte de placement</option>
             </select>
         </div>
-        <div class="form-group"><label>Solde initial (F)</label><input type="number" name="solde_initial" id="editCompteSolde" step="100" style="width:100%"></div>
+        <div class="form-group"><label>Solde initial (F)</label><input type="number" name="solde_initial" id="editCompteSolde" step="1" style="width:100%"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
             <button type="button" class="btn btn-outline" onclick="document.getElementById('editCompteM').classList.remove('active')">Annuler</button>
             <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
@@ -5331,7 +5331,7 @@ function openEditCompteModal(cid, nom, banque, num, solde, type_compte) {
         </div>
         <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px">
             <div><label style="font-size:11px;color:#888">Solde initial (F)</label>
-                <input type="number" name="solde_initial" step="100" value="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+                <input type="number" name="solde_initial" step="1" value="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
         </div>
         <div style="display:flex;gap:6px;justify-content:flex-end">
             <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('newCpt').style.display='none'">Annuler</button>
@@ -5837,7 +5837,7 @@ function ptcSubmit(type){
     </select>
 </div>
 <div class="form-group"><label>Montant prévu (F CFA) *</label>
-    <input type="number" name="amount_planned" id="bdgAmount" min="0" step="1000" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <input type="number" name="amount_planned" id="bdgAmount" min="0" step="1" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
 <div class="form-group"><label>Type de période</label>
     <select name="period_type" id="bdgType" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
         <option value="mensuel">Mensuel</option>

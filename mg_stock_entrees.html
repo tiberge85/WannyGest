@@ -69,7 +69,7 @@
     </div>
     <div class="form-row">
         <div class="form-group"><label>Quantité *</label><input type="number" name="quantite" required min="1"></div>
-        <div class="form-group"><label>Prix unitaire (FCFA)</label><input type="number" name="prix_unitaire" id="ent_pu" min="0" step="100" placeholder="Auto"></div>
+        <div class="form-group"><label>Prix unitaire (FCFA)</label><input type="number" name="prix_unitaire" id="ent_pu" min="0" step="1" placeholder="Auto"></div>
         <div class="form-group"><label>Date *</label><input type="date" name="date_entree" value="{{ now_date if now_date else '' }}" required></div>
     </div>
     <div class="form-group"><label>Fournisseur</label><input type="text" name="fournisseur" placeholder="Ex: Quincaillerie X"></div>
