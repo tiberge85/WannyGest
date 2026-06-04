@@ -18,58 +18,69 @@
 </div>
 
 {% if can_view_all %}
-<!-- KPI Cards -->
+<!-- v133 : KPI Cards CLIQUABLES (filtres rapides par statut) -->
+<style>
+.kpi-clickable { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; text-decoration: none; color: inherit; }
+.kpi-clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+.kpi-clickable.active-filter { box-shadow: 0 0 0 2px #1A7A6D inset; }
+</style>
 <div class="stats-grid" style="margin-bottom:14px">
-    <div class="stat-card" style="border-left:4px solid #e8672a">
+    <a href="?statut=" class="stat-card kpi-clickable {% if not statut_filter %}active-filter{% endif %}" style="border-left:4px solid #e8672a" title="Voir 'À traiter' (Reçues + En analyse)">
         <div class="stat-icon" style="background:#e8672a;color:#fff">⚠️</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.a_traiter }}</div>
             <div class="stat-label">À traiter</div>
         </div>
-    </div>
-    <div class="stat-card" style="border-left:4px solid #1976d2">
+    </a>
+    <a href="?statut=recue" class="stat-card kpi-clickable {% if statut_filter == 'recue' %}active-filter{% endif %}" style="border-left:4px solid #1976d2" title="Filtrer : Reçues">
         <div class="stat-icon" style="background:#1976d2;color:#fff">📥</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.recue }}</div>
             <div class="stat-label">Reçues</div>
         </div>
-    </div>
-    <div class="stat-card" style="border-left:4px solid #7b1fa2">
+    </a>
+    <a href="?statut=en_analyse" class="stat-card kpi-clickable {% if statut_filter == 'en_analyse' %}active-filter{% endif %}" style="border-left:4px solid #7b1fa2" title="Filtrer : En analyse">
         <div class="stat-icon" style="background:#7b1fa2;color:#fff">🔍</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.en_analyse }}</div>
             <div class="stat-label">En analyse</div>
         </div>
-    </div>
-    <div class="stat-card" style="border-left:4px solid #0f5a51">
+    </a>
+    <a href="?statut=transformee_projet" class="stat-card kpi-clickable {% if statut_filter == 'transformee_projet' %}active-filter{% endif %}" style="border-left:4px solid #0f5a51" title="Filtrer : transformées en projet">
         <div class="stat-icon" style="background:#0f5a51;color:#fff">🎯</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.projets }}</div>
             <div class="stat-label">→ Projets</div>
         </div>
-    </div>
-    <div class="stat-card" style="border-left:4px solid #e8672a">
+    </a>
+    <a href="?statut=transformee_intervention" class="stat-card kpi-clickable {% if statut_filter == 'transformee_intervention' %}active-filter{% endif %}" style="border-left:4px solid #e8672a" title="Filtrer : transformées en intervention">
         <div class="stat-icon" style="background:#e8672a;color:#fff">🛠️</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.interventions }}</div>
             <div class="stat-label">→ Interventions</div>
         </div>
-    </div>
-    <div class="stat-card" style="border-left:4px solid #1565c0">
+    </a>
+    <a href="?statut=transformee_opportunite" class="stat-card kpi-clickable {% if statut_filter == 'transformee_opportunite' %}active-filter{% endif %}" style="border-left:4px solid #1565c0" title="Filtrer : transformées en opportunité">
         <div class="stat-icon" style="background:#1565c0;color:#fff">💼</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.opportunites }}</div>
             <div class="stat-label">→ Opportunités</div>
         </div>
-    </div>
-    <div class="stat-card" style="border-left:4px solid #888">
+    </a>
+    <a href="?statut=classee" class="stat-card kpi-clickable {% if statut_filter == 'classee' %}active-filter{% endif %}" style="border-left:4px solid #888" title="Filtrer : classées">
         <div class="stat-icon" style="background:#888;color:#fff">📁</div>
         <div class="stat-info">
             <div class="stat-num">{{ stats.classees }}</div>
             <div class="stat-label">Classées</div>
         </div>
-    </div>
+    </a>
 </div>
+{% if statut_filter %}
+<div style="background:#e3f2fd;padding:8px 12px;border-radius:6px;font-size:11px;color:#0d47a1;margin-bottom:10px;border-left:3px solid #1565c0">
+    🔎 <strong>Filtre actif</strong> : statut = <code style="background:#fff;padding:2px 6px;border-radius:4px">{{ statut_filter }}</code> · 
+    <a href="?" style="color:#c53030;font-weight:600">✖ Réinitialiser</a>
+</div>
+{% endif %}
 {% endif %}
 
 <!-- Filtres + Recherche (s'appliquent aux 2 tableaux) -->

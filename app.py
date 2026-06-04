@@ -2547,6 +2547,39 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
+# v133 : Liste des permissions naturellement accessibles au rôle 'rh'
+# (gestionnaire RH avec département "ressources_humaines")
+# Quand l'utilisateur a role='rh' ET cette permission est dans la liste,
+# l'accès est garanti même si la perm n'est pas explicitement cochée en BDD.
+RH_NATURAL_PERMS = {
+    'employees', 'employees_view', 'employees_edit',
+    'payslips', 'payslips_view', 'payslips_edit', 'payslips_send',
+    'leaves', 'leaves_view', 'leaves_edit', 'leaves_validate',
+    'absences', 'absences_view', 'absences_edit',
+    'rh_contracts', 'rh_contracts_view', 'rh_contracts_edit',
+    'rh_trainings', 'rh_trainings_view', 'rh_trainings_edit',
+    'rh_announcements', 'rh_announcements_view', 'rh_announcements_edit',
+    'rh_budget_view', 'rh_budget_edit', 'rh_budget_real',
+    'budget_view', 'budget_view_own', 'budget_edit',
+    'pointage', 'pointage_view', 'pointage_admin', 'pointage_dept', 'pointage_edit',
+    'traitement',  # accès aux rapports de pointage
+    'fichiers', 'envoyer', 'logs',
+    'clients',  # consultation
+    'alertes', 'comparaison',
+    'rapports_j', 'chat',
+    'dashboard', 'dashboard_general',
+    'section_temps', 'section_rh', 'section_budgets', 'section_calendrier',
+    'gps_itineraire',
+}
+
+def _rh_bypass(user, perm):
+    """v133 : True si le rôle est 'rh' (manager RH) ET la permission est une perm RH naturelle."""
+    if not user: return False
+    if user.get('role') == 'rh' and perm in RH_NATURAL_PERMS:
+        return True
+    return False
+
+
 def permission_required(perm):
     def decorator(f):
         @functools.wraps(f)
@@ -2559,6 +2592,9 @@ def permission_required(perm):
                 return redirect(url_for('dashboard'))
             # Le rôle 'admin' a accès à tout (admin override)
             if user['role'] == 'admin':
+                return f(*args, **kwargs)
+            # v133 : Bypass RH pour permissions RH naturelles
+            if _rh_bypass(user, perm):
                 return f(*args, **kwargs)
             if not has_permission(user['role'], perm):
                 flash("Accès non autorisé", "error")
@@ -2580,6 +2616,9 @@ def permission_required_any(*perms):
                 flash("Accès non autorisé", "error")
                 return redirect(url_for('dashboard'))
             if user['role'] == 'admin':
+                return f(*args, **kwargs)
+            # v133 : Bypass RH pour permissions RH naturelles
+            if any(_rh_bypass(user, p) for p in perms):
                 return f(*args, **kwargs)
             user_perms = get_role_permissions(user['role'])
             if not any(p in user_perms for p in perms):
@@ -2767,6 +2806,10 @@ def inject_globals():
         user = get_user_by_id(session['user_id'])
         if user:
             perms = get_role_permissions(user['role'])
+            # v133 : Si rôle 'rh', injecter automatiquement les perms RH naturelles
+            # pour que la sidebar affiche tous les modules autorisés à la RH.
+            if user['role'] == 'rh':
+                perms = list(set(perms) | RH_NATURAL_PERMS)
             ctx['current_user'] = user
             ctx['permissions'] = perms
             ctx['user_role'] = user['role']
@@ -13293,15 +13336,38 @@ def api_notifications_count():
 @app.route('/notifications/read/<int:nid>')
 @login_required
 def notification_read(nid):
+    """v133 : Marque la notif comme lue + ouvre directement le lien associé.
+    Si pas de lien explicite, fallback intelligent selon le module."""
     conn = _gdb()
     n = conn.execute("SELECT * FROM notifications WHERE id=?", (nid,)).fetchone()
     if n:
         conn.execute("UPDATE notifications SET read=1 WHERE id=?", (nid,))
         conn.commit()
-        link = n['link'] or '/dashboard'
+        link = (n['link'] or '').strip()
+        module = (n['module'] or '').strip() if 'module' in n.keys() else ''
     else:
-        link = '/dashboard'
+        link = ''
+        module = ''
     conn.close()
+    
+    # v133 : éviter la boucle "Voir" → /notifications → "Voir"
+    if not link or link.rstrip('/') in ('', '/notifications'):
+        # Fallback intelligent selon le module de la notif
+        module_links = {
+            'remontees':     '/field-reports',
+            'interventions': '/centre-technique/mes-interventions',
+            'projets':       '/projects',
+            'comptabilite':  '/comptabilite',
+            'tresorerie':    '/ordres-virement',
+            'rh':            '/rh/employees',
+            'factures':      '/comptabilite/factures',
+            'demandes':      '/mg/demandes',
+            'clients':       '/clients',
+            'validations':   '/dashboard',
+            'systeme':       '/dashboard',
+        }
+        link = module_links.get(module, '/dashboard')
+    
     return redirect(link)
 
 
@@ -15294,11 +15360,24 @@ def mg_stock_inventaires():
     }
     categories = sorted(set(a['categorie'] for a in articles if a.get('categorie')))
     cat_filter = request.args.get('cat', '').strip()
+    q = (request.args.get('q', '') or '').strip().lower()  # v133 : filtre recherche
+    alerte_filter = (request.args.get('alerte', '') or '').strip()  # v133 : filtre alerte
+    
     if cat_filter:
         articles = [a for a in articles if (a.get('categorie') or '') == cat_filter]
+    if q:
+        articles = [a for a in articles if 
+            q in (a.get('designation') or '').lower() or 
+            q in (a.get('reference') or '').lower() or
+            q in (a.get('categorie') or '').lower() or
+            q in (a.get('unite') or '').lower()]
+    if alerte_filter:
+        articles = [a for a in articles if a.get('alerte') == alerte_filter]
+    
     conn.close()
     return render_template('mg_stock_inventaires.html', page='mg_stock_inventaires',
-        articles=articles, totaux=totaux, categories=categories, cat_filter=cat_filter)
+        articles=articles, totaux=totaux, categories=categories, cat_filter=cat_filter,
+        q=q, alerte_filter=alerte_filter)
 
 
 @app.route('/mg/stock/marchandise')

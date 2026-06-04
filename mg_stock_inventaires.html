@@ -8,7 +8,7 @@
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
         <a href="/mg/stock" class="btn btn-outline btn-sm">📊 Opérations</a>
-        <a href="/mg/stock/marchandise" class="btn btn-outline btn-sm">📋 Marchandise</a>
+        <a href="/mg/stock/marchandise" class="btn btn-outline btn-sm">📋 Produit Catalogue</a>
         <a href="/mg/stock/entrees" class="btn btn-outline btn-sm">📥 Entrées</a>
         <a href="/mg/stock/sorties" class="btn btn-outline btn-sm">📤 Sorties</a>
         <a href="/mg/stock/export-pdf" target="_blank" class="btn btn-sm" style="background:#c53030;color:#fff">📄 Export PDF</a>
@@ -27,14 +27,23 @@
         <div class="stat-num">{{ '{:,.0f}'.format(totaux.total_valeur_actuelle).replace(',', ' ') }}</div><div class="stat-label">Valeur stock (FCFA)</div></div></div>
 </div>
 
-<!-- Filtre -->
+<!-- v133 : Filtre enrichi avec recherche full-text et filtre alerte -->
 <div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:10px">
     <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <select name="cat" onchange="this.form.submit()" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
+        <input type="text" name="q" value="{{ q or '' }}" placeholder="🔍 Rechercher (désignation, référence, catégorie, unité…)"
+            style="flex:1;min-width:240px;padding:6px 10px;border:1.5px solid #1A7A6D;border-radius:6px">
+        <select name="cat" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
             <option value="">Toutes catégories</option>
             {% for c in categories %}<option value="{{ c }}" {% if c == cat_filter %}selected{% endif %}>{{ c }}</option>{% endfor %}
         </select>
-        {% if cat_filter %}<a href="/mg/stock/inventaires" class="btn btn-outline btn-sm">↻ Réinitialiser</a>{% endif %}
+        <select name="alerte" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Tous niveaux</option>
+            <option value="OK" {% if alerte_filter == 'OK' %}selected{% endif %}>✓ OK</option>
+            <option value="FAIBLE" {% if alerte_filter == 'FAIBLE' %}selected{% endif %}>⚠ Faible</option>
+            <option value="EPUISE" {% if alerte_filter == 'EPUISE' %}selected{% endif %}>⛔ Épuisé</option>
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">🔎 Filtrer</button>
+        {% if cat_filter or q or alerte_filter %}<a href="/mg/stock/inventaires" class="btn btn-outline btn-sm">↻ Réinitialiser</a>{% endif %}
         <span style="margin-left:auto;font-size:12px;color:#888">{{ articles|length }} article(s) affiché(s)</span>
     </form>
 </div></div>

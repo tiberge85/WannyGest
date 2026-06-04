@@ -22,7 +22,7 @@
 <tbody>{% for p in prospects %}<tr>
 <td>{{ p.id }}</td>
 <td><strong>{{ p.contact_name or p.company }}</strong>{% if p.company %}<br><span style="font-size:10px;color:#888">{{ p.company }}</span>{% endif %}
-<br><a href="#" style="font-size:10px;color:#1a7a6d" onclick="viewProspect({{ p.id }});return false">Voir</a> | <a href="#" style="font-size:10px;color:#1A7A6D" onclick="editProspect({{ p.id }});return false">Editer</a> | <a href="/prospects/delete/{{ p.id }}" style="font-size:10px;color:#c53030" onclick="return confirm('Supprimer ?')">Supprimer</a></td>
+<br><a href="/prospects/view/{{ p.id }}" style="font-size:10px;color:#1a7a6d;font-weight:600">👁️ Voir</a> | <a href="#" style="font-size:10px;color:#1A7A6D" onclick="editProspect({{ p.id }});return false">Editer</a> | <a href="/prospects/delete/{{ p.id }}" style="font-size:10px;color:#c53030" onclick="return confirm('Supprimer ?')">Supprimer</a></td>
 <td style="font-size:11px">{{ p.email or '-' }}</td>
 <td>{{ p.tel or '-' }}</td>
 <td style="font-weight:600">{% if p.estimated_value %}{{ '{:,.0f}'.format(p.estimated_value) }}{% else %}-{% endif %}</td>
