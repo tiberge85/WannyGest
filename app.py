@@ -17877,28 +17877,49 @@ def _compute_next_due(base_date_str, period_type, period_days, period_monthly_da
 
 # ==================== v84 : MODULE SUIVI CYCLE DE VIE PROJETS ====================
 
-# Définition des 9 étapes du workflow (v86 - aligné processus métier)
-# Note : étape "Travaux terminés" est un sous-état de l'étape 5 (technique)
+# Définition des étapes du workflow (v132 — étapes techniques en 2 phases)
+# Phase technique = Gros œuvre (5a) → retour MG appareillage (5b) → Planif (5c) → Appareillage (5d)
 PROJECT_STEPS = [
-    {'num': 1, 'key': 'valide',      'label': 'Projet validé',            'pct': 10,  'icon': '✅', 'service': 'commercial',    'service_label': '🏷️ Commercial',         'color': '#1976d2', 'next_label': '→ Transfert au coordinateur'},
-    {'num': 2, 'key': 'demarre',     'label': 'Démarrage validé',         'pct': 18,  'icon': '🚀', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Notification Moyens Généraux'},
-    {'num': 3, 'key': 'preparation', 'label': 'Préparation matériel',     'pct': 28,  'icon': '📦', 'service': 'mg',            'service_label': '🏪 Moyens Généraux',     'color': '#e8672a', 'next_label': '→ Retour coordinateur'},
-    {'num': 4, 'key': 'planifie',    'label': 'Planifié',                 'pct': 40,  'icon': '📅', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Transfert au centre technique'},
-    {'num': 5, 'key': 'execution',   'label': 'Travaux en cours',         'pct': 55,  'icon': '🔧', 'service': 'technique',     'service_label': '🛠️ Centre Technique',    'color': '#7b1fa2', 'next_label': '→ Transfert au coordinateur'},
-    {'num': 6, 'key': 'qc_valide',   'label': 'Contrôle qualité validé',  'pct': 70,  'icon': '🔍', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Livraison obligatoire'},
-    {'num': 7, 'key': 'livre',       'label': 'Livré au client',          'pct': 82,  'icon': '🚚', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Transfert à la comptabilité'},
-    {'num': 8, 'key': 'solde',       'label': 'Solde encaissé',           'pct': 92,  'icon': '💰', 'service': 'comptabilite',  'service_label': '💼 Comptabilité',        'color': '#2e7d32', 'next_label': '→ Transfert au commercial'},
-    {'num': 9, 'key': 'cloture',     'label': 'Projet clôturé',           'pct': 100, 'icon': '🏆', 'service': 'commercial',    'service_label': '🏷️ Commercial',          'color': '#1976d2', 'next_label': 'Fin du cycle'},
+    {'num': 1, 'key': 'valide',      'label': 'Projet validé',            'pct': 8,   'icon': '✅', 'service': 'commercial',    'service_label': '🏷️ Commercial',         'color': '#1976d2', 'next_label': '→ Transfert au coordinateur'},
+    {'num': 2, 'key': 'demarre',     'label': 'Démarrage validé',         'pct': 15,  'icon': '🚀', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Notification Moyens Généraux'},
+    {'num': 3, 'key': 'preparation', 'label': 'Préparation matériel',     'pct': 22,  'icon': '📦', 'service': 'mg',            'service_label': '🏪 Moyens Généraux',     'color': '#e8672a', 'next_label': '→ Retour coordinateur'},
+    {'num': 4, 'key': 'planifie',    'label': 'Planifié',                 'pct': 30,  'icon': '📅', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Transfert au centre technique (gros œuvre)'},
+    # v132 : étape 5 scindée — gros œuvre puis appareillage
+    {'num': 5, 'key': 'execution_gros_oeuvre',  'label': '🏗️ Travaux gros œuvre en cours', 'pct': 40, 'icon': '🏗️', 'service': 'technique', 'service_label': '🛠️ Centre Technique', 'color': '#7b1fa2', 'next_label': '→ Notification MG (matériel appareillage)'},
+    {'num': 6, 'key': 'prep_appareillage',      'label': '📦 Préparation appareillage',     'pct': 50, 'icon': '📦', 'service': 'mg',         'service_label': '🏪 Moyens Généraux',  'color': '#e8672a', 'next_label': '→ Retour coordinateur (planif appareillage)'},
+    {'num': 7, 'key': 'planif_appareillage',    'label': '📅 Planif appareillage',          'pct': 58, 'icon': '📅', 'service': 'coordination','service_label':'👨‍💼 Coordinateur',     'color': '#1A7A6D', 'next_label': '→ Transfert technique (appareillage)'},
+    {'num': 8, 'key': 'execution_appareillage', 'label': '⚙️ Travaux appareillage en cours', 'pct': 68, 'icon': '⚙️', 'service': 'technique','service_label':'🛠️ Centre Technique',   'color': '#7b1fa2', 'next_label': '→ Transfert au coordinateur (CQ)'},
+    {'num': 9, 'key': 'qc_valide',   'label': 'Contrôle qualité validé',  'pct': 78,  'icon': '🔍', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Livraison obligatoire'},
+    {'num': 10,'key': 'livre',       'label': 'Livré au client',          'pct': 86,  'icon': '🚚', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Transfert à la comptabilité'},
+    {'num': 11,'key': 'solde',       'label': 'Solde encaissé',           'pct': 94,  'icon': '💰', 'service': 'comptabilite',  'service_label': '💼 Comptabilité',        'color': '#2e7d32', 'next_label': '→ Transfert au commercial'},
+    {'num': 12,'key': 'cloture',     'label': 'Projet clôturé',           'pct': 100, 'icon': '🏆', 'service': 'commercial',    'service_label': '🏷️ Commercial',          'color': '#1976d2', 'next_label': 'Fin du cycle'},
 ]
 
 # Mapping statut → infos étape
 PROJECT_STATUS_INFO = {s['key']: s for s in PROJECT_STEPS}
-# Statuts spéciaux (non séquentiels) — affichés mais ne font pas partie des 9 étapes
-PROJECT_STATUS_INFO['travaux_fin']   = {'num': 5, 'key': 'travaux_fin',   'label': 'Travaux terminés (attente QC)', 'pct': 65, 'icon': '🏁', 'service': 'technique',    'service_label': '🛠️ Centre Technique',   'color': '#7b1fa2', 'next_label': '→ Contrôle qualité par coord.'}
-PROJECT_STATUS_INFO['qc_rejete']     = {'num': 6, 'key': 'qc_rejete',     'label': 'Contrôle qualité rejeté',       'pct': 55, 'icon': '❌', 'service': 'technique',    'service_label': '🛠️ Centre Technique',   'color': '#c53030', 'next_label': '→ Reprise des travaux'}
-PROJECT_STATUS_INFO['attente_solde'] = {'num': 8, 'key': 'attente_solde', 'label': 'En attente du solde',           'pct': 88, 'icon': '⏳', 'service': 'comptabilite', 'service_label': '💼 Comptabilité',       'color': '#e8672a', 'next_label': '→ Suivi paiement client'}
-PROJECT_STATUS_INFO['contrat_oui']   = {'num': 9, 'key': 'contrat_oui',   'label': 'Contrat entretien accepté',     'pct': 96, 'icon': '✅', 'service': 'commercial',   'service_label': '🏷️ Commercial',         'color': '#2e7d32', 'next_label': '→ Clôture du projet'}
-PROJECT_STATUS_INFO['contrat_non']   = {'num': 9, 'key': 'contrat_non',   'label': 'Contrat entretien refusé',      'pct': 96, 'icon': '🚫', 'service': 'commercial',   'service_label': '🏷️ Commercial',         'color': '#c53030', 'next_label': '→ Clôture du projet'}
+# Statuts spéciaux (non séquentiels) — affichés mais ne font pas partie des étapes principales
+# v132 : 'execution' legacy → mappé à execution_gros_oeuvre pour rétrocompat des anciens projets
+PROJECT_STATUS_INFO['execution']     = {'num': 5, 'key': 'execution',     'label': '🔧 Travaux en cours (legacy)',  'pct': 45, 'icon': '🔧', 'service': 'technique',    'service_label': '🛠️ Centre Technique',   'color': '#7b1fa2', 'next_label': '→ Transfert au coordinateur'}
+PROJECT_STATUS_INFO['travaux_fin']   = {'num': 8, 'key': 'travaux_fin',   'label': 'Travaux terminés (attente QC)', 'pct': 75, 'icon': '🏁', 'service': 'technique',    'service_label': '🛠️ Centre Technique',   'color': '#7b1fa2', 'next_label': '→ Contrôle qualité par coord.'}
+PROJECT_STATUS_INFO['qc_rejete']     = {'num': 9, 'key': 'qc_rejete',     'label': 'Contrôle qualité rejeté',       'pct': 68, 'icon': '❌', 'service': 'technique',    'service_label': '🛠️ Centre Technique',   'color': '#c53030', 'next_label': '→ Reprise des travaux'}
+PROJECT_STATUS_INFO['attente_solde'] = {'num':11, 'key': 'attente_solde', 'label': 'En attente du solde',           'pct': 90, 'icon': '⏳', 'service': 'comptabilite', 'service_label': '💼 Comptabilité',       'color': '#e8672a', 'next_label': '→ Suivi paiement client'}
+PROJECT_STATUS_INFO['contrat_oui']   = {'num':12, 'key': 'contrat_oui',   'label': 'Contrat entretien accepté',     'pct': 98, 'icon': '✅', 'service': 'commercial',   'service_label': '🏷️ Commercial',         'color': '#2e7d32', 'next_label': '→ Clôture du projet'}
+PROJECT_STATUS_INFO['contrat_non']   = {'num':12, 'key': 'contrat_non',   'label': 'Contrat entretien refusé',      'pct': 98, 'icon': '🚫', 'service': 'commercial',   'service_label': '🏷️ Commercial',         'color': '#c53030', 'next_label': '→ Clôture du projet'}
+
+# v132 : Rôles autorisés à voir l'intégralité des informations projet (vue manager)
+# Les autres rôles (technicien notamment) ont une vue limitée masquant les infos financières,
+# contractuelles et autres données sensibles.
+PROJECT_FULL_VIEW_ROLES = ('admin', 'dg', 'directeur', 'rh',
+                            'comptable', 'comptabilite',
+                            'moyens_generaux', 'mg',
+                            'commercial',
+                            'coordinateur', 'gestionnaire_projet',
+                            'resp_projet', 'secretaire')
+
+def can_view_full_project(user_role):
+    """v132 : Retourne True si le rôle peut voir TOUTES les informations du projet
+    (financières, contractuelles, marges...). Les autres rôles voient une version limitée."""
+    return user_role in PROJECT_FULL_VIEW_ROLES
 
 
 def _project_log(project_id, event_type, from_status=None, to_status=None, comment=''):
@@ -18115,14 +18136,18 @@ def _project_advance(project_id, to_status, comment=''):
     
     _project_log(project_id, 'transition', from_status, to_status, comment)
     
-    # v87 : Notifications enrichies — chaque transition notifie le service responsable
-    # ET les acteurs annexes (coordinateurs au sens large)
+    # v87 + v132 : Notifications enrichies — chaque transition notifie le service responsable
     COORD_ROLES = ['coordinateur', 'gestionnaire_projet', 'resp_projet']
     notif_map = {
-        'demarre':        (['mg', 'magasinier'] + COORD_ROLES,   "🚀 Démarrage validé — Préparer le matériel",  "Le coordinateur a validé le démarrage. Vérifier la disponibilité du matériel et préparer les ressources."),
-        'preparation':    (['mg', 'magasinier'] + COORD_ROLES,   "📦 Préparation matériel demandée",            "Lister et réserver le matériel nécessaire au projet."),
-        'planifie':       (['technicien', 'tech_chef', 'chef_chantier', 'centre_technique'] + COORD_ROLES, "📅 Projet planifié — Travaux à venir", "Vous êtes affecté à ce projet. Consultez la fiche de planification."),
+        'demarre':        (['mg', 'moyens_generaux', 'magasinier'] + COORD_ROLES,   "🚀 Démarrage validé — Préparer le matériel",  "Le coordinateur a validé le démarrage. Vérifier la disponibilité du matériel et préparer les ressources."),
+        'preparation':    (['mg', 'moyens_generaux', 'magasinier'] + COORD_ROLES,   "📦 Préparation matériel demandée",            "Lister et réserver le matériel nécessaire au projet."),
+        'planifie':       (['technicien', 'tech_chef', 'chef_chantier', 'centre_technique'] + COORD_ROLES, "📅 Projet planifié — Travaux gros œuvre à venir", "Vous êtes affecté à ce projet. Phase 1 : Gros œuvre."),
         'execution':      (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "🔧 Travaux à exécuter maintenant", "Démarrer les travaux selon le programme défini."),
+        # v132 : Gros œuvre + appareillage
+        'execution_gros_oeuvre':   (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "🏗️ Gros œuvre en cours", "Démarrer les travaux de gros œuvre (étape 1/2 de la phase technique)."),
+        'prep_appareillage':       (['mg', 'moyens_generaux', 'magasinier'] + COORD_ROLES, "📦 Gros œuvre terminé — Préparer le matériel d'appareillage", "Les travaux de gros œuvre sont terminés. Préparer et mettre à disposition le matériel pour l'étape d'appareillage (étape 2/2)."),
+        'planif_appareillage':     (COORD_ROLES, "📅 Matériel appareillage prêt — Planifier l'intervention", "Les Moyens Généraux ont livré le matériel d'appareillage. Planifiez la prochaine intervention pour l'étape d'appareillage."),
+        'execution_appareillage':  (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "⚙️ Appareillage en cours", "Démarrer les travaux d'appareillage (étape 2/2). L'étape de gros œuvre est déjà réalisée."),
         'travaux_fin':    (COORD_ROLES,                          "🏁 Travaux terminés — Contrôle qualité requis","Procéder au contrôle qualité avant livraison au client."),
         'qc_valide':      (COORD_ROLES,                          "🔍 Contrôle qualité validé — Programmer livraison","Le contrôle qualité est validé. Programmer le rendez-vous de livraison avec le client."),
         'qc_rejete':      (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "❌ Contrôle qualité rejeté — Reprise requise", "Le contrôle qualité a été rejeté. Reprendre les travaux selon les observations du coordinateur."),
@@ -18645,9 +18670,14 @@ def projects_list():
             p['step_icon'] = '📋'
             p['step_pct'] = 0
     
+    # v132 : Visibilité limitée — calcul du flag pour le template
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    user_role = user['role'] if user else None
+    full_view = can_view_full_project(user_role)
+    
     return render_template('projects.html', page='projects',
         projects=projects, stats=stats, status_filter=status_filter,
-        steps=PROJECT_STEPS)
+        steps=PROJECT_STEPS, full_view=full_view, user_role=user_role)
 
 
 @app.route('/projects/create', methods=['GET', 'POST'])
@@ -18796,9 +18826,15 @@ def project_detail(pid):
     mg_equips = [dict(r) for r in mg_equips_raw]
     conn.close()
     
+    # v132 : Visibilité limitée des infos sensibles pour certains rôles
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    user_role = user['role'] if user else None
+    full_view = can_view_full_project(user_role)
+    
     return render_template('project_detail.html', page='projects',
         project=p, steps=PROJECT_STEPS, status_info=PROJECT_STATUS_INFO,
-        available_techs=available_techs, mg_equips=mg_equips)
+        available_techs=available_techs, mg_equips=mg_equips,
+        full_view=full_view, user_role=user_role)
 
 
 @app.route('/projects/<int:pid>/advance', methods=['POST'])
@@ -18817,21 +18853,30 @@ def project_advance(pid):
         return redirect('/projects')
     current = p['status']
     
-    # v86 : Transitions selon workflow métier strict
+    # v132 : Transitions selon workflow métier strict avec 2 étapes techniques
     valid_transitions = {
-        'valide':       ['demarre'],                   # Commercial → Coordinateur
-        'demarre':      ['preparation'],               # Coordinateur → MG
-        'preparation':  ['planifie'],                  # MG → Coordinateur (planification)
-        'planifie':     ['execution'],                 # Coordinateur → Centre Technique
-        'execution':    ['travaux_fin'],               # Centre Technique
-        'travaux_fin':  ['qc_valide', 'qc_rejete'],    # Coordinateur (contrôle qualité)
-        'qc_rejete':    ['execution'],                 # Retour Centre Technique
-        'qc_valide':    ['livre'],                     # LIVRAISON OBLIGATOIRE
-        'livre':        ['solde', 'attente_solde'],    # Coordinateur → Comptabilité
-        'attente_solde':['solde'],                     # Comptabilité (suivi)
-        'solde':        ['contrat_oui', 'contrat_non'],# Comptabilité → Commercial
-        'contrat_oui':  ['cloture'],                   # Commercial
-        'contrat_non':  ['cloture'],                   # Commercial
+        'valide':                  ['demarre'],
+        'demarre':                 ['preparation'],
+        'preparation':             ['planifie'],
+        'planifie':                ['execution_gros_oeuvre', 'execution'],  # 'execution' = legacy
+        # v132 : Fin gros œuvre → MG appareillage
+        'execution_gros_oeuvre':   ['prep_appareillage'],
+        # v132 : MG prépare appareillage → coordinateur planifie
+        'prep_appareillage':       ['planif_appareillage'],
+        # v132 : Coordinateur planifie appareillage → tech démarre
+        'planif_appareillage':     ['execution_appareillage'],
+        # v132 : Fin appareillage → QC
+        'execution_appareillage':  ['travaux_fin'],
+        # Legacy : si projet déjà 'execution' (avant v132), passage direct à travaux_fin possible
+        'execution':               ['travaux_fin', 'execution_gros_oeuvre'],
+        'travaux_fin':             ['qc_valide', 'qc_rejete'],
+        'qc_rejete':               ['execution_appareillage', 'execution_gros_oeuvre', 'execution'],
+        'qc_valide':               ['livre'],
+        'livre':                   ['solde', 'attente_solde'],
+        'attente_solde':           ['solde'],
+        'solde':                   ['contrat_oui', 'contrat_non'],
+        'contrat_oui':             ['cloture'],
+        'contrat_non':             ['cloture'],
     }
     allowed_next = valid_transitions.get(current, [])
     if to_status not in allowed_next:

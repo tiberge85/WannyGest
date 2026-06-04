@@ -59,13 +59,13 @@
 <div class="table-wrap"><table id="prjTable">
     <thead><tr>
         <th>Référence</th><th>Titre</th><th>Client</th><th style="width:280px">Étape</th>
-        <th>Progression</th><th>Montant</th><th>Coordinateur</th><th>Actions</th>
+        <th>Progression</th>{% if full_view %}<th>Montant</th>{% endif %}<th>Coordinateur</th><th>Actions</th>
     </tr></thead>
     <tbody>
     {% for p in projects %}
     <tr>
         <td><strong style="color:#1A7A6D;font-family:monospace">{{ p.reference }}</strong>
-            {% if p.devis_reference %}<br><span style="font-size:10px;color:#888">📄 {{ p.devis_reference }}</span>{% endif %}
+            {% if p.devis_reference and full_view %}<br><span style="font-size:10px;color:#888">📄 {{ p.devis_reference }}</span>{% endif %}
         </td>
         <td><strong>{{ p.title }}</strong></td>
         <td>{{ p.client_name or '-' }}</td>
@@ -80,7 +80,7 @@
             </div>
             <span style="font-size:10px;color:#666">{{ p.step_pct }}%</span>
         </td>
-        <td style="white-space:nowrap;font-size:11px"><strong>{{ '{:,.0f}'.format(p.total_amount or 0) }}</strong> F</td>
+        {% if full_view %}<td style="white-space:nowrap;font-size:11px"><strong>{{ '{:,.0f}'.format(p.total_amount or 0) }}</strong> F</td>{% endif %}
         <td style="font-size:11px">{{ p.coordinator_name or '-' }}</td>
         <td>
             <a href="/projects/{{ p.id }}" class="btn btn-outline btn-sm">👁️ Détail</a>
@@ -89,6 +89,11 @@
     {% endfor %}
     </tbody>
 </table></div>
+{% if not full_view %}
+<div style="padding:8px 12px;background:#fff3e0;border-top:1px solid #ffd9a8;font-size:11px;color:#7a4a00">
+    🔒 Vue limitée — Certaines informations (financières, contractuelles) sont masquées pour votre rôle.
+</div>
+{% endif %}
 {% else %}
 <div style="text-align:center;color:#999;padding:40px">
     <div style="font-size:40px;margin-bottom:10px">🗂️</div>
