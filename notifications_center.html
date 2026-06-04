@@ -17,13 +17,13 @@
 
 <!-- Filtres rapides état -->
 <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-    <a href="?filter=all" class="btn btn-sm {% if filter_state == 'all' %}btn-primary{% else %}btn-outline{% endif %}">
+    <a href="?filter=all{% if dept_filter %}&dept={{ dept_filter }}{% endif %}{% if module_filter %}&module={{ module_filter }}{% endif %}{% if type_filter %}&type={{ type_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="btn btn-sm {% if filter_state == 'all' %}btn-primary{% else %}btn-outline{% endif %}">
         Toutes ({{ notif_counts.total }})
     </a>
-    <a href="?filter=unread" class="btn btn-sm {% if filter_state == 'unread' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if filter_state == 'unread' %}background:#c53030;color:#fff{% endif %}">
+    <a href="?filter=unread{% if dept_filter %}&dept={{ dept_filter }}{% endif %}{% if module_filter %}&module={{ module_filter }}{% endif %}{% if type_filter %}&type={{ type_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="btn btn-sm {% if filter_state == 'unread' %}btn-primary{% else %}btn-outline{% endif %}" style="{% if filter_state == 'unread' %}background:#c53030;color:#fff{% endif %}">
         🔴 Non lues ({{ notif_counts.unread }})
     </a>
-    <a href="?filter=read" class="btn btn-sm {% if filter_state == 'read' %}btn-primary{% else %}btn-outline{% endif %}">
+    <a href="?filter=read{% if dept_filter %}&dept={{ dept_filter }}{% endif %}{% if module_filter %}&module={{ module_filter }}{% endif %}{% if type_filter %}&type={{ type_filter }}{% endif %}{% if q %}&q={{ q }}{% endif %}" class="btn btn-sm {% if filter_state == 'read' %}btn-primary{% else %}btn-outline{% endif %}">
         Lues ({{ notif_counts.read }})
     </a>
 </div>
@@ -32,12 +32,12 @@
 {% if module_stats %}
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;background:#f8f9fa;padding:8px;border-radius:8px">
     <span style="font-size:11px;color:#666;padding:4px 6px">Modules :</span>
-    <a href="?{% if filter_state != 'all' %}filter={{ filter_state }}{% endif %}" 
+    <a href="?{% if filter_state != 'all' %}filter={{ filter_state }}{% endif %}{% if dept_filter %}{% if filter_state != 'all' %}&{% endif %}dept={{ dept_filter }}{% endif %}" 
        class="btn btn-sm {% if not module_filter %}btn-primary{% else %}btn-outline{% endif %}" style="font-size:11px;padding:3px 8px">
         Tous
     </a>
     {% for mod, st in module_stats.items() %}
-    <a href="?{% if filter_state != 'all' %}filter={{ filter_state }}&{% endif %}module={{ mod }}" 
+    <a href="?{% if filter_state != 'all' %}filter={{ filter_state }}&{% endif %}module={{ mod }}{% if dept_filter %}&dept={{ dept_filter }}{% endif %}" 
        class="btn btn-sm {% if module_filter == mod %}btn-primary{% else %}btn-outline{% endif %}" style="font-size:11px;padding:3px 8px">
         {{ mod }} ({{ st.total }}{% if st.unread > 0 %} · <strong style="color:#c53030">{{ st.unread }}</strong>{% endif %})
     </a>

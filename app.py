@@ -2573,23 +2573,52 @@ RH_NATURAL_PERMS = {
 }
 
 def _rh_bypass(user, perm):
-    """v133/v135 : Bypass étendu pour la gestionnaire RH.
-    v135 : Si le rôle est 'rh' (manager RH), bypass TOTAL des permissions
-    sauf les routes ultra-sensibles (suppressions définitives, config système).
+    """v133 / v135 / v137 : Bypass étendu pour la gestionnaire RH.
+    v137 : Détection robuste — matche le rôle RH sous diverses variantes
+    ('rh', 'RH', 'rh ', 'directrice_rh', 'responsable_rh', 'manager_rh',
+    'ressources_humaines', 'human_resources') ET aussi via le DÉPARTEMENT du user
+    (si département contient 'rh', 'ressources_humaines', 'human').
+    
+    Bypass TOTAL des permissions sauf les routes ultra-sensibles (admin only).
     Le user a explicitement demandé que la RH ait accès à tout sans devoir être admin."""
     if not user: return False
-    role = user.get('role', '')
+    
+    role = (user.get('role') or '').strip().lower()
+    dept = (user.get('department') or '').strip().lower()
+    
+    # v137 : Liste robuste de variantes de rôle RH
+    RH_ROLE_VARIANTS = {
+        'rh', 'r.h', 'r.h.',
+        'directrice_rh', 'directeur_rh', 'direct_rh',
+        'responsable_rh', 'manager_rh', 'gestionnaire_rh',
+        'ressources_humaines', 'ressource_humaines',
+        'human_resources', 'hr', 'h.r', 'h.r.',
+    }
+    
+    # v137 : Détection RH par rôle (variantes) ou par département
+    is_rh_role = role in RH_ROLE_VARIANTS or role.replace(' ', '').replace('-', '_') in RH_ROLE_VARIANTS
+    is_rh_dept = (
+        'ressources_humaines' in dept.replace('-', '_').replace(' ', '_') or
+        'ressources humaines' in dept or
+        dept == 'rh' or dept.startswith('rh ') or dept.endswith(' rh') or
+        'human_resources' in dept.replace('-', '_').replace(' ', '_') or
+        'human resources' in dept
+    )
+    
+    is_rh = is_rh_role or is_rh_dept
+    
+    if not is_rh:
+        return False
+    
     # v135 : Liste des permissions super-sensibles RÉSERVÉES strictement à l'admin
-    # (la RH ne peut pas y accéder même avec bypass — sécurité système)
     ADMIN_ONLY_HARD_PERMS = {
         'hard_delete', 'system_config', 'backup_restore', 'database_admin',
     }
     if perm in ADMIN_ONLY_HARD_PERMS:
         return False
-    # Rôle 'rh' → bypass total pour tout sauf les perms ci-dessus
-    if role == 'rh':
-        return True
-    return False
+    
+    # RH (détectée par rôle ou département) → bypass total
+    return True
 
 
 def permission_required(perm):
@@ -2818,10 +2847,12 @@ def inject_globals():
         user = get_user_by_id(session['user_id'])
         if user:
             perms = get_role_permissions(user['role'])
-            # v133 : Si rôle 'rh', injecter automatiquement les perms RH naturelles
-            # pour que la sidebar affiche tous les modules autorisés à la RH.
-            if user['role'] == 'rh':
-                perms = list(set(perms) | RH_NATURAL_PERMS)
+            # v133 / v137 : Si l'utilisateur est RH (rôle OU département), injecter
+            # automatiquement TOUTES les permissions (sauf hard admin) pour que la
+            # sidebar affiche tous les modules autorisés.
+            if _rh_bypass(user, 'dashboard'):  # détection robuste rôle ou département
+                # On lui donne accès complet via une perm virtuelle 'admin'
+                perms = list(set(perms) | RH_NATURAL_PERMS | {'admin'})
             ctx['current_user'] = user
             ctx['permissions'] = perms
             ctx['user_role'] = user['role']
@@ -6212,6 +6243,16 @@ def devis_to_invoice(did):
     user = get_user_by_id(session['user_id'])
     log_activity(session['user_id'], user['full_name'] if user else '?',
                 'Facture', f"Devis {d.get('reference','')} converti en facture {ref}", request.remote_addr)
+    
+    # v136 : Notification multi-canal aux comptables + commercial + admin
+    try:
+        notify_roles(['comptable','comptabilite','admin','dg'],
+            title=f"🧾 Nouvelle facture à envoyer : {ref}",
+            message=f"Le devis {d.get('reference','')} a été converti en facture pour {d.get('client_name','client')} — Montant : {d.get('total_ttc',0):,.0f} F. À envoyer au client.",
+            link=f"/comptabilite/facture/view/{conn.execute('SELECT last_insert_rowid()').fetchone()[0] if False else 0}",
+            type='info', module='factures', icon='🧾', priority='high')
+    except Exception as _e: print(f"[v136] notif facture err : {_e}", flush=True)
+    
     flash(f"Devis {d.get('reference','')} converti en facture {ref}", "success")
     return redirect(url_for('comptabilite_page'))
 
@@ -16784,6 +16825,44 @@ def field_reports_full_list():
         statut_filter=statut, priorite_filter=priorite, type_filter=type_info, q=q)
 
 
+# v137 : API client full-info — utilisé par le formulaire de remontée pour auto-remplir
+# les infos Entreprise / Point focal / Commercial + la liste des sites du client.
+@app.route('/api/clients/<int:cid>/full-info')
+@login_required
+def api_client_full_info(cid):
+    """v137 : Retourne en JSON toutes les infos d'un client + ses sites (installations).
+    Utilisé par /field-reports/new pour le pré-remplissage dynamique."""
+    conn = _gdb()
+    try:
+        client = conn.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
+        if not client:
+            conn.close()
+            return jsonify({'error': 'Client introuvable'}), 404
+        
+        client_dict = dict(client)
+        
+        # Récupérer les sites (installations) du client
+        sites = []
+        try:
+            sites_rows = conn.execute(
+                "SELECT id, site_name, zone, address, equipment_type, equipment_count, status "
+                "FROM installations WHERE client_id=? ORDER BY site_name",
+                (cid,)).fetchall()
+            sites = [dict(r) for r in sites_rows]
+        except: pass
+        
+        conn.close()
+        return jsonify({
+            'client': client_dict,
+            'sites': sites,
+            'sites_count': len(sites),
+        })
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/field-reports/new', methods=['GET', 'POST'])
 @permission_required('field_report_create')
 def field_report_new():
@@ -16804,6 +16883,8 @@ def field_report_new():
     date_constat = request.form.get('date_constat') or datetime.now().strftime('%Y-%m-%d')
     site_name = request.form.get('site_name', '').strip()
     site_address = request.form.get('site_address', '').strip()
+    site_zone = request.form.get('site_zone', '').strip()  # v137
+    create_site = request.form.get('create_site') in ('1', 'on', 'true')  # v137
     
     if not description:
         flash("Description requise", "error")
@@ -16817,6 +16898,26 @@ def field_report_new():
         row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
         if row: client_name = row['name']
         conn.close()
+    
+    # v137 : Création automatique du site si demandée
+    if create_site and site_name and client_id and client_id.isdigit():
+        try:
+            conn = _gdb()
+            # Vérifier qu'il n'existe pas déjà
+            existing = conn.execute(
+                "SELECT id FROM installations WHERE client_id=? AND LOWER(site_name)=LOWER(?)",
+                (int(client_id), site_name)).fetchone()
+            if not existing:
+                conn.execute("""INSERT INTO installations
+                    (client_id, client_name, site_name, zone, address, status, created_by, created_at)
+                    VALUES (?,?,?,?,?,'actif',?,datetime('now'))""",
+                    (int(client_id), client_name, site_name, site_zone, site_address,
+                     session.get('user_id')))
+                conn.commit()
+                print(f"[v137] Site créé : {site_name} pour client {client_id}", flush=True)
+            conn.close()
+        except Exception as _e:
+            print(f"[v137] err création site : {_e}", flush=True)
     
     ref = _gen_field_report_ref()
     try:
@@ -18986,15 +19087,33 @@ def projects_list():
         steps=PROJECT_STEPS, full_view=full_view, user_role=user_role)
 
 
+@app.route('/projects/new', methods=['GET', 'POST'])  # v136 : alias pour cohérence avec CRM Nouveau Projet
 @app.route('/projects/create', methods=['GET', 'POST'])
 @project_access_required
 def projects_create():
-    """Création manuelle d'un projet (en plus de l'auto)."""
+    """v136 : Création manuelle d'un projet. Si appelée avec ?from_field_report=<id>,
+    pré-remplit les champs depuis la remontée et lie automatiquement le projet créé."""
+    # v136 : Récupération de la remontée d'origine si présente
+    from_field_report_id = request.args.get('from_field_report', '').strip()
+    if not from_field_report_id:
+        from_field_report_id = request.form.get('from_field_report_id', '').strip()
+    
+    source_report = None
+    if from_field_report_id and from_field_report_id.isdigit():
+        try:
+            _c = _gdb()
+            row = _c.execute("SELECT * FROM field_reports WHERE id=?", (int(from_field_report_id),)).fetchone()
+            if row: source_report = dict(row)
+            _c.close()
+        except: pass
+    
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
         if not title:
             flash("Titre du projet requis", "error")
-            return redirect('/projects/create')
+            redirect_url = '/projects/create'
+            if from_field_report_id: redirect_url += f"?from_field_report={from_field_report_id}"
+            return redirect(redirect_url)
         
         conn = _gdb()
         devis_id = request.form.get('devis_id') or None
@@ -19025,16 +19144,38 @@ def projects_create():
              total, acompte, total - acompte,
              'valide', 1, 10, coord_id, session.get('user_id')))
         pid = cur.lastrowid
+        
+        # v136 : Si projet créé depuis une remontée, lier les deux entités
+        if source_report:
+            try:
+                conn.execute("UPDATE field_reports SET linked_project_id=?, updated_at=datetime('now') WHERE id=?",
+                    (pid, source_report['id']))
+                # Trace dans l'historique de la remontée
+                try:
+                    conn.execute("""INSERT INTO field_reports_history
+                        (report_id, action, action_details, actor_id, actor_name)
+                        VALUES (?,?,?,?,?)""",
+                        (source_report['id'], 'Conversion en projet',
+                         f"Projet {ref} créé depuis cette remontée",
+                         session['user_id'],
+                         get_user_by_id(session['user_id'])['full_name'] if session.get('user_id') else 'Système'))
+                except: pass
+            except Exception as _e: print(f"[v136] link field_report err : {_e}", flush=True)
+        
         conn.commit(); conn.close()
         
         _project_log(pid, 'creation_manuelle', None, 'valide',
-            f"Projet créé manuellement par {get_user_by_id(session['user_id'])['full_name']}")
+            f"Projet créé manuellement par {get_user_by_id(session['user_id'])['full_name']}"
+            + (f" — Issu de la remontée {source_report['reference']}" if source_report else ""))
         # v87 : Notification à tous les acteurs potentiels — le coordinateur prend la suite
+        notif_msg = f"Le projet {ref} vient d'être créé"
+        if client_name: notif_msg += f" (client : {client_name})"
+        if source_report: notif_msg += f" depuis la remontée {source_report['reference']}"
+        notif_msg += ". Le coordinateur doit prendre en charge le démarrage."
         _project_notify(pid, ['admin', 'dg', 'directeur', 'coordinateur', 'gestionnaire_projet', 'resp_projet', 'commercial'],
             f"🆕 Nouveau projet à démarrer : {title}",
-            f"Le projet {ref} vient d'être créé{f' (client : {client_name})' if client_name else ''}. Le coordinateur doit prendre en charge le démarrage.",
+            notif_msg,
             f"/projects/{pid}")
-        # Notif spécifique au coordinateur désigné (si défini)
         if coord_id:
             try:
                 _project_notify(pid, [], 
@@ -19044,7 +19185,11 @@ def projects_create():
                     target_user_id=int(coord_id))
             except: pass
         
-        flash(f"✅ Projet {ref} créé — Notifications envoyées à tous les acteurs", "success")
+        success_msg = f"✅ Projet {ref} créé"
+        if source_report:
+            success_msg += f" — Lié à la remontée {source_report['reference']}"
+        success_msg += " — Notifications envoyées"
+        flash(success_msg, "success")
         return redirect(f'/projects/{pid}')
     
     # GET : formulaire
@@ -19057,8 +19202,27 @@ def projects_create():
     users_coord = [dict(r) for r in conn.execute(
         "SELECT id, full_name, username FROM users WHERE role IN ('admin','coordinateur','dg','directeur') ORDER BY full_name").fetchall()]
     conn.close()
+    
+    # v136 : Pré-remplissage depuis remontée
+    prefill = {}
+    if source_report:
+        prefill = {
+            'title': f"Projet suite remontée {source_report['reference']} — {source_report.get('client_name','')}",
+            'description': f"Source : Remontée terrain {source_report['reference']}\n"
+                           f"Client : {source_report.get('client_name','')}\n"
+                           f"Site : {source_report.get('site_name','') or source_report.get('site_address','')}\n"
+                           f"Type : {source_report.get('type_info','')}\n"
+                           f"Priorité : {source_report.get('priorite','')}\n\n"
+                           f"Description initiale :\n{source_report.get('description','')}\n"
+                           + (f"\nNotes d'analyse :\n{source_report.get('analyse_notes','')}" if source_report.get('analyse_notes') else ''),
+            'client_name': source_report.get('client_name',''),
+            'client_id': source_report.get('client_id') or '',
+        }
+    
     return render_template('project_create.html', page='projects',
-        clients=clients, devis_list=devis_list, coordinators=users_coord)
+        clients=clients, devis_list=devis_list, coordinators=users_coord,
+        source_report=source_report, prefill=prefill,
+        from_field_report_id=from_field_report_id)
 
 
 # v87 : Suppression d'un projet clôturé (admin uniquement)
@@ -19130,6 +19294,16 @@ def project_detail(pid):
            FROM mg_stock_articles a
            ORDER BY a.designation LIMIT 500""").fetchall()
     mg_equips = [dict(r) for r in mg_equips_raw]
+    
+    # v136 : Si le projet a été créé depuis une remontée, récupérer ses infos pour affichage
+    source_report = None
+    try:
+        sr = conn.execute(
+            "SELECT id, reference, type_info, priorite, date_constat, statut FROM field_reports WHERE linked_project_id=?",
+            (pid,)).fetchone()
+        if sr: source_report = dict(sr)
+    except: pass
+    
     conn.close()
     
     # v132 : Visibilité limitée des infos sensibles pour certains rôles
@@ -19140,7 +19314,8 @@ def project_detail(pid):
     return render_template('project_detail.html', page='projects',
         project=p, steps=PROJECT_STEPS, status_info=PROJECT_STATUS_INFO,
         available_techs=available_techs, mg_equips=mg_equips,
-        full_view=full_view, user_role=user_role)
+        full_view=full_view, user_role=user_role,
+        source_report=source_report)
 
 
 @app.route('/projects/<int:pid>/advance', methods=['POST'])

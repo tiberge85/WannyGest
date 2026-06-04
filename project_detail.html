@@ -321,6 +321,20 @@
 
 <div>
 
+{% if source_report %}
+<div class="card" style="margin-bottom:14px;border:2px solid #f29f2f"><div class="card-body" style="background:#fff8e1">
+    <h3 style="margin:0 0 8px;font-size:13px;color:#b8561f">📢 Issue d'une remontée terrain</h3>
+    <div style="font-size:11px;line-height:1.5">
+        <strong>{{ source_report.reference }}</strong><br>
+        Type : <span style="background:#fff;padding:1px 6px;border-radius:4px">{{ source_report.type_info }}</span><br>
+        Priorité : <span style="background:#fff;padding:1px 6px;border-radius:4px">{{ source_report.priorite }}</span><br>
+        Statut : <span style="background:#fff;padding:1px 6px;border-radius:4px">{{ source_report.statut }}</span><br>
+        Date constat : {{ source_report.date_constat }}
+    </div>
+    <a href="/field-reports/{{ source_report.id }}" class="btn btn-sm" style="background:#f29f2f;color:#fff;margin-top:8px;width:100%;text-align:center">📋 Voir la remontée d'origine</a>
+</div></div>
+{% endif %}
+
 <div class="card" style="margin-bottom:14px"><div class="card-body">
     <h3 style="margin:0 0 10px;font-size:14px;color:#1A7A6D">ℹ️ Informations
     {% if not full_view %}<span style="background:#fff3e0;color:#7a4a00;font-size:9px;padding:2px 6px;border-radius:4px;margin-left:6px">🔒 Vue limitée</span>{% endif %}

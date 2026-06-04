@@ -1,30 +1,43 @@
 {% extends "base.html" %}{% block title %}WannyGest - Nouveau projet{% endblock %}{% block content %}
-<div class="page-header"><h1>➕ Nouveau projet</h1>
-<a href="/projects" class="btn btn-outline btn-sm">← Retour</a></div>
+<div class="page-header"><h1>➕ Nouveau projet{% if source_report %} — Issu d'une remontée{% endif %}</h1>
+<a href="{% if source_report %}/crm/nouveau-projet{% else %}/projects{% endif %}" class="btn btn-outline btn-sm">← Retour</a></div>
 
 <div class="card" style="max-width:800px;margin:0 auto">
     <div class="card-body">
+        {% if source_report %}
+        <div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:12px;border-radius:6px;margin-bottom:18px">
+            <div style="font-size:13px;color:#1b5e20;font-weight:700">🔗 Création depuis la remontée {{ source_report.reference }}</div>
+            <div style="font-size:11px;color:#2e7d32;margin-top:4px">
+                Client : <strong>{{ source_report.client_name }}</strong> · 
+                Type : <strong>{{ source_report.type_info }}</strong> · 
+                Priorité : <strong>{{ source_report.priorite }}</strong>
+            </div>
+            <a href="/field-reports/{{ source_report.id }}" style="font-size:11px;color:#0d4a18;text-decoration:underline">Voir la remontée d'origine →</a>
+        </div>
+        {% else %}
         <div style="background:#e3f2fd;border-left:4px solid #1976d2;padding:12px;border-radius:6px;margin-bottom:18px;font-size:12px;color:#1565c0">
             💡 <strong>Création manuelle</strong> — Pour une création automatique, signez un devis client et enregistrez le 1er acompte.
             Le projet sera créé automatiquement.
         </div>
+        {% endif %}
         
         <form method="post" action="/projects/create">
+            {% if from_field_report_id %}<input type="hidden" name="from_field_report_id" value="{{ from_field_report_id }}">{% endif %}
             <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">📋 Informations du projet</h3>
             <div class="form-group"><label>Titre du projet *</label>
-                <input type="text" name="title" required placeholder="Ex: Installation CCTV Pharmacie Cocody"></div>
+                <input type="text" name="title" required value="{{ prefill.title or '' }}" placeholder="Ex: Installation CCTV Pharmacie Cocody"></div>
             <div class="form-group"><label>Description</label>
-                <textarea name="description" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+                <textarea name="description" rows="5" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">{{ prefill.description or '' }}</textarea></div>
             
             <h3 style="margin:18px 0 10px;color:#1A7A6D;font-size:14px">👤 Client</h3>
             <div class="form-row">
                 <div class="form-group"><label>Client</label>
                     <select name="client_id">
                         <option value="">— Sélectionner un client —</option>
-                        {% for cl in clients %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}
+                        {% for cl in clients %}<option value="{{ cl.id }}" {% if prefill.client_id and cl.id|string == prefill.client_id|string %}selected{% endif %}>{{ cl.name }}</option>{% endfor %}
                     </select></div>
                 <div class="form-group"><label>Ou nom du client (texte libre)</label>
-                    <input type="text" name="client_name" placeholder="Si pas dans la liste"></div>
+                    <input type="text" name="client_name" value="{{ prefill.client_name or '' }}" placeholder="Si pas dans la liste"></div>
             </div>
             
             <h3 style="margin:18px 0 10px;color:#1A7A6D;font-size:14px">📄 Devis rattaché (optionnel)</h3>
