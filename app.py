@@ -2069,6 +2069,27 @@ try:
         if n_forced > 0:
             print(f"[v143-Force] {n_forced} permission(s) workflow re-forcée(s)", flush=True)
     
+    # v144 : Backfill — rattraper les remontées déjà 'traitee' avec intervention liée
+    # qui n'ont jamais été marquées exécutées (donc invisibles dans le workflow facturation)
+    fl_v144 = _v142.execute("SELECT value FROM app_settings WHERE key='v144_backfill_executed'").fetchone()
+    if not fl_v144:
+        try:
+            # Pour chaque remontée 'traitee' avec linked_intervention_id mais executed_at NULL :
+            # on remplit executed_at depuis l'intervention pour qu'elle soit visible dans /decisions/facturation
+            n_backfill = _v142.execute("""UPDATE field_reports
+                SET executed_at = COALESCE(updated_at, datetime('now'))
+                WHERE statut='traitee' 
+                      AND linked_intervention_id IS NOT NULL 
+                      AND executed_at IS NULL
+                      AND facturable IS NULL""").rowcount
+            if n_backfill > 0:
+                print(f"[v144-Backfill] {n_backfill} remontée(s) 'traitee' marquée(s) pour décision facturation", flush=True)
+        except Exception as _e:
+            print(f"[v144-Backfill] err : {_e}", flush=True)
+        try:
+            _v142.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v144_backfill_executed', '1', datetime('now'))")
+        except: pass
+    
     _v142.commit()
     _v142.close()
     print("[v142-Workflow] Tables + permissions OK", flush=True)
@@ -3417,11 +3438,13 @@ def inject_globals():
                     # Pending = pas de clôture OU statut en_attente
                     ctx['closure_pending'] = (not _cr) or (_cr['status'] in ('en_attente', None))
                 except: ctx['closure_pending'] = False
-                # v143 : Compteur décisions de facturation en attente (pour DG/RH)
+                # v143 / v144 : Compteur décisions de facturation en attente (pour DG/RH)
+                # v144 : Inclut traitee + executee (rattrapage backlog)
                 try:
                     if user['role'] in ('admin','dg','directeur','rh','directrice_rh'):
                         ctx['decisions_facturation_pending'] = _nc.execute(
-                            "SELECT COUNT(*) FROM field_reports WHERE statut='executee' AND facturable IS NULL"
+                            "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
+                            "AND facturable IS NULL AND linked_intervention_id IS NOT NULL"
                         ).fetchone()[0]
                     else: ctx['decisions_facturation_pending'] = 0
                 except: ctx['decisions_facturation_pending'] = 0
@@ -18184,17 +18207,21 @@ def field_report_execute(rid):
 @app.route('/decisions/facturation')
 @permission_required_any('facturation_decision', 'admin')
 def decisions_facturation():
-    """v143 : Liste centralisée des remontées exécutées en attente de décision de facturation.
-    Accessible aux DG, Directeur, RH, Directrice_rh et Admin."""
+    """v143 / v144 : Liste centralisée des remontées exécutées en attente de décision de facturation.
+    Accessible aux DG, Directeur, RH, Directrice_rh et Admin.
+    v144 : Inclut aussi les remontées 'traitee' (anciennes) pour rattraper le backlog."""
     conn = _gdb()
     items = [dict(r) for r in conn.execute("""
         SELECT fr.id, fr.reference, fr.client_name, fr.type_info, fr.priorite,
                fr.description, fr.execution_notes, fr.executed_at,
+               fr.statut as fr_statut, fr.linked_intervention_id,
                u.full_name as executed_by_name
         FROM field_reports fr
         LEFT JOIN users u ON u.id = fr.executed_by
-        WHERE fr.statut='executee' AND fr.facturable IS NULL
-        ORDER BY fr.executed_at DESC""").fetchall()]
+        WHERE fr.statut IN ('executee','traitee') 
+              AND fr.facturable IS NULL
+              AND fr.linked_intervention_id IS NOT NULL
+        ORDER BY COALESCE(fr.executed_at, fr.updated_at) DESC""").fetchall()]
     
     # Aussi les décisions récentes pour historique
     recent = [dict(r) for r in conn.execute("""
@@ -18671,41 +18698,70 @@ def field_report_transform(rid):
 # v131 : Quand une intervention liée à une remontée est marquée comme terminée,
 # la remontée passe automatiquement à 'traitee'. Helper appelable depuis le code intervention.
 def _sync_remontee_status_from_intervention(intervention_id):
-    """v131 : Si une intervention liée à une remontée passe à un statut final
-    (terminee, livre), met la remontée en 'traitee'."""
+    """v131 / v144 : Si une intervention liée à une remontée passe à un statut final
+    (terminee, livre), passe la remontée en 'executee' pour déclencher le workflow
+    de décision de facturation (DG/RH). v144 : Notifie automatiquement DG/RH."""
     if not intervention_id: return
     try:
         conn = _gdb()
-        int_row = conn.execute("SELECT status FROM interventions WHERE id=?", (intervention_id,)).fetchone()
+        int_row = conn.execute("SELECT status, technician_id FROM interventions WHERE id=?", (intervention_id,)).fetchone()
         if not int_row: 
             conn.close(); return
-        if int_row['status'] not in ('terminee', 'termine', 'livre'):
+        if int_row['status'] not in ('terminee', 'termine', 'livre', 'cloturee'):
             conn.close(); return
         report = conn.execute(
-            "SELECT id, reference, auteur_id FROM field_reports WHERE linked_intervention_id=?",
+            "SELECT id, reference, auteur_id, client_name, statut, executed_at FROM field_reports WHERE linked_intervention_id=?",
             (intervention_id,)).fetchone()
         if not report:
             conn.close(); return
-        if report:
-            conn.execute("""UPDATE field_reports SET statut='traitee',
-                updated_at=datetime('now') WHERE id=?""", (report['id'],))
+        
+        report_id = report['id']
+        report_ref = report['reference']
+        auteur_id = report['auteur_id']
+        client_name = report['client_name'] or ''
+        already_executed = bool(report['executed_at'])
+        
+        # v144 : Si pas déjà passée par /execute, la marquer executee MAINTENANT pour
+        # déclencher le workflow de facturation DG/RH
+        if not already_executed:
+            tech_id = int_row['technician_id']
+            tech_user = None
+            if tech_id:
+                try: tech_user = get_user_by_id(tech_id)
+                except: pass
+            tech_name = tech_user['full_name'] if tech_user else 'Technicien'
+            
+            conn.execute("""UPDATE field_reports
+                SET statut='executee', executed_by=?, executed_at=datetime('now'),
+                    execution_notes=?, updated_at=datetime('now')
+                WHERE id=?""",
+                (tech_id, f"Auto: intervention liée clôturée par {tech_name}", report_id))
             conn.commit()
-            report_id = report['id']
-            report_ref = report['reference']
-            auteur_id = report['auteur_id']
             conn.close()
-            # Notifier l'auteur et les GP
+            
+            # Notif DG/RH pour décision facturation (HIGH priority)
+            try:
+                notify_roles(['dg','directeur','rh','directrice_rh','admin'],
+                    title=f"💰 DÉCISION REQUISE — Facturation : {report_ref}",
+                    message=f"L'intervention sur la remontée {report_ref} ({client_name}) a été terminée. "
+                            f"VOUS DEVEZ DÉCIDER si cette intervention est facturable au client.",
+                    link='/decisions/facturation',
+                    type='warning', module='remontees', icon='💰', priority='high', force=True)
+            except Exception as _e: print(f"[v144] notif DG/RH err : {_e}", flush=True)
+            
+            # Notifier aussi l'auteur de la remontée
             try:
                 notify_user(auteur_id if auteur_id else 1,
-                    title=f"✅ Remontée {report_ref} traitée",
-                    message=f"L'intervention liée a été terminée. La remontée passe en statut 'Traitée'.",
+                    title=f"🛠️ Remontée {report_ref} exécutée",
+                    message=f"L'intervention liée a été terminée. En attente de décision facturation DG/RH.",
                     link=f"/field-reports/{report_id}",
-                    type='success', module='remontees', icon='✅')
+                    type='info', module='remontees', icon='🛠️')
             except: pass
         else:
+            # Déjà passée par /execute → ne rien refaire (statut conservé)
             conn.close()
     except Exception as e:
-        print(f"[v131] sync remontee from intervention err : {e}", flush=True)
+        print(f"[v144] sync remontee from intervention err : {e}", flush=True)
 
 
 @app.route('/field-reports/dashboard')
