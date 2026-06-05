@@ -82,7 +82,6 @@
                         Type : <strong>{{ o.type_virement }}</strong>
                         {% if o.source_caisse_name %} · Source : {{ o.source_caisse_name }}{% endif %}
                         {% if o.dest_bank_name %} → {{ o.dest_bank_name }}{% endif %}
-                        {% if o.dest_beneficiaire_name %} → {{ o.dest_beneficiaire_name }}{% endif %}
                     </div>
                     <div class="tr-meta">Demandé par : <strong>{{ o.requested_by_name or '?' }}</strong> · {{ o.created_at[:16] if o.created_at else '?' }}</div>
                     {% if o.description %}<div style="font-size:11px;color:#555;margin-top:5px;font-style:italic">📝 {{ o.description }}</div>{% endif %}
