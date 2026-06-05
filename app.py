@@ -2204,6 +2204,89 @@ try:
 except Exception as _e: print(f"[v152-Deadline] Err : {_e}", flush=True)
 
 
+# v153 : Backfill — synchroniser les écritures legacy (ecritures_comptables) vers compta_ecritures Pro
+# Lance une seule fois pour rattraper l'historique
+try:
+    from models import get_db as _gdb_v153
+    _v153 = _gdb_v153()
+    fl_v153 = _v153.execute("SELECT value FROM app_settings WHERE key='v153_backfill_ecritures'").fetchone()
+    if not fl_v153:
+        # Récupérer les écritures legacy non encore migrées
+        legacy = _v153.execute("""SELECT id, date, piece, compte_debit, compte_credit, libelle, montant
+            FROM ecritures_comptables ORDER BY date, id""").fetchall()
+        nb_synced = 0
+        # Fonction helper inline pour création compte
+        def _ensure_compte_v153(conn, numero):
+            if not numero: return None
+            r = conn.execute("SELECT id FROM compta_comptes WHERE numero=?", (numero,)).fetchone()
+            if r: return r[0]
+            try:
+                cur = conn.execute(
+                    "INSERT INTO compta_comptes (numero, libelle, classe, type, is_active) VALUES (?,?,?,?,1)",
+                    (numero, f"Compte {numero}", numero[0] if numero else '0', 'actif'))
+                return cur.lastrowid
+            except: return None
+        
+        for e in legacy:
+            date_e = e[1]
+            piece = e[2] or f"LEG-{e[0]}"
+            debit_acc = e[3] or ''
+            credit_acc = e[4] or ''
+            libelle = e[5] or 'Écriture legacy'
+            montant = float(e[6] or 0)
+            if montant <= 0: continue
+            
+            # Vérifier qu'elle n'existe pas déjà
+            exists = _v153.execute(
+                "SELECT 1 FROM compta_ecritures WHERE numero_piece=? AND date=?",
+                (piece, date_e)).fetchone()
+            if exists: continue
+            
+            # Déterminer journal
+            db_s = debit_acc.strip()
+            cr_s = credit_acc.strip()
+            journal_code = 'OD'
+            if cr_s.startswith('7') or db_s.startswith('411'): journal_code = 'VTE'
+            elif db_s.startswith('6') or cr_s.startswith('401'): journal_code = 'ACH'
+            elif db_s.startswith('57') or cr_s.startswith('57'): journal_code = 'CAISSE'
+            elif db_s.startswith('512') or cr_s.startswith('512'): journal_code = 'BANQUE'
+            elif db_s.startswith('64') or db_s.startswith('66'): journal_code = 'PAIE'
+            
+            j_row = _v153.execute("SELECT id FROM compta_journaux WHERE code=?", (journal_code,)).fetchone()
+            if not j_row:
+                j_row = _v153.execute("SELECT id FROM compta_journaux WHERE code='OD'").fetchone()
+            if not j_row: continue
+            j_id = j_row[0]
+            
+            d_id = _ensure_compte_v153(_v153, db_s)
+            c_id = _ensure_compte_v153(_v153, cr_s)
+            if not d_id or not c_id: continue
+            
+            try:
+                cur = _v153.execute("""INSERT INTO compta_ecritures
+                    (journal_id, date, libelle, statut, numero_piece, total_debit, total_credit, created_by, created_at)
+                    VALUES (?,?,?,?,?,?,?,0,datetime('now'))""",
+                    (j_id, date_e, libelle, 'valide', piece, montant, montant))
+                eid = cur.lastrowid
+                _v153.execute("INSERT INTO compta_lignes (ecriture_id, compte_id, compte_numero, libelle, debit, credit, ordre) VALUES (?,?,?,?,?,0,1)",
+                    (eid, d_id, db_s, libelle, montant))
+                _v153.execute("INSERT INTO compta_lignes (ecriture_id, compte_id, compte_numero, libelle, debit, credit, ordre) VALUES (?,?,?,?,0,?,2)",
+                    (eid, c_id, cr_s, libelle, montant))
+                nb_synced += 1
+            except Exception as _ex:
+                print(f"[v153] Sync err id={e[0]}: {_ex}", flush=True)
+        
+        try:
+            _v153.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v153_backfill_ecritures', '1', datetime('now'))")
+        except: pass
+        if nb_synced > 0:
+            print(f"[v153-Backfill] {nb_synced} écriture(s) legacy synchronisée(s) vers Compta Pro", flush=True)
+    _v153.commit()
+    _v153.close()
+except Exception as _e:
+    print(f"[v153-Backfill] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -4072,10 +4155,87 @@ def inject_globals():
 
 
 def auto_ecriture(conn, date, libelle, debit_account, credit_account, amount, reference=''):
-    """Génère automatiquement une écriture comptable double (débit/crédit) SYSCOHADA."""
+    """Génère automatiquement une écriture comptable double (débit/crédit) SYSCOHADA.
+    v153 : Écrit DANS LES DEUX systèmes pour que le dashboard Pro voie les données :
+      - ecritures_comptables (legacy, simple)
+      - compta_ecritures + compta_lignes (Pro SYSCOHADA)"""
     if amount <= 0: return
-    conn.execute("INSERT INTO ecritures_comptables (date, journal, piece, compte_debit, compte_credit, libelle, montant, created_by) VALUES (?,?,?,?,?,?,?,0)",
-        (date, 'VE', reference, debit_account, credit_account, libelle, amount))
+    
+    # 1. Écriture legacy (compatibilité historique)
+    try:
+        conn.execute("INSERT INTO ecritures_comptables (date, journal, piece, compte_debit, compte_credit, libelle, montant, created_by) VALUES (?,?,?,?,?,?,?,0)",
+            (date, 'VE', reference, debit_account, credit_account, libelle, amount))
+    except: pass
+    
+    # 2. v153 : Écriture Pro SYSCOHADA (compta_ecritures + compta_lignes)
+    try:
+        _sync_to_compta_pro(conn, date, libelle, debit_account, credit_account, amount, reference)
+    except Exception as _e:
+        print(f"[v153] sync compta pro err : {_e}", flush=True)
+
+
+def _sync_to_compta_pro(conn, date, libelle, debit_account, credit_account, amount, reference=''):
+    """v153 : Crée une écriture complète dans le système Pro (compta_ecritures + compta_lignes).
+    Détermine automatiquement le journal selon les comptes utilisés."""
+    if amount <= 0: return
+    
+    # Choisir le journal selon le type d'opération
+    # 411 = clients (ventes), 401 = fournisseurs (achats), 5XX = trésorerie, 6XX = charges, 7XX = produits
+    db = (debit_account or '').strip()
+    cr = (credit_account or '').strip()
+    
+    journal_code = 'OD'  # Par défaut Opérations Diverses
+    if cr.startswith('7') or db.startswith('411'):
+        journal_code = 'VTE'  # Ventes
+    elif db.startswith('6') or cr.startswith('401'):
+        journal_code = 'ACH'  # Achats
+    elif db.startswith('57') or cr.startswith('57'):
+        journal_code = 'CAISSE'
+    elif db.startswith('512') or cr.startswith('512') or db.startswith('521') or cr.startswith('521'):
+        journal_code = 'BANQUE'
+    elif db.startswith('64') or db.startswith('66') or cr.startswith('421') or cr.startswith('422'):
+        journal_code = 'PAIE'
+    
+    journal_row = conn.execute("SELECT id FROM compta_journaux WHERE code=?", (journal_code,)).fetchone()
+    if not journal_row:
+        # Fallback OD
+        journal_row = conn.execute("SELECT id FROM compta_journaux WHERE code='OD'").fetchone()
+    if not journal_row: return
+    journal_id = journal_row[0]
+    
+    # Récupérer les ids des comptes (créer si manquants)
+    def _ensure_compte(numero):
+        if not numero: return None
+        r = conn.execute("SELECT id FROM compta_comptes WHERE numero=?", (numero,)).fetchone()
+        if r: return r[0]
+        # Créer le compte si manquant (avec libelle générique)
+        try:
+            cur = conn.execute(
+                "INSERT INTO compta_comptes (numero, libelle, classe, type, is_active) VALUES (?,?,?,?,1)",
+                (numero, f"Compte {numero}", numero[0] if numero else '0', 'actif'))
+            return cur.lastrowid
+        except: return None
+    
+    debit_compte_id = _ensure_compte(db)
+    credit_compte_id = _ensure_compte(cr)
+    
+    if not debit_compte_id or not credit_compte_id: return
+    
+    # Créer l'écriture Pro
+    cur = conn.execute("""INSERT INTO compta_ecritures
+        (journal_id, date, libelle, statut, numero_piece, total_debit, total_credit, created_by, created_at)
+        VALUES (?,?,?,?,?,?,?,0,datetime('now'))""",
+        (journal_id, date, libelle, 'valide', reference or f"AUTO-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+         amount, amount))
+    eid = cur.lastrowid
+    
+    # Lignes (1 débit + 1 crédit)
+    conn.execute("""INSERT INTO compta_lignes 
+        (ecriture_id, compte_id, compte_numero, libelle, debit, credit, ordre)
+        VALUES (?,?,?,?,?,0,1)""", (eid, debit_compte_id, db, libelle, amount))
+    conn.execute("""INSERT INTO compta_lignes 
+        (ecriture_id, compte_id, compte_numero, libelle, debit, credit, ordre)
+        VALUES (?,?,?,?,0,?,2)""", (eid, credit_compte_id, cr, libelle, amount))
 
 @app.route('/robots.txt')
 def robots_txt():
@@ -31093,6 +31253,14 @@ def compta_pro_dashboard():
         nb_brouillard=nb_brouillard, nb_total=nb_total,
         creances=float(creances), dettes=float(dettes), treso=float(treso),
         periode_statut=periode_statut, recent=recent, today=today)
+
+
+# v153 : Page d'aide / documentation compta pro
+@app.route('/compta-pro/aide')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_aide():
+    """v153 : Page d'aide expliquant le fonctionnement de la compta Pro (périodes, écritures, etc.)."""
+    return render_template('compta_pro_aide.html', page='compta_pro_aide')
 
 
 @app.route('/compta-pro/saisie', methods=['GET', 'POST'])

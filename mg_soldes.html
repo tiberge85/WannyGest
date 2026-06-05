@@ -1,94 +1,124 @@
 {% extends "base.html" %}
-{% block title %}WannyGest — Soldes fournisseurs (MG){% endblock %}
+{% block title %}WannyGest — Soldes Fournisseurs (MG){% endblock %}
 {% block content %}
 
 <style>
-.solde-card { background:#fff; border-radius:12px; padding:20px; margin-bottom:14px; box-shadow:0 2px 8px rgba(0,0,0,0.08); border-left:5px solid #1A7A6D }
-.solde-card.caisse { border-left-color:#f29f2f; background:linear-gradient(135deg,#fff8e1,#fff) }
-.solde-card.banque { border-left-color:#1565c0; background:linear-gradient(135deg,#e3f2fd,#fff) }
-.solde-card h3 { margin:0 0 10px; font-size:14px; color:#555 }
-.solde-val { font-size:32px; font-weight:800; color:#1A7A6D }
-.solde-meta { font-size:11px; color:#888; margin-top:5px }
-.summary-card { background:linear-gradient(135deg,#1A7A6D,#0f5a51); color:#fff; padding:22px; border-radius:14px; margin-bottom:18px }
+.section-card { background:#fff; border-radius:14px; padding:18px; margin-bottom:14px; box-shadow:0 2px 8px rgba(0,0,0,0.06) }
+.section-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding-bottom:12px; margin-bottom:14px; border-bottom:3px solid }
+.section-header.caisse { border-color:#f29f2f }
+.section-header.banque { border-color:#1565c0 }
+.section-title { font-size:16px; font-weight:800; margin:0 }
+.section-title.caisse { color:#b8561f }
+.section-title.banque { color:#0d47a1 }
+.solde-item { padding:14px 16px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; border-left:5px solid }
+.solde-item.caisse { background:#fff8e1; border-left-color:#f29f2f }
+.solde-item.banque { background:#e3f2fd; border-left-color:#1565c0 }
+.solde-name { font-size:14px; font-weight:700; color:#222 }
+.solde-meta { font-size:11px; color:#666; margin-top:3px }
+.solde-val { font-size:24px; font-weight:800 }
+.solde-val.caisse { color:#b8561f }
+.solde-val.banque { color:#0d47a1 }
+.subtotal { padding:12px 16px; background:#f8f9fa; border-radius:8px; font-size:13px; text-align:right; font-weight:700 }
+.subtotal.caisse { color:#b8561f; border-left:4px solid #f29f2f }
+.subtotal.banque { color:#0d47a1; border-left:4px solid #1565c0 }
+.summary-hero { background:linear-gradient(135deg,#1A7A6D,#0f5a51); color:#fff; padding:20px; border-radius:14px; margin-bottom:14px }
 </style>
 
 <div class="page-header">
     <div>
         <h1>💰 Soldes Fournisseurs</h1>
-        <p style="color:#666;font-size:12px;margin:4px 0 0">Vue restreinte : soldes uniquement (pas de détails d'opérations).</p>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Vue restreinte MG : uniquement les soldes (pas de détail d'opérations).</p>
     </div>
     <a href="/mg" class="btn btn-outline btn-sm">← Dashboard MG</a>
 </div>
 
-<!-- SOMMAIRE GLOBAL -->
-<div class="summary-card">
+<!-- HERO TOTAL GLOBAL -->
+<div class="summary-hero">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px">
         <div>
-            <div style="font-size:12px;opacity:0.85;text-transform:uppercase;letter-spacing:0.5px">Trésorerie fournisseurs totale</div>
+            <div style="font-size:12px;opacity:0.85;text-transform:uppercase;letter-spacing:1px">Trésorerie fournisseurs disponible</div>
             <div style="font-size:34px;font-weight:800;margin-top:5px">{{ '{:,.0f}'.format(total_global) }} <span style="font-size:18px">F CFA</span></div>
         </div>
         <div style="text-align:right;font-size:11px;opacity:0.9">
-            🏦 {{ banques_fourn|length }} compte(s) bancaire(s)<br>
-            💰 {{ caisses_fourn|length }} caisse(s) fournisseur
+            💰 {{ caisses_fourn|length }} caisse(s) fournisseur<br>
+            🏦 {{ banques_fourn|length }} compte(s) bancaire(s)
         </div>
     </div>
 </div>
 
-<!-- CAISSES FOURNISSEUR -->
-<h2 style="font-size:15px;color:#1A7A6D;margin:14px 0 8px;border-bottom:2px solid #f29f2f;padding-bottom:6px">💰 Caisses Fournisseurs ({{ caisses_fourn|length }})</h2>
-{% if caisses_fourn %}
-{% for c in caisses_fourn %}
-<div class="solde-card caisse">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-        <div>
-            <h3>{{ c.name }}</h3>
-            <div class="solde-meta">{{ c.type or 'Caisse' }}{% if c.description %} · {{ c.description }}{% endif %}</div>
-        </div>
-        <div style="text-align:right">
-            <div class="solde-val" style="color:#b8561f">{{ '{:,.0f}'.format(c.solde_calcule) }} <span style="font-size:14px">F CFA</span></div>
-        </div>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SECTION 1 : CAISSE FOURNISSEUR (séparée et distincte)            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section-card">
+    <div class="section-header caisse">
+        <h2 class="section-title caisse">💰 CAISSE FOURNISSEUR</h2>
+        <div style="font-size:11px;color:#888">{{ caisses_fourn|length }} caisse(s)</div>
     </div>
+    
+    {% if caisses_fourn %}
+        {% for c in caisses_fourn %}
+        <div class="solde-item caisse">
+            <div style="flex:1">
+                <div class="solde-name">💰 {{ c.name }}</div>
+                {% if c.description %}<div class="solde-meta">{{ c.description }}</div>{% endif %}
+            </div>
+            <div class="solde-val caisse">{{ '{:,.0f}'.format(c.solde_calcule) }} <span style="font-size:13px">F CFA</span></div>
+        </div>
+        {% endfor %}
+        <div class="subtotal caisse" style="margin-top:10px">
+            Solde total Caisse Fournisseur : <span style="font-size:18px">{{ '{:,.0f}'.format(total_caisses) }} F CFA</span>
+        </div>
+    {% else %}
+        <div style="text-align:center;padding:22px;color:#888;font-size:12px">
+            <div style="font-size:32px">💰</div>
+            <p style="margin:6px 0 0">Aucune caisse fournisseur configurée.</p>
+            <p style="font-size:10px;margin-top:6px">Pour créer une caisse "Fournisseur", demandez à l'admin de l'ajouter dans 
+                Comptabilité → Caisses avec "fournisseur" dans le nom ou la description.
+            </p>
+        </div>
+    {% endif %}
 </div>
-{% endfor %}
-<div style="text-align:right;font-size:13px;color:#666;margin-bottom:14px">
-    Sous-total caisses : <strong style="color:#b8561f;font-size:16px">{{ '{:,.0f}'.format(total_caisses) }} F CFA</strong>
-</div>
-{% else %}
-<div style="background:#fff;padding:20px;border-radius:10px;text-align:center;color:#888;margin-bottom:14px">
-    <p style="margin:0;font-size:12px">Aucune caisse fournisseur configurée.</p>
-    <p style="font-size:11px;margin-top:6px">Pour créer une caisse de type "Fournisseur", demandez à l'admin.</p>
-</div>
-{% endif %}
 
-<!-- COMPTES BANCAIRES FOURNISSEUR -->
-<h2 style="font-size:15px;color:#1A7A6D;margin:14px 0 8px;border-bottom:2px solid #1565c0;padding-bottom:6px">🏦 Comptes Bancaires Fournisseurs ({{ banques_fourn|length }})</h2>
-{% if banques_fourn %}
-{% for b in banques_fourn %}
-<div class="solde-card banque">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-        <div>
-            <h3>{{ b.nom }}</h3>
-            <div class="solde-meta">{{ b.banque }} · {{ b.type_compte or 'Courant' }}{% if b.numero_compte %} · N° {{ b.numero_compte[-6:] }}**{% endif %}</div>
-        </div>
-        <div style="text-align:right">
-            <div class="solde-val" style="color:#0d47a1">{{ '{:,.0f}'.format(b.solde) }} <span style="font-size:14px">F CFA</span></div>
-        </div>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SECTION 2 : COMPTE BANCAIRE FOURNISSEUR (séparée et distincte)   -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section-card">
+    <div class="section-header banque">
+        <h2 class="section-title banque">🏦 COMPTE FOURNISSEUR</h2>
+        <div style="font-size:11px;color:#888">{{ banques_fourn|length }} compte(s)</div>
     </div>
+    
+    {% if banques_fourn %}
+        {% for b in banques_fourn %}
+        <div class="solde-item banque">
+            <div style="flex:1">
+                <div class="solde-name">🏦 {{ b.nom }}</div>
+                <div class="solde-meta">
+                    {{ b.banque }} · {{ b.type_compte or 'Courant' }}
+                    {% if b.numero_compte %} · N° ***{{ b.numero_compte[-4:] }}{% endif %}
+                </div>
+            </div>
+            <div class="solde-val banque">{{ '{:,.0f}'.format(b.solde) }} <span style="font-size:13px">F CFA</span></div>
+        </div>
+        {% endfor %}
+        <div class="subtotal banque" style="margin-top:10px">
+            Solde total Compte Fournisseur : <span style="font-size:18px">{{ '{:,.0f}'.format(total_banques) }} F CFA</span>
+        </div>
+    {% else %}
+        <div style="text-align:center;padding:22px;color:#888;font-size:12px">
+            <div style="font-size:32px">🏦</div>
+            <p style="margin:6px 0 0">Aucun compte bancaire fournisseur configuré.</p>
+            <p style="font-size:10px;margin-top:6px">Pour configurer, demandez à l'admin d'ajouter un compte avec "fournisseur" dans le nom dans 
+                Trésorerie → Comptes bancaires.
+            </p>
+        </div>
+    {% endif %}
 </div>
-{% endfor %}
-<div style="text-align:right;font-size:13px;color:#666;margin-bottom:14px">
-    Sous-total banques : <strong style="color:#0d47a1;font-size:16px">{{ '{:,.0f}'.format(total_banques) }} F CFA</strong>
-</div>
-{% else %}
-<div style="background:#fff;padding:20px;border-radius:10px;text-align:center;color:#888">
-    <p style="margin:0;font-size:12px">Aucun compte bancaire fournisseur configuré.</p>
-    <p style="font-size:11px;margin-top:6px">Pour configurer, demandez à l'admin de créer un compte avec "fournisseur" dans le nom.</p>
-</div>
-{% endif %}
 
-<div style="background:#fff3cd;border-left:4px solid #f29f2f;padding:12px;border-radius:8px;margin-top:14px;font-size:11px;color:#856404">
+<!-- INFO -->
+<div style="background:#fff3cd;border-left:4px solid #f29f2f;padding:14px;border-radius:8px;margin-top:14px;font-size:12px;color:#856404">
     ℹ️ <strong>Information :</strong> Vous voyez uniquement les soldes des comptes liés aux fournisseurs.
-    Le détail des opérations (entrées/sorties/historique) est réservé à la comptabilité.
+    Pour le détail des opérations (entrées, sorties, mouvements, historique), contactez la comptabilité.
 </div>
 
 {% endblock %}

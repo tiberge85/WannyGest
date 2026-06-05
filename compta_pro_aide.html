@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Aide — Comptabilité Pro{% endblock %}
+{% block content %}
+
+<style>
+.aide-section { background:#fff; padding:18px; border-radius:12px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.aide-section h2 { color:#1A7A6D; font-size:15px; border-bottom:2px solid #1A7A6D; padding-bottom:8px; margin:0 0 12px }
+.aide-section h3 { color:#1565c0; font-size:13px; margin:14px 0 6px }
+.aide-section p, .aide-section li { font-size:13px; line-height:1.6; color:#333 }
+.aide-section ul { padding-left:20px; margin:6px 0 }
+.example { background:#f8f9fa; padding:10px; border-left:4px solid #f29f2f; border-radius:6px; margin:8px 0; font-size:12px; font-family:monospace }
+.tag-auto { background:#e8f5e9; color:#1b5e20; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:700; display:inline-block }
+.tag-manuel { background:#fff3cd; color:#b8561f; padding:3px 8px; border-radius:5px; font-size:11px; font-weight:700; display:inline-block }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📚 Comptabilité Pro — Guide d'utilisation</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Comment fonctionnent les périodes et les écritures comptables.</p>
+    </div>
+    <a href="/compta-pro" class="btn btn-outline btn-sm">← Tableau de bord</a>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SECTION 1 : GESTION DES PÉRIODES                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="aide-section">
+    <h2>📅 Gestion des périodes comptables</h2>
+    
+    <p>Une <strong>période comptable</strong> correspond à un <strong>mois civil</strong> (janvier, février, etc.) de l'exercice en cours.
+    Chaque période traverse 3 états successifs :</p>
+    
+    <h3>🟢 Période OUVERTE</h3>
+    <p>État par défaut au démarrage du mois. Pendant cette période :</p>
+    <ul>
+        <li>✅ La comptabilité peut <strong>saisir</strong> de nouvelles écritures manuelles</li>
+        <li>✅ Le système peut <strong>générer automatiquement</strong> des écritures (ventes, achats, paiements...)</li>
+        <li>✅ Les écritures <strong>en brouillard</strong> peuvent être modifiées ou supprimées</li>
+        <li>✅ Les écritures peuvent être <strong>validées</strong> par le comptable</li>
+    </ul>
+    
+    <h3>🔴 Période FERMÉE</h3>
+    <p>Une fois le mois écoulé et toutes les écritures comptabilisées, le comptable <strong>ferme la période</strong>.</p>
+    <ul>
+        <li>⛔ <strong>Aucune nouvelle écriture</strong> n'est plus acceptée sur ce mois</li>
+        <li>⛔ Les écritures existantes ne peuvent plus être <strong>modifiées</strong></li>
+        <li>✅ Le mois est <strong>consolidé</strong> : balance, grand livre, bilan figés</li>
+        <li>✅ Le mois suivant s'ouvre automatiquement (au 1er du mois)</li>
+    </ul>
+    <p><em>📝 Utilisation typique : Le comptable ferme janvier début février (après réception des factures fournisseurs J+5).</em></p>
+    
+    <h3>📦 Période ARCHIVÉE</h3>
+    <p>État final : la période est complètement verrouillée (typiquement à la <strong>clôture annuelle</strong>).</p>
+    <ul>
+        <li>⛔ Aucune action possible</li>
+        <li>✅ Lecture seule pour les rapports historiques</li>
+    </ul>
+    
+    <div class="example">
+        <strong>Exemple concret :</strong><br>
+        • Janvier 2026 : 🟢 OUVERTE jusqu'au 15 février, puis 🔴 FERMÉE<br>
+        • Février 2026 : 🟢 OUVERTE depuis le 1er février<br>
+        • Décembre 2025 : 📦 ARCHIVÉE après clôture annuelle 2025
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SECTION 2 : NOUVELLE ÉCRITURE COMPTABLE                           -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="aide-section">
+    <h2>📝 Nouvelle écriture comptable : Manuel ou Automatique ?</h2>
+    
+    <p>Les écritures comptables sont créées de <strong>2 manières</strong> :</p>
+    
+    <h3><span class="tag-auto">AUTO</span> Écritures automatiques</h3>
+    <p>Le système génère <strong>automatiquement</strong> les écritures lors de chaque opération courante :</p>
+    <ul>
+        <li>📦 <strong>Vente / Facture client</strong> → Débit 411 Clients, Crédit 70x Ventes + 4431 TVA</li>
+        <li>🛒 <strong>Achat / Facture fournisseur</strong> → Débit 60x Achats + 4451 TVA, Crédit 401 Fournisseurs</li>
+        <li>💵 <strong>Encaissement caissière</strong> → Débit 571 Caisse, Crédit 411 Clients</li>
+        <li>💰 <strong>Sortie de caisse validée + décaissée</strong> → Débit 60x ou 401, Crédit 571 Caisse</li>
+        <li>🏦 <strong>Virement banque ↔ caisse</strong> → Débit 571 / Crédit 512 (ou inverse)</li>
+        <li>👤 <strong>Paie salaire</strong> → Débit 641 Salaires, Crédit 421 Personnel</li>
+    </ul>
+    <p>📝 <strong>Aucune action requise</strong> du comptable : ces écritures apparaissent dans le Brouillard puis sont validées en fin de mois.</p>
+    
+    <h3><span class="tag-manuel">MANUEL</span> Écritures manuelles (Opérations Diverses)</h3>
+    <p>Le comptable doit saisir <strong>manuellement</strong> les écritures qui ne correspondent pas aux opérations standard :</p>
+    <ul>
+        <li>🔄 <strong>Régularisations</strong> (correction d'erreur, écriture à nouveau)</li>
+        <li>📅 <strong>Charges constatées d'avance / Produits à recevoir</strong></li>
+        <li>📉 <strong>Amortissements</strong> annuels</li>
+        <li>💸 <strong>Provisions</strong> pour risques et charges</li>
+        <li>🔧 <strong>Ajustements de bilan</strong> en fin d'exercice</li>
+        <li>📊 <strong>OD diverses</strong> ne pouvant pas être catégorisées</li>
+    </ul>
+    <p>👉 Accès via : <a href="/compta-pro/saisie" style="color:#1A7A6D;font-weight:700">📝 Saisie d'écriture manuelle</a></p>
+    
+    <div class="example">
+        <strong>Exemple — Saisie manuelle :</strong><br>
+        Provision pour congés payés en fin d'année :<br>
+        • Débit 6412 « Congés payés » : 850 000 F<br>
+        • Crédit 4282 « Provision congés » : 850 000 F<br>
+        • Libellé : « Provision congés payés 2026 »<br>
+        • Journal : OD (Opérations Diverses)
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SECTION 3 : WORKFLOW D'UNE ÉCRITURE                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="aide-section">
+    <h2>🔄 Workflow d'une écriture (de la création à la validation)</h2>
+    
+    <ol style="font-size:13px;line-height:1.8">
+        <li><strong>Création (automatique ou manuelle)</strong> → statut <code style="background:#fff3cd;padding:2px 6px;border-radius:4px">brouillard</code></li>
+        <li><strong>Vérification</strong> par le comptable (montants, comptes, libellé)</li>
+        <li><strong>Validation</strong> → statut <code style="background:#e8f5e9;padding:2px 6px;border-radius:4px">validé</code></li>
+        <li>L'écriture validée apparaît dans :
+            <ul>
+                <li>📒 Grand Livre (par compte)</li>
+                <li>⚖️ Balance (totaux par compte)</li>
+                <li>🏛️ Bilan SYSCOHADA (actif / passif)</li>
+                <li>📊 Compte de Résultat (produits / charges)</li>
+            </ul>
+        </li>
+        <li>En fin de mois : <strong>fermeture de la période</strong> → toutes les écritures du mois sont gelées</li>
+    </ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SECTION 4 : PLAN COMPTABLE SYSCOHADA                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="aide-section">
+    <h2>📊 Plan comptable SYSCOHADA (classes principales)</h2>
+    <ul>
+        <li><strong>Classe 1</strong> — Capitaux propres et ressources stables (capital, réserves, emprunts long terme)</li>
+        <li><strong>Classe 2</strong> — Immobilisations (matériel, véhicules, bâtiments)</li>
+        <li><strong>Classe 3</strong> — Stocks (matières, marchandises, produits)</li>
+        <li><strong>Classe 4</strong> — Tiers (clients 411, fournisseurs 401, État 44x, personnel 421/422)</li>
+        <li><strong>Classe 5</strong> — Trésorerie (banque 512, caisse 571, instruments 521)</li>
+        <li><strong>Classe 6</strong> — Charges (achats 60x, services 61x-62x, salaires 64x, impôts 66x)</li>
+        <li><strong>Classe 7</strong> — Produits (ventes 70x, autres produits 75x, produits financiers 77x)</li>
+    </ul>
+</div>
+
+<div style="text-align:center;margin-top:18px">
+    <a href="/compta-pro" class="btn btn-primary" style="margin-right:8px">📊 Retour au Dashboard</a>
+    <a href="/compta-pro/saisie" class="btn btn-outline">📝 Saisir une écriture manuelle</a>
+</div>
+
+{% endblock %}
