@@ -67,12 +67,62 @@
 
 {% else %}
 <!-- SORTIES -->
+<!-- v151 : Cartes statuts CLIQUABLES + barre de recherche -->
 <div class="g4" style="margin-bottom:14px">
-    <div style="background:#fafbfc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e8e8e8"><div style="font-size:22px;font-weight:700;color:#6b7280">{{ stats.en_attente }}</div><div style="font-size:10px;color:#aaa">En attente</div></div>
-    <div style="background:#fafbfc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e8e8e8"><div style="font-size:22px;font-weight:700;color:#6b7280">{{ stats.valide }}</div><div style="font-size:10px;color:#aaa">Validées</div></div>
-    <div style="background:#fafbfc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e8e8e8"><div style="font-size:22px;font-weight:700;color:#6b7280">{{ stats.refuse }}</div><div style="font-size:10px;color:#aaa">Refusées</div></div>
-    <div style="background:#fafbfc;border-radius:10px;padding:14px;text-align:center;border:1px solid #e8e8e8"><div style="font-size:22px;font-weight:700;color:#6b7280">{{ '{:,.0f}'.format(stats.montant_total) }}</div><div style="font-size:10px;color:#aaa">Total (F)</div></div>
+    <a href="?tab=sorties&month={{ month }}&status=en_attente{% if search %}&q={{ search }}{% endif %}" 
+       style="text-decoration:none">
+        <div style="background:{% if status_filter == 'en_attente' %}#fff8e1{% else %}#fafbfc{% endif %};border-radius:10px;padding:14px;text-align:center;border:2px solid {% if status_filter == 'en_attente' %}#f29f2f{% else %}#e8e8e8{% endif %};cursor:pointer;transition:all 0.15s" 
+             onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 3px 8px rgba(0,0,0,0.1)'" 
+             onmouseout="this.style.transform='';this.style.boxShadow=''">
+            <div style="font-size:22px;font-weight:700;color:{% if status_filter == 'en_attente' %}#f29f2f{% else %}#6b7280{% endif %}">{{ stats.en_attente }}</div>
+            <div style="font-size:10px;color:#aaa">⏳ En attente</div>
+        </div>
+    </a>
+    <a href="?tab=sorties&month={{ month }}&status=valide{% if search %}&q={{ search }}{% endif %}" 
+       style="text-decoration:none">
+        <div style="background:{% if status_filter == 'valide' %}#e8f5e9{% else %}#fafbfc{% endif %};border-radius:10px;padding:14px;text-align:center;border:2px solid {% if status_filter == 'valide' %}#2e7d32{% else %}#e8e8e8{% endif %};cursor:pointer;transition:all 0.15s" 
+             onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 3px 8px rgba(0,0,0,0.1)'" 
+             onmouseout="this.style.transform='';this.style.boxShadow=''">
+            <div style="font-size:22px;font-weight:700;color:{% if status_filter == 'valide' %}#2e7d32{% else %}#6b7280{% endif %}">{{ stats.valide }}</div>
+            <div style="font-size:10px;color:#aaa">✅ Validées</div>
+        </div>
+    </a>
+    <a href="?tab=sorties&month={{ month }}&status=refuse{% if search %}&q={{ search }}{% endif %}" 
+       style="text-decoration:none">
+        <div style="background:{% if status_filter == 'refuse' %}#fde8e8{% else %}#fafbfc{% endif %};border-radius:10px;padding:14px;text-align:center;border:2px solid {% if status_filter == 'refuse' %}#c53030{% else %}#e8e8e8{% endif %};cursor:pointer;transition:all 0.15s" 
+             onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 3px 8px rgba(0,0,0,0.1)'" 
+             onmouseout="this.style.transform='';this.style.boxShadow=''">
+            <div style="font-size:22px;font-weight:700;color:{% if status_filter == 'refuse' %}#c53030{% else %}#6b7280{% endif %}">{{ stats.refuse }}</div>
+            <div style="font-size:10px;color:#aaa">❌ Refusées</div>
+        </div>
+    </a>
+    <a href="?tab=sorties&month={{ month }}{% if search %}&q={{ search }}{% endif %}" 
+       style="text-decoration:none">
+        <div style="background:{% if not status_filter %}#e8f4f8{% else %}#fafbfc{% endif %};border-radius:10px;padding:14px;text-align:center;border:2px solid {% if not status_filter %}#1A7A6D{% else %}#e8e8e8{% endif %};cursor:pointer;transition:all 0.15s" 
+             onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 3px 8px rgba(0,0,0,0.1)'" 
+             onmouseout="this.style.transform='';this.style.boxShadow=''">
+            <div style="font-size:22px;font-weight:700;color:{% if not status_filter %}#1A7A6D{% else %}#6b7280{% endif %}">{{ '{:,.0f}'.format(stats.montant_total) }}</div>
+            <div style="font-size:10px;color:#aaa">💰 Total (F) — tout voir</div>
+        </div>
+    </a>
 </div>
+
+<!-- v151/v152 : Barre de recherche avec filtre par jour -->
+<form method="get" style="background:#fff;padding:10px;border-radius:8px;margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <input type="hidden" name="tab" value="sorties">
+    <input type="hidden" name="month" value="{{ month }}">
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    <input type="text" name="q" value="{{ search }}" placeholder="🔍 Rechercher : référence, bénéficiaire, motif..." 
+        style="flex:1;min-width:200px;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    {# v152 : Filtre par jour #}
+    <input type="date" name="day" value="{{ day_filter }}" title="Filtrer un jour précis"
+        style="padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;min-width:140px">
+    <button type="submit" class="btn btn-primary btn-sm" style="font-size:12px;padding:8px 16px;background:#1A7A6D;color:#fff">🔍 Filtrer</button>
+    {% if search or status_filter or day_filter %}
+    <a href="?tab=sorties&month={{ month }}" class="btn btn-outline btn-sm" style="font-size:12px;background:#888;color:#fff;text-decoration:none">✖ Effacer</a>
+    {% endif %}
+    <span style="font-size:11px;color:#666">{{ sorties|length }} demande(s) affichée(s){% if day_filter %} — jour {{ day_filter }}{% endif %}</span>
+</form>
 
 <div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
     <h3>Demandes ({{ sorties|length }})</h3>

@@ -2104,6 +2104,36 @@ except Exception as _e:
     print(f"[v142-Workflow] Erreur : {_e}", flush=True)
 
 
+# v150 : Seed des permissions des fonctionnalités v143-v149 (modulaires)
+# La migration est appelée après la définition de DEFAULT_PERMS_V150 (plus bas dans le fichier).
+def _v150_seed_perms():
+    try:
+        from models import get_db as _gdb_v150
+        _v150 = _gdb_v150()
+        fl_v150 = _v150.execute("SELECT value FROM app_settings WHERE key='v150_perms_seeded'").fetchone()
+        if not fl_v150:
+            n_added_v150 = 0
+            for perm, roles in DEFAULT_PERMS_V150:
+                for role in roles:
+                    try:
+                        exists = _v150.execute("SELECT 1 FROM permissions WHERE role=? AND permission=?",
+                            (role, perm)).fetchone()
+                        if not exists:
+                            _v150.execute("INSERT INTO permissions (role, permission) VALUES (?, ?)",
+                                (role, perm))
+                            n_added_v150 += 1
+                    except: pass
+            try:
+                _v150.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v150_perms_seeded', '1', datetime('now'))")
+            except: pass
+            if n_added_v150 > 0:
+                print(f"[v150-Perms] {n_added_v150} permission(s) v143-v149 ajoutée(s)", flush=True)
+        _v150.commit()
+        _v150.close()
+    except Exception as _e:
+        print(f"[v150-Perms] Erreur : {_e}", flush=True)
+
+
 # v145 : Preuves de paiement + historique des événements workflow
 try:
     from models import get_db as _gdb_v145
@@ -2153,6 +2183,25 @@ try:
     print("[v145-Proofs] Colonnes preuves + table historique OK", flush=True)
 except Exception as _e:
     print(f"[v145-Proofs] Erreur : {_e}", flush=True)
+
+
+# v152 : Colonne deadline_edit pour suivi des factures à éditer
+try:
+    from models import get_db as _gdb_v152
+    _v152 = _gdb_v152()
+    for col_def in [
+        "deadline_edit TEXT",        # Date limite d'édition de la facture (YYYY-MM-DD)
+        "edit_reported_at TEXT",     # Date de report par la compta
+        "edit_report_reason TEXT",   # Raison du report
+    ]:
+        col_name = col_def.split()[0]
+        try: _v152.execute(f"SELECT {col_name} FROM field_report_invoices LIMIT 1")
+        except:
+            try: _v152.execute(f"ALTER TABLE field_report_invoices ADD COLUMN {col_def}")
+            except: pass
+    _v152.commit()
+    _v152.close()
+except Exception as _e: print(f"[v152-Deadline] Err : {_e}", flush=True)
 
 
 # v145 : Types de paiement
@@ -2239,8 +2288,10 @@ CLOSURE_JUSTIFICATION_MOTIFS = {
 
 
 def get_user_pending_tasks(user_id, user_role=None):
-    """v139 / v141 : Récupère toutes les tâches en attente d'un utilisateur selon son rôle.
-    v141 : Correction des URL → toutes vérifiées contre les routes réelles."""
+    """v139 / v141 / v150 : Récupère toutes les tâches en attente d'un utilisateur selon son rôle.
+    v141 : Correction des URL → toutes vérifiées contre les routes réelles.
+    v150 : Admin ne voit QUE ses tâches personnelles (pas les validations globales DG/RH/Compta)
+    pour éviter d'avoir à clôturer des tâches qui ne le concernent pas."""
     from models import get_db as _gdb_pt
     conn = _gdb_pt()
     result = {
@@ -2254,6 +2305,13 @@ def get_user_pending_tasks(user_id, user_role=None):
         'commandes':         [],
         'others':            [],
     }
+    
+    # v150 : Admin n'agit pas comme un acteur métier dans la clôture → 
+    # On exclut les validations globales (OV à valider, demandes MG, etc.)
+    # qui sont normalement le travail d'un DG/RH ou compta.
+    # Admin ne voit que ses propres tâches personnelles : interventions assignées,
+    # projets coordonnés, notifications HIGH lues, devis créés par lui, etc.
+    is_admin_silent = (user_role == 'admin')
     
     try:
         # 1. Interventions assignées non clôturées
@@ -2352,7 +2410,8 @@ def get_user_pending_tasks(user_id, user_role=None):
         except: pass
         
         # 4. Validations en attente selon le rôle
-        if user_role in ('dg', 'directeur', 'admin'):
+        # v150 : Admin n'agit pas sur les validations globales dans la clôture
+        if user_role in ('dg', 'directeur') and not is_admin_silent:
             # Ordres de virement à valider
             try:
                 rows = conn.execute("""SELECT id, reference, beneficiaire, montant
@@ -2362,12 +2421,29 @@ def get_user_pending_tasks(user_id, user_role=None):
                     result['validations'].append({
                         'id': r['id'], 'task_type': 'ordre_virement',
                         'label': f"OV {r['reference']} — {r['beneficiaire']} ({r['montant']:,.0f} F)",
-                        # v141 : route détail n'existe pas, on pointe vers la liste
                         'link': '/ordres-virement', 'status': 'à valider',
                     })
             except: pass
         
-        if user_role in ('comptable', 'comptabilite', 'admin'):
+        # v142 / v150 / v152 : Comptabilité — factures à éditer (FRI)
+        # v152 : Exclure les factures reportées au lendemain (deadline > today)
+        if user_role in ('comptable', 'comptabilite') and not is_admin_silent:
+            try:
+                today_dt = datetime.now().strftime('%Y-%m-%d')
+                rows = conn.execute("""SELECT fri.id, fri.amount, fr.reference as fr_ref, fr.client_name
+                    FROM field_report_invoices fri
+                    JOIN field_reports fr ON fr.id = fri.field_report_id
+                    WHERE fri.status='a_facturer'
+                          AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= ?)
+                    ORDER BY fri.created_at LIMIT 30""", (today_dt,)).fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'facture_a_editer',
+                        'label': f"🧾 Facture à éditer {r['fr_ref']} — {r['client_name']} ({r['amount']:,.0f} XOF)",
+                        'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
+                        'priority': 'high',
+                    })
+            except: pass
             # Acomptes en attente de comptabilisation
             try:
                 rows = conn.execute("""SELECT id, reference, montant, libelle
@@ -2381,7 +2457,7 @@ def get_user_pending_tasks(user_id, user_role=None):
                     })
             except: pass
         
-        if user_role in ('moyens_generaux', 'mg', 'admin'):
+        if user_role in ('moyens_generaux', 'mg') and not is_admin_silent:
             # Demandes MG en attente (table achats_demandes)
             try:
                 rows = conn.execute("""SELECT id, reference, designation, statut
@@ -2411,8 +2487,9 @@ def get_user_pending_tasks(user_id, user_role=None):
                 })
         except: pass
         
-        # v142 : Coordinateur — TOUTES les remontées non traitées (visibilité globale)
-        if user_role in ('coordinateur', 'gestionnaire_projet', 'resp_projet', 'admin'):
+        # v142 / v150 : Coordinateur — TOUTES les remontées non traitées (visibilité globale)
+        # v150 : Admin ne reçoit PAS cette vue globale dans sa clôture (lui-même n'a pas de rôle métier ici)
+        if user_role in ('coordinateur', 'gestionnaire_projet', 'resp_projet') and not is_admin_silent:
             try:
                 rows = conn.execute("""SELECT id, reference, type_info, priorite, statut, client_name
                     FROM field_reports
@@ -2432,7 +2509,7 @@ def get_user_pending_tasks(user_id, user_role=None):
             except: pass
         
         # 6. Devis non envoyés ou en cours
-        if user_role in ('commercial', 'admin', 'dg', 'coordinateur'):
+        if user_role in ('commercial', 'dg', 'coordinateur') and not is_admin_silent:
             try:
                 rows = conn.execute("""SELECT id, reference, client_name, total_ttc, status
                     FROM devis WHERE created_by=? AND status IN ('brouillon','envoye','en_negociation')
@@ -2447,8 +2524,8 @@ def get_user_pending_tasks(user_id, user_role=None):
                     })
             except: pass
         
-        # v142 : Agent recouvreur — factures à envoyer/déposer
-        if user_role in ('agent_recouvreur', 'admin'):
+        # v142 / v150 : Agent recouvreur — factures à envoyer/déposer
+        if user_role == 'agent_recouvreur' and not is_admin_silent:
             try:
                 rows = conn.execute("""SELECT id, invoice_number, amount FROM field_report_invoices
                     WHERE status IN ('facture_editee','en_recouvrement')
@@ -2462,8 +2539,8 @@ def get_user_pending_tasks(user_id, user_role=None):
                     })
             except: pass
         
-        # v142 : Caissière — paiements en attente de validation
-        if user_role in ('caissiere', 'admin'):
+        # v142 / v150 : Caissière — paiements en attente de validation
+        if user_role == 'caissiere' and not is_admin_silent:
             try:
                 rows = conn.execute("""SELECT id, invoice_number, amount FROM field_report_invoices
                     WHERE status='caisse_choisie'
@@ -3237,7 +3314,79 @@ PERM_CATEGORIES = {
         ('creances_relance', 'Enregistrer des relances'),
         ('creances_export', 'Exporter PDF/Excel des créances'),
     ],
+    
+    # ═══════════════════════════════════════════════════════════════
+    # v150 : Permissions des fonctionnalités v143-v149
+    # Permettent à l'admin d'attribuer finement les nouveaux modules
+    # ═══════════════════════════════════════════════════════════════
+    
+    '🌙 Pointage forcé & Clôture (v149)': [
+        ('pointage_force_arrival', 'Pointage arrivée obligatoire à la connexion (sinon redirige vers /pointage)'),
+        ('pointage_force_via_closure', 'Pointage départ obligatoire via la clôture journalière (impossible en direct si tâches en attente)'),
+        ('pointage_auto_logout_closure', 'Déconnexion automatique après clôture si pointage départ accepté'),
+        ('closure_choose_departure', 'Lors de la clôture, choisir si on pointe le départ ou si on continue la session'),
+    ],
+    
+    '💰 Workflow Facturation (v142-v147)': [
+        ('facturation_decision', 'Décider si une remontée est facturable (DG/RH)'),
+        ('facture_edit', 'Éditer / Modifier des factures (Comptabilité)'),
+        ('recouvrement_view', 'Voir le module Recouvrement (Agent recouvreur)'),
+        ('recouvrement_edit', 'Marquer factures envoyées + saisir preuves de paiement'),
+        ('caissiere_view', 'Voir le module Caissière'),
+        ('caissiere_validate', 'Valider les paiements + saisir bordereau'),
+        ('section_recouvrement', 'Voir la section RECOUVREMENT dans la sidebar'),
+        ('section_caissiere', 'Voir la section CAISSIÈRE dans la sidebar'),
+        ('workflow_historique_view', 'Voir l\'historique global du workflow facturation/recouvrement'),
+    ],
+    
+    '🏦 Validation transferts caisse (v147)': [
+        ('transferts_validate', 'Voir et valider les transferts caisse/banque en attente DG/RH'),
+    ],
+    
+    '🛠️ Workflow Projets — Restrictions MG (v148)': [
+        ('project_assign_team', 'Assigner des techniciens à un projet (refusé aux MG)'),
+        ('project_set_planning', 'Définir dates et coordinateur d\'un projet (refusé aux MG)'),
+        ('project_advance_material', 'Faire avancer le workflow projet — étape matériel uniquement (MG)'),
+        ('project_advance_all', 'Faire avancer le workflow projet — toutes les étapes (coordinateur/admin)'),
+    ],
 }
+
+# v150 : Mapping permission → rôles par défaut (utilisé par la migration v150)
+DEFAULT_PERMS_V150 = [
+    # Pointage forcé : activé par défaut pour tous SAUF admin
+    ('pointage_force_arrival',        ['technicien','tech_chef','chef_chantier','centre_technique','informatique',
+                                       'comptable','comptabilite','caissiere','agent_recouvreur',
+                                       'commercial','coordinateur','gestionnaire_projet','resp_projet',
+                                       'moyens_generaux','mg','magasinier','conciergerie',
+                                       'rh','directrice_rh','dg','directeur']),
+    ('pointage_force_via_closure',    ['technicien','tech_chef','chef_chantier','centre_technique','informatique',
+                                       'comptable','comptabilite','caissiere','agent_recouvreur',
+                                       'commercial','coordinateur','gestionnaire_projet','resp_projet',
+                                       'moyens_generaux','mg','magasinier']),
+    ('pointage_auto_logout_closure',  ['technicien','tech_chef','chef_chantier','centre_technique','informatique',
+                                       'comptable','comptabilite','caissiere','agent_recouvreur',
+                                       'commercial','coordinateur','gestionnaire_projet','resp_projet',
+                                       'moyens_generaux','mg','magasinier']),
+    ('closure_choose_departure',      ['technicien','tech_chef','chef_chantier','centre_technique','informatique',
+                                       'comptable','comptabilite','caissiere','agent_recouvreur',
+                                       'commercial','coordinateur','gestionnaire_projet','resp_projet',
+                                       'moyens_generaux','mg','magasinier','rh','directrice_rh','dg','directeur']),
+    # Workflow projets
+    ('project_assign_team',           ['admin','dg','directeur','coordinateur','gestionnaire_projet','resp_projet']),
+    ('project_set_planning',          ['admin','dg','directeur','coordinateur','gestionnaire_projet','resp_projet']),
+    ('project_advance_material',      ['admin','moyens_generaux','mg','magasinier','coordinateur','gestionnaire_projet','resp_projet']),
+    ('project_advance_all',           ['admin','dg','directeur','coordinateur','gestionnaire_projet','resp_projet',
+                                       'technicien','tech_chef','chef_chantier','centre_technique','informatique']),
+    # Validation transferts
+    ('transferts_validate',           ['admin','dg','directeur','rh','directrice_rh']),
+    # Workflow facturation : déjà géré par migration v143
+    ('workflow_historique_view',      ['admin','dg','directeur','rh','directrice_rh','comptable','comptabilite',
+                                       'agent_recouvreur','caissiere']),
+]
+
+# v150 : Exécution de la migration (maintenant que DEFAULT_PERMS_V150 est défini)
+try: _v150_seed_perms()
+except Exception as _e: print(f"[v150-Perms] Call err : {_e}", flush=True)
 
 # ALL_PERMISSIONS est dérivé automatiquement de PERM_CATEGORIES (source de vérité unique).
 # Ajouter une nouvelle permission = l'ajouter dans PERM_CATEGORIES, et c'est tout.
@@ -4121,10 +4270,9 @@ _POINTAGE_EXEMPT_ROLES = ('admin',)  # admin pour ne pas se bloquer en debug
 
 @app.before_request
 def _force_arrival_pointage():
-    """v149 : Force l'utilisateur connecté à pointer son arrivée avant d'accéder au logiciel.
-    Si non pointé arrivée + non rôle exempt + route non exempte → redirige vers /pointage.
-    Si pointé départ → déconnecte automatiquement (journée terminée)."""
-    # Pas de session active → laisser Flask gérer (redirige login)
+    """v149 / v150 : Force l'utilisateur connecté à pointer son arrivée avant d'accéder au logiciel.
+    v150 : Conditionné à la permission 'pointage_force_arrival' attribuable par rôle/utilisateur.
+    Admin et utilisateurs sans cette permission ne sont pas forcés."""
     uid = session.get('user_id')
     if not uid: return
     
@@ -4134,17 +4282,28 @@ def _force_arrival_pointage():
         if path == prefix or path.startswith(prefix):
             return
     
-    # Récupérer rôle (cache via session pour perf)
     user = get_user_by_id(uid)
     if not user: return
-    if user['role'] in _POINTAGE_EXEMPT_ROLES:
+    
+    # v150 : Vérifier la permission (au lieu d'une liste de rôles en dur)
+    try:
+        user_perms = get_role_permissions(user['role'])
+    except: user_perms = []
+    
+    # Admin n'est jamais forcé (sauf si on lui retire spécifiquement la perm 'admin')
+    if user['role'] == 'admin' and 'admin' in user_perms:
         return
     
-    # v149 : Si l'utilisateur a déjà pointé son départ → session expirée, déconnexion
+    # v150 : Si la permission 'pointage_force_arrival' n'est pas attribuée, on ne force pas
+    if 'pointage_force_arrival' not in user_perms:
+        return
+    
+    # v149 : Si l'utilisateur a déjà pointé son départ → déconnexion (sauf si auto_logout désactivé)
     if _user_has_pointed_today(uid, 'depart'):
-        session.clear()
-        flash("🌙 Votre journée est clôturée (pointage départ effectué). Reconnectez-vous demain.", "info")
-        return redirect('/login')
+        if 'pointage_auto_logout_closure' in user_perms:
+            session.clear()
+            flash("🌙 Votre journée est clôturée (pointage départ effectué). Reconnectez-vous demain.", "info")
+            return redirect('/login')
     
     # Si pas encore pointé arrivée → forcer le pointage
     if not _user_has_pointed_today(uid, 'arrivee'):
@@ -13918,6 +14077,13 @@ def closure_today():
     for j in justifications:
         key = f"{j['task_type']}_{j['task_id']}"
         justified_map[key] = j
+    # v151 : Compter les notifications non lues (pour avertissement DG)
+    notif_unread_count = 0
+    try:
+        notif_unread_count = conn.execute(
+            "SELECT COUNT(*) FROM notifications WHERE user_id=? AND COALESCE(read,0)=0",
+            (user['id'],)).fetchone()[0]
+    except: pass
     conn.close()
     
     return render_template('closure_today.html', page='closure',
@@ -13925,7 +14091,9 @@ def closure_today():
         motifs=CLOSURE_JUSTIFICATION_MOTIFS,
         justifications=justifications,
         justified_map=justified_map,
-        total_pending=pending['_total'])
+        total_pending=pending['_total'],
+        user_role=user['role'],
+        notif_unread_count=notif_unread_count)
 
 
 @app.route('/closure/justify', methods=['POST'])
@@ -13995,6 +14163,21 @@ def closure_submit():
         flash(f"⚠️ Impossible de clôturer : {total_pending - just_count} tâche(s) sans justification", "error")
         return redirect('/closure/today')
     
+    # v151 : Pour le DG/directeur : EXIGER que TOUTES les notifications soient lues avant clôture
+    # (le DG doit prendre connaissance de tous les éléments importants avant de partir)
+    if user['role'] in ('dg', 'directeur'):
+        try:
+            nb_unread = conn.execute(
+                "SELECT COUNT(*) FROM notifications WHERE user_id=? AND COALESCE(read,0)=0",
+                (user['id'],)).fetchone()[0]
+            if nb_unread > 0:
+                conn.close()
+                flash(f"⛔ Impossible de clôturer : {nb_unread} notification(s) non lue(s). "
+                      f"En tant que DG, vous devez prendre connaissance de toutes les notifications "
+                      f"avant de fermer votre session. Cliquez sur 🔔 Notifications pour les consulter.", "error")
+                return redirect('/notifications')
+        except Exception as _e: print(f"[v151] check notif DG err : {_e}", flush=True)
+    
     # Notes optionnelles
     notes = request.form.get('notes', '').strip()
     
@@ -14015,33 +14198,50 @@ def closure_submit():
         f"Clôture journalière {status} ({total_pending} en attente, {just_count} justifiées)",
         request.remote_addr)
     
-    # v149 : POINTAGE DÉPART AUTOMATIQUE à la clôture
-    try:
-        already_dep = _user_has_pointed_today(user['id'], 'depart')
-        if not already_dep:
-            now_v149 = datetime.now()
-            today_str_v149 = now_v149.strftime('%Y-%m-%d')
-            time_str_v149 = now_v149.strftime('%H:%M')
-            try:
-                from models import compute_pointage_status, get_user_planning
-                planning_v = get_user_planning(user['id'])
-                status_pt, ecart_pt = compute_pointage_status(user['id'], 'depart', time_str_v149, planning_v)
-            except: status_pt, ecart_pt = 'normal', 0
-            
-            conn_pt = _gdb()
-            conn_pt.execute("""INSERT INTO hr_pointages
-                (user_id, type, date, time, datetime_full, status, ecart_minutes,
-                 ip, user_agent, method, location_address)
-                VALUES (?, 'depart', ?, ?, ?, ?, ?, ?, ?, 'closure', 'Clôture automatique')""",
-                (user['id'], today_str_v149, time_str_v149, now_v149.isoformat(),
-                 status_pt, ecart_pt,
-                 request.remote_addr,
-                 (request.headers.get('User-Agent','') or '')[:200]))
-            conn_pt.commit()
-            conn_pt.close()
-            log_activity(user['id'], user['full_name'], 'Pointage',
-                f"Départ automatique via clôture à {time_str_v149} ({status_pt})", request.remote_addr)
-    except Exception as _e: print(f"[v149] auto pointage depart err : {_e}", flush=True)
+    # v149 / v150 : POINTAGE DÉPART AUTOMATIQUE à la clôture (optionnel selon choix utilisateur)
+    # v150 : L'utilisateur choisit via le formulaire :
+    #   - 'pointer_depart=oui'  → pointe le départ + déconnecte si auto_logout activé
+    #   - 'pointer_depart=non'  → garde la session ouverte (pointera plus tard manuellement)
+    user_perms_close = []
+    try: user_perms_close = get_role_permissions(user['role'])
+    except: pass
+    
+    can_choose = 'closure_choose_departure' in user_perms_close
+    pointer_depart = (request.form.get('pointer_depart','oui') or 'oui').strip().lower()
+    
+    # Si pas la permission de choisir → toujours pointer le départ (v149 default)
+    if not can_choose:
+        pointer_depart = 'oui'
+    
+    departure_pointed = False
+    if pointer_depart == 'oui':
+        try:
+            already_dep = _user_has_pointed_today(user['id'], 'depart')
+            if not already_dep:
+                now_v149 = datetime.now()
+                today_str_v149 = now_v149.strftime('%Y-%m-%d')
+                time_str_v149 = now_v149.strftime('%H:%M')
+                try:
+                    from models import compute_pointage_status, get_user_planning
+                    planning_v = get_user_planning(user['id'])
+                    status_pt, ecart_pt = compute_pointage_status(user['id'], 'depart', time_str_v149, planning_v)
+                except: status_pt, ecart_pt = 'normal', 0
+                
+                conn_pt = _gdb()
+                conn_pt.execute("""INSERT INTO hr_pointages
+                    (user_id, type, date, time, datetime_full, status, ecart_minutes,
+                     ip, user_agent, method, location_address)
+                    VALUES (?, 'depart', ?, ?, ?, ?, ?, ?, ?, 'closure', 'Clôture automatique')""",
+                    (user['id'], today_str_v149, time_str_v149, now_v149.isoformat(),
+                     status_pt, ecart_pt,
+                     request.remote_addr,
+                     (request.headers.get('User-Agent','') or '')[:200]))
+                conn_pt.commit()
+                conn_pt.close()
+                log_activity(user['id'], user['full_name'], 'Pointage',
+                    f"Départ automatique via clôture à {time_str_v149} ({status_pt})", request.remote_addr)
+                departure_pointed = True
+        except Exception as _e: print(f"[v149-v150] auto pointage depart err : {_e}", flush=True)
     
     # Notification au responsable RH si clôture partielle (justifications soumises)
     if status == 'partielle':
@@ -14053,12 +14253,22 @@ def closure_submit():
                 type='info', module='rh', icon='📋', priority='normal')
         except: pass
     
-    # v149 : DÉCONNEXION AUTOMATIQUE après clôture
-    user_name_final = user['full_name']
-    session.clear()
-    flash(f"🌙 Bonne soirée {user_name_final} ! Votre journée est clôturée — Statut : {status}. "
-          f"Pointage départ effectué automatiquement. À demain !", "success")
-    return redirect('/login')
+    # v149 / v150 : Déconnexion automatique UNIQUEMENT si départ pointé + permission auto_logout
+    will_logout = departure_pointed and ('pointage_auto_logout_closure' in user_perms_close)
+    
+    if will_logout:
+        user_name_final = user['full_name']
+        session.clear()
+        flash(f"🌙 Bonne soirée {user_name_final} ! Votre journée est clôturée — Statut : {status}. "
+              f"Pointage départ effectué automatiquement. À demain !", "success")
+        return redirect('/login')
+    else:
+        if pointer_depart == 'non':
+            flash(f"✅ Journée clôturée — Statut : {status}. La session reste ouverte. "
+                  f"N'oubliez pas de pointer votre départ avant de partir !", "info")
+        else:
+            flash(f"✅ Journée clôturée — Statut : {status}.", "success")
+        return redirect('/dashboard')
 
 
 @app.route('/closure/exception/<int:closure_id>', methods=['POST'])
@@ -18681,12 +18891,14 @@ def field_report_decide_facturation(rid):
              user['id'], motif, rid))
         
         if is_facturable:
+            # v152 : Date limite par défaut = lendemain (J+1)
+            deadline_default = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
             # Créer l'enregistrement facture/recouvrement
             cur = conn.execute("""INSERT INTO field_report_invoices
                 (field_report_id, amount, currency, decided_by, decided_at,
-                 decision_motif, status, created_at, updated_at)
-                VALUES (?,?,?,?,datetime('now'),?,'a_facturer',datetime('now'),datetime('now'))""",
-                (rid, cost, 'XOF', user['id'], motif))
+                 decision_motif, status, deadline_edit, created_at, updated_at)
+                VALUES (?,?,?,?,datetime('now'),?,'a_facturer',?,datetime('now'),datetime('now'))""",
+                (rid, cost, 'XOF', user['id'], motif, deadline_default))
             invoice_workflow_id = cur.lastrowid
             conn.commit()
             conn.close()
@@ -18883,6 +19095,55 @@ def facture_modifier(fri_id):
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect(f'/recouvrement/facture/{fri_id}/preview')
+
+
+# v152 : Reporter le traitement d'une facture au lendemain (compta)
+@app.route('/recouvrement/facture/<int:fri_id>/reporter', methods=['POST'])
+@permission_required_any('facture_edit', 'admin')
+def facture_reporter(fri_id):
+    """v152 : La comptabilité reporte le traitement d'une facture au lendemain (J+1).
+    Permet à la compta de clôturer sa journée si elle reçoit une décision DG tardive.
+    Justification obligatoire."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    reason = (request.form.get('reason','') or '').strip()
+    if len(reason) < 5:
+        flash("⚠️ Une justification est obligatoire pour reporter le traitement (min 5 caractères).", "error")
+        return redirect('/recouvrement/factures-a-editer')
+    
+    conn = _gdb()
+    try:
+        fri = conn.execute("""SELECT fri.id, fri.status, fri.field_report_id, fr.client_name, fr.reference as fr_ref
+            FROM field_report_invoices fri
+            JOIN field_reports fr ON fr.id = fri.field_report_id
+            WHERE fri.id=?""", (fri_id,)).fetchone()
+        if not fri:
+            conn.close()
+            flash("Facture introuvable", "error")
+            return redirect('/recouvrement/factures-a-editer')
+        if fri['status'] != 'a_facturer':
+            conn.close()
+            flash("⛔ Cette facture n'est plus à éditer (déjà éditée)", "error")
+            return redirect('/recouvrement/factures-a-editer')
+        
+        # Nouvelle deadline = lendemain
+        new_deadline = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        conn.execute("""UPDATE field_report_invoices
+            SET deadline_edit=?, edit_reported_at=datetime('now'), edit_report_reason=?,
+                updated_at=datetime('now') WHERE id=?""",
+            (new_deadline, reason, fri_id))
+        conn.commit()
+        conn.close()
+        
+        _log_fri_event(fri_id, fri['field_report_id'], user['id'], user['full_name'],
+            'facture_reportee', f"Facture reportée à {new_deadline}",
+            '📅', f"Raison : {reason}", None)
+        
+        flash(f"📅 Édition reportée au {new_deadline}. Vous pouvez clôturer votre journée.", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect('/recouvrement/factures-a-editer')
 
 
 @app.route('/recouvrement/facture/<int:fri_id>/edit', methods=['POST'])
@@ -19298,8 +19559,9 @@ def serve_fri_proof(fri_id, filename):
 @app.route('/tresorerie/transferts-en-attente')
 @login_required
 def transferts_en_attente():
-    """v147 : Vue unifiée DG/RH de tous les transferts caisse/banque en attente de validation.
-    Regroupe : caisse_virements (banque→caisse) et ordres_virement (caisse→banque ou bénéficiaires)."""
+    """v147 / v151 : Vue unifiée DG/RH de tous les transferts caisse/banque en attente de validation.
+    Regroupe : caisse_virements (banque→caisse) et ordres_virement (caisse→banque ou bénéficiaires).
+    v151 : Correction colonnes pour ordres_virement (requested_at au lieu de created_at)."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     if user['role'] not in ('admin','dg','directeur','rh','directrice_rh'):
@@ -19309,22 +19571,30 @@ def transferts_en_attente():
     conn = _gdb()
     
     # 1. Virements banque → caisse en attente
-    virements_bk = [dict(r) for r in conn.execute("""
-        SELECT id, reference, date, bank_name, caisse_name, amount, motif,
-               status, requested_by_name, created_at, 'banque_to_caisse' as direction
-        FROM caisse_virements WHERE status='en_attente'
-        ORDER BY created_at DESC""").fetchall()]
+    virements_bk = []
+    try:
+        virements_bk = [dict(r) for r in conn.execute("""
+            SELECT id, reference, date, bank_name, caisse_name, amount, motif,
+                   status, requested_by_name, created_at, 'banque_to_caisse' as direction
+            FROM caisse_virements WHERE status='en_attente'
+            ORDER BY created_at DESC""").fetchall()]
+    except Exception as _e:
+        print(f"[v151] caisse_virements query err : {_e}", flush=True)
     
-    # 2. Ordres de virement (caisse→banque, banque→bénéficiaire, etc.) en attente
+    # 2. Ordres de virement — v151 : utiliser requested_at (ordres_virement n'a pas created_at)
+    ordres = []
     try:
         ordres = [dict(r) for r in conn.execute("""
             SELECT id, reference, type_virement, amount, date,
-                   source_caisse_name, dest_bank_name, dest_beneficiaire_name,
-                   description, status, requested_by_name, created_at
+                   source_caisse_name, dest_bank_name,
+                   description, status, requested_by_name,
+                   requested_at as created_at
             FROM ordres_virement
             WHERE status IN ('en_attente','en_attente_dg','en_attente_validation','attente_dg')
-            ORDER BY created_at DESC""").fetchall()]
-    except: ordres = []
+            ORDER BY requested_at DESC""").fetchall()]
+    except Exception as _e:
+        print(f"[v151] ordres_virement query err : {_e}", flush=True)
+        ordres = []
     
     conn.close()
     
@@ -19333,6 +19603,120 @@ def transferts_en_attente():
     return render_template('transferts_en_attente.html', page='transferts_en_attente',
         virements_bk=virements_bk, ordres=ordres, total_amount=total_amount,
         nb_pending=len(virements_bk) + len(ordres))
+
+
+# v152 : Résumé quotidien des virements et transferts (DG/RH/Compta)
+@app.route('/tresorerie/resume-virements')
+@login_required
+def resume_virements_quotidien():
+    """v152 : Résumé quotidien des transferts/virements.
+    Pour chaque jour : combien de virements + montant total.
+    Filtrable par période, type et statut."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    if user['role'] not in ('admin','dg','directeur','rh','directrice_rh','comptable','comptabilite'):
+        flash("⛔ Accès réservé à la direction et à la comptabilité", "error")
+        return redirect('/dashboard')
+    
+    # Filtres
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    today_only = request.args.get('today', '').strip() == '1'
+    
+    # Période par défaut : 30 derniers jours
+    if not date_from and not today_only:
+        date_from = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    if not date_to:
+        date_to = datetime.now().strftime('%Y-%m-%d')
+    if today_only:
+        date_from = date_to = datetime.now().strftime('%Y-%m-%d')
+    
+    conn = _gdb()
+    
+    # 1. Caisse_virements (banque → caisse)
+    cv_rows = []
+    try:
+        cv_rows = [dict(r) for r in conn.execute("""
+            SELECT DATE(created_at) as jour, COUNT(*) as nb, COALESCE(SUM(amount),0) as total,
+                   status
+            FROM caisse_virements
+            WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?
+            GROUP BY DATE(created_at), status
+            ORDER BY jour DESC, status""", (date_from, date_to)).fetchall()]
+    except Exception as _e: print(f"[v152] cv rows err : {_e}", flush=True)
+    
+    # 2. Ordres_virement
+    ov_rows = []
+    try:
+        ov_rows = [dict(r) for r in conn.execute("""
+            SELECT DATE(requested_at) as jour, COUNT(*) as nb, COALESCE(SUM(amount),0) as total,
+                   status, type_virement
+            FROM ordres_virement
+            WHERE DATE(requested_at) >= ? AND DATE(requested_at) <= ?
+            GROUP BY DATE(requested_at), status, type_virement
+            ORDER BY jour DESC""", (date_from, date_to)).fetchall()]
+    except Exception as _e: print(f"[v152] ov rows err : {_e}", flush=True)
+    
+    # Agrégation par jour
+    days_map = {}
+    for r in cv_rows:
+        j = r['jour']
+        if j not in days_map:
+            days_map[j] = {'jour': j, 'cv': {'nb':0,'total':0,'valide':0,'en_attente':0,'refuse':0},
+                            'ov': {'nb':0,'total':0,'valide':0,'en_attente':0,'refuse':0,'execute':0}}
+        days_map[j]['cv']['nb'] += r['nb']
+        days_map[j]['cv']['total'] += r['total']
+        s = (r['status'] or '').strip()
+        if s in days_map[j]['cv']: days_map[j]['cv'][s] += r['total']
+    
+    for r in ov_rows:
+        j = r['jour']
+        if j not in days_map:
+            days_map[j] = {'jour': j, 'cv': {'nb':0,'total':0,'valide':0,'en_attente':0,'refuse':0},
+                            'ov': {'nb':0,'total':0,'valide':0,'en_attente':0,'refuse':0,'execute':0}}
+        days_map[j]['ov']['nb'] += r['nb']
+        days_map[j]['ov']['total'] += r['total']
+        s = (r['status'] or '').strip()
+        # Mapper en_attente_dg, etc.
+        if 'attente' in s: days_map[j]['ov']['en_attente'] += r['total']
+        elif s == 'valide' or s == 'validé': days_map[j]['ov']['valide'] += r['total']
+        elif s in ('execute','executed','effectue'): days_map[j]['ov']['execute'] += r['total']
+        elif 'refus' in s: days_map[j]['ov']['refuse'] += r['total']
+    
+    # Tri par jour décroissant
+    days = sorted(days_map.values(), key=lambda x: x['jour'], reverse=True)
+    
+    # Totaux globaux
+    total_cv = sum(d['cv']['total'] for d in days)
+    total_ov = sum(d['ov']['total'] for d in days)
+    nb_cv = sum(d['cv']['nb'] for d in days)
+    nb_ov = sum(d['ov']['nb'] for d in days)
+    
+    # Détail des virements du jour (jour le plus récent)
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    cv_today = []
+    ov_today = []
+    try:
+        cv_today = [dict(r) for r in conn.execute("""
+            SELECT reference, amount, bank_name, caisse_name, status, motif, requested_by_name
+            FROM caisse_virements WHERE DATE(created_at) = ? ORDER BY id DESC""",
+            (today_str,)).fetchall()]
+    except: pass
+    try:
+        ov_today = [dict(r) for r in conn.execute("""
+            SELECT reference, amount, type_virement, source_caisse_name, dest_bank_name,
+                   status, description, requested_by_name
+            FROM ordres_virement WHERE DATE(requested_at) = ? ORDER BY id DESC""",
+            (today_str,)).fetchall()]
+    except: pass
+    
+    conn.close()
+    
+    return render_template('resume_virements.html', page='resume_virements',
+        days=days, total_cv=total_cv, total_ov=total_ov, nb_cv=nb_cv, nb_ov=nb_ov,
+        cv_today=cv_today, ov_today=ov_today,
+        date_from=date_from, date_to=date_to,
+        today_total=sum(d['cv']['total']+d['ov']['total'] for d in days if d['jour']==today_str))
 
 
 # v145 : Page d'historique global du workflow
@@ -23555,16 +23939,18 @@ def pointage_action():
         flash("❌ Type de pointage invalide.", "error")
         return redirect(url_for('pointage_page'))
     
-    # v149 : Pointage départ manuel BLOQUÉ si tâches en attente non justifiées
-    # → forcer le passage par la clôture journalière
+    # v149 / v150 : Pointage départ manuel BLOQUÉ si tâches en attente non justifiées
+    # → forcer le passage par la clôture journalière. v150 : conditionné à la permission.
     if type_action == 'depart':
         try:
             user_dep = get_user_by_id(uid)
-            if user_dep and user_dep['role'] not in ('admin',):
+            try: user_perms_dep = get_role_permissions(user_dep['role']) if user_dep else []
+            except: user_perms_dep = []
+            # v150 : Bloquer uniquement si l'utilisateur a la permission 'pointage_force_via_closure'
+            if user_dep and 'pointage_force_via_closure' in user_perms_dep:
                 pending = get_user_pending_tasks(uid, user_dep['role'])
                 total_pending = pending.get('_total', 0)
                 if total_pending > 0:
-                    # Vérifier nombre de justifications
                     conn_chk = _gdb()
                     closure_chk = conn_chk.execute(
                         "SELECT id FROM daily_closures WHERE user_id=? AND date_closure=?",
@@ -23580,7 +23966,7 @@ def pointage_action():
                         flash(f"⛔ Pointage départ impossible : {total_pending - just_count} tâche(s) en attente. "
                               f"Vous devez d'abord les régler ou les justifier via la clôture journalière.", "error")
                         return redirect('/closure/today')
-        except Exception as _e: print(f"[v149] check pointage depart err : {_e}", flush=True)
+        except Exception as _e: print(f"[v149-v150] check pointage depart err : {_e}", flush=True)
     
     # Vérifier autorisation (ordre, doublon)
     today_str = datetime.now().strftime('%Y-%m-%d')
@@ -23597,14 +23983,35 @@ def pointage_action():
         lng_f = float(lng) if lng else None
     except: lat_f = lng_f = None
     
-    # Vérifier zone autorisée (si configurée)
-    in_zone, zone_name = is_in_authorized_zone(lat_f, lng_f)
-    location_address = zone_name or ''
-    if in_zone is False:
-        flash("⛔ Vous n'êtes pas dans une zone de pointage autorisée. Approchez-vous du site.", "error")
-        log_security_event('pointage_zone_rejected', user_id=uid, ip=request.remote_addr,
-            details=f"type={type_action} lat={lat_f} lng={lng_f}", severity='warning')
-        return redirect(url_for('pointage_page'))
+    # v152 : Vérifier zone autorisée — seulement pour ARRIVÉE de l'équipe technique
+    # Logique :
+    #   - Équipe technique : Première arrivée = bureau (zone obligatoire)
+    #                       Départ = libre (peut être sur chantier)
+    #   - Autres rôles : zone obligatoire si configurée (comportement v149)
+    user_pt = get_user_by_id(uid)
+    is_technical = (user_pt and user_pt['role'] in 
+        ('technicien','tech_chef','chef_chantier','centre_technique','informatique'))
+    
+    # Pour le départ de l'équipe technique : ne pas exiger la zone (peut être sur chantier)
+    if is_technical and type_action == 'depart':
+        in_zone, zone_name = is_in_authorized_zone(lat_f, lng_f)
+        location_address = zone_name or 'Hors zone (chantier/déplacement)'
+        # Pas de blocage — on accepte le pointage hors zone pour les techniciens en départ
+    else:
+        # Comportement v149 : zone obligatoire (arrivée pour tech, ou tout pour autres rôles)
+        in_zone, zone_name = is_in_authorized_zone(lat_f, lng_f)
+        location_address = zone_name or ''
+        if in_zone is False:
+            # v152 : Message adapté selon le rôle/type
+            if is_technical and type_action == 'arrivee':
+                msg_zone = ("⛔ Pour votre premier pointage du jour, vous devez être au bureau "
+                            "(dans la zone autorisée). Approchez-vous du site avant de pointer votre arrivée.")
+            else:
+                msg_zone = "⛔ Vous n'êtes pas dans une zone de pointage autorisée. Approchez-vous du site."
+            flash(msg_zone, "error")
+            log_security_event('pointage_zone_rejected', user_id=uid, ip=request.remote_addr,
+                details=f"type={type_action} lat={lat_f} lng={lng_f}", severity='warning')
+            return redirect(url_for('pointage_page'))
     
     # Photo (optionnelle)
     photo_filename = ''
@@ -26763,8 +27170,15 @@ def budget_recompute(bid):
 @app.route('/caisse-sortie')
 @login_required
 def caisse_sortie():
+    """v151 / v152 : Filtre par statut (cartes cliquables) + recherche libre + filtre par jour."""
     month = request.args.get('month', datetime.now().strftime('%Y-%m'))
     tab = request.args.get('tab', 'sorties')
+    
+    # v151 : Filtres
+    status_filter = (request.args.get('status', '') or '').strip()  # en_attente / valide / refuse / ''
+    search = (request.args.get('q', '') or '').strip()
+    # v152 : Filtre par jour (au format YYYY-MM-DD)
+    day_filter = (request.args.get('day', '') or '').strip()
     
     # v107 : Filtrage par département pour les rôles non-comptables
     user = get_user_by_id(session.get('user_id'))
@@ -26779,15 +27193,35 @@ def caisse_sortie():
     if voit_tout:
         sorties = get_caisse_sorties(month=month)
     else:
-        # Récupérer toutes les sorties du mois puis filtrer en Python
         all_sorties = get_caisse_sorties(month=month)
         sorties = []
         for s in all_sorties:
             s_dict = dict(s) if hasattr(s, 'keys') else s
-            # Inclure si l'utilisateur est le demandeur OU dans le même département
             if (s_dict.get('demandeur_id') == session.get('user_id') or
                 (user_dept and s_dict.get('department') == user_dept)):
                 sorties.append(s_dict)
+    
+    # v151 : Appliquer le filtre par statut côté Python (compat avec get_caisse_sorties)
+    sorties_dict = []
+    for s in sorties:
+        sd = dict(s) if hasattr(s, 'keys') else s
+        sorties_dict.append(sd)
+    
+    if status_filter in ('en_attente', 'valide', 'refuse'):
+        sorties_dict = [s for s in sorties_dict if (s.get('status') or '').strip() == status_filter]
+    
+    # v152 : Filtre par jour (sur la colonne date des sorties)
+    if day_filter:
+        sorties_dict = [s for s in sorties_dict 
+            if (s.get('date') or '')[:10] == day_filter]
+    
+    # v151 : Recherche libre (référence, bénéficiaire, motif)
+    if search:
+        s_low = search.lower()
+        sorties_dict = [s for s in sorties_dict
+            if (s_low in (s.get('reference','') or '').lower()
+                or s_low in (s.get('beneficiaire','') or '').lower()
+                or s_low in (s.get('motif','') or '').lower())]
     
     stats = get_caisse_stats(month=month)
     conn = _gdb()
@@ -26795,19 +27229,19 @@ def caisse_sortie():
     total_entrees = conn.execute("SELECT COALESCE(SUM(montant),0) FROM caisse_entrees WHERE strftime('%Y-%m',date)=?", (month,)).fetchone()[0]
     caisses = [dict(r) for r in conn.execute("SELECT * FROM caisses WHERE is_active=1 ORDER BY name").fetchall()]
     caisses_map = {r['id']: r['name'] for r in caisses}
-    # Enrichir les entrées/sorties avec le nom de la caisse
     for e in entrees:
         e['caisse_name'] = caisses_map.get(e.get('caisse_id'), '')
-    for s in sorties:
-        s['caisse_name'] = caisses_map.get(s.get('caisse_id'), '') if hasattr(s, 'get') else ''
+    for s in sorties_dict:
+        s['caisse_name'] = caisses_map.get(s.get('caisse_id'), '')
     conn.close()
     
-    # v115 : Solde unifié de la caisse de fonctionnement
     solde_caisse_fonct = get_caisse_fonctionnement_solde()
     
-    return render_template('caisse_sortie.html', page='caisse_sortie', sorties=sorties, stats=stats, month=month,
+    return render_template('caisse_sortie.html', page='caisse_sortie',
+        sorties=sorties_dict, stats=stats, month=month,
         tab=tab, entrees=entrees, total_entrees=total_entrees, caisses=caisses,
-        voit_tout=voit_tout, solde_caisse_fonct=solde_caisse_fonct)
+        voit_tout=voit_tout, solde_caisse_fonct=solde_caisse_fonct,
+        status_filter=status_filter, search=search, day_filter=day_filter)
 
 @app.route('/caisse-sortie/demande', methods=['GET','POST'])
 @login_required
@@ -29086,11 +29520,17 @@ def mg_demandes_add():
     approved_by = session['user_id'] if can_self_validate else None
     approved_at = datetime.now().isoformat() if can_self_validate else None
     
+    # v151 : Récupérer le montant estimé saisi par l'auteur
+    try:
+        montant_estime_raw = (request.form.get('montant_estime','') or '').replace(',','.').strip()
+        montant_estime = float(montant_estime_raw) if montant_estime_raw else 0
+    except: montant_estime = 0
+    
     conn = _gdb()
     cur = conn.execute("""INSERT INTO achats_demandes 
         (reference, date, department, requested_by, description, urgency, status, notes,
-         approved_by, approved_at, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+         approved_by, approved_at, compta_montant_estime, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
         (ref,
          request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
          request.form.get('department', ''),
@@ -29099,7 +29539,7 @@ def mg_demandes_add():
          request.form.get('urgency', 'normale'),
          initial_status,
          request.form.get('notes', ''),
-         approved_by, approved_at))
+         approved_by, approved_at, montant_estime))
     did = cur.lastrowid
     
     # v110 : Insérer les items du formulaire (s'il y en a)
@@ -29753,6 +30193,58 @@ def mg_paiements_add():
 
 
 # === ÉQUIPEMENTS ===
+
+# v152 : Page solde fournisseur dédiée pour MG (vue limitée — uniquement les soldes)
+@app.route('/mg/soldes')
+@permission_required_any('mg_view', 'admin')
+def mg_soldes_fournisseur():
+    """v152 : Solde de la caisse fournisseur + solde du/des compte(s) bancaire(s) fournisseur.
+    Vue restreinte pour MG : juste les soldes, pas le détail des opérations."""
+    conn = _gdb()
+    
+    # 1. Caisse(s) avec 'fournisseur' dans le nom ou description
+    caisses_fourn = [dict(r) for r in conn.execute("""
+        SELECT id, name, COALESCE(solde_actuel, 0) as solde, description
+        FROM caisses 
+        WHERE COALESCE(is_active,1)=1 
+              AND (LOWER(name) LIKE '%fournisseur%' OR LOWER(description) LIKE '%fournisseur%')
+        ORDER BY name""").fetchall()]
+    
+    # Recalcul du solde si non maintenu (somme entrees - sorties)
+    for c in caisses_fourn:
+        try:
+            entrees = conn.execute(
+                "SELECT COALESCE(SUM(montant),0) FROM caisse_entrees WHERE caisse_id=?",
+                (c['id'],)).fetchone()[0]
+            sorties = conn.execute(
+                "SELECT COALESCE(SUM(montant),0) FROM caisse_sorties WHERE caisse_id=? AND status='valide' AND comptabilise=1",
+                (c['id'],)).fetchone()[0]
+            c['solde_calcule'] = float(entrees or 0) - float(sorties or 0)
+            c['type'] = 'Fournisseur'
+        except: 
+            c['solde_calcule'] = c.get('solde', 0)
+            c['type'] = 'Fournisseur'
+    
+    # 2. Compte(s) bancaire(s) avec 'fournisseur' dans le nom
+    try:
+        banques_fourn = [dict(r) for r in conn.execute("""
+            SELECT id, nom, banque, type_compte, numero_compte, COALESCE(solde_actuel, 0) as solde
+            FROM tresorerie_comptes_bancaires
+            WHERE COALESCE(is_active,1)=1 
+                  AND (LOWER(nom) LIKE '%fournisseur%' OR LOWER(type_compte) LIKE '%fournisseur%')
+            ORDER BY nom""").fetchall()]
+    except: banques_fourn = []
+    
+    total_caisses = sum(c.get('solde_calcule', 0) for c in caisses_fourn)
+    total_banques = sum(b.get('solde', 0) for b in banques_fourn)
+    
+    conn.close()
+    
+    return render_template('mg_soldes.html', page='mg_soldes',
+        caisses_fourn=caisses_fourn, banques_fourn=banques_fourn,
+        total_caisses=total_caisses, total_banques=total_banques,
+        total_global=total_caisses + total_banques)
+
 
 @app.route('/mg/equipements')
 @permission_required_any('mg_view', 'admin')

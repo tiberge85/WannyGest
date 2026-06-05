@@ -23,6 +23,21 @@
     <p>{{ closure.date_closure }} · {{ total_pending }} tâche(s) en attente · {{ justifications|length }} justifiée(s)</p>
 </div>
 
+{# v151 : Avertissement spécial DG/directeur - notifications non lues #}
+{% if user_role in ('dg', 'directeur') and notif_unread_count and notif_unread_count > 0 %}
+<div style="background:linear-gradient(135deg,#fde8e8,#ffcdd2);border:2px solid #c53030;padding:14px;border-radius:10px;margin-bottom:14px">
+    <div style="font-size:14px;font-weight:700;color:#7f1d1d">⛔ Action requise avant clôture (DG)</div>
+    <p style="font-size:12px;color:#7f1d1d;margin:8px 0">
+        Vous avez <strong>{{ notif_unread_count }} notification(s) non lue(s)</strong>. 
+        En tant que Direction Générale, vous devez prendre connaissance de toutes les notifications 
+        avant de pouvoir fermer votre session.
+    </p>
+    <a href="/notifications" class="btn btn-sm" style="background:#c53030;color:#fff;font-weight:700;padding:8px 14px">
+        🔔 Voir mes notifications ({{ notif_unread_count }})
+    </a>
+</div>
+{% endif %}
+
 {% if closure.status == 'cloturee' or closure.status == 'partielle' or closure.status == 'cloturee_exception' %}
 <div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:14px;border-radius:8px;margin-bottom:14px">
     <div style="font-size:14px;font-weight:700;color:#1b5e20">✅ Votre journée a déjà été clôturée</div>
@@ -44,6 +59,17 @@
         <input type="text" name="notes" placeholder="Notes de fin de journée (optionnel)" 
             style="width:60%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
         <br>
+        {# v150 : Choix pointer le départ ou continuer la session #}
+        {% if 'closure_choose_departure' in permissions %}
+        <div style="display:inline-flex;gap:14px;background:#fff3cd;padding:10px 14px;border-radius:8px;margin:10px 0;font-size:12px">
+            <strong>🌙 Pointer le départ maintenant ?</strong>
+            <label style="cursor:pointer"><input type="radio" name="pointer_depart" value="oui" checked> ✅ Oui (déconnexion)</label>
+            <label style="cursor:pointer"><input type="radio" name="pointer_depart" value="non"> ⏰ Non (continuer)</label>
+        </div>
+        <br>
+        {% else %}
+        <input type="hidden" name="pointer_depart" value="oui">
+        {% endif %}
         <button type="submit" class="btn btn-primary" style="font-size:14px;padding:10px 24px;background:#2e7d32">
             🔒 Clôturer ma journée maintenant
         </button>
@@ -113,6 +139,16 @@
         <input type="hidden" name="closure_id" value="{{ closure.id }}">
         <textarea name="notes" rows="2" placeholder="Notes de fin de journée (optionnel)"
             style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:10px"></textarea>
+        {# v150 : Choix pointer le départ ou continuer la session #}
+        {% if 'closure_choose_departure' in permissions %}
+        <div style="background:#fff3cd;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-size:12px">
+            <strong>🌙 Pointer le départ maintenant ?</strong><br>
+            <label style="cursor:pointer;margin-right:14px"><input type="radio" name="pointer_depart" value="oui" checked> ✅ Oui — Pointer le départ et fermer la session</label>
+            <label style="cursor:pointer"><input type="radio" name="pointer_depart" value="non"> ⏰ Non — Garder la session ouverte (je pointerai mon départ plus tard)</label>
+        </div>
+        {% else %}
+        <input type="hidden" name="pointer_depart" value="oui">
+        {% endif %}
         <button type="submit" class="btn btn-primary" style="background:#2e7d32;font-weight:700">
             🔒 Clôturer ma journée
         </button>

@@ -62,6 +62,7 @@
                     Réf: <a href="/field-reports/{{ it.field_report_id }}" style="color:#1565c0">{{ it.fr_ref }}</a>
                     · <span class="status-badge status-{{ it.status }}">{{ it.status }}</span>
                     {% if it.decided_by_name %} · Décidé par {{ it.decided_by_name }}{% endif %}
+                    {% if it.decided_at %} · 📅 le {{ it.decided_at[:16] }}{% endif %}
                     {% if it.emitted_by_name %} · Éditée par {{ it.emitted_by_name }}{% endif %}
                     {% if it.emitted_at %} · {{ it.emitted_at[:16] }}{% endif %}
                 </div>
@@ -86,6 +87,35 @@
                 <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">🧾 Éditer la facture</button>
             </div>
         </form>
+        {# v152 : Date d'échéance + bouton "Reporter au lendemain" #}
+        {% if it.deadline_edit %}
+        <div style="margin-top:8px;padding:8px;background:#fff3cd;border-radius:6px;font-size:11px;color:#856404;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+            <div>📅 <strong>À traiter avant le :</strong> {{ it.deadline_edit }}
+                {% if it.edit_reported_at %} <span style="color:#c53030">· ⚠️ Reporté le {{ it.edit_reported_at[:16] }}</span>{% endif %}
+            </div>
+            <button type="button" onclick="document.getElementById('reporterModal_{{ it.id }}').style.display='flex'"
+                class="btn btn-sm" style="background:#f29f2f;color:#fff;font-size:10px">📅 Reporter au lendemain</button>
+        </div>
+        <!-- Modal report -->
+        <div id="reporterModal_{{ it.id }}" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:5000;align-items:center;justify-content:center">
+            <div style="background:#fff;padding:22px;border-radius:12px;max-width:500px;width:90%">
+                <h3 style="margin:0 0 10px;color:#b8561f;font-size:15px">📅 Reporter l'édition au lendemain</h3>
+                <p style="font-size:12px;color:#666;margin-bottom:12px">
+                    Vous pourrez clôturer votre journée. La facture restera dans votre liste demain.
+                </p>
+                <form method="post" action="/recouvrement/facture/{{ it.id }}/reporter">
+                    <textarea name="reason" rows="3" required minlength="5" 
+                        placeholder="Raison du report obligatoire (heure tardive, attente complément d'info, etc.) — min 5 caractères"
+                        style="width:100%;padding:8px;border:2px solid #f29f2f;border-radius:6px;font-size:12px;margin-bottom:10px"></textarea>
+                    <div style="display:flex;gap:6px;justify-content:flex-end">
+                        <button type="button" onclick="document.getElementById('reporterModal_{{ it.id }}').style.display='none'"
+                            class="btn btn-outline btn-sm">Annuler</button>
+                        <button type="submit" class="btn btn-sm" style="background:#f29f2f;color:#fff;font-weight:700">📅 Confirmer le report</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
         {% else %}
         <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px">
             <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-sm" style="background:#1A7A6D;color:#fff;text-decoration:none">👁️ Prévisualiser</a>

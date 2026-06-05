@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Résumé virements{% endblock %}
+{% block content %}
+
+<style>
+.summary-hero { background:linear-gradient(135deg,#1565c0,#0d47a1); color:#fff; padding:22px; border-radius:14px; margin-bottom:14px }
+.kpi { background:#fff; padding:14px; border-radius:10px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.kpi-val { font-size:24px; font-weight:800; color:#1A7A6D }
+.kpi-label { font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px; margin-top:3px }
+.day-card { background:#fff; padding:14px; border-radius:10px; margin-bottom:8px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border-left:4px solid #1565c0 }
+.day-card.today { border-left-color:#f29f2f; background:#fff8e1 }
+.filter-bar { background:#fff; padding:10px; border-radius:8px; margin-bottom:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.filter-bar input, .filter-bar button, .filter-bar a { padding:7px 10px; border:1.5px solid #ddd; border-radius:6px; font-size:12px }
+.filter-bar button { background:#1A7A6D; color:#fff; border-color:#1A7A6D; cursor:pointer; font-weight:600 }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📊 Résumé virements & transferts</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Par jour : combien ont coûté les virements ?</p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/tresorerie/transferts-en-attente" class="btn btn-outline btn-sm">🏦 À valider</a>
+        <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+    </div>
+</div>
+
+<!-- HERO TOTAL DU JOUR -->
+<div class="summary-hero">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px">
+        <div>
+            <div style="font-size:11px;opacity:0.85;text-transform:uppercase;letter-spacing:1px">Coût des virements aujourd'hui</div>
+            <div style="font-size:38px;font-weight:800;margin-top:5px">{{ '{:,.0f}'.format(today_total) }} <span style="font-size:18px">F CFA</span></div>
+            <div style="font-size:11px;opacity:0.9;margin-top:5px">{{ cv_today|length + ov_today|length }} opération(s) aujourd'hui</div>
+        </div>
+        <div style="text-align:right;font-size:11px;opacity:0.9">
+            🏦 {{ cv_today|length }} virement(s) banque→caisse<br>
+            📋 {{ ov_today|length }} ordre(s) de virement
+        </div>
+    </div>
+</div>
+
+<!-- KPIs PÉRIODE -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:14px">
+    <div class="kpi">
+        <div class="kpi-val" style="color:#1565c0">{{ '{:,.0f}'.format(total_cv) }}</div>
+        <div class="kpi-label">🏦 Virements banque→caisse (XOF)</div>
+        <div style="font-size:10px;color:#888;margin-top:3px">{{ nb_cv }} opération(s)</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-val" style="color:#2e7d32">{{ '{:,.0f}'.format(total_ov) }}</div>
+        <div class="kpi-label">📋 Ordres de virement (XOF)</div>
+        <div style="font-size:10px;color:#888;margin-top:3px">{{ nb_ov }} opération(s)</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-val" style="color:#1A7A6D">{{ '{:,.0f}'.format(total_cv + total_ov) }}</div>
+        <div class="kpi-label">💰 Total période (XOF)</div>
+        <div style="font-size:10px;color:#888;margin-top:3px">{{ nb_cv + nb_ov }} opération(s)</div>
+    </div>
+    <div class="kpi">
+        <div class="kpi-val" style="color:#f29f2f">{{ days|length }}</div>
+        <div class="kpi-label">📅 Jours avec activité</div>
+    </div>
+</div>
+
+<!-- FILTRES -->
+<form method="get" class="filter-bar">
+    <span style="font-size:11px;color:#666;font-weight:600">📅 Période :</span>
+    <input type="date" name="date_from" value="{{ date_from }}" title="Date début">
+    <input type="date" name="date_to" value="{{ date_to }}" title="Date fin">
+    <button type="submit">🔍 Filtrer</button>
+    <a href="?today=1" style="background:#f29f2f;color:#fff;text-decoration:none;font-weight:600">🌅 Aujourd'hui uniquement</a>
+    <a href="/tresorerie/resume-virements" style="background:#888;color:#fff;text-decoration:none">↻ 30 derniers jours</a>
+</form>
+
+<!-- DETAIL DU JOUR -->
+{% if cv_today or ov_today %}
+<div style="background:#fff;padding:14px;border-radius:10px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <h3 style="margin:0 0 10px;color:#f29f2f;font-size:15px">🌅 Détail des virements d'aujourd'hui</h3>
+    {% if cv_today %}
+    <div style="margin-bottom:10px">
+        <strong style="font-size:12px;color:#0d47a1">🏦 Virements banque → caisse :</strong>
+        <table style="width:100%;font-size:11px;margin-top:5px">
+            <thead><tr style="background:#e3f2fd"><th style="padding:5px">Réf</th><th>Banque</th><th>Caisse</th><th style="text-align:right">Montant</th><th>Statut</th><th>Demandeur</th></tr></thead>
+            <tbody>
+            {% for c in cv_today %}<tr style="border-bottom:1px solid #f0f0f0">
+                <td style="padding:5px;font-family:monospace">{{ c.reference }}</td>
+                <td>{{ c.bank_name }}</td>
+                <td>{{ c.caisse_name }}</td>
+                <td style="text-align:right;font-weight:700;color:#0d47a1">{{ '{:,.0f}'.format(c.amount) }}</td>
+                <td>{{ c.status }}</td>
+                <td>{{ c.requested_by_name or '?' }}</td>
+            </tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    
+    {% if ov_today %}
+    <div>
+        <strong style="font-size:12px;color:#1b5e20">📋 Ordres de virement :</strong>
+        <table style="width:100%;font-size:11px;margin-top:5px">
+            <thead><tr style="background:#e8f5e9"><th style="padding:5px">Réf</th><th>Type</th><th>Source → Dest</th><th style="text-align:right">Montant</th><th>Statut</th><th>Demandeur</th></tr></thead>
+            <tbody>
+            {% for o in ov_today %}<tr style="border-bottom:1px solid #f0f0f0">
+                <td style="padding:5px;font-family:monospace">{{ o.reference }}</td>
+                <td>{{ o.type_virement }}</td>
+                <td>{{ o.source_caisse_name or '?' }} → {{ o.dest_bank_name or '?' }}</td>
+                <td style="text-align:right;font-weight:700;color:#1b5e20">{{ '{:,.0f}'.format(o.amount) }}</td>
+                <td>{{ o.status }}</td>
+                <td>{{ o.requested_by_name or '?' }}</td>
+            </tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- HISTORIQUE PAR JOUR -->
+<h2 style="font-size:15px;color:#1A7A6D;margin:14px 0 8px">📅 Historique par jour ({{ days|length }})</h2>
+
+{% if days %}
+{% for d in days %}
+<div class="day-card {% if d.jour == date_to %}today{% endif %}">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div>
+            <strong style="font-size:14px;color:#1565c0">📅 {{ d.jour }}</strong>
+            <div style="font-size:11px;color:#888;margin-top:3px">
+                {{ d.cv.nb + d.ov.nb }} opération(s) au total
+            </div>
+        </div>
+        <div style="text-align:right">
+            <div style="font-size:20px;font-weight:800;color:#1A7A6D">{{ '{:,.0f}'.format(d.cv.total + d.ov.total) }} <span style="font-size:11px">XOF</span></div>
+        </div>
+    </div>
+    {% if d.cv.nb > 0 or d.ov.nb > 0 %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;margin-top:8px;font-size:10px">
+        {% if d.cv.nb > 0 %}
+        <div style="background:#e3f2fd;padding:6px;border-radius:5px">
+            🏦 <strong>{{ d.cv.nb }}</strong> virement(s) bk→caisse<br>
+            <strong style="color:#0d47a1">{{ '{:,.0f}'.format(d.cv.total) }} XOF</strong>
+        </div>
+        {% endif %}
+        {% if d.ov.nb > 0 %}
+        <div style="background:#e8f5e9;padding:6px;border-radius:5px">
+            📋 <strong>{{ d.ov.nb }}</strong> ordre(s) de virement<br>
+            <strong style="color:#1b5e20">{{ '{:,.0f}'.format(d.ov.total) }} XOF</strong>
+        </div>
+        {% endif %}
+        {% if d.cv.en_attente > 0 or d.ov.en_attente > 0 %}
+        <div style="background:#fff3cd;padding:6px;border-radius:5px;color:#856404">
+            ⏳ En attente : <strong>{{ '{:,.0f}'.format((d.cv.en_attente or 0) + (d.ov.en_attente or 0)) }}</strong>
+        </div>
+        {% endif %}
+        {% if d.cv.valide > 0 or d.ov.valide > 0 %}
+        <div style="background:#e8f5e9;padding:6px;border-radius:5px;color:#1b5e20">
+            ✅ Validés : <strong>{{ '{:,.0f}'.format((d.cv.valide or 0) + (d.ov.valide or 0)) }}</strong>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888">
+    <div style="font-size:40px">📭</div>
+    <p style="font-size:13px;margin:8px 0 0">Aucun virement sur cette période</p>
+</div>
+{% endif %}
+
+{% endblock %}

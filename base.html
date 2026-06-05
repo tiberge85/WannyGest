@@ -429,6 +429,8 @@
                     <a href="/decisions/facturation" class="{% if page == 'decisions_facturation' %}active{% endif %}" style="position:relative">💰 Facturation à décider{% if decisions_facturation_pending and decisions_facturation_pending > 0 %} <span class="badge" style="background:#c53030;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ decisions_facturation_pending }}</span>{% endif %}</a>
                     {# v147 : Transferts caisse en attente DG/RH #}
                     <a href="/tresorerie/transferts-en-attente" class="{% if page == 'transferts_en_attente' %}active{% endif %}" style="position:relative">🏦 Transferts à valider{% if transferts_pending and transferts_pending > 0 %} <span class="badge" style="background:#c53030;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ transferts_pending }}</span>{% endif %}</a>
+                    {# v152 : Résumé quotidien des virements (DG/RH/Compta) #}
+                    <a href="/tresorerie/resume-virements" class="{% if page == 'resume_virements' %}active{% endif %}">📊 Résumé virements (jour)</a>
                     {# v145 : Historique workflow #}
                     <a href="/workflow/historique" class="{% if page == 'workflow_historique' %}active{% endif %}">📜 Historique workflow</a>
                 </div>
@@ -570,6 +572,8 @@
                 </div>
                 <div class="nav-section-items">
                     <a href="/mg" class="{% if page == 'mg' %}active{% endif %}">📊 Tableau de bord MG</a>
+                    {# v152 : Solde fournisseur (vue restreinte) #}
+                    <a href="/mg/soldes" class="{% if page == 'mg_soldes' %}active{% endif %}" style="background:linear-gradient(90deg,rgba(242,159,47,0.15),transparent)">💰 Solde Caisse + Banque Fournisseur</a>
                     <a href="/mg/demandes" class="{% if page in ('mg_demandes',) %}active{% endif %}">
                         📋 Demandes internes
                         {% if mg_pending_count and mg_pending_count > 0 %}
