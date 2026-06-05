@@ -3446,6 +3446,30 @@ def project_access_required(f):
     return decorated
 
 
+# v148 : Décorateur pour bloquer les Moyens Généraux sur certaines actions
+def mg_forbidden(f):
+    """v148 : Bloque les MG/magasinier sur les actions qui ne les concernent pas :
+    - Assignation de techniciens à un projet
+    - Planification des dates / coordinateur
+    Le rôle MG doit se limiter à la préparation du matériel."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        user = get_user_by_id(session['user_id'])
+        if not user:
+            return redirect(url_for('login'))
+        if user['role'] in ('mg', 'moyens_generaux', 'magasinier'):
+            flash("⛔ Les Moyens Généraux ne peuvent pas effectuer cette action. "
+                  "Cette tâche est réservée au coordinateur de projet ou à la direction.", "error")
+            # Redirige vers le projet si pid présent
+            pid = kwargs.get('pid')
+            if pid: return redirect(f'/projects/{pid}')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
 # v87 : Helper - liste des projets actifs où l'utilisateur est impliqué
 # avec indicateur "c'est votre tour" selon le service responsable de l'étape actuelle
 def _get_my_active_projects(user_id, user_role):
@@ -21606,14 +21630,43 @@ def project_advance(pid):
         return redirect(f'/projects/{pid}')
     
     # v86 : Validations métier strictes par étape
+    # v148 : MG peut faire avancer "preparation→planifie" ou "prep_appareillage→planif_appareillage"
+    #        sans avoir besoin de team+date (c'est l'étape suivante qui s'en charge — le coordinateur)
+    user_advance = get_user_by_id(session.get('user_id', 0))
+    is_mg = user_advance and user_advance['role'] in ('mg','moyens_generaux','magasinier')
+    
     if to_status == 'planifie':
-        # Vérifier que l'équipe + date début sont définis
-        team_count = conn.execute("SELECT COUNT(*) FROM wf_project_team WHERE project_id=?", (pid,)).fetchone()[0]
-        start_date = conn.execute("SELECT start_date FROM wf_projects WHERE id=?", (pid,)).fetchone()['start_date']
-        if team_count == 0 or not start_date:
-            conn.close()
-            flash("Impossible de planifier : au moins 1 technicien + date de début requis", "error")
-            return redirect(f'/projects/{pid}')
+        # v148 : Si c'est MG qui fait avancer (matériel prêt), ne pas exiger team + date
+        # car l'étape "planifie" sert justement à ce que le coordinateur planifie ensuite
+        if is_mg:
+            # Vérifier qu'au moins 1 matériel a été marqué disponible
+            nb_mat_dispo = conn.execute(
+                "SELECT COUNT(*) FROM wf_project_materials WHERE project_id=? AND (available=1 OR reserved=1)",
+                (pid,)).fetchone()[0]
+            if nb_mat_dispo == 0:
+                conn.close()
+                flash("⚠️ Impossible d'avancer : aucun matériel n'est marqué disponible/réservé. "
+                      "Réservez d'abord le matériel.", "error")
+                return redirect(f'/projects/{pid}')
+            # OK : MG peut avancer, le coordinateur planifiera ensuite
+        else:
+            # Coordinateur / gestionnaire / admin : vérifier équipe + date début
+            team_count = conn.execute("SELECT COUNT(*) FROM wf_project_team WHERE project_id=?", (pid,)).fetchone()[0]
+            start_date = conn.execute("SELECT start_date FROM wf_projects WHERE id=?", (pid,)).fetchone()['start_date']
+            if team_count == 0 or not start_date:
+                conn.close()
+                flash("Impossible de planifier : au moins 1 technicien + date de début requis", "error")
+                return redirect(f'/projects/{pid}')
+    elif to_status == 'planif_appareillage':
+        # v148 : Idem pour la phase appareillage — MG peut avancer si matériel dispo
+        if is_mg:
+            nb_mat_dispo = conn.execute(
+                "SELECT COUNT(*) FROM wf_project_materials WHERE project_id=? AND (available=1 OR reserved=1)",
+                (pid,)).fetchone()[0]
+            if nb_mat_dispo == 0:
+                conn.close()
+                flash("⚠️ Impossible d'avancer : aucun matériel d'appareillage marqué disponible/réservé.", "error")
+                return redirect(f'/projects/{pid}')
     elif to_status == 'preparation':
         # Vérifier qu'au moins 1 matériel a été ajouté (sinon avertir mais ne pas bloquer)
         nb_mat = conn.execute("SELECT COUNT(*) FROM wf_project_materials WHERE project_id=?", (pid,)).fetchone()[0]
@@ -21624,11 +21677,38 @@ def project_advance(pid):
         # On accepte le passage en livré, mais on flash un rappel
         flash("📋 Pensez à imprimer le bon de livraison et l'ABE depuis la page projet", "info")
     
+    # v148 : Bloquer MG sur les transitions hors préparation matériel
+    if is_mg and to_status not in ('planifie', 'planif_appareillage'):
+        conn.close()
+        flash("⛔ Les Moyens Généraux ne peuvent faire avancer le projet que sur les étapes de préparation matériel "
+              "(vers planification ou planification appareillage).", "error")
+        return redirect(f'/projects/{pid}')
+    
     conn.close()
     
     ok, msg = _project_advance(pid, to_status, comment)
     if ok:
         flash(f"✅ Projet avancé : {PROJECT_STATUS_INFO[to_status]['label']}", "success")
+        # v148 : Si MG a marqué le matériel prêt, notifier le coordinateur pour planifier
+        if is_mg and to_status in ('planifie', 'planif_appareillage'):
+            try:
+                conn_n = _gdb()
+                proj = conn_n.execute("SELECT reference, title, coordinator_id FROM wf_projects WHERE id=?", (pid,)).fetchone()
+                conn_n.close()
+                if proj:
+                    msg_notif = (f"📦 Le matériel du projet {proj['reference']} ({proj['title']}) est prêt et "
+                                 f"disponible. Vous pouvez maintenant planifier l'intervention (date début, équipe technique).")
+                    if proj['coordinator_id']:
+                        notify_user(proj['coordinator_id'],
+                            title=f"📦 Matériel prêt — planification requise : {proj['reference']}",
+                            message=msg_notif, link=f'/projects/{pid}',
+                            type='info', module='projets', icon='📦', priority='high')
+                    # Aussi les coordinateurs/gestionnaires en général
+                    notify_roles(['coordinateur','gestionnaire_projet','resp_projet','admin'],
+                        title=f"📦 Matériel prêt : {proj['reference']}",
+                        message=msg_notif, link=f'/projects/{pid}',
+                        type='info', module='projets', icon='📦', priority='normal')
+            except Exception as _e: print(f"[v148] notif matériel prêt err : {_e}", flush=True)
     else:
         flash(f"Erreur : {msg}", "error")
     return redirect(f'/projects/{pid}')
@@ -21636,6 +21716,7 @@ def project_advance(pid):
 
 @app.route('/projects/<int:pid>/plan', methods=['POST'])
 @project_access_required
+@mg_forbidden
 def project_set_plan(pid):
     """Enregistre la planification : date début, fin prévue, coordinateur."""
     conn = _gdb()
@@ -21655,6 +21736,7 @@ def project_set_plan(pid):
 
 @app.route('/projects/<int:pid>/team/add', methods=['POST'])
 @project_access_required
+@mg_forbidden
 def project_team_add(pid):
     """Affecte un technicien au projet."""
     user_id = request.form.get('user_id')
@@ -21682,6 +21764,7 @@ def project_team_add(pid):
 
 @app.route('/projects/<int:pid>/team/<int:tid>/remove')
 @project_access_required
+@mg_forbidden
 def project_team_remove(pid, tid):
     conn = _gdb()
     conn.execute("DELETE FROM wf_project_team WHERE id=? AND project_id=?", (tid, pid))

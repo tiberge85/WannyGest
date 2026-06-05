@@ -217,7 +217,8 @@
 
 <div class="card" style="margin-bottom:14px">
     <div class="card-header"><h3 style="margin:0;font-size:14px">👷 Équipe technique ({{ project.team|length }})</h3>
-        {% if project.status not in ('cloture',) %}<button class="btn btn-outline btn-sm" onclick="document.getElementById('addTeamM').classList.add('active')">+ Ajouter</button>{% endif %}
+        {# v148 : MG ne peut pas ajouter / retirer des techs #}
+        {% if project.status not in ('cloture',) and user_role not in ('mg','moyens_generaux','magasinier') %}<button class="btn btn-outline btn-sm" onclick="document.getElementById('addTeamM').classList.add('active')">+ Ajouter</button>{% endif %}
     </div>
     <div class="card-body" style="padding:0">
     {% if project.team %}
@@ -227,7 +228,8 @@
         <td style="padding:8px"><strong>{{ t.full_name or t.username }}</strong>
             <span style="background:#eaf3f0;color:#1A7A6D;padding:2px 6px;border-radius:8px;font-size:10px;margin-left:6px">{{ t.role }}</span></td>
         <td style="padding:8px;text-align:right">
-            {% if project.status not in ('cloture',) %}
+            {# v148 : MG ne peut pas retirer un membre d'équipe #}
+            {% if project.status not in ('cloture',) and user_role not in ('mg','moyens_generaux','magasinier') %}
             <a href="/projects/{{ project.id }}/team/{{ t.id }}/remove" class="btn btn-sm" style="color:#c53030;font-size:11px" onclick="return confirm('Retirer ?')">🗑️</a>
             {% endif %}
         </td>
@@ -355,7 +357,8 @@
         {% if project.delivery_signed_by %}<tr><td style="padding:4px 0;color:#888">Signé par</td><td>{{ project.delivery_signed_by }}</td></tr>{% endif %}
         {% if project.qc_rejected_count and project.qc_rejected_count > 0 %}<tr><td style="padding:4px 0;color:#c53030">QC rejets</td><td style="color:#c53030;font-weight:700">{{ project.qc_rejected_count }}</td></tr>{% endif %}
     </table>
-    {% if project.status not in ('cloture',) and full_view %}
+    {# v148 : MG ne peut pas modifier la planification #}
+    {% if project.status not in ('cloture',) and full_view and user_role not in ('mg','moyens_generaux','magasinier') %}
     <button class="btn btn-outline btn-sm" onclick="document.getElementById('planM').classList.add('active')" style="margin-top:10px;width:100%">📅 Modifier planning</button>
     {% endif %}
 </div></div>
