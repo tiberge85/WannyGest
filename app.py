@@ -2033,6 +2033,42 @@ try:
         except: pass
         print(f"[v142-Workflow] {n_added} permissions ajoutées (workflow recouvrement)", flush=True)
     
+    # v143 : RE-FORCE l'attribution de facturation_decision aux rôles décisionnaires
+    # (au cas où la BDD existante n'avait pas cette perm — bug constaté)
+    fl_v143 = _v142.execute("SELECT value FROM app_settings WHERE key='v143_force_facturation_perms'").fetchone()
+    if not fl_v143:
+        REFORCE_PERMS = [
+            ('admin','facturation_decision'), ('dg','facturation_decision'),
+            ('directeur','facturation_decision'), ('rh','facturation_decision'),
+            ('directrice_rh','facturation_decision'),
+            ('admin','facture_edit'), ('comptable','facture_edit'), ('comptabilite','facture_edit'),
+            ('admin','recouvrement_view'), ('admin','recouvrement_edit'),
+            ('agent_recouvreur','recouvrement_view'), ('agent_recouvreur','recouvrement_edit'),
+            ('agent_recouvreur','section_recouvrement'),
+            ('admin','caissiere_view'), ('admin','caissiere_validate'),
+            ('caissiere','caissiere_view'), ('caissiere','caissiere_validate'),
+            ('caissiere','section_caissiere'),
+            ('admin','field_report_execute'),
+            ('technicien','field_report_execute'),
+            ('tech_chef','field_report_execute'),
+            ('chef_chantier','field_report_execute'),
+            ('centre_technique','field_report_execute'),
+            ('informatique','field_report_execute'),
+        ]
+        n_forced = 0
+        for role, perm in REFORCE_PERMS:
+            try:
+                exists = _v142.execute("SELECT 1 FROM permissions WHERE role=? AND permission=?", (role, perm)).fetchone()
+                if not exists:
+                    _v142.execute("INSERT INTO permissions (role, permission) VALUES (?, ?)", (role, perm))
+                    n_forced += 1
+            except: pass
+        try:
+            _v142.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v143_force_facturation_perms', '1', datetime('now'))")
+        except: pass
+        if n_forced > 0:
+            print(f"[v143-Force] {n_forced} permission(s) workflow re-forcée(s)", flush=True)
+    
     _v142.commit()
     _v142.close()
     print("[v142-Workflow] Tables + permissions OK", flush=True)
@@ -2092,7 +2128,7 @@ def get_user_pending_tasks(user_id, user_role=None):
         try:
             rows = conn.execute("""SELECT id, reference, type, status, scheduled_date, client_name
                 FROM interventions 
-                WHERE technician_id=? AND status NOT IN ('cloturee','annulee','close')
+                WHERE technician_id=? AND status NOT IN ('cloturee','annulee','close','termine')
                 ORDER BY scheduled_date, id LIMIT 50""", (user_id,)).fetchall()
             for r in rows:
                 result['interventions'].append({
@@ -3381,11 +3417,20 @@ def inject_globals():
                     # Pending = pas de clôture OU statut en_attente
                     ctx['closure_pending'] = (not _cr) or (_cr['status'] in ('en_attente', None))
                 except: ctx['closure_pending'] = False
+                # v143 : Compteur décisions de facturation en attente (pour DG/RH)
+                try:
+                    if user['role'] in ('admin','dg','directeur','rh','directrice_rh'):
+                        ctx['decisions_facturation_pending'] = _nc.execute(
+                            "SELECT COUNT(*) FROM field_reports WHERE statut='executee' AND facturable IS NULL"
+                        ).fetchone()[0]
+                    else: ctx['decisions_facturation_pending'] = 0
+                except: ctx['decisions_facturation_pending'] = 0
                 _nc.close()
             except: 
                 ctx['notif_count'] = 0
                 ctx['nouveau_projet_count'] = 0
                 ctx['closure_pending'] = False
+                ctx['decisions_facturation_pending'] = 0
             if 'fichiers' in perms or 'admin' in perms:
                 try:
                     from models import get_db as _gdb_abs
@@ -18074,7 +18119,8 @@ def field_report_mark_traitee(rid):
 @app.route('/field-reports/<int:rid>/execute', methods=['POST'])
 @permission_required_any('field_report_execute', 'admin')
 def field_report_execute(rid):
-    """v142 : Le technicien marque une remontée comme exécutée.
+    """v142 / v143 : Le technicien marque une remontée comme exécutée.
+    v143 : Clôt aussi l'intervention liée (si existe) pour qu'elle sorte des tâches en attente.
     Notifie automatiquement DG + RH pour décision de facturation."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
@@ -18082,6 +18128,13 @@ def field_report_execute(rid):
     notes = (request.form.get('execution_notes','') or '').strip()
     conn = _gdb()
     try:
+        # Récupérer la remontée + l'éventuelle intervention liée
+        r = conn.execute("SELECT reference, client_name, type_info, priorite, linked_intervention_id FROM field_reports WHERE id=?", (rid,)).fetchone()
+        if not r:
+            conn.close()
+            flash("Remontée introuvable", "error")
+            return redirect('/field-reports')
+        
         # Mettre à jour la remontée
         conn.execute("""UPDATE field_reports
             SET executed_by=?, executed_at=datetime('now'),
@@ -18089,28 +18142,72 @@ def field_report_execute(rid):
                 updated_at=datetime('now')
             WHERE id=?""",
             (user['id'], notes, rid))
-        conn.commit()
         
-        # Récupérer les infos
-        r = conn.execute("SELECT reference, client_name, type_info, priorite FROM field_reports WHERE id=?", (rid,)).fetchone()
+        # v143 : Clôturer l'intervention liée si présente (pour qu'elle n'apparaisse plus
+        # dans les tâches en attente du technicien lors de la clôture journalière)
+        intervention_closed = False
+        if r['linked_intervention_id']:
+            try:
+                conn.execute("""UPDATE interventions 
+                    SET status='termine', updated_at=datetime('now')
+                    WHERE id=? AND status NOT IN ('cloturee','annulee','close','termine')""",
+                    (r['linked_intervention_id'],))
+                intervention_closed = True
+            except Exception as _e: print(f"[v143] close intervention err : {_e}", flush=True)
+        
+        conn.commit()
         conn.close()
         
         _field_report_log(rid, 'Exécutée', f"Technicien : {user['full_name']} — {notes[:200]}")
         
-        # Notification DG + RH (décision facturation)
+        # Notification DG + RH (décision facturation) — HIGH PRIORITY avec lien explicite
         try:
             notify_roles(['dg','directeur','rh','directrice_rh','admin'],
-                title=f"💰 Décision de facturation : {r['reference']}",
-                message=f"Le technicien {user['full_name']} a terminé la remontée {r['reference']} ({r['client_name']}). "
-                        f"À décider : cette intervention est-elle facturable ?",
-                link=f"/field-reports/{rid}",
-                type='warning', module='remontees', icon='💰', priority='high')
-        except Exception as _e: print(f"[v142] notif decision err : {_e}", flush=True)
+                title=f"💰 DÉCISION REQUISE — Facturation : {r['reference']}",
+                message=f"Le technicien {user['full_name']} a terminé la remontée {r['reference']} "
+                        f"({r['client_name']}). VOUS DEVEZ DÉCIDER si cette intervention est facturable. "
+                        f"Cliquez pour accéder au formulaire de décision.",
+                link=f"/decisions/facturation",  # v143 : lien vers page dédiée
+                type='warning', module='remontees', icon='💰', priority='high', force=True)
+        except Exception as _e: print(f"[v143] notif decision err : {_e}", flush=True)
         
-        flash("✅ Remontée marquée exécutée — DG/RH notifié(e)s pour décision de facturation", "success")
+        msg = "✅ Remontée marquée exécutée"
+        if intervention_closed: msg += " · Intervention liée clôturée"
+        msg += " — DG/RH notifié(e)s pour décision de facturation"
+        flash(msg, "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect(f'/field-reports/{rid}')
+
+
+# v143 : Page dédiée pour les décisions de facturation (DG/RH)
+@app.route('/decisions/facturation')
+@permission_required_any('facturation_decision', 'admin')
+def decisions_facturation():
+    """v143 : Liste centralisée des remontées exécutées en attente de décision de facturation.
+    Accessible aux DG, Directeur, RH, Directrice_rh et Admin."""
+    conn = _gdb()
+    items = [dict(r) for r in conn.execute("""
+        SELECT fr.id, fr.reference, fr.client_name, fr.type_info, fr.priorite,
+               fr.description, fr.execution_notes, fr.executed_at,
+               u.full_name as executed_by_name
+        FROM field_reports fr
+        LEFT JOIN users u ON u.id = fr.executed_by
+        WHERE fr.statut='executee' AND fr.facturable IS NULL
+        ORDER BY fr.executed_at DESC""").fetchall()]
+    
+    # Aussi les décisions récentes pour historique
+    recent = [dict(r) for r in conn.execute("""
+        SELECT fr.id, fr.reference, fr.client_name, fr.facturable, fr.cost_amount,
+               fr.facturation_decided_at, u.full_name as decided_by_name
+        FROM field_reports fr
+        LEFT JOIN users u ON u.id = fr.facturation_decided_by
+        WHERE fr.facturable IS NOT NULL
+        ORDER BY fr.facturation_decided_at DESC LIMIT 20""").fetchall()]
+    conn.close()
+    
+    return render_template('decisions_facturation.html', page='decisions_facturation',
+        items=items, recent=recent)
 
 
 @app.route('/field-reports/<int:rid>/decide-facturation', methods=['POST'])

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Décisions de facturation{% endblock %}
+{% block content %}
+
+<style>
+.dec-card { background:#fff; border:2px solid #f29f2f; border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 2px 8px rgba(242,159,47,0.15); }
+.dec-card h3 { color:#b8561f; margin:0 0 10px; font-size:14px; }
+.dec-info { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; font-size:12px; margin-bottom:12px; }
+.dec-info .lbl { font-size:10px; color:#888; text-transform:uppercase; }
+.dec-info .val { font-weight:600; color:#222; }
+.priorite-urgent { background:#c53030; color:#fff; padding:2px 8px; border-radius:4px; font-size:10px; }
+.priorite-critique { background:#8b0000; color:#fff; padding:2px 8px; border-radius:4px; font-size:10px; }
+.priorite-moyen { background:#f29f2f; color:#fff; padding:2px 8px; border-radius:4px; font-size:10px; }
+.priorite-faible { background:#888; color:#fff; padding:2px 8px; border-radius:4px; font-size:10px; }
+.form-row-radio { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+.form-row-radio label { display:block; padding:12px; border:2px solid #ddd; border-radius:10px; cursor:pointer; transition:all 0.15s; }
+.form-row-radio label.yes { border-color:#2e7d32; background:#f1f8f3; }
+.form-row-radio label.no { border-color:#c53030; background:#fde8e8; }
+.form-row-radio label:hover { transform:translateY(-2px); }
+</style>
+
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>💰 Décisions de facturation</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Remontées exécutées par les techniciens. Décidez si chacune doit être facturée au client.
+        </p>
+    </div>
+    <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<!-- En attente de décision -->
+<div style="background:#fff3cd;border-left:4px solid #f29f2f;padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#856404">
+    📌 <strong>{{ items|length }} remontée(s)</strong> en attente de décision. Choisissez « Facturable » ou « Non facturable » pour chacune.
+</div>
+
+{% if items %}
+    {% for it in items %}
+    <div class="dec-card">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:260px">
+                <h3>🛠️ {{ it.reference }} — {{ it.client_name }}</h3>
+                <div class="dec-info">
+                    <div><div class="lbl">Type</div><div class="val">{{ it.type_info }}</div></div>
+                    <div><div class="lbl">Priorité</div><div class="val"><span class="priorite-{{ it.priorite }}">{{ it.priorite }}</span></div></div>
+                    <div><div class="lbl">Exécutée par</div><div class="val">{{ it.executed_by_name or '?' }}</div></div>
+                    <div><div class="lbl">Date exécution</div><div class="val">{{ it.executed_at[:16] if it.executed_at else '?' }}</div></div>
+                </div>
+                {% if it.description %}
+                <div style="font-size:11px;color:#555;background:#f8f9fa;padding:8px;border-radius:6px;margin-bottom:8px">
+                    <strong>📋 Description initiale :</strong><br>{{ it.description }}
+                </div>
+                {% endif %}
+                {% if it.execution_notes %}
+                <div style="font-size:11px;color:#555;background:#e8f5e9;padding:8px;border-radius:6px;margin-bottom:8px">
+                    <strong>🛠️ Notes d'exécution :</strong><br>{{ it.execution_notes }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <form method="post" action="/field-reports/{{ it.id }}/decide-facturation">
+            <div class="form-row-radio">
+                <label class="yes">
+                    <input type="radio" name="facturable" value="1" required onchange="document.getElementById('cost_{{ it.id }}').style.display='block'">
+                    <strong style="color:#2e7d32">✅ Facturable</strong>
+                    <p style="font-size:10px;color:#666;margin:4px 0 0">Envoie à la comptabilité pour facturation</p>
+                </label>
+                <label class="no">
+                    <input type="radio" name="facturable" value="0" required onchange="document.getElementById('cost_{{ it.id }}').style.display='none'">
+                    <strong style="color:#c53030">❌ Non facturable</strong>
+                    <p style="font-size:10px;color:#666;margin:4px 0 0">Garantie / Geste commercial / Maintenance</p>
+                </label>
+            </div>
+            
+            <div id="cost_{{ it.id }}" style="display:none;margin-bottom:12px">
+                <label style="font-weight:600;color:#1A7A6D;font-size:12px">💰 Coût de l'intervention (XOF) *</label>
+                <input type="number" name="cost_amount" step="1" min="0" placeholder="Ex: 50000"
+                    style="width:100%;padding:10px;border:2px solid #1A7A6D;border-radius:7px;font-size:16px;font-weight:700">
+            </div>
+            
+            <div style="margin-bottom:12px">
+                <label style="font-size:11px;color:#666">📝 Motif / Justification (optionnel)</label>
+                <textarea name="motif" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"
+                    placeholder="Ex: Contrat de maintenance, intervention exceptionnelle..."></textarea>
+            </div>
+            
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <a href="/field-reports/{{ it.id }}" class="btn btn-outline btn-sm">📋 Voir détail remontée</a>
+                <button type="submit" class="btn" style="background:#f29f2f;color:#fff;font-weight:700;padding:8px 18px">
+                    💰 Valider la décision
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endfor %}
+{% else %}
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    <div style="font-size:40px;margin-bottom:10px">📭</div>
+    <p style="font-size:14px;margin:0">Aucune décision en attente</p>
+    <p style="font-size:11px;margin-top:8px">Les remontées exécutées par les techniciens apparaîtront ici.</p>
+</div>
+{% endif %}
+
+<!-- Historique décisions récentes -->
+{% if recent %}
+<div style="margin-top:30px;background:#fff;padding:14px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">📜 Décisions récentes ({{ recent|length }})</h3>
+    <table style="width:100%;font-size:11px">
+        <thead>
+            <tr style="background:#f8f9fa">
+                <th style="padding:6px;text-align:left">Référence</th>
+                <th>Client</th>
+                <th>Décision</th>
+                <th>Montant</th>
+                <th>Décidé par</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in recent %}
+            <tr style="border-bottom:1px solid #f0f0f0">
+                <td style="padding:6px"><a href="/field-reports/{{ r.id }}" style="color:#1A7A6D">{{ r.reference }}</a></td>
+                <td>{{ r.client_name }}</td>
+                <td>
+                    {% if r.facturable %}
+                    <span style="background:#e8f5e9;color:#1b5e20;padding:2px 6px;border-radius:4px;font-weight:600">✅ Facturable</span>
+                    {% else %}
+                    <span style="background:#fde8e8;color:#c53030;padding:2px 6px;border-radius:4px;font-weight:600">❌ Non facturable</span>
+                    {% endif %}
+                </td>
+                <td style="text-align:right;font-weight:700">{% if r.cost_amount %}{{ '{:,.0f}'.format(r.cost_amount) }} XOF{% else %}—{% endif %}</td>
+                <td>{{ r.decided_by_name or '?' }}</td>
+                <td style="color:#666;font-size:10px">{{ r.facturation_decided_at[:16] if r.facturation_decided_at else '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endblock %}

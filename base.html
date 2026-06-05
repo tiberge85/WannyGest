@@ -419,6 +419,18 @@
             </div>
             {% endif %}
             
+            {# v143 : SECTION DG/RH — Décisions de facturation #}
+            {% if 'facturation_decision' in permissions or 'admin' in permissions %}
+            <div class="nav-section" id="sec-decisions" {% if user_role in ('dg','directeur','rh','directrice_rh') %}data-primary="true"{% endif %}>
+                <div class="nav-section-title" onclick="toggleSection('sec-decisions')" style="background:linear-gradient(135deg,#f29f2f,#e8672a);color:#fff">
+                    💰 DÉCISIONS DIRECTION <span class="arrow">▼</span>
+                </div>
+                <div class="nav-section-items">
+                    <a href="/decisions/facturation" class="{% if page == 'decisions_facturation' %}active{% endif %}" style="position:relative">💰 Facturation à décider{% if decisions_facturation_pending and decisions_facturation_pending > 0 %} <span class="badge" style="background:#c53030;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ decisions_facturation_pending }}</span>{% endif %}</a>
+                </div>
+            </div>
+            {% endif %}
+            
             {# ═══════════════════════════════════════════════════════════════ #}
             {# v142 : SECTION AGENT RECOUVREUR (nouveau rôle) #}
             {# ═══════════════════════════════════════════════════════════════ #}
