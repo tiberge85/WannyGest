@@ -4092,6 +4092,66 @@ def _csrf_protect():
         flash("⚠️ Action refusée pour des raisons de sécurité (token CSRF invalide). Rechargez la page et réessayez.", "error")
         return abort(403)
 
+
+# v149 : Helpers pointage
+def _user_has_pointed_today(uid, type_action):
+    """v149 : Retourne True si l'utilisateur a déjà pointé ce type aujourd'hui."""
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        conn = _gdb()
+        r = conn.execute("SELECT id FROM hr_pointages WHERE user_id=? AND date=? AND type=? LIMIT 1",
+            (uid, today, type_action)).fetchone()
+        conn.close()
+        return bool(r)
+    except: return False
+
+
+# v149 : Routes exemptées du middleware pointage forcé
+_POINTAGE_EXEMPT_PATHS = (
+    '/login', '/logout', '/login/2fa', '/login/2fa/cancel',
+    '/pointage', '/pointage/action', '/pointage/qr',
+    '/static/', '/uploads/', '/manifest.json', '/sw.js', '/favicon.ico',
+    '/api/csrf', '/api/health',
+    '/closure/today', '/closure/submit', '/closure/justify',  # v149 : autoriser clôture (qui pointe le départ)
+    '/notifications/read',  # marquage lu via lien
+)
+
+# v149 : Rôles exemptés (peuvent accéder sans pointer)
+_POINTAGE_EXEMPT_ROLES = ('admin',)  # admin pour ne pas se bloquer en debug
+
+@app.before_request
+def _force_arrival_pointage():
+    """v149 : Force l'utilisateur connecté à pointer son arrivée avant d'accéder au logiciel.
+    Si non pointé arrivée + non rôle exempt + route non exempte → redirige vers /pointage.
+    Si pointé départ → déconnecte automatiquement (journée terminée)."""
+    # Pas de session active → laisser Flask gérer (redirige login)
+    uid = session.get('user_id')
+    if not uid: return
+    
+    # Routes/chemins exemptés
+    path = request.path or ''
+    for prefix in _POINTAGE_EXEMPT_PATHS:
+        if path == prefix or path.startswith(prefix):
+            return
+    
+    # Récupérer rôle (cache via session pour perf)
+    user = get_user_by_id(uid)
+    if not user: return
+    if user['role'] in _POINTAGE_EXEMPT_ROLES:
+        return
+    
+    # v149 : Si l'utilisateur a déjà pointé son départ → session expirée, déconnexion
+    if _user_has_pointed_today(uid, 'depart'):
+        session.clear()
+        flash("🌙 Votre journée est clôturée (pointage départ effectué). Reconnectez-vous demain.", "info")
+        return redirect('/login')
+    
+    # Si pas encore pointé arrivée → forcer le pointage
+    if not _user_has_pointed_today(uid, 'arrivee'):
+        flash("⏰ Pointage d'arrivée obligatoire avant d'accéder au logiciel.", "warning")
+        return redirect('/pointage')
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -13955,6 +14015,34 @@ def closure_submit():
         f"Clôture journalière {status} ({total_pending} en attente, {just_count} justifiées)",
         request.remote_addr)
     
+    # v149 : POINTAGE DÉPART AUTOMATIQUE à la clôture
+    try:
+        already_dep = _user_has_pointed_today(user['id'], 'depart')
+        if not already_dep:
+            now_v149 = datetime.now()
+            today_str_v149 = now_v149.strftime('%Y-%m-%d')
+            time_str_v149 = now_v149.strftime('%H:%M')
+            try:
+                from models import compute_pointage_status, get_user_planning
+                planning_v = get_user_planning(user['id'])
+                status_pt, ecart_pt = compute_pointage_status(user['id'], 'depart', time_str_v149, planning_v)
+            except: status_pt, ecart_pt = 'normal', 0
+            
+            conn_pt = _gdb()
+            conn_pt.execute("""INSERT INTO hr_pointages
+                (user_id, type, date, time, datetime_full, status, ecart_minutes,
+                 ip, user_agent, method, location_address)
+                VALUES (?, 'depart', ?, ?, ?, ?, ?, ?, ?, 'closure', 'Clôture automatique')""",
+                (user['id'], today_str_v149, time_str_v149, now_v149.isoformat(),
+                 status_pt, ecart_pt,
+                 request.remote_addr,
+                 (request.headers.get('User-Agent','') or '')[:200]))
+            conn_pt.commit()
+            conn_pt.close()
+            log_activity(user['id'], user['full_name'], 'Pointage',
+                f"Départ automatique via clôture à {time_str_v149} ({status_pt})", request.remote_addr)
+    except Exception as _e: print(f"[v149] auto pointage depart err : {_e}", flush=True)
+    
     # Notification au responsable RH si clôture partielle (justifications soumises)
     if status == 'partielle':
         try:
@@ -13965,8 +14053,12 @@ def closure_submit():
                 type='info', module='rh', icon='📋', priority='normal')
         except: pass
     
-    flash(f"✅ Journée clôturée — Statut : {status}", "success")
-    return redirect('/dashboard')
+    # v149 : DÉCONNEXION AUTOMATIQUE après clôture
+    user_name_final = user['full_name']
+    session.clear()
+    flash(f"🌙 Bonne soirée {user_name_final} ! Votre journée est clôturée — Statut : {status}. "
+          f"Pointage départ effectué automatiquement. À demain !", "success")
+    return redirect('/login')
 
 
 @app.route('/closure/exception/<int:closure_id>', methods=['POST'])
@@ -23462,6 +23554,33 @@ def pointage_action():
     if type_action not in POINTAGE_TYPES:
         flash("❌ Type de pointage invalide.", "error")
         return redirect(url_for('pointage_page'))
+    
+    # v149 : Pointage départ manuel BLOQUÉ si tâches en attente non justifiées
+    # → forcer le passage par la clôture journalière
+    if type_action == 'depart':
+        try:
+            user_dep = get_user_by_id(uid)
+            if user_dep and user_dep['role'] not in ('admin',):
+                pending = get_user_pending_tasks(uid, user_dep['role'])
+                total_pending = pending.get('_total', 0)
+                if total_pending > 0:
+                    # Vérifier nombre de justifications
+                    conn_chk = _gdb()
+                    closure_chk = conn_chk.execute(
+                        "SELECT id FROM daily_closures WHERE user_id=? AND date_closure=?",
+                        (uid, datetime.now().strftime('%Y-%m-%d'))).fetchone()
+                    just_count = 0
+                    if closure_chk:
+                        just_count = conn_chk.execute(
+                            "SELECT COUNT(*) FROM closure_justifications WHERE closure_id=?",
+                            (closure_chk['id'],)).fetchone()[0]
+                    conn_chk.close()
+                    
+                    if just_count < total_pending:
+                        flash(f"⛔ Pointage départ impossible : {total_pending - just_count} tâche(s) en attente. "
+                              f"Vous devez d'abord les régler ou les justifier via la clôture journalière.", "error")
+                        return redirect('/closure/today')
+        except Exception as _e: print(f"[v149] check pointage depart err : {_e}", flush=True)
     
     # Vérifier autorisation (ordre, doublon)
     today_str = datetime.now().strftime('%Y-%m-%d')
