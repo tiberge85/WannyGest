@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Historique workflow{% endblock %}
+{% block content %}
+
+<style>
+.filter-bar { background:#fff; padding:10px; border-radius:8px; margin-bottom:14px; display:flex; gap:8px; flex-wrap:wrap; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.filter-bar input, .filter-bar select, .filter-bar button { padding:7px 10px; border:1.5px solid #ddd; border-radius:6px; font-size:12px }
+.filter-bar button { background:#1A7A6D; color:#fff; border-color:#1A7A6D; cursor:pointer; font-weight:600 }
+.event-row { background:#fff; border-radius:8px; padding:10px; margin-bottom:6px; display:flex; gap:10px; box-shadow:0 1px 2px rgba(0,0,0,0.05) }
+.event-icon { font-size:20px; min-width:32px; text-align:center }
+.event-body { flex:1; font-size:12px }
+.event-meta { font-size:10px; color:#888; margin-top:3px }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📜 Historique global du workflow</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Tous les événements du workflow facturation/recouvrement/paiement.</p>
+    </div>
+    <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<form method="get" class="filter-bar">
+    <select name="event_type">
+        <option value="">-- Tous les types d'événements --</option>
+        {% for t in event_types %}
+        <option value="{{ t }}" {% if t == event_type_filter %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+    </select>
+    <input type="text" name="user" value="{{ user_filter }}" placeholder="🔍 Filtrer par utilisateur" style="flex:1;min-width:160px">
+    <input type="date" name="date_from" value="{{ date_from }}" title="Date début">
+    <input type="date" name="date_to" value="{{ date_to }}" title="Date fin">
+    <button type="submit">Filtrer</button>
+    {% if event_type_filter or user_filter or date_from or date_to %}
+    <a href="/workflow/historique" class="btn btn-sm" style="background:#888;color:#fff;text-decoration:none">✖ Effacer</a>
+    {% endif %}
+</form>
+
+<div style="font-size:11px;color:#666;margin-bottom:10px">{{ events|length }} événement(s) affiché(s) (max 200)</div>
+
+{% if events %}
+    {% for e in events %}
+    <div class="event-row">
+        <div class="event-icon">{{ e.event_icon or '📝' }}</div>
+        <div class="event-body">
+            <div>
+                <strong>{{ e.event_label }}</strong>
+                {% if e.fr_ref %}<span style="margin-left:8px;background:#e3f2fd;color:#0d47a1;padding:2px 6px;border-radius:4px;font-size:10px;font-family:monospace">{{ e.fr_ref }}</span>{% endif %}
+                {% if e.invoice_number %}<span style="margin-left:4px;background:#fff3cd;color:#856404;padding:2px 6px;border-radius:4px;font-size:10px;font-family:monospace">{{ e.invoice_number }}</span>{% endif %}
+                {% if e.client_name %}<span style="margin-left:4px;color:#1A7A6D;font-size:11px">— {{ e.client_name }}</span>{% endif %}
+            </div>
+            {% if e.details %}<div style="color:#555;font-size:11px;margin-top:3px">{{ e.details }}</div>{% endif %}
+            <div class="event-meta">
+                <strong>{{ e.user_name or '?' }}</strong> · {{ e.created_at[:16] }}
+                {% if e.amount %} · <span style="color:#1A7A6D;font-weight:600">{{ '{:,.0f}'.format(e.amount) }} XOF</span>{% endif %}
+                {% if e.fri_id %} · <a href="/recouvrement/facture/{{ e.fri_id }}/preview" style="color:#1565c0">👁️ Voir facture</a>{% endif %}
+                {% if e.event_type %} · <span style="background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:10px">{{ e.event_type }}</span>{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888">
+    <div style="font-size:40px;margin-bottom:10px">📭</div>
+    <p>Aucun événement</p>
+</div>
+{% endif %}
+
+{% endblock %}

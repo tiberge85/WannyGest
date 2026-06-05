@@ -50,6 +50,13 @@ app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 8  # 8 heures
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 Mo
 
+# v145 : Filtre Jinja pour parser JSON dans les templates
+import json as _json_lib
+@app.template_filter('fromjson')
+def _from_json_filter(s):
+    try: return _json_lib.loads(s) if s else []
+    except: return []
+
 # === SÉCURITÉ COOKIES SESSION ===
 # HTTPOnly : empêche JavaScript de lire le cookie (XSS)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -2095,6 +2102,110 @@ try:
     print("[v142-Workflow] Tables + permissions OK", flush=True)
 except Exception as _e:
     print(f"[v142-Workflow] Erreur : {_e}", flush=True)
+
+
+# v145 : Preuves de paiement + historique des événements workflow
+try:
+    from models import get_db as _gdb_v145
+    _v145 = _gdb_v145()
+    
+    # Colonnes additionnelles pour les preuves de paiement
+    for col_def in [
+        "payment_type TEXT",            # cheque / especes / virement / mobile_money
+        "cheque_number TEXT",
+        "cheque_bank TEXT",
+        "cheque_date TEXT",
+        "recu_number TEXT",
+        "bordereau_number TEXT",
+        "proof_files TEXT",             # JSON list de chemins
+        "bordereau_file TEXT",          # chemin fichier bordereau caissière
+        "recovery_amount_planned REAL", # montant prévu envoyé
+        "agent_notes TEXT",             # notes agent recouvreur étendues
+        "cashier_notes TEXT",           # notes caissière
+    ]:
+        col_name = col_def.split()[0]
+        try: _v145.execute(f"SELECT {col_name} FROM field_report_invoices LIMIT 1")
+        except:
+            try: _v145.execute(f"ALTER TABLE field_report_invoices ADD COLUMN {col_def}")
+            except: pass
+    
+    # Table d'historique des événements (timeline)
+    _v145.execute("""CREATE TABLE IF NOT EXISTS fri_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fri_id INTEGER NOT NULL,
+        field_report_id INTEGER,
+        user_id INTEGER,
+        user_name TEXT,
+        event_type TEXT NOT NULL,
+        event_label TEXT,
+        event_icon TEXT,
+        details TEXT,
+        amount REAL,
+        created_at TEXT DEFAULT (datetime('now'))
+    )""")
+    try: _v145.execute("CREATE INDEX IF NOT EXISTS idx_fri_events_fri ON fri_events(fri_id)")
+    except: pass
+    try: _v145.execute("CREATE INDEX IF NOT EXISTS idx_fri_events_date ON fri_events(created_at)")
+    except: pass
+    
+    _v145.commit()
+    _v145.close()
+    print("[v145-Proofs] Colonnes preuves + table historique OK", flush=True)
+except Exception as _e:
+    print(f"[v145-Proofs] Erreur : {_e}", flush=True)
+
+
+# v145 : Types de paiement
+PAYMENT_TYPES = {
+    'especes':       '💵 Espèces',
+    'cheque':        '🏦 Chèque',
+    'virement':      '🏛️ Virement bancaire',
+    'mobile_money':  '📱 Mobile Money',
+    'carte':         '💳 Carte bancaire',
+}
+
+# v145 : Helper pour logger un événement workflow
+def _log_fri_event(fri_id, field_report_id, user_id, user_name,
+                   event_type, event_label, event_icon='📝',
+                   details='', amount=None):
+    """v145 : Enregistre un événement dans la timeline du workflow facturation."""
+    try:
+        conn = _gdb()
+        conn.execute("""INSERT INTO fri_events
+            (fri_id, field_report_id, user_id, user_name, event_type, event_label,
+             event_icon, details, amount, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))""",
+            (fri_id, field_report_id, user_id, user_name,
+             event_type, event_label, event_icon, details, amount))
+        conn.commit()
+        conn.close()
+    except Exception as _e:
+        print(f"[v145] log fri event err : {_e}", flush=True)
+
+
+# v145 : Helper upload fichier preuve
+def _save_proof_file(fri_id, file_storage, kind='proof'):
+    """v145 : Sauvegarde un fichier preuve (chèque, reçu, bordereau, scan).
+    Retourne le chemin relatif si OK, None sinon."""
+    if not file_storage or not getattr(file_storage, 'filename', ''):
+        return None
+    try:
+        import os
+        from werkzeug.utils import secure_filename
+        upload_dir = os.path.join(os.path.dirname(__file__), 'data', 'uploads', 'fri_proofs', str(fri_id))
+        os.makedirs(upload_dir, exist_ok=True)
+        # Nom fichier sécurisé + timestamp pour éviter collisions
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        original = secure_filename(file_storage.filename)
+        if len(original) > 100: original = original[-100:]
+        fname = f"{kind}_{ts}_{original}"
+        full_path = os.path.join(upload_dir, fname)
+        file_storage.save(full_path)
+        # Chemin relatif pour stockage en BDD
+        return f"data/uploads/fri_proofs/{fri_id}/{fname}"
+    except Exception as _e:
+        print(f"[v145] save proof err : {_e}", flush=True)
+        return None
 
 
 # v142 : Constantes
@@ -18207,34 +18318,79 @@ def field_report_execute(rid):
 @app.route('/decisions/facturation')
 @permission_required_any('facturation_decision', 'admin')
 def decisions_facturation():
-    """v143 / v144 : Liste centralisée des remontées exécutées en attente de décision de facturation.
-    Accessible aux DG, Directeur, RH, Directrice_rh et Admin.
-    v144 : Inclut aussi les remontées 'traitee' (anciennes) pour rattraper le backlog."""
+    """v143 / v144 / v145 : Page décisions facturation avec onglets et filtres.
+    Onglets : nouvelles (en attente) / avec facture (facturable=1) / sans facture (facturable=0).
+    Filtres : recherche client/ref, période."""
+    # Onglet actif
+    tab = request.args.get('tab', 'nouvelles').strip()
+    if tab not in ('nouvelles', 'avec_facture', 'sans_facture'):
+        tab = 'nouvelles'
+    
+    # Filtres
+    search = request.args.get('q', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    
     conn = _gdb()
-    items = [dict(r) for r in conn.execute("""
+    
+    # Construction de la requête selon l'onglet
+    where_clauses = []
+    params = []
+    
+    if tab == 'nouvelles':
+        where_clauses.append("fr.statut IN ('executee','traitee')")
+        where_clauses.append("fr.facturable IS NULL")
+        where_clauses.append("fr.linked_intervention_id IS NOT NULL")
+        order_by = "COALESCE(fr.executed_at, fr.updated_at) DESC"
+    elif tab == 'avec_facture':
+        where_clauses.append("fr.facturable=1")
+        order_by = "fr.facturation_decided_at DESC"
+    else:  # sans_facture
+        where_clauses.append("fr.facturable=0")
+        order_by = "fr.facturation_decided_at DESC"
+    
+    # Filtres communs
+    if search:
+        where_clauses.append("(fr.reference LIKE ? OR fr.client_name LIKE ? OR fr.description LIKE ?)")
+        params.extend([f"%{search}%"] * 3)
+    if date_from:
+        where_clauses.append("DATE(COALESCE(fr.executed_at, fr.facturation_decided_at)) >= ?")
+        params.append(date_from)
+    if date_to:
+        where_clauses.append("DATE(COALESCE(fr.executed_at, fr.facturation_decided_at)) <= ?")
+        params.append(date_to)
+    
+    where_sql = " AND ".join(where_clauses)
+    
+    items = [dict(r) for r in conn.execute(f"""
         SELECT fr.id, fr.reference, fr.client_name, fr.type_info, fr.priorite,
                fr.description, fr.execution_notes, fr.executed_at,
                fr.statut as fr_statut, fr.linked_intervention_id,
-               u.full_name as executed_by_name
+               fr.facturable, fr.cost_amount, fr.facturation_motif,
+               fr.facturation_decided_at,
+               u.full_name as executed_by_name,
+               ud.full_name as decided_by_name
         FROM field_reports fr
         LEFT JOIN users u ON u.id = fr.executed_by
-        WHERE fr.statut IN ('executee','traitee') 
-              AND fr.facturable IS NULL
-              AND fr.linked_intervention_id IS NOT NULL
-        ORDER BY COALESCE(fr.executed_at, fr.updated_at) DESC""").fetchall()]
+        LEFT JOIN users ud ON ud.id = fr.facturation_decided_by
+        WHERE {where_sql}
+        ORDER BY {order_by} LIMIT 100""", params).fetchall()]
     
-    # Aussi les décisions récentes pour historique
-    recent = [dict(r) for r in conn.execute("""
-        SELECT fr.id, fr.reference, fr.client_name, fr.facturable, fr.cost_amount,
-               fr.facturation_decided_at, u.full_name as decided_by_name
-        FROM field_reports fr
-        LEFT JOIN users u ON u.id = fr.facturation_decided_by
-        WHERE fr.facturable IS NOT NULL
-        ORDER BY fr.facturation_decided_at DESC LIMIT 20""").fetchall()]
+    # Compteurs pour les onglets
+    counts = {
+        'nouvelles': conn.execute(
+            "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
+            "AND facturable IS NULL AND linked_intervention_id IS NOT NULL"
+        ).fetchone()[0],
+        'avec_facture': conn.execute("SELECT COUNT(*) FROM field_reports WHERE facturable=1").fetchone()[0],
+        'sans_facture': conn.execute("SELECT COUNT(*) FROM field_reports WHERE facturable=0").fetchone()[0],
+    }
+    
     conn.close()
     
     return render_template('decisions_facturation.html', page='decisions_facturation',
-        items=items, recent=recent)
+        items=items, tab=tab, counts=counts,
+        search=search, date_from=date_from, date_to=date_to)
 
 
 @app.route('/field-reports/<int:rid>/decide-facturation', methods=['POST'])
@@ -18291,6 +18447,11 @@ def field_report_decide_facturation(rid):
             _field_report_log(rid, 'Décision facturer',
                 f"Facturable {cost:,.0f} XOF — décidée par {user['full_name']}")
             
+            # v145 : Log événement timeline
+            _log_fri_event(invoice_workflow_id, rid, user['id'], user['full_name'],
+                'decision_facturer', f"Décision : facturable ({cost:,.0f} XOF)",
+                '💰', motif, cost)
+            
             # Notifier la comptabilité
             try:
                 notify_roles(['comptable','comptabilite','admin'],
@@ -18309,6 +18470,10 @@ def field_report_decide_facturation(rid):
             conn.commit()
             conn.close()
             _field_report_log(rid, 'Non facturable', motif or 'Décision non facturable')
+            # v145 : Log événement
+            _log_fri_event(None, rid, user['id'], user['full_name'],
+                'decision_non_facturer', "Décision : non facturable",
+                '❌', motif)
             flash("📁 Remontée marquée non facturable et classée", "info")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
@@ -18321,30 +18486,149 @@ def field_report_decide_facturation(rid):
 @app.route('/recouvrement/factures-a-editer')
 @permission_required_any('facture_edit', 'admin')
 def factures_a_editer():
-    """v142 : Liste des remontées 'a_facturer' que la comptabilité doit transformer en facture."""
+    """v142 / v145 : Page comptabilité avec onglets.
+    - tab=a_editer : factures à éditer (status='a_facturer')
+    - tab=editees : factures déjà éditées (status='facture_editee'+)"""
+    tab = request.args.get('tab', 'a_editer').strip()
+    search = request.args.get('q', '').strip()
+    
     conn = _gdb()
-    items = [dict(r) for r in conn.execute("""
+    
+    if tab == 'editees':
+        where_sql = "fri.status IN ('facture_editee','en_recouvrement','caisse_choisie','paye')"
+        order_by = "fri.emitted_at DESC"
+    else:
+        where_sql = "fri.status='a_facturer'"
+        order_by = "fri.created_at DESC"
+    
+    params = []
+    if search:
+        where_sql += " AND (fr.reference LIKE ? OR fr.client_name LIKE ? OR fri.invoice_number LIKE ?)"
+        params.extend([f"%{search}%"] * 3)
+    
+    items = [dict(r) for r in conn.execute(f"""
         SELECT fri.*, fr.reference as fr_ref, fr.client_name, fr.type_info,
-               u.full_name as decided_by_name
+               u.full_name as decided_by_name,
+               ue.full_name as emitted_by_name
         FROM field_report_invoices fri
         JOIN field_reports fr ON fr.id = fri.field_report_id
         LEFT JOIN users u ON u.id = fri.decided_by
-        WHERE fri.status='a_facturer'
-        ORDER BY fri.created_at DESC""").fetchall()]
+        LEFT JOIN users ue ON ue.id = fri.emitted_by
+        WHERE {where_sql}
+        ORDER BY {order_by} LIMIT 100""", params).fetchall()]
+    
+    counts = {
+        'a_editer': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='a_facturer'").fetchone()[0],
+        'editees': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status IN ('facture_editee','en_recouvrement','caisse_choisie','paye')").fetchone()[0],
+    }
+    
     conn.close()
-    return render_template('recouvrement_factures_a_editer.html', page='factures_a_editer', items=items)
+    return render_template('recouvrement_factures_a_editer.html', page='factures_a_editer',
+        items=items, tab=tab, counts=counts, search=search)
+
+
+@app.route('/recouvrement/facture/<int:fri_id>/preview')
+@permission_required_any('facture_edit', 'recouvrement_view', 'admin')
+def facture_preview(fri_id):
+    """v145 : Prévisualisation HTML d'une facture (PDF-like)."""
+    conn = _gdb()
+    # v145 : Assurer la colonne site_code dans field_reports
+    try: conn.execute("SELECT site_code FROM field_reports LIMIT 1")
+    except:
+        try: conn.execute("ALTER TABLE field_reports ADD COLUMN site_code TEXT")
+        except: pass
+        conn.commit()
+    
+    row = conn.execute("""SELECT fri.*, fr.reference as fr_ref, fr.client_name,
+                          fr.type_info, fr.description, fr.execution_notes,
+                          fr.site_name, fr.site_address,
+                          COALESCE(fr.site_code, '') as site_code,
+                          ud.full_name as decided_by_name,
+                          ue.full_name as emitted_by_name,
+                          ur.full_name as recovery_agent_name,
+                          uc.full_name as cashier_name
+                          FROM field_report_invoices fri
+                          JOIN field_reports fr ON fr.id = fri.field_report_id
+                          LEFT JOIN users ud ON ud.id = fri.decided_by
+                          LEFT JOIN users ue ON ue.id = fri.emitted_by
+                          LEFT JOIN users ur ON ur.id = fri.recovery_agent_id
+                          LEFT JOIN users uc ON uc.id = fri.payment_validated_by
+                          WHERE fri.id=?""", (fri_id,)).fetchone()
+    if not row:
+        conn.close()
+        flash("Facture introuvable", "error")
+        return redirect('/recouvrement/factures-a-editer')
+    
+    # Récupérer la timeline des événements
+    events = [dict(r) for r in conn.execute(
+        "SELECT * FROM fri_events WHERE fri_id=? ORDER BY created_at", (fri_id,)).fetchall()]
+    
+    conn.close()
+    return render_template('facture_preview.html', page='facture_preview',
+        f=dict(row), events=events,
+        payment_types=PAYMENT_TYPES,
+        recovery_methods=RECOVERY_METHODS)
+
+
+@app.route('/recouvrement/facture/<int:fri_id>/modifier', methods=['POST'])
+@permission_required_any('facture_edit', 'admin')
+def facture_modifier(fri_id):
+    """v145 : Modification d'une facture déjà éditée."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    new_amount_str = (request.form.get('amount','') or '').replace(',','.').strip()
+    new_invoice_number = (request.form.get('invoice_number','') or '').strip()
+    notes = (request.form.get('notes','') or '').strip()
+    
+    try:
+        new_amount = float(new_amount_str or 0)
+    except: new_amount = 0
+    
+    if new_amount <= 0:
+        flash("⚠️ Montant invalide", "error")
+        return redirect(f'/recouvrement/facture/{fri_id}/preview')
+    
+    conn = _gdb()
+    try:
+        old = conn.execute("SELECT amount, invoice_number, field_report_id FROM field_report_invoices WHERE id=?",
+            (fri_id,)).fetchone()
+        if not old:
+            conn.close()
+            flash("Facture introuvable", "error")
+            return redirect('/recouvrement/factures-a-editer')
+        
+        old_amount = old['amount']
+        fr_id = old['field_report_id']
+        
+        conn.execute("""UPDATE field_report_invoices
+            SET amount=?, invoice_number=?, updated_at=datetime('now')
+            WHERE id=?""",
+            (new_amount, new_invoice_number or old['invoice_number'], fri_id))
+        conn.commit()
+        conn.close()
+        
+        _log_fri_event(fri_id, fr_id, user['id'], user['full_name'],
+            'facture_modifiee', f"Facture modifiée par {user['full_name']}",
+            '✏️', f"Montant : {old_amount:,.0f} → {new_amount:,.0f} XOF. {notes}",
+            new_amount)
+        
+        flash(f"✅ Facture modifiée ({new_amount:,.0f} XOF)", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect(f'/recouvrement/facture/{fri_id}/preview')
 
 
 @app.route('/recouvrement/facture/<int:fri_id>/edit', methods=['POST'])
 @permission_required_any('facture_edit', 'admin')
 def edit_invoice_v142(fri_id):
-    """v142 : Comptabilité édite la facture (génère numéro + notifie agent recouvreur)."""
+    """v142 / v145 : Comptabilité édite la facture (génère numéro + notifie agent recouvreur).
+    v145 : Log événement timeline."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
     invoice_number = (request.form.get('invoice_number','') or '').strip()
     if not invoice_number:
-        # Auto-générer
         invoice_number = f"FAC-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     
     conn = _gdb()
@@ -18360,14 +18644,18 @@ def edit_invoice_v142(fri_id):
         
         conn.execute("""UPDATE field_report_invoices
             SET invoice_number=?, emitted_by=?, emitted_at=datetime('now'),
-                status='facture_editee',
-                updated_at=datetime('now')
+                status='facture_editee', updated_at=datetime('now')
             WHERE id=?""",
             (invoice_number, user['id'], fri_id))
         conn.commit()
         conn.close()
         
-        # Notifier les agents recouvreurs
+        # v145 : Log événement
+        _log_fri_event(fri_id, fri['field_report_id'], user['id'], user['full_name'],
+            'facture_editee', f"Facture {invoice_number} éditée",
+            '🧾', f"Client : {fri['client_name']} · Montant : {fri['amount']:,.0f} XOF",
+            fri['amount'])
+        
         try:
             notify_roles(['agent_recouvreur','admin'],
                 title=f"📤 Nouvelle facture à recouvrer : {invoice_number}",
@@ -18388,42 +18676,80 @@ def edit_invoice_v142(fri_id):
 @app.route('/recouvrement')
 @permission_required_any('recouvrement_view', 'admin')
 def recouvrement_dashboard():
-    """v142 : Dashboard de l'agent recouvreur — factures à recouvrer."""
+    """v142 / v145 : Dashboard agent recouvreur avec onglets.
+    - nouvelles : factures éditées par la compta, à recevoir/aller chercher
+    - en_attente : envoyées au client, en attente du paiement physique
+    - recouvrees : déjà encaissées (paiement validé par la caissière)"""
+    tab = request.args.get('tab', 'nouvelles').strip()
+    search = request.args.get('q', '').strip()
+    
     conn = _gdb()
     
-    # Factures à recouvrer (status: facture_editee, en_recouvrement, caisse_choisie)
-    items = [dict(r) for r in conn.execute("""
+    if tab == 'en_attente':
+        where_sql = "fri.status IN ('en_recouvrement','caisse_choisie')"
+        order_by = "fri.recovery_sent_at"
+    elif tab == 'recouvrees':
+        where_sql = "fri.status='paye'"
+        order_by = "fri.payment_validated_at DESC"
+    else:  # nouvelles
+        where_sql = "fri.status='facture_editee'"
+        order_by = "fri.emitted_at"
+    
+    params = []
+    if search:
+        where_sql += " AND (fr.reference LIKE ? OR fr.client_name LIKE ? OR fri.invoice_number LIKE ?)"
+        params.extend([f"%{search}%"] * 3)
+    
+    items = [dict(r) for r in conn.execute(f"""
         SELECT fri.*, fr.reference as fr_ref, fr.client_name,
                u.full_name as emitted_by_name,
-               cs.name as caisse_name
+               cs.name as caisse_name,
+               ucv.full_name as cashier_name
         FROM field_report_invoices fri
         JOIN field_reports fr ON fr.id = fri.field_report_id
         LEFT JOIN users u ON u.id = fri.emitted_by
         LEFT JOIN caisses cs ON cs.id = fri.target_caisse_id
-        WHERE fri.status IN ('facture_editee','en_recouvrement','caisse_choisie')
-        ORDER BY fri.emitted_at""").fetchall()]
+        LEFT JOIN users ucv ON ucv.id = fri.payment_validated_by
+        WHERE {where_sql}
+        ORDER BY {order_by} LIMIT 100""", params).fetchall()]
     
-    # Liste des caisses disponibles
     caisses = [dict(r) for r in conn.execute(
         "SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
+    
+    counts = {
+        'nouvelles': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='facture_editee'").fetchone()[0],
+        'en_attente': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status IN ('en_recouvrement','caisse_choisie')").fetchone()[0],
+        'recouvrees': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
+    }
     
     conn.close()
     
     return render_template('recouvrement_dashboard.html', page='recouvrement',
         items=items, caisses=caisses,
-        recovery_methods=RECOVERY_METHODS)
+        recovery_methods=RECOVERY_METHODS,
+        payment_types=PAYMENT_TYPES,
+        tab=tab, counts=counts, search=search)
 
 
 @app.route('/recouvrement/<int:fri_id>/envoyer', methods=['POST'])
 @permission_required_any('recouvrement_edit', 'admin')
 def recouvrement_envoyer(fri_id):
-    """v142 : L'agent recouvreur marque la facture comme envoyée/déposée + choisit la caisse."""
+    """v142 / v145 : L'agent recouvreur marque la facture comme envoyée + choisit la caisse.
+    v145 : Enregistre la preuve de paiement (chèque, reçu, etc.) en fichier."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
     method = (request.form.get('method','') or '').strip()
     caisse_id_str = (request.form.get('caisse_id','') or '').strip()
     notes = (request.form.get('notes','') or '').strip()
+    
+    # v145 : Type de paiement reçu + preuves
+    payment_type = (request.form.get('payment_type','') or '').strip()
+    cheque_number = (request.form.get('cheque_number','') or '').strip()
+    cheque_bank = (request.form.get('cheque_bank','') or '').strip()
+    cheque_date = (request.form.get('cheque_date','') or '').strip()
+    recu_number = (request.form.get('recu_number','') or '').strip()
+    amount_received_str = (request.form.get('amount_received','') or '').replace(',','.').strip()
     
     if method not in RECOVERY_METHODS:
         flash("⚠️ Méthode d'envoi invalide", "error")
@@ -18434,9 +18760,13 @@ def recouvrement_envoyer(fri_id):
     
     caisse_id = int(caisse_id_str)
     
+    try:
+        amount_planned = float(amount_received_str) if amount_received_str else None
+    except: amount_planned = None
+    
     conn = _gdb()
     try:
-        fri = conn.execute("""SELECT fri.*, fr.client_name
+        fri = conn.execute("""SELECT fri.*, fr.client_name, fr.reference as fr_ref
                               FROM field_report_invoices fri
                               JOIN field_reports fr ON fr.id = fri.field_report_id
                               WHERE fri.id=?""", (fri_id,)).fetchone()
@@ -18446,25 +18776,68 @@ def recouvrement_envoyer(fri_id):
             return redirect('/recouvrement')
         
         caisse = conn.execute("SELECT name FROM caisses WHERE id=?", (caisse_id,)).fetchone()
+        conn.close()
+        
+        # v145 : Upload fichier preuve (chèque scanné, reçu, etc.)
+        proof_paths = []
+        try:
+            for fkey in ('proof_file', 'proof_file_2'):
+                f = request.files.get(fkey) if hasattr(request, 'files') else None
+                if f:
+                    p = _save_proof_file(fri_id, f, kind='proof')
+                    if p: proof_paths.append(p)
+        except Exception as _e: print(f"[v145] upload preuves err : {_e}", flush=True)
+        
+        import json
+        # Récupérer les preuves existantes
+        conn = _gdb()
+        existing = conn.execute("SELECT proof_files FROM field_report_invoices WHERE id=?", (fri_id,)).fetchone()
+        existing_paths = []
+        try:
+            if existing and existing['proof_files']:
+                existing_paths = json.loads(existing['proof_files'])
+                if not isinstance(existing_paths, list): existing_paths = []
+        except: pass
+        all_paths = existing_paths + proof_paths
         
         conn.execute("""UPDATE field_report_invoices
             SET recovery_agent_id=?, recovery_status=?, recovery_sent_at=datetime('now'),
                 recovery_method=?, recovery_notes=?,
                 target_caisse_id=?, target_caisse_chosen_at=datetime('now'),
-                status='caisse_choisie',
-                updated_at=datetime('now')
+                payment_type=?, cheque_number=?, cheque_bank=?, cheque_date=?,
+                recu_number=?, recovery_amount_planned=?,
+                proof_files=?, agent_notes=?,
+                status='caisse_choisie', updated_at=datetime('now')
             WHERE id=?""",
-            (user['id'], 'envoyee', method, notes, caisse_id, fri_id))
+            (user['id'], 'envoyee', method, notes, caisse_id,
+             payment_type or None, cheque_number or None, cheque_bank or None,
+             cheque_date or None, recu_number or None, amount_planned,
+             json.dumps(all_paths) if all_paths else None,
+             notes, fri_id))
         conn.commit()
         conn.close()
         
-        # Notifier la caissière de la caisse choisie
+        # v145 : Log événement timeline
+        proof_summary = []
+        if payment_type:
+            proof_summary.append(PAYMENT_TYPES.get(payment_type, payment_type))
+        if cheque_number: proof_summary.append(f"Chèque n°{cheque_number}")
+        if recu_number: proof_summary.append(f"Reçu n°{recu_number}")
+        proof_text = " · ".join(proof_summary) if proof_summary else "Pas de détails"
+        
+        _log_fri_event(fri_id, fri['field_report_id'], user['id'], user['full_name'],
+            'recouvrement_envoye', f"Envoyée au client ({RECOVERY_METHODS.get(method, method)})",
+            '📤', f"Caisse cible : {caisse['name'] if caisse else caisse_id} · "
+                  f"Paiement reçu : {proof_text} · {len(all_paths)} preuve(s) jointe(s)",
+            amount_planned)
+        
+        # Notifier la caissière
         try:
             notify_roles(['caissiere','admin'],
-                title=f"💵 Paiement en attente : {fri['invoice_number'] or fri['fr_ref'] if 'fr_ref' in dict(fri).keys() else fri_id}",
+                title=f"💵 Paiement en attente : {fri['invoice_number'] or 'FRI-'+str(fri_id)}",
                 message=f"Facture envoyée au client {fri['client_name']} pour {fri['amount']:,.0f} XOF. "
                         f"Caisse : {caisse['name'] if caisse else caisse_id}. "
-                        f"À valider à réception du paiement.",
+                        f"Type : {PAYMENT_TYPES.get(payment_type, '?')}. À valider à réception.",
                 link='/caissiere/paiements',
                 type='warning', module='tresorerie', icon='💵', priority='high')
         except: pass
@@ -18480,9 +18853,27 @@ def recouvrement_envoyer(fri_id):
 @app.route('/caissiere/paiements')
 @permission_required_any('caissiere_view', 'admin')
 def caissiere_paiements():
-    """v142 : Dashboard caissière — paiements en attente de validation."""
+    """v142 / v145 : Dashboard caissière avec onglets.
+    - en_attente : paiements à valider (status='caisse_choisie')
+    - recus : paiements déjà encaissés (status='paye')"""
+    tab = request.args.get('tab', 'en_attente').strip()
+    search = request.args.get('q', '').strip()
+    
     conn = _gdb()
-    items = [dict(r) for r in conn.execute("""
+    
+    if tab == 'recus':
+        where_sql = "fri.status='paye'"
+        order_by = "fri.payment_validated_at DESC"
+    else:
+        where_sql = "fri.status='caisse_choisie'"
+        order_by = "fri.recovery_sent_at"
+    
+    params = []
+    if search:
+        where_sql += " AND (fr.reference LIKE ? OR fr.client_name LIKE ? OR fri.invoice_number LIKE ?)"
+        params.extend([f"%{search}%"] * 3)
+    
+    items = [dict(r) for r in conn.execute(f"""
         SELECT fri.*, fr.reference as fr_ref, fr.client_name,
                u.full_name as recovery_agent_name,
                cs.name as caisse_name
@@ -18490,26 +18881,34 @@ def caissiere_paiements():
         JOIN field_reports fr ON fr.id = fri.field_report_id
         LEFT JOIN users u ON u.id = fri.recovery_agent_id
         LEFT JOIN caisses cs ON cs.id = fri.target_caisse_id
-        WHERE fri.status='caisse_choisie'
-        ORDER BY fri.recovery_sent_at""").fetchall()]
+        WHERE {where_sql}
+        ORDER BY {order_by} LIMIT 100""", params).fetchall()]
+    
+    counts = {
+        'en_attente': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='caisse_choisie'").fetchone()[0],
+        'recus': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
+    }
+    
     conn.close()
     
     return render_template('caissiere_paiements.html', page='caissiere_paiements',
-        items=items)
+        items=items, tab=tab, counts=counts, search=search,
+        payment_types=PAYMENT_TYPES)
 
 
 @app.route('/caissiere/paiement/<int:fri_id>/valider', methods=['POST'])
 @permission_required_any('caissiere_validate', 'admin')
 def caissiere_valider(fri_id):
-    """v142 : Caissière valide le paiement — crédite la caisse + clôt le workflow."""
+    """v142 / v145 : Caissière valide le paiement + uploade bordereau de versement."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
     amount_str = (request.form.get('amount_received','') or '').replace(',','.').strip()
-    try:
-        amount_received = float(amount_str or 0)
-    except:
-        amount_received = 0
+    bordereau_number = (request.form.get('bordereau_number','') or '').strip()
+    cashier_notes = (request.form.get('cashier_notes','') or '').strip()
+    
+    try: amount_received = float(amount_str or 0)
+    except: amount_received = 0
     
     if amount_received <= 0:
         flash("⚠️ Montant reçu invalide", "error")
@@ -18525,15 +18924,26 @@ def caissiere_valider(fri_id):
             conn.close()
             flash("Paiement introuvable", "error")
             return redirect('/caissiere/paiements')
+        conn.close()
         
+        # v145 : Upload bordereau
+        bordereau_path = None
+        try:
+            f = request.files.get('bordereau_file') if hasattr(request, 'files') else None
+            if f and getattr(f, 'filename', ''):
+                bordereau_path = _save_proof_file(fri_id, f, kind='bordereau')
+        except Exception as _e: print(f"[v145] bordereau upload err : {_e}", flush=True)
+        
+        conn = _gdb()
         # 1. Marquer le paiement comme validé
         conn.execute("""UPDATE field_report_invoices
             SET payment_amount_received=?, payment_received_at=datetime('now'),
                 payment_validated_by=?, payment_validated_at=datetime('now'),
-                status='paye',
-                updated_at=datetime('now')
+                bordereau_number=?, bordereau_file=?, cashier_notes=?,
+                status='paye', updated_at=datetime('now')
             WHERE id=?""",
-            (amount_received, user['id'], fri_id))
+            (amount_received, user['id'], bordereau_number or None,
+             bordereau_path, cashier_notes, fri_id))
         
         # 2. Créer une opération d'entrée dans la caisse cible
         ref = f"PAY-{fri['invoice_number'] or 'FRI'+str(fri_id)}"
@@ -18544,15 +18954,13 @@ def caissiere_valider(fri_id):
                 (fri['target_caisse_id'], amount_received,
                  f"Paiement facture {fri['invoice_number'] or fri['fr_ref']} — {fri['client_name']}",
                  ref, user['id']))
-            
-            # 3. Synchroniser dans le journal de trésorerie
             try:
                 _sync_caisse_op_to_journal(conn, 'entree', datetime.now().strftime('%Y-%m-%d'),
                     amount_received, 
                     f"Paiement facture {fri['invoice_number'] or fri['fr_ref']} ({fri['client_name']})",
                     ref, user['id'], caisse_id=fri['target_caisse_id'])
-            except Exception as _e: print(f"[v142] sync journal err : {_e}", flush=True)
-        except Exception as _e: print(f"[v142] caisse op err : {_e}", flush=True)
+            except Exception as _e: print(f"[v145] sync journal err : {_e}", flush=True)
+        except Exception as _e: print(f"[v145] caisse op err : {_e}", flush=True)
         
         conn.commit()
         conn.close()
@@ -18561,16 +18969,19 @@ def caissiere_valider(fri_id):
             f"Validation paiement facture {fri['invoice_number'] or fri_id} : {amount_received:,.0f} XOF",
             request.remote_addr)
         
-        # Notifier la chaîne
+        # v145 : Log événement timeline
+        _log_fri_event(fri_id, fri['field_report_id'], user['id'], user['full_name'],
+            'paiement_valide', f"Paiement validé : {amount_received:,.0f} XOF",
+            '✅', f"Bordereau : {bordereau_number or '-'} · {cashier_notes}",
+            amount_received)
+        
         try:
-            # Notifier l'agent recouvreur
             if fri['recovery_agent_id']:
                 notify_user(fri['recovery_agent_id'],
                     title=f"✅ Paiement reçu : {fri['invoice_number']}",
                     message=f"La caissière {user['full_name']} a validé le paiement de "
                             f"{amount_received:,.0f} XOF pour {fri['client_name']}.",
-                    link='/recouvrement', module='tresorerie', priority='normal')
-            # Notifier la comptabilité
+                    link='/recouvrement?tab=recouvrees', module='tresorerie', priority='normal')
             notify_roles(['comptable','comptabilite','admin'],
                 title=f"💰 Paiement encaissé : {fri['invoice_number']}",
                 message=f"Encaissement {amount_received:,.0f} XOF — {fri['client_name']}",
@@ -18582,6 +18993,76 @@ def caissiere_valider(fri_id):
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect('/caissiere/paiements')
+
+
+# v145 : Servir les fichiers preuves (chèque scanné, reçu, bordereau)
+@app.route('/uploads/fri_proofs/<int:fri_id>/<path:filename>')
+@login_required
+def serve_fri_proof(fri_id, filename):
+    """v145 : Servir les fichiers preuves de paiement."""
+    import os
+    from flask import send_from_directory
+    directory = os.path.join(os.path.dirname(__file__), 'data', 'uploads', 'fri_proofs', str(fri_id))
+    try:
+        return send_from_directory(directory, filename)
+    except Exception as e:
+        flash(f"Fichier introuvable : {e}", "error")
+        return redirect('/recouvrement')
+
+
+# v145 : Page d'historique global du workflow
+@app.route('/workflow/historique')
+@login_required
+def workflow_historique():
+    """v145 : Timeline globale des événements du workflow recouvrement."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    perms = get_role_permissions(user['role'])
+    if not any(p in perms for p in ['facturation_decision','facture_edit','recouvrement_view','caissiere_view','admin']):
+        flash("⛔ Accès réservé aux acteurs du workflow", "error")
+        return redirect('/dashboard')
+    
+    event_type_filter = request.args.get('event_type', '').strip()
+    user_filter = request.args.get('user', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    
+    conn = _gdb()
+    where_clauses = []
+    params = []
+    if event_type_filter:
+        where_clauses.append("e.event_type=?")
+        params.append(event_type_filter)
+    if user_filter:
+        where_clauses.append("e.user_name LIKE ?")
+        params.append(f"%{user_filter}%")
+    if date_from:
+        where_clauses.append("DATE(e.created_at) >= ?")
+        params.append(date_from)
+    if date_to:
+        where_clauses.append("DATE(e.created_at) <= ?")
+        params.append(date_to)
+    
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+    
+    events = [dict(r) for r in conn.execute(f"""
+        SELECT e.*, fr.reference as fr_ref, fr.client_name, fri.invoice_number
+        FROM fri_events e
+        LEFT JOIN field_reports fr ON fr.id = e.field_report_id
+        LEFT JOIN field_report_invoices fri ON fri.id = e.fri_id
+        WHERE {where_sql}
+        ORDER BY e.created_at DESC LIMIT 200""", params).fetchall()]
+    
+    # Types d'événements distincts pour le filtre
+    event_types = [r[0] for r in conn.execute(
+        "SELECT DISTINCT event_type FROM fri_events ORDER BY event_type").fetchall()]
+    
+    conn.close()
+    
+    return render_template('workflow_historique.html', page='workflow_historique',
+        events=events, event_types=event_types,
+        event_type_filter=event_type_filter, user_filter=user_filter,
+        date_from=date_from, date_to=date_to)
 
 
 @app.route('/field-reports/<int:rid>/transform', methods=['POST'])

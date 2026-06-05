@@ -1,70 +1,131 @@
 {% extends "base.html" %}
-{% block title %}WannyGest — Paiements à valider{% endblock %}
+{% block title %}WannyGest — Caissière{% endblock %}
 {% block content %}
+
+<style>
+.tabs { display:flex; gap:4px; border-bottom:2px solid #2e7d32; margin-bottom:14px; flex-wrap:wrap }
+.tab { padding:10px 18px; border-radius:8px 8px 0 0; cursor:pointer; background:#f8f9fa; color:#666; font-weight:600; font-size:13px; text-decoration:none; border:2px solid transparent; border-bottom:none }
+.tab.active { background:#2e7d32; color:#fff; border-color:#2e7d32 }
+.tab-badge { background:#fff; color:#c53030; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:800; margin-left:6px }
+.tab.active .tab-badge { background:rgba(255,255,255,0.3); color:#fff }
+.filter-bar { background:#fff; padding:10px; border-radius:8px; margin-bottom:14px; display:flex; gap:8px; flex-wrap:wrap; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.filter-bar input, .filter-bar button { padding:7px 10px; border:1.5px solid #ddd; border-radius:6px; font-size:12px }
+.filter-bar button { background:#2e7d32; color:#fff; border-color:#2e7d32; cursor:pointer; font-weight:600 }
+.p-card { background:#fff; border-radius:10px; padding:14px; margin-bottom:10px; border-left:4px solid #ddd; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.p-card.en-attente { background:#fff8e1; border-left-color:#f29f2f }
+.p-card.recus { background:#f1f8f3; border-left-color:#2e7d32 }
+.bord-section { background:rgba(255,255,255,0.7); border:1px dashed #2e7d32; border-radius:8px; padding:10px; margin-top:10px }
+.bord-section h4 { margin:0 0 8px; font-size:12px; color:#1b5e20 }
+</style>
 
 <div class="page-header">
     <div>
-        <h1>💵 Paiements en attente</h1>
-        <p style="color:#666;font-size:12px;margin:4px 0 0">
-            Factures envoyées aux clients par les agents recouvreurs. Validez le paiement à la réception.
-        </p>
+        <h1>💵 Caissière — Paiements</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Validation et historique des paiements clients.</p>
     </div>
-    <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+    <div style="display:flex;gap:6px">
+        <a href="/workflow/historique" class="btn btn-outline btn-sm">📜 Historique</a>
+        <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+    </div>
 </div>
 
+<div class="tabs">
+    <a href="?tab=en_attente" class="tab {% if tab == 'en_attente' %}active{% endif %}">
+        ⏳ Paiements en attente <span class="tab-badge">{{ counts.en_attente }}</span>
+    </a>
+    <a href="?tab=recus" class="tab {% if tab == 'recus' %}active{% endif %}">
+        ✅ Paiements reçus <span class="tab-badge">{{ counts.recus }}</span>
+    </a>
+</div>
+
+<form method="get" class="filter-bar">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="q" value="{{ search }}" placeholder="🔍 Référence, client, n° facture..." style="flex:1;min-width:200px">
+    <button type="submit">Filtrer</button>
+    {% if search %}<a href="?tab={{ tab }}" class="btn btn-sm" style="background:#888;color:#fff;text-decoration:none">✖</a>{% endif %}
+</form>
+
 {% if items %}
-<div style="background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
     {% for it in items %}
-    <div style="padding:14px;border:2px solid #f29f2f;background:#fff8e1;border-radius:10px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
-            <div style="flex:1;min-width:280px">
-                <div style="font-size:14px;font-weight:700;color:#b8561f">
-                    🧾 {{ it.invoice_number or '#'~it.id }} — {{ it.client_name }}
-                </div>
-                <div style="font-size:11px;color:#666;margin-top:4px">
-                    Réf remontée : <a href="/field-reports/{{ it.field_report_id }}" style="color:#1565c0">{{ it.fr_ref }}</a>
+    <div class="p-card {% if tab == 'recus' %}recus{% else %}en-attente{% endif %}">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:240px">
+                <strong style="font-size:14px;color:#1b5e20">🧾 {{ it.invoice_number or '#'~it.id }} — {{ it.client_name }}</strong>
+                <div style="font-size:11px;color:#666;margin-top:3px">
+                    Réf: <a href="/field-reports/{{ it.field_report_id }}" style="color:#1565c0">{{ it.fr_ref }}</a>
                     · Envoyée par <strong>{{ it.recovery_agent_name or '?' }}</strong>
-                    · {{ it.recovery_sent_at[:16] if it.recovery_sent_at else '' }}
+                    {% if it.recovery_sent_at %} · {{ it.recovery_sent_at[:16] }}{% endif %}
                 </div>
-                <div style="font-size:11px;color:#0d4a18;margin-top:6px;background:#fff;padding:5px 8px;border-radius:5px;display:inline-block">
+                <div style="font-size:11px;color:#0d4a18;margin-top:5px;background:#fff;padding:5px 8px;border-radius:5px;display:inline-block">
                     💵 Caisse cible : <strong>{{ it.caisse_name or '?' }}</strong>
                 </div>
-                {% if it.recovery_notes %}
-                <div style="font-size:11px;color:#666;margin-top:5px;font-style:italic">
-                    📝 {{ it.recovery_notes }}
+                {% if it.payment_type %}
+                <div style="font-size:11px;color:#0d4a18;margin-top:5px">
+                    💳 {{ payment_types.get(it.payment_type, it.payment_type) }}
+                    {% if it.cheque_number %} · Chèque n° {{ it.cheque_number }} ({{ it.cheque_bank or '?' }}){% endif %}
+                    {% if it.recu_number %} · Reçu n° {{ it.recu_number }}{% endif %}
                 </div>
+                {% endif %}
+                {% if it.recovery_notes %}
+                <div style="font-size:11px;color:#666;margin-top:5px;font-style:italic">📝 {{ it.recovery_notes }}</div>
                 {% endif %}
             </div>
             <div style="text-align:right">
-                <div style="font-size:10px;color:#888">Montant attendu</div>
-                <div style="font-size:24px;font-weight:700;color:#c53030">{{ '{:,.0f}'.format(it.amount) }} XOF</div>
+                <div style="font-size:10px;color:#888">{% if tab == 'recus' %}Montant reçu{% else %}Montant attendu{% endif %}</div>
+                <div style="font-size:22px;font-weight:700;color:{% if tab == 'recus' %}#1b5e20{% else %}#c53030{% endif %}">
+                    {% if tab == 'recus' and it.payment_amount_received %}
+                    {{ '{:,.0f}'.format(it.payment_amount_received) }}
+                    {% else %}
+                    {{ '{:,.0f}'.format(it.amount) }}
+                    {% endif %} XOF
+                </div>
+                {% if it.bordereau_number %}<div style="font-size:10px;color:#888;margin-top:3px">📋 Bordereau : {{ it.bordereau_number }}</div>{% endif %}
             </div>
         </div>
         
-        <form method="post" action="/caissiere/paiement/{{ it.id }}/valider"
-            onsubmit="return confirm('Valider le paiement de ce client ?\nLe montant sera crédité dans la caisse {{ it.caisse_name }}.');"
-            style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px;background:#fff;border-radius:8px;border:1px dashed #ddd">
-            <div style="flex:1;min-width:200px">
-                <label style="font-size:10px;color:#666;display:block">💰 Montant effectivement reçu (XOF) *</label>
-                <input type="number" name="amount_received" required step="1" min="0" 
-                    value="{{ it.amount|int }}"
-                    style="width:100%;padding:8px;border:1.5px solid #2e7d32;border-radius:5px;font-size:14px;font-weight:700">
-                <small style="font-size:10px;color:#666">Modifiez si paiement partiel ou différent</small>
+        {% if tab == 'en_attente' %}
+        <form method="post" action="/caissiere/paiement/{{ it.id }}/valider" enctype="multipart/form-data"
+            onsubmit="return confirm('Valider le paiement ? La caisse {{ it.caisse_name }} sera créditée.');"
+            class="bord-section">
+            <h4>✅ Valider le paiement + Joindre le bordereau de versement</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:8px">
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">💰 Montant effectivement reçu (XOF) *</label>
+                    <input type="number" name="amount_received" required step="1" min="0" 
+                        value="{{ (it.recovery_amount_planned or it.amount)|int }}"
+                        style="width:100%;padding:8px;border:1.5px solid #2e7d32;border-radius:5px;font-size:14px;font-weight:700">
+                </div>
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">📋 N° bordereau de versement</label>
+                    <input type="text" name="bordereau_number" placeholder="Ex: BV-2026-001" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:5px;font-size:12px;font-family:monospace">
+                </div>
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">📎 Bordereau scanné (PDF/image)</label>
+                    <input type="file" name="bordereau_file" accept="image/*,.pdf" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;background:#fff">
+                </div>
             </div>
-            <div>
-                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;padding:10px 18px;font-weight:700;margin-top:14px">
-                    ✅ Valider paiement → Créditer caisse
-                </button>
+            <textarea name="cashier_notes" rows="2" placeholder="Notes caissière (différence, observations...)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+                <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-outline btn-sm">👁️ Détails complets</a>
+                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">✅ Valider paiement → Créditer caisse</button>
             </div>
         </form>
+        {% else %}
+        <div style="font-size:11px;color:#1b5e20;margin-top:8px">
+            ✅ Validé le {{ it.payment_validated_at[:16] if it.payment_validated_at else '?' }}
+            {% if it.cashier_notes %}<br>📝 {{ it.cashier_notes }}{% endif %}
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+            <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-outline btn-sm">👁️ Détails et historique</a>
+        </div>
+        {% endif %}
     </div>
     {% endfor %}
-</div>
 {% else %}
-<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888">
     <div style="font-size:40px;margin-bottom:10px">📭</div>
-    <p style="font-size:14px;margin:0">Aucun paiement en attente pour le moment</p>
-    <p style="font-size:11px;margin-top:8px">Les paiements en attente des agents recouvreurs apparaîtront ici.</p>
+    <p>Aucun paiement dans cet onglet</p>
 </div>
 {% endif %}
+
 {% endblock %}

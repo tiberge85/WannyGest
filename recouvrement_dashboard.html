@@ -2,84 +2,190 @@
 {% block title %}WannyGest — Recouvrement{% endblock %}
 {% block content %}
 
+<style>
+.tabs { display:flex; gap:4px; border-bottom:2px solid #1565c0; margin-bottom:14px; flex-wrap:wrap }
+.tab { padding:10px 18px; border-radius:8px 8px 0 0; cursor:pointer; background:#f8f9fa; color:#666; font-weight:600; font-size:13px; text-decoration:none; border:2px solid transparent; border-bottom:none }
+.tab.active { background:#1565c0; color:#fff; border-color:#1565c0 }
+.tab-badge { background:#fff; color:#c53030; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:800; margin-left:6px }
+.tab.active .tab-badge { background:rgba(255,255,255,0.3); color:#fff }
+.filter-bar { background:#fff; padding:10px; border-radius:8px; margin-bottom:14px; display:flex; gap:8px; flex-wrap:wrap; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.filter-bar input, .filter-bar button { padding:7px 10px; border:1.5px solid #ddd; border-radius:6px; font-size:12px }
+.filter-bar button { background:#1565c0; color:#fff; border-color:#1565c0; cursor:pointer; font-weight:600 }
+.r-card { background:#fff; border-radius:10px; padding:12px; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border-left:4px solid #ddd }
+.r-card.nouvelles { border-left-color:#f29f2f; background:#fff8e1 }
+.r-card.en-attente { border-left-color:#1565c0; background:#e3f2fd }
+.r-card.recouvrees { border-left-color:#2e7d32; background:#f1f8f3 }
+.proof-section { background:rgba(255,255,255,0.7); border:1px dashed #1565c0; border-radius:8px; padding:10px; margin-top:10px }
+.proof-section h4 { margin:0 0 8px; font-size:12px; color:#0d47a1 }
+</style>
+
 <div class="page-header">
     <div>
-        <h1>📤 Tableau de bord Recouvrement</h1>
-        <p style="color:#666;font-size:12px;margin:4px 0 0">
-            Factures éditées à envoyer/déposer aux clients + choix de la caisse pour le paiement.
-        </p>
+        <h1>📤 Recouvrement</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Gestion des factures à recouvrer avec preuves de paiement.</p>
     </div>
-    <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+    <div style="display:flex;gap:6px">
+        <a href="/workflow/historique" class="btn btn-outline btn-sm">📜 Historique</a>
+        <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+    </div>
 </div>
 
+<div class="tabs">
+    <a href="?tab=nouvelles" class="tab {% if tab == 'nouvelles' %}active{% endif %}">
+        🆕 Nouvelles factures à recouvrer <span class="tab-badge">{{ counts.nouvelles }}</span>
+    </a>
+    <a href="?tab=en_attente" class="tab {% if tab == 'en_attente' %}active{% endif %}">
+        ⏳ En attente de recouvrement <span class="tab-badge">{{ counts.en_attente }}</span>
+    </a>
+    <a href="?tab=recouvrees" class="tab {% if tab == 'recouvrees' %}active{% endif %}">
+        ✅ Factures déjà recouvrées <span class="tab-badge">{{ counts.recouvrees }}</span>
+    </a>
+</div>
+
+<form method="get" class="filter-bar">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="q" value="{{ search }}" placeholder="🔍 Référence, client, n° facture..." style="flex:1;min-width:200px">
+    <button type="submit">Filtrer</button>
+    {% if search %}<a href="?tab={{ tab }}" class="btn btn-sm" style="background:#888;color:#fff;text-decoration:none">✖</a>{% endif %}
+</form>
+
 {% if items %}
-<div style="background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
     {% for it in items %}
-    <div style="padding:12px;border:1.5px solid #ddd;border-radius:10px;margin-bottom:10px;
-        {% if it.status == 'caisse_choisie' %}background:#e8f5e9;border-color:#2e7d32{% else %}background:#fff8e1;border-color:#f29f2f{% endif %}">
-        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
-            <div style="flex:1;min-width:280px">
-                <div style="font-size:13px;font-weight:700;color:#1A7A6D">
-                    🧾 {{ it.invoice_number or '#'~it.id }} — {{ it.client_name }}
-                </div>
+    <div class="r-card {% if tab == 'nouvelles' %}nouvelles{% elif tab == 'en_attente' %}en-attente{% else %}recouvrees{% endif %}">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:240px">
+                <strong style="color:#1A7A6D;font-size:13px">🧾 {{ it.invoice_number or '#'~it.id }} — {{ it.client_name }}</strong>
                 <div style="font-size:11px;color:#666;margin-top:3px">
-                    Réf remontée : <a href="/field-reports/{{ it.field_report_id }}" style="color:#1565c0">{{ it.fr_ref }}</a>
-                    · Éditée par {{ it.emitted_by_name or '?' }} 
-                    · {{ it.emitted_at[:16] if it.emitted_at else '' }}
+                    Réf: <a href="/field-reports/{{ it.field_report_id }}" style="color:#1565c0">{{ it.fr_ref }}</a>
+                    {% if it.emitted_by_name %} · Éditée par {{ it.emitted_by_name }}{% endif %}
+                    {% if it.emitted_at %} · {{ it.emitted_at[:16] }}{% endif %}
                 </div>
-                {% if it.status == 'caisse_choisie' %}
-                <div style="font-size:11px;color:#1b5e20;margin-top:5px">
-                    ✅ Envoyé via <strong>{{ recovery_methods.get(it.recovery_method, it.recovery_method) }}</strong>
-                    · Caisse : <strong>{{ it.caisse_name or '?' }}</strong>
-                    · En attente de paiement
+                {% if it.recovery_sent_at %}
+                <div style="font-size:11px;color:#0d47a1;margin-top:3px">
+                    📤 Envoyée le {{ it.recovery_sent_at[:16] }}
+                    {% if it.recovery_method %} · {{ recovery_methods.get(it.recovery_method, it.recovery_method) }}{% endif %}
+                </div>
+                {% endif %}
+                {% if it.caisse_name %}
+                <div style="font-size:11px;color:#0d4a18;margin-top:3px">💵 Caisse cible : <strong>{{ it.caisse_name }}</strong></div>
+                {% endif %}
+                {% if it.payment_type %}
+                <div style="font-size:11px;color:#0d4a18;margin-top:3px">
+                    {{ payment_types.get(it.payment_type, it.payment_type) }}
+                    {% if it.cheque_number %} · Chèque n° {{ it.cheque_number }} ({{ it.cheque_bank or '?' }}){% endif %}
+                    {% if it.recu_number %} · Reçu n° {{ it.recu_number }}{% endif %}
+                </div>
+                {% endif %}
+                {% if it.payment_validated_at %}
+                <div style="font-size:11px;color:#1b5e20;margin-top:3px;font-weight:600">
+                    ✅ Validée par {{ it.cashier_name or '?' }} le {{ it.payment_validated_at[:16] }}
                 </div>
                 {% endif %}
             </div>
             <div style="text-align:right">
                 <div style="font-size:18px;font-weight:700;color:#1A7A6D">{{ '{:,.0f}'.format(it.amount) }} XOF</div>
+                {% if it.payment_amount_received %}
+                <div style="font-size:11px;color:#1b5e20">Reçu : {{ '{:,.0f}'.format(it.payment_amount_received) }}</div>
+                {% endif %}
             </div>
         </div>
         
-        {% if it.status in ('facture_editee','en_recouvrement') %}
-        <form method="post" action="/recouvrement/{{ it.id }}/envoyer" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px;background:#fff;border-radius:8px">
-            <div style="flex:1;min-width:160px">
-                <label style="font-size:10px;color:#666;display:block">📤 Méthode d'envoi *</label>
-                <select name="method" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:12px">
-                    <option value="">-- Choisir --</option>
-                    {% for mk, mv in recovery_methods.items() %}
-                    <option value="{{ mk }}">{{ mv }}</option>
-                    {% endfor %}
-                </select>
+        {% if tab == 'nouvelles' %}
+        <!-- Formulaire d'envoi + preuves -->
+        <form method="post" action="/recouvrement/{{ it.id }}/envoyer" enctype="multipart/form-data" class="proof-section">
+            <h4>📤 Envoyer la facture au client + Enregistrer la preuve de paiement</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:8px">
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">Méthode d'envoi *</label>
+                    <select name="method" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                        <option value="">-- Choisir --</option>
+                        {% for mk, mv in recovery_methods.items() %}<option value="{{ mk }}">{{ mv }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">Caisse cible *</label>
+                    <select name="caisse_id" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                        <option value="">-- Choisir --</option>
+                        {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">Type de paiement reçu</label>
+                    <select name="payment_type" onchange="togglePayFields_{{ it.id }}(this.value)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                        <option value="">-- (à remplir au retour) --</option>
+                        {% for pk, pv in payment_types.items() %}<option value="{{ pk }}">{{ pv }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">Montant reçu</label>
+                    <input type="number" name="amount_received" step="1" min="0" placeholder="(facultatif)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                </div>
             </div>
-            <div style="flex:1;min-width:180px">
-                <label style="font-size:10px;color:#666;display:block">💵 Caisse cible *</label>
-                <select name="caisse_id" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:12px">
-                    <option value="">-- Choisir une caisse --</option>
-                    {% for c in caisses %}
-                    <option value="{{ c.id }}">{{ c.name }}</option>
-                    {% endfor %}
-                </select>
+            
+            <!-- Champs chèque (cachés par défaut) -->
+            <div id="cheque_fields_{{ it.id }}" style="display:none;background:#fff;padding:8px;border-radius:5px;margin-bottom:6px">
+                <div style="font-size:10px;color:#666;font-weight:600;margin-bottom:5px">🏦 Détails du chèque</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+                    <input type="text" name="cheque_number" placeholder="N° chèque" style="padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;font-family:monospace">
+                    <input type="text" name="cheque_bank" placeholder="Banque émettrice" style="padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                    <input type="date" name="cheque_date" style="padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                </div>
             </div>
-            <div style="flex:2;min-width:200px">
-                <label style="font-size:10px;color:#666;display:block">📝 Notes</label>
-                <input type="text" name="notes" placeholder="Optionnel (date dépôt, contact, etc.)" 
-                    style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:12px">
+            
+            <!-- Champ reçu (cachés par défaut) -->
+            <div id="recu_fields_{{ it.id }}" style="display:none;background:#fff;padding:8px;border-radius:5px;margin-bottom:6px">
+                <div style="font-size:10px;color:#666;font-weight:600;margin-bottom:5px">🧾 Souche du reçu d'encaissement</div>
+                <input type="text" name="recu_number" placeholder="N° du reçu/souche" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;font-family:monospace">
             </div>
-            <div>
-                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;padding:8px 14px;margin-top:14px">
-                    📤 Marquer envoyé + Notifier caissière
-                </button>
+            
+            <!-- Upload preuves -->
+            <div style="background:#fff;padding:8px;border-radius:5px;margin-bottom:6px">
+                <div style="font-size:10px;color:#666;font-weight:600;margin-bottom:5px">📎 Joindre preuves (scan chèque, reçu, photo, etc.)</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                    <input type="file" name="proof_file" accept="image/*,.pdf" style="padding:5px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;background:#fafafa">
+                    <input type="file" name="proof_file_2" accept="image/*,.pdf" style="padding:5px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;background:#fafafa">
+                </div>
             </div>
+            
+            <textarea name="notes" rows="2" placeholder="Notes (date dépôt, contact client, etc.)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+            
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+                <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-outline btn-sm">👁️ Prévisualiser</a>
+                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">📤 Envoyer + Notifier caissière</button>
+            </div>
+            
+            <script>
+            function togglePayFields_{{ it.id }}(val) {
+                document.getElementById('cheque_fields_{{ it.id }}').style.display = (val === 'cheque') ? 'block' : 'none';
+                document.getElementById('recu_fields_{{ it.id }}').style.display = (val === 'especes' || val === 'mobile_money') ? 'block' : 'none';
+            }
+            </script>
         </form>
+        {% elif tab == 'en_attente' %}
+        <div class="proof-section">
+            <div style="font-size:11px;color:#666">
+                📋 Envoyée au client le <strong>{{ it.recovery_sent_at[:16] if it.recovery_sent_at else '?' }}</strong>.
+                En attente de validation par la caissière à réception du paiement.
+            </div>
+            {% if it.recovery_notes %}
+            <div style="font-size:11px;color:#666;margin-top:5px;font-style:italic">📝 {{ it.recovery_notes }}</div>
+            {% endif %}
+            <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+                <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-outline btn-sm">👁️ Détails et historique</a>
+            </div>
+        </div>
+        {% else %}
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+            <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-outline btn-sm">👁️ Détails et historique</a>
+        </div>
         {% endif %}
     </div>
     {% endfor %}
-</div>
 {% else %}
-<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888">
     <div style="font-size:40px;margin-bottom:10px">📭</div>
-    <p style="font-size:14px;margin:0">Aucune facture à recouvrer pour le moment</p>
-    <p style="font-size:11px;margin-top:8px">Les factures éditées par la comptabilité apparaîtront ici.</p>
+    <p>Aucune facture dans cet onglet</p>
 </div>
 {% endif %}
+
 {% endblock %}

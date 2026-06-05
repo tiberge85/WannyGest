@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Facture {{ f.invoice_number or f.id }}{% endblock %}
+{% block content %}
+
+<style>
+.preview-page { background:#fff; padding:30px; border-radius:12px; max-width:780px; margin:0 auto 20px; box-shadow:0 4px 16px rgba(0,0,0,0.1); border:1px solid #ddd }
+.preview-header { display:flex; justify-content:space-between; align-items:start; padding-bottom:20px; border-bottom:2px solid #1A7A6D; margin-bottom:20px }
+.preview-title { font-size:28px; color:#1A7A6D; font-weight:700; margin:0 }
+.preview-meta { font-size:11px; color:#666 }
+.preview-block { background:#f8f9fa; padding:12px; border-radius:8px; margin-bottom:12px }
+.preview-block h4 { margin:0 0 6px; color:#1A7A6D; font-size:12px; text-transform:uppercase; letter-spacing:0.5px }
+.preview-line { font-size:13px; padding:4px 0 }
+.preview-amount { font-size:36px; color:#1A7A6D; font-weight:700; text-align:right; padding:14px; background:#e8f5e9; border-radius:10px }
+.timeline { background:#fff; padding:14px; border-radius:10px; margin-top:20px; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.timeline-event { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid #f0f0f0 }
+.timeline-icon { font-size:18px; min-width:30px; text-align:center }
+.timeline-body { flex:1; font-size:12px }
+.timeline-meta { font-size:10px; color:#888 }
+.status-badge-big { padding:6px 12px; border-radius:6px; font-size:12px; font-weight:700; display:inline-block }
+.status-a_facturer { background:#fff3cd; color:#856404 }
+.status-facture_editee { background:#d4edda; color:#155724 }
+.status-en_recouvrement { background:#cce5ff; color:#004085 }
+.status-caisse_choisie { background:#d6f5d6; color:#0d4a18 }
+.status-paye { background:#2e7d32; color:#fff }
+.proof-link { display:inline-block; padding:5px 10px; background:#1A7A6D; color:#fff; border-radius:5px; font-size:11px; text-decoration:none; margin:3px }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>👁️ Facture {{ f.invoice_number or '#'~f.id }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            <span class="status-badge-big status-{{ f.status }}">{{ f.status }}</span>
+        </p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <button onclick="window.print()" class="btn btn-outline btn-sm">🖨️ Imprimer</button>
+        <a href="{{ request.referrer or '/recouvrement' }}" class="btn btn-outline btn-sm">← Retour</a>
+    </div>
+</div>
+
+<div class="preview-page">
+    <div class="preview-header">
+        <div>
+            <h2 class="preview-title">FACTURE</h2>
+            <div class="preview-meta">N° : <strong>{{ f.invoice_number or 'Non éditée' }}</strong></div>
+            {% if f.emitted_at %}<div class="preview-meta">Date d'émission : {{ f.emitted_at[:16] }}</div>{% endif %}
+            {% if f.emitted_by_name %}<div class="preview-meta">Émise par : {{ f.emitted_by_name }}</div>{% endif %}
+        </div>
+        <div style="text-align:right">
+            <div style="font-size:18px;font-weight:700;color:#1A7A6D">RAMYA Technologie</div>
+            <div style="font-size:11px;color:#666">Abidjan · Côte d'Ivoire</div>
+        </div>
+    </div>
+    
+    <div class="preview-block">
+        <h4>👤 Client</h4>
+        <div class="preview-line"><strong>{{ f.client_name }}</strong></div>
+        {% if f.site_name %}<div class="preview-line">📍 {{ f.site_name }} {% if f.site_code %}<span style="background:#1A7A6D;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px;font-family:monospace">{{ f.site_code }}</span>{% endif %}</div>{% endif %}
+        {% if f.site_address %}<div class="preview-line" style="color:#666">{{ f.site_address }}</div>{% endif %}
+    </div>
+    
+    <div class="preview-block">
+        <h4>📋 Prestation</h4>
+        <div class="preview-line"><strong>Référence remontée :</strong> {{ f.fr_ref }}</div>
+        <div class="preview-line"><strong>Type :</strong> {{ f.type_info }}</div>
+        {% if f.description %}<div class="preview-line"><strong>Description :</strong> {{ f.description }}</div>{% endif %}
+        {% if f.execution_notes %}<div class="preview-line"><strong>Détails travaux :</strong> {{ f.execution_notes }}</div>{% endif %}
+    </div>
+    
+    <div class="preview-amount">
+        TOTAL : {{ '{:,.0f}'.format(f.amount) }} XOF
+    </div>
+    
+    {% if f.decision_motif %}
+    <div class="preview-block" style="margin-top:12px">
+        <h4>📝 Motif facturation</h4>
+        <div class="preview-line">{{ f.decision_motif }}</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modifier (compta uniquement, si facture éditée mais pas encore en recouvrement) -->
+{% if f.status == 'facture_editee' and ('facture_edit' in permissions or 'admin' in permissions) %}
+<div style="background:#fff;padding:14px;border-radius:10px;margin:14px auto;max-width:780px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">✏️ Modifier la facture</h3>
+    <form method="post" action="/recouvrement/facture/{{ f.id }}/modifier">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div>
+                <label style="font-size:10px;color:#666">N° facture</label>
+                <input type="text" name="invoice_number" value="{{ f.invoice_number or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-family:monospace">
+            </div>
+            <div>
+                <label style="font-size:10px;color:#666">Montant (XOF)</label>
+                <input type="number" name="amount" value="{{ f.amount|int }}" step="1" min="0" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-weight:700">
+            </div>
+        </div>
+        <textarea name="notes" rows="2" placeholder="Notes (raison modification)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+        <button type="submit" class="btn btn-sm" style="background:#f29f2f;color:#fff">✏️ Enregistrer modifications</button>
+    </form>
+</div>
+{% endif %}
+
+<!-- Détails preuves -->
+{% if f.payment_type or f.cheque_number or f.recu_number or f.bordereau_number or f.proof_files or f.bordereau_file %}
+<div style="background:#fff;padding:14px;border-radius:10px;margin:14px auto;max-width:780px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">🔒 Preuves de paiement</h3>
+    {% if f.payment_type %}<div style="font-size:12px;margin-bottom:5px"><strong>Type :</strong> {{ payment_types.get(f.payment_type, f.payment_type) }}</div>{% endif %}
+    {% if f.cheque_number %}<div style="font-size:12px;margin-bottom:5px"><strong>Chèque :</strong> N° {{ f.cheque_number }} - {{ f.cheque_bank or '?' }} - {{ f.cheque_date or '?' }}</div>{% endif %}
+    {% if f.recu_number %}<div style="font-size:12px;margin-bottom:5px"><strong>Reçu d'encaissement :</strong> N° {{ f.recu_number }}</div>{% endif %}
+    {% if f.bordereau_number %}<div style="font-size:12px;margin-bottom:5px"><strong>Bordereau de versement :</strong> {{ f.bordereau_number }}</div>{% endif %}
+    {% if f.proof_files %}
+    {% set proofs = f.proof_files|fromjson if f.proof_files else [] %}
+    <div style="margin-top:10px"><strong style="font-size:12px">📎 Pièces jointes :</strong>
+    {% for p in proofs %}
+        <a href="/{{ p }}" target="_blank" class="proof-link">📄 {{ p.split('/')[-1] }}</a>
+    {% endfor %}
+    </div>
+    {% endif %}
+    {% if f.bordereau_file %}
+    <div style="margin-top:6px"><strong style="font-size:12px">📋 Bordereau scanné :</strong>
+        <a href="/{{ f.bordereau_file }}" target="_blank" class="proof-link">📄 Voir bordereau</a>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Timeline historique -->
+<div class="timeline" style="max-width:780px;margin:14px auto">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:14px">📜 Historique des événements</h3>
+    {% if events %}
+        {% for e in events %}
+        <div class="timeline-event">
+            <div class="timeline-icon">{{ e.event_icon or '📝' }}</div>
+            <div class="timeline-body">
+                <div><strong>{{ e.event_label }}</strong></div>
+                {% if e.details %}<div style="color:#666">{{ e.details }}</div>{% endif %}
+                <div class="timeline-meta">
+                    Par {{ e.user_name or '?' }} · {{ e.created_at[:16] }}
+                    {% if e.amount %} · {{ '{:,.0f}'.format(e.amount) }} XOF{% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <p style="color:#888;font-style:italic;text-align:center;padding:14px">Aucun événement enregistré</p>
+    {% endif %}
+</div>
+
+{% endblock %}
