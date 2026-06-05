@@ -18573,7 +18573,8 @@ def facture_preview(fri_id):
 @app.route('/recouvrement/facture/<int:fri_id>/modifier', methods=['POST'])
 @permission_required_any('facture_edit', 'admin')
 def facture_modifier(fri_id):
-    """v145 : Modification d'une facture déjà éditée."""
+    """v145 / v146 : Modification d'une facture.
+    v146 : Accepte aussi modification AVANT édition (status='a_facturer')."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
@@ -18591,20 +18592,38 @@ def facture_modifier(fri_id):
     
     conn = _gdb()
     try:
-        old = conn.execute("SELECT amount, invoice_number, field_report_id FROM field_report_invoices WHERE id=?",
+        old = conn.execute("SELECT amount, invoice_number, field_report_id, status FROM field_report_invoices WHERE id=?",
             (fri_id,)).fetchone()
         if not old:
             conn.close()
             flash("Facture introuvable", "error")
             return redirect('/recouvrement/factures-a-editer')
         
+        # v146 : Refuser modification si déjà payée
+        if old['status'] == 'paye':
+            conn.close()
+            flash("⛔ Cette facture est déjà payée et ne peut plus être modifiée", "error")
+            return redirect(f'/recouvrement/facture/{fri_id}/preview')
+        
         old_amount = old['amount']
+        old_inv_num = old['invoice_number']
         fr_id = old['field_report_id']
+        
+        # Conserver le numéro existant si pas fourni, sauf si vide volontairement
+        final_inv_num = new_invoice_number if new_invoice_number else old_inv_num
         
         conn.execute("""UPDATE field_report_invoices
             SET amount=?, invoice_number=?, updated_at=datetime('now')
             WHERE id=?""",
-            (new_amount, new_invoice_number or old['invoice_number'], fri_id))
+            (new_amount, final_inv_num, fri_id))
+        
+        # v146 : Si on était à 'a_facturer', sync field_reports.cost_amount aussi
+        if old['status'] == 'a_facturer':
+            try:
+                conn.execute("UPDATE field_reports SET cost_amount=? WHERE id=?",
+                    (new_amount, fr_id))
+            except: pass
+        
         conn.commit()
         conn.close()
         

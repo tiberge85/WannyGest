@@ -77,6 +77,7 @@
         {% if tab == 'a_editer' %}
         <form method="post" action="/recouvrement/facture/{{ it.id }}/edit" style="display:flex;gap:6px;align-items:center;margin-top:10px;padding-top:8px;border-top:1px dashed #ccc">
             <input type="text" name="invoice_number" placeholder="N° facture (auto si vide)" style="flex:1;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-size:12px;font-family:monospace">
+            <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-sm btn-outline">👁️ Aperçu / Modifier</a>
             <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">🧾 Éditer la facture</button>
         </form>
         {% else %}
