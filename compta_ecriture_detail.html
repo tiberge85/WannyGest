@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Écriture #{{ ecriture.id }}{% endblock %}
+{% block content %}
+
+<style>
+.detail-card { background:#fff; padding:18px; border-radius:12px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.detail-card h3 { color:#1A7A6D; font-size:14px; border-bottom:2px solid #1A7A6D; padding-bottom:8px; margin:0 0 12px }
+.info-row { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #f0f0f0; font-size:13px }
+.info-row:last-child { border:0 }
+.info-label { color:#666; font-weight:500 }
+.info-val { color:#222; font-weight:700 }
+.badge-brouillard { background:#fff3cd; color:#856404; padding:3px 10px; border-radius:6px; font-size:11px; font-weight:700 }
+.badge-valide { background:#e8f5e9; color:#1b5e20; padding:3px 10px; border-radius:6px; font-size:11px; font-weight:700 }
+table.lignes { width:100%; border-collapse:collapse; margin-top:8px }
+table.lignes th { background:#1A7A6D; color:#fff; padding:8px; text-align:left; font-size:11px }
+table.lignes td { padding:8px; border-bottom:1px solid #eee; font-size:12px }
+table.lignes tr:nth-child(even) td { background:#fafbfc }
+.total-row td { background:#f0f4f3 !important; font-weight:800; color:#1A7A6D }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📝 Écriture #{{ ecriture.id }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">{{ ecriture.libelle }}</p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/compta-pro/ecritures" class="btn btn-outline btn-sm">← Liste</a>
+    </div>
+</div>
+
+<div class="detail-card">
+    <h3>📋 Informations générales</h3>
+    <div class="info-row">
+        <span class="info-label">Numéro de pièce</span>
+        <span class="info-val" style="font-family:monospace">{{ ecriture.numero_piece or '-' }}</span>
+    </div>
+    <div class="info-row">
+        <span class="info-label">Date</span>
+        <span class="info-val">{{ ecriture.date }}</span>
+    </div>
+    <div class="info-row">
+        <span class="info-label">Journal</span>
+        <span class="info-val">{{ ecriture.journal_code }} — {{ ecriture.journal_nom or '?' }}</span>
+    </div>
+    <div class="info-row">
+        <span class="info-label">Libellé</span>
+        <span class="info-val">{{ ecriture.libelle }}</span>
+    </div>
+    <div class="info-row">
+        <span class="info-label">Statut</span>
+        <span>
+            {% if ecriture.statut == 'brouillard' %}
+                <span class="badge-brouillard">🟡 Brouillard</span>
+            {% else %}
+                <span class="badge-valide">✅ Validée</span>
+            {% endif %}
+        </span>
+    </div>
+    {% if ecriture.creator %}
+    <div class="info-row">
+        <span class="info-label">Créée par</span>
+        <span class="info-val">{{ ecriture.creator }} — {{ ecriture.created_at[:16] if ecriture.created_at else '?' }}</span>
+    </div>
+    {% endif %}
+    {% if ecriture.validator %}
+    <div class="info-row">
+        <span class="info-label">Validée par</span>
+        <span class="info-val">{{ ecriture.validator }} — {{ ecriture.validated_at[:16] if ecriture.validated_at else '?' }}</span>
+    </div>
+    {% endif %}
+</div>
+
+<div class="detail-card">
+    <h3>📊 Lignes d'écriture ({{ lignes|length }})</h3>
+    <table class="lignes">
+        <thead>
+            <tr><th>Compte</th><th>Libellé</th><th style="text-align:right">Débit</th><th style="text-align:right">Crédit</th></tr>
+        </thead>
+        <tbody>
+            {% for l in lignes %}
+            <tr>
+                <td><strong>{{ l.cpt_numero }}</strong> — {{ l.cpt_nom or '?' }}</td>
+                <td>{{ l.libelle }}</td>
+                <td style="text-align:right;color:#1565c0;font-weight:600">{{ '{:,.0f}'.format(l.debit) if l.debit else '-' }}</td>
+                <td style="text-align:right;color:#c53030;font-weight:600">{{ '{:,.0f}'.format(l.credit) if l.credit else '-' }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total-row">
+                <td colspan="2" style="text-align:right">TOTAUX</td>
+                <td style="text-align:right">{{ '{:,.0f}'.format(ecriture.total_debit) }}</td>
+                <td style="text-align:right">{{ '{:,.0f}'.format(ecriture.total_credit) }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- ACTIONS -->
+<div class="detail-card">
+    <h3>⚙️ Actions</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+        {% if ecriture.statut == 'brouillard' %}
+            <form method="post" action="/compta-pro/ecriture/{{ ecriture.id }}/valider" style="display:inline">
+                <button type="submit" class="btn btn-primary" style="background:#2e7d32" 
+                    onclick="return confirm('Valider cette écriture ? Elle ne pourra plus être modifiée.')">✅ Valider</button>
+            </form>
+            <form method="post" action="/compta-pro/ecriture/{{ ecriture.id }}/delete" style="display:inline">
+                <button type="submit" class="btn btn-outline" style="background:#fde8e8;color:#c53030"
+                    onclick="return confirm('Supprimer définitivement cette écriture brouillard ?')">🗑️ Supprimer</button>
+            </form>
+        {% else %}
+            <p style="color:#888;font-size:12px;margin:0">
+                ℹ️ Cette écriture est validée. Pour la modifier, passez une <strong>écriture inverse en OD</strong>.
+            </p>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

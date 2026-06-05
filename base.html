@@ -390,6 +390,8 @@
                     <a href="/compta-pro/grand-livre" class="{% if page == 'compta_pro' and section|default('') == 'grand_livre' %}active{% endif %}">📒 Grand Livre</a>
                     <a href="/compta-pro/balance" class="{% if page == 'compta_pro' and section|default('') == 'balance' %}active{% endif %}">⚖️ Balance</a>
                     <a href="/compta-pro/bilan" class="{% if page == 'compta_pro' and section|default('') == 'bilan' %}active{% endif %}">🏛️ Bilan SYSCOHADA</a>
+                    {# v154 : Bilan annuel PDF #}
+                    <a href="/compta-pro/bilan-annuel.pdf" style="background:linear-gradient(90deg,rgba(46,125,50,0.15),transparent)">📑 Bilan annuel PDF</a>
                     <a href="/compta-pro/resultat" class="{% if page == 'compta_pro' and section|default('') == 'resultat' %}active{% endif %}">💹 Compte de résultat</a>
                     {# v153 : Lien Aide #}
                     <a href="/compta-pro/aide" class="{% if page == 'compta_pro_aide' %}active{% endif %}" style="background:linear-gradient(90deg,rgba(21,101,192,0.15),transparent)">📚 Aide & documentation</a>
@@ -639,6 +641,8 @@
                     <a href="/admin/client-users" class="{% if page == 'client_users' %}active{% endif %}">👤 Portail clients</a>
                     <a href="/admin/client-users/pending" class="{% if page == 'client_users_pending' %}active{% endif %}" style="position:relative">⏳ Comptes à valider{% if pending_clients_count and pending_clients_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_clients_count }}</span>{% endif %}</a>
                     <a href="/admin/modules" class="{% if page == 'admin_modules' %}active{% endif %}">⚙️ Modules</a>
+                    {# v154 : Paramètres documents (entête / pied de page) #}
+                    <a href="/admin/document-params" class="{% if page == 'admin_doc_params' %}active{% endif %}" style="background:linear-gradient(90deg,rgba(242,159,47,0.15),transparent)">📄 Paramètres documents (entête/pied)</a>
                     <a href="/historique" class="{% if page == 'historique' %}active{% endif %}">🕓 Historique</a>
                     <a href="/admin/security-logs" class="{% if page == 'security_logs' %}active{% endif %}">🛡️ Journal de sécurité</a>
                     <a href="/admin/2fa/setup" class="{% if page == '2fa_setup' %}active{% endif %}">🔐 Configuration 2FA</a>

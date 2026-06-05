@@ -109,10 +109,11 @@ new Chart(document.getElementById('c2'),{type:'doughnut',data:{labels:['Brouillo
 {# ======================== COMPTABLE ======================== #}
 {% if user_role == 'comptable' %}
 <div class="stats-grid">
-    <div class="stat-card" style="border-left:4px solid #e8672a"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-num">{{ inv_stats.a_envoyer }}</div><div class="stat-label">À envoyer</div></div></div>
-    <div class="stat-card" style="border-left:4px solid #1A7A6D"><div class="stat-icon blue">📧</div><div class="stat-info"><div class="stat-num">{{ inv_stats.envoyee }}</div><div class="stat-label">Envoyées</div></div></div>
-    <div class="stat-card" style="border-left:4px solid #f57f17"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-num">{{ inv_stats.en_attente_paiement }}</div><div class="stat-label">Attente paiement</div></div></div>
-    <div class="stat-card" style="border-left:4px solid #2e7d32"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ inv_stats.payee }}</div><div class="stat-label">Payées</div></div></div>
+    {# v154 : Cartes cliquables → filtre comptabilité #}
+    <a href="/comptabilite?t=a_envoyer" class="stat-card" style="border-left:4px solid #e8672a;text-decoration:none;transition:transform 0.15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-num">{{ inv_stats.a_envoyer }}</div><div class="stat-label">À envoyer</div></div></a>
+    <a href="/comptabilite?t=envoyee" class="stat-card" style="border-left:4px solid #1A7A6D;text-decoration:none;transition:transform 0.15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''"><div class="stat-icon blue">📧</div><div class="stat-info"><div class="stat-num">{{ inv_stats.envoyee }}</div><div class="stat-label">Envoyées</div></div></a>
+    <a href="/comptabilite?t=en_attente_paiement" class="stat-card" style="border-left:4px solid #f57f17;text-decoration:none;transition:transform 0.15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-num">{{ inv_stats.en_attente_paiement }}</div><div class="stat-label">Attente paiement</div></div></a>
+    <a href="/comptabilite?t=payee" class="stat-card" style="border-left:4px solid #2e7d32;text-decoration:none;transition:transform 0.15s" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ inv_stats.payee }}</div><div class="stat-label">Payées</div></div></a>
 </div>
 <div class="card" style="margin-bottom:16px"><div class="card-body" style="height:180px"><canvas id="cco"></canvas></div></div>
 <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">

@@ -2221,9 +2221,10 @@ try:
             r = conn.execute("SELECT id FROM compta_comptes WHERE numero=?", (numero,)).fetchone()
             if r: return r[0]
             try:
+                classe_int = int(numero[0]) if numero and numero[0].isdigit() else 0
                 cur = conn.execute(
-                    "INSERT INTO compta_comptes (numero, libelle, classe, type, is_active) VALUES (?,?,?,?,1)",
-                    (numero, f"Compte {numero}", numero[0] if numero else '0', 'actif'))
+                    "INSERT INTO compta_comptes (numero, nom, classe, type, is_active) VALUES (?,?,?,?,1)",
+                    (numero, f"Compte {numero}", classe_int, 'actif'))
                 return cur.lastrowid
             except: return None
         
@@ -4154,6 +4155,67 @@ def inject_globals():
 # ======================== AUTH ROUTES ========================
 
 
+# v154 : Paramètres globaux des documents (entête / pied de page)
+DEFAULT_DOC_PARAMS = {
+    'company_name':       'RAMYA TECHNOLOGIE & INNOVATION',
+    'company_rccm':       'CI-ABJ-2017-A-25092',
+    'company_ncc':        '1746141.B',
+    'company_address':    "Abidjan Cocody ABATTA (derrière OLA ENERGY)",
+    'company_phone':      '+225 07 47 68 20 27 / +225 05 66 75 06 69',
+    'company_email':      'dg@ramyaci.tech',
+    'company_website':    'www.ramyatechnologie.com',
+    'header_text':        '',  # Texte additionnel sous l'adresse
+    'footer_text':        'Merci pour votre confiance — RAMYA TECHNOLOGIE & INNOVATION',
+    'footer_legal':       'Document généré par WannyGest ERP',
+    'bank_for_payment':   'BICICI · 12345678901 · RAMYA TECHNOLOGIE',
+    'devise':             'XOF',
+    'tva_rate':           '18',
+}
+
+def get_doc_params():
+    """v154 : Retourne les paramètres documents stockés dans app_settings, avec fallback sur defaults."""
+    try:
+        from models import get_db as _gdb_p
+        conn = _gdb_p()
+        params = dict(DEFAULT_DOC_PARAMS)
+        rows = conn.execute("SELECT key, value FROM app_settings WHERE key LIKE 'doc_%'").fetchall()
+        for r in rows:
+            short_key = r[0].replace('doc_', '', 1)
+            if short_key in DEFAULT_DOC_PARAMS:
+                params[short_key] = r[1]
+        conn.close()
+        return params
+    except: return dict(DEFAULT_DOC_PARAMS)
+
+
+def set_doc_param(key, value):
+    """v154 : Enregistre un paramètre document."""
+    try:
+        from models import get_db as _gdb_p
+        conn = _gdb_p()
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            (f'doc_{key}', value))
+        conn.commit()
+        conn.close()
+        return True
+    except: return False
+
+
+@app.route('/admin/document-params', methods=['GET', 'POST'])
+@permission_required('admin')
+def admin_document_params():
+    """v154 : Configuration de l'entête et du pied de page des documents (devis, facture, proforma...)."""
+    if request.method == 'POST':
+        for key in DEFAULT_DOC_PARAMS.keys():
+            val = (request.form.get(key, '') or '').strip()
+            set_doc_param(key, val)
+        flash("✅ Paramètres des documents enregistrés", "success")
+        return redirect('/admin/document-params')
+    
+    params = get_doc_params()
+    return render_template('admin_document_params.html', page='admin_doc_params', params=params)
+
+
 def auto_ecriture(conn, date, libelle, debit_account, credit_account, amount, reference=''):
     """Génère automatiquement une écriture comptable double (débit/crédit) SYSCOHADA.
     v153 : Écrit DANS LES DEUX systèmes pour que le dashboard Pro voie les données :
@@ -4208,11 +4270,12 @@ def _sync_to_compta_pro(conn, date, libelle, debit_account, credit_account, amou
         if not numero: return None
         r = conn.execute("SELECT id FROM compta_comptes WHERE numero=?", (numero,)).fetchone()
         if r: return r[0]
-        # Créer le compte si manquant (avec libelle générique)
+        # Créer le compte si manquant (avec nom générique)
         try:
+            classe_int = int(numero[0]) if numero and numero[0].isdigit() else 0
             cur = conn.execute(
-                "INSERT INTO compta_comptes (numero, libelle, classe, type, is_active) VALUES (?,?,?,?,1)",
-                (numero, f"Compte {numero}", numero[0] if numero else '0', 'actif'))
+                "INSERT INTO compta_comptes (numero, nom, classe, type, is_active) VALUES (?,?,?,?,1)",
+                (numero, f"Compte {numero}", classe_int, 'actif'))
             return cur.lastrowid
         except: return None
     
@@ -30354,21 +30417,44 @@ def mg_paiements_add():
 
 # === ÉQUIPEMENTS ===
 
-# v152 : Page solde fournisseur dédiée pour MG (vue limitée — uniquement les soldes)
 @app.route('/mg/soldes')
 @permission_required_any('mg_view', 'admin')
 def mg_soldes_fournisseur():
-    """v152 : Solde de la caisse fournisseur + solde du/des compte(s) bancaire(s) fournisseur.
-    Vue restreinte pour MG : juste les soldes, pas le détail des opérations."""
+    """v152 / v154 : Solde de la caisse fournisseur + solde du/des compte(s) bancaire(s) fournisseur.
+    v154 : Détection élargie (mots-clés : fournisseur, BDU, suppliers, achats)
+           + colonne is_fournisseur (admin peut marquer manuellement)
+           + fallback si rien détecté → afficher TOUTES les caisses/comptes avec étiquette."""
     conn = _gdb()
     
-    # 1. Caisse(s) avec 'fournisseur' dans le nom ou description
-    caisses_fourn = [dict(r) for r in conn.execute("""
-        SELECT id, name, COALESCE(solde_actuel, 0) as solde, description
+    # v154 : Ajouter colonne is_fournisseur si manque (migration silencieuse)
+    try:
+        conn.execute("SELECT is_fournisseur FROM caisses LIMIT 1")
+    except:
+        try: conn.execute("ALTER TABLE caisses ADD COLUMN is_fournisseur INTEGER DEFAULT 0")
+        except: pass
+    try:
+        conn.execute("SELECT is_fournisseur FROM tresorerie_comptes_bancaires LIMIT 1")
+    except:
+        try: conn.execute("ALTER TABLE tresorerie_comptes_bancaires ADD COLUMN is_fournisseur INTEGER DEFAULT 0")
+        except: pass
+    conn.commit()
+    
+    # v154 : Liste élargie de mots-clés pour la détection automatique
+    keywords_fourn = ['fournisseur', 'fourn', 'supplier', 'achats', 'achat',
+                      'bdu', 'banque dépôt', 'banque depot', 'compte fournisseur']
+    
+    # Construire le WHERE LIKE dynamique
+    like_conditions_caisse = " OR ".join([f"LOWER(name) LIKE '%{k}%' OR LOWER(COALESCE(description,'')) LIKE '%{k}%'" for k in keywords_fourn])
+    like_conditions_bank = " OR ".join([f"LOWER(nom) LIKE '%{k}%' OR LOWER(COALESCE(banque,'')) LIKE '%{k}%'" for k in keywords_fourn])
+    
+    # 1. Caisses fournisseur (par mot-clé OU flag is_fournisseur=1)
+    caisses_fourn = [dict(r) for r in conn.execute(f"""
+        SELECT id, name, COALESCE(solde_actuel, 0) as solde, description,
+               COALESCE(is_fournisseur, 0) as is_fournisseur
         FROM caisses 
         WHERE COALESCE(is_active,1)=1 
-              AND (LOWER(name) LIKE '%fournisseur%' OR LOWER(description) LIKE '%fournisseur%')
-        ORDER BY name""").fetchall()]
+              AND (COALESCE(is_fournisseur,0)=1 OR {like_conditions_caisse})
+        ORDER BY is_fournisseur DESC, name""").fetchall()]
     
     # Recalcul du solde si non maintenu (somme entrees - sorties)
     for c in caisses_fourn:
@@ -30381,29 +30467,76 @@ def mg_soldes_fournisseur():
                 (c['id'],)).fetchone()[0]
             c['solde_calcule'] = float(entrees or 0) - float(sorties or 0)
             c['type'] = 'Fournisseur'
+            # v154 : Si solde_actuel est défini et différent du calcul, privilégier solde_actuel
+            if c.get('solde', 0) and abs(c['solde_calcule']) < 0.01:
+                c['solde_calcule'] = float(c['solde'])
         except: 
-            c['solde_calcule'] = c.get('solde', 0)
+            c['solde_calcule'] = float(c.get('solde', 0))
             c['type'] = 'Fournisseur'
     
-    # 2. Compte(s) bancaire(s) avec 'fournisseur' dans le nom
+    # 2. Comptes bancaires fournisseur (idem)
     try:
-        banques_fourn = [dict(r) for r in conn.execute("""
-            SELECT id, nom, banque, type_compte, numero_compte, COALESCE(solde_actuel, 0) as solde
+        banques_fourn = [dict(r) for r in conn.execute(f"""
+            SELECT id, nom, banque, type_compte, numero_compte, COALESCE(solde_actuel, 0) as solde,
+                   COALESCE(is_fournisseur, 0) as is_fournisseur
             FROM tresorerie_comptes_bancaires
             WHERE COALESCE(is_active,1)=1 
-                  AND (LOWER(nom) LIKE '%fournisseur%' OR LOWER(type_compte) LIKE '%fournisseur%')
-            ORDER BY nom""").fetchall()]
+                  AND (COALESCE(is_fournisseur,0)=1 OR {like_conditions_bank})
+            ORDER BY is_fournisseur DESC, nom""").fetchall()]
     except: banques_fourn = []
     
     total_caisses = sum(c.get('solde_calcule', 0) for c in caisses_fourn)
     total_banques = sum(b.get('solde', 0) for b in banques_fourn)
+    
+    # v154 : Récupérer aussi TOUTES les caisses/banques non-fournisseur pour l'admin (configuration)
+    user = get_user_by_id(session.get('user_id'))
+    is_admin = user and user['role'] in ('admin',)
+    other_caisses = []
+    other_banks = []
+    if is_admin:
+        try:
+            existing_caisse_ids = [c['id'] for c in caisses_fourn]
+            placeholders = ','.join('?' * len(existing_caisse_ids)) if existing_caisse_ids else 'NULL'
+            other_caisses = [dict(r) for r in conn.execute(
+                f"SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 AND id NOT IN ({placeholders}) ORDER BY name",
+                existing_caisse_ids).fetchall()]
+            existing_bank_ids = [b['id'] for b in banques_fourn]
+            placeholders_b = ','.join('?' * len(existing_bank_ids)) if existing_bank_ids else 'NULL'
+            other_banks = [dict(r) for r in conn.execute(
+                f"SELECT id, nom, banque FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 AND id NOT IN ({placeholders_b}) ORDER BY nom",
+                existing_bank_ids).fetchall()]
+        except: pass
     
     conn.close()
     
     return render_template('mg_soldes.html', page='mg_soldes',
         caisses_fourn=caisses_fourn, banques_fourn=banques_fourn,
         total_caisses=total_caisses, total_banques=total_banques,
-        total_global=total_caisses + total_banques)
+        total_global=total_caisses + total_banques,
+        is_admin=is_admin, other_caisses=other_caisses, other_banks=other_banks)
+
+
+# v154 : Toggle d'une caisse/banque comme fournisseur (admin seulement)
+@app.route('/mg/soldes/toggle-fournisseur', methods=['POST'])
+@permission_required('admin')
+def toggle_fournisseur():
+    """v154 : Permet à l'admin de marquer une caisse ou banque comme "fournisseur"."""
+    kind = request.form.get('kind', '').strip()  # 'caisse' ou 'banque'
+    item_id = int(request.form.get('id', 0))
+    is_fourn = request.form.get('is_fournisseur', '0') == '1'
+    
+    conn = _gdb()
+    try:
+        if kind == 'caisse':
+            conn.execute("UPDATE caisses SET is_fournisseur=? WHERE id=?", (1 if is_fourn else 0, item_id))
+        elif kind == 'banque':
+            conn.execute("UPDATE tresorerie_comptes_bancaires SET is_fournisseur=? WHERE id=?", (1 if is_fourn else 0, item_id))
+        conn.commit()
+        flash(f"✅ {'Marqué' if is_fourn else 'Démarqué'} comme fournisseur", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    conn.close()
+    return redirect('/mg/soldes')
 
 
 @app.route('/mg/equipements')
@@ -31323,11 +31456,13 @@ def compta_pro_saisie():
 @app.route('/compta-pro/ecritures')
 @permission_required_any('compta_pro', 'admin')
 def compta_pro_ecritures():
-    """Liste des écritures avec filtres."""
+    """v154 : Liste des écritures avec filtres + recherche libre. Bug j.nom corrigé."""
     statut_filter = request.args.get('statut', '')
     journal_filter = request.args.get('journal', '')
     date_from = request.args.get('from', '')
     date_to = request.args.get('to', '')
+    # v154 : Recherche libre (libellé, numéro de pièce)
+    search = (request.args.get('q', '') or '').strip()
     
     conn = _gdb()
     where = ["1=1"]
@@ -31340,8 +31475,12 @@ def compta_pro_ecritures():
         where.append("e.date>=?"); params.append(date_from)
     if date_to:
         where.append("e.date<=?"); params.append(date_to)
+    if search:
+        where.append("(LOWER(e.libelle) LIKE ? OR LOWER(e.numero_piece) LIKE ?)")
+        params.extend([f"%{search.lower()}%", f"%{search.lower()}%"])
     where_sql = " AND ".join(where)
     
+    # v154 : j.libelle au lieu de j.nom
     ecritures = [dict(r) for r in conn.execute(f"""
         SELECT e.*, j.code as journal_code, j.nom as journal_nom,
                u.full_name as creator
@@ -31349,21 +31488,21 @@ def compta_pro_ecritures():
         LEFT JOIN compta_journaux j ON e.journal_id=j.id
         LEFT JOIN users u ON e.created_by=u.id
         WHERE {where_sql}
-        ORDER BY e.date DESC, e.id DESC LIMIT 200""", tuple(params)).fetchall()]
+        ORDER BY e.date DESC, e.id DESC LIMIT 500""", tuple(params)).fetchall()]
     
     journaux = [dict(r) for r in conn.execute(
         "SELECT * FROM compta_journaux WHERE COALESCE(is_active,1)=1 ORDER BY code").fetchall()]
     conn.close()
-    return render_template('extra_pages.html', page='compta_pro', section='ecritures',
+    return render_template('compta_ecritures_list.html', page='compta_pro', section='ecritures',
                           ecritures=ecritures, journaux=journaux,
                           statut_filter=statut_filter, journal_filter=journal_filter,
-                          date_from=date_from, date_to=date_to)
+                          date_from=date_from, date_to=date_to, search=search)
 
 
 @app.route('/compta-pro/ecriture/<int:eid>')
 @permission_required_any('compta_pro', 'admin')
 def compta_pro_ecriture_detail(eid):
-    """Détail d'une écriture (lignes)."""
+    """v154 : Détail d'une écriture (lignes). Bug 500 corrigé : colonnes j.libelle et c.libelle (pas nom)."""
     conn = _gdb()
     ecriture = conn.execute("""SELECT e.*, j.code as journal_code, j.nom as journal_nom,
         u.full_name as creator, uv.full_name as validator
@@ -31378,12 +31517,39 @@ def compta_pro_ecriture_detail(eid):
     ecriture = dict(ecriture)
     
     lignes = [dict(r) for r in conn.execute("""
-        SELECT l.*, c.numero as cpt_numero, c.nom as cpt_nom, c.is_lettrable
+        SELECT l.*, c.numero as cpt_numero, c.nom as cpt_nom
         FROM compta_lignes l JOIN compta_comptes c ON l.compte_id=c.id
         WHERE l.ecriture_id=? ORDER BY l.ordre, l.id""", (eid,)).fetchall()]
     conn.close()
-    return render_template('extra_pages.html', page='compta_pro', section='ecriture_detail',
+    return render_template('compta_ecriture_detail.html', page='compta_pro', section='ecriture_detail',
                           ecriture=ecriture, lignes=lignes)
+
+
+# v154 : Suppression d'une écriture (uniquement brouillard)
+@app.route('/compta-pro/ecriture/<int:eid>/delete', methods=['POST'])
+@permission_required_any('compta_pro_edit', 'admin')
+def compta_pro_ecriture_delete(eid):
+    """v154 : Suppression d'une écriture (uniquement en brouillard)."""
+    conn = _gdb()
+    e = conn.execute("SELECT id, statut FROM compta_ecritures WHERE id=?", (eid,)).fetchone()
+    if not e:
+        conn.close()
+        flash("Écriture introuvable", "error")
+        return redirect(url_for('compta_pro_ecritures'))
+    if e['statut'] != 'brouillard':
+        conn.close()
+        flash("⛔ Impossible de supprimer une écriture validée. Passez d'abord par une OD inverse.", "error")
+        return redirect(url_for('compta_pro_ecriture_detail', eid=eid))
+    
+    try:
+        conn.execute("DELETE FROM compta_lignes WHERE ecriture_id=?", (eid,))
+        conn.execute("DELETE FROM compta_ecritures WHERE id=?", (eid,))
+        conn.commit()
+        flash("🗑️ Écriture supprimée", "success")
+    except Exception as ex:
+        flash(f"Erreur : {ex}", "error")
+    conn.close()
+    return redirect(url_for('compta_pro_ecritures'))
 
 
 @app.route('/compta-pro/ecriture/<int:eid>/valider', methods=['POST'])
@@ -31479,6 +31645,136 @@ def compta_pro_bilan():
     bilan = compta_bilan(date_to)
     return render_template('extra_pages.html', page='compta_pro', section='bilan',
                           bilan=bilan, date_to=date_to)
+
+
+# v154 : Bilan annuel en PDF
+@app.route('/compta-pro/bilan-annuel.pdf')
+@permission_required_any('compta_pro', 'admin')
+def compta_pro_bilan_annuel_pdf():
+    """v154 : Export PDF du Bilan financier annuel SYSCOHADA pour clôture d'exercice."""
+    from models import compta_bilan, compta_compte_resultat
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor, white, black
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    import io
+    
+    year = int(request.args.get('year', datetime.now().year))
+    date_from = f"{year}-01-01"
+    date_to = f"{year}-12-31"
+    
+    bilan = compta_bilan(date_to)
+    resultat = compta_compte_resultat(date_from, date_to)
+    
+    # Doc params (v154)
+    p = get_doc_params()
+    
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=15*mm)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    TEAL = HexColor('#1A7A6D')
+    ORANGE = HexColor('#f29f2f')
+    NAVY = HexColor('#1a3a5c')
+    
+    # En-tête
+    title_style = ParagraphStyle('t', fontSize=18, textColor=TEAL, alignment=TA_CENTER, spaceAfter=4*mm, fontName='Helvetica-Bold')
+    sub_style = ParagraphStyle('s', fontSize=10, alignment=TA_CENTER, textColor=HexColor('#666'), spaceAfter=8*mm)
+    h_style = ParagraphStyle('h', fontSize=12, textColor=TEAL, fontName='Helvetica-Bold', spaceBefore=6*mm, spaceAfter=3*mm)
+    body_style = ParagraphStyle('b', fontSize=10, alignment=TA_LEFT, spaceAfter=3*mm)
+    cell_l = ParagraphStyle('cl', fontSize=9, alignment=TA_LEFT)
+    cell_r = ParagraphStyle('cr', fontSize=9, alignment=TA_RIGHT, fontName='Helvetica-Bold')
+    
+    story.append(Paragraph(p.get('company_name', 'Société'), title_style))
+    story.append(Paragraph(f"RCCM: {p.get('company_rccm','')} · NCC: {p.get('company_ncc','')}<br/>{p.get('company_address','')}", sub_style))
+    story.append(Paragraph(f"BILAN FINANCIER ANNUEL SYSCOHADA<br/>Exercice {year}", title_style))
+    story.append(Paragraph(f"Période du {date_from} au {date_to}", sub_style))
+    
+    fmt = lambda n: f"{float(n or 0):,.0f}".replace(',', ' ') + ' XOF'
+    
+    def _sum_val(v):
+        """Convertit en nombre (gère listes, dicts, None)."""
+        if v is None: return 0
+        if isinstance(v, (int, float)): return float(v)
+        if isinstance(v, list):
+            return sum(_sum_val(x) for x in v)
+        if isinstance(v, dict):
+            return sum(_sum_val(x) for x in v.values())
+        try: return float(v)
+        except: return 0
+    
+    # ACTIF
+    story.append(Paragraph("📊 ACTIF (Emplois)", h_style))
+    actif_data = [[Paragraph('Rubrique', cell_l), Paragraph('Montant', cell_r)]]
+    for k, v in (bilan.get('actif') or {}).items():
+        actif_data.append([Paragraph(str(k), cell_l), Paragraph(fmt(_sum_val(v)), cell_r)])
+    actif_data.append([Paragraph('<b>TOTAL ACTIF</b>', cell_l), Paragraph(f"<b>{fmt(_sum_val(bilan.get('total_actif', 0)))}</b>", cell_r)])
+    t_actif = Table(actif_data, colWidths=[110*mm, 50*mm])
+    t_actif.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), TEAL),
+        ('TEXTCOLOR', (0,0), (-1,0), white),
+        ('BACKGROUND', (0,-1), (-1,-1), HexColor('#f8f9fa')),
+        ('GRID', (0,0), (-1,-1), 0.4, HexColor('#ccc')),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(t_actif)
+    
+    # PASSIF
+    story.append(Paragraph("💰 PASSIF (Ressources)", h_style))
+    passif_data = [[Paragraph('Rubrique', cell_l), Paragraph('Montant', cell_r)]]
+    for k, v in (bilan.get('passif') or {}).items():
+        passif_data.append([Paragraph(str(k), cell_l), Paragraph(fmt(_sum_val(v)), cell_r)])
+    passif_data.append([Paragraph('<b>TOTAL PASSIF</b>', cell_l), Paragraph(f"<b>{fmt(_sum_val(bilan.get('total_passif', 0)))}</b>", cell_r)])
+    t_passif = Table(passif_data, colWidths=[110*mm, 50*mm])
+    t_passif.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), ORANGE),
+        ('TEXTCOLOR', (0,0), (-1,0), white),
+        ('BACKGROUND', (0,-1), (-1,-1), HexColor('#f8f9fa')),
+        ('GRID', (0,0), (-1,-1), 0.4, HexColor('#ccc')),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(t_passif)
+    
+    # COMPTE DE RESULTAT
+    story.append(PageBreak())
+    story.append(Paragraph(f"💹 COMPTE DE RÉSULTAT — Exercice {year}", h_style))
+    res_data = [[Paragraph('Catégorie', cell_l), Paragraph('Montant', cell_r)]]
+    res_data.append([Paragraph('Produits (Classe 7)', cell_l), Paragraph(fmt(_sum_val(resultat.get('produits', 0))), cell_r)])
+    res_data.append([Paragraph('Charges (Classe 6)', cell_l), Paragraph(fmt(_sum_val(resultat.get('charges', 0))), cell_r)])
+    benef = _sum_val(resultat.get('resultat', 0))
+    res_data.append([
+        Paragraph(f'<b>RÉSULTAT {"(BÉNÉFICE)" if benef >= 0 else "(PERTE)"}</b>', cell_l),
+        Paragraph(f"<b>{fmt(benef)}</b>", cell_r)
+    ])
+    t_res = Table(res_data, colWidths=[110*mm, 50*mm])
+    t_res.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), NAVY),
+        ('TEXTCOLOR', (0,0), (-1,0), white),
+        ('BACKGROUND', (0,-1), (-1,-1), HexColor('#e8f5e9') if benef >= 0 else HexColor('#fde8e8')),
+        ('GRID', (0,0), (-1,-1), 0.4, HexColor('#ccc')),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(t_res)
+    
+    # Footer
+    story.append(Spacer(1, 15*mm))
+    footer_style = ParagraphStyle('f', fontSize=8, alignment=TA_CENTER, textColor=HexColor('#888'))
+    story.append(Paragraph(f"{p.get('footer_text','')}", footer_style))
+    story.append(Paragraph(f"Document généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} — {p.get('footer_legal','WannyGest ERP')}", footer_style))
+    
+    doc.build(story)
+    buf.seek(0)
+    
+    from flask import Response
+    return Response(buf.getvalue(), mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="bilan_annuel_{year}.pdf"'})
 
 
 @app.route('/compta-pro/resultat')

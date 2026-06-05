@@ -121,4 +121,51 @@
     Pour le détail des opérations (entrées, sorties, mouvements, historique), contactez la comptabilité.
 </div>
 
+{# v154 : Configuration admin — marquer manuellement une caisse/banque comme fournisseur #}
+{% if is_admin and (other_caisses or other_banks) %}
+<div class="section-card" style="border:2px dashed #888;margin-top:14px">
+    <h3 style="color:#888;font-size:13px;margin-top:0">⚙️ Configuration admin — Marquer une caisse/banque comme fournisseur</h3>
+    <p style="font-size:11px;color:#888;margin-bottom:10px">
+        Si une caisse ou un compte fournisseur n'apparaît pas (nom ne contient pas "fournisseur"), 
+        marquez-le manuellement ci-dessous. Visible uniquement par l'admin.
+    </p>
+    
+    {% if other_caisses %}
+    <div style="margin-bottom:10px">
+        <strong style="font-size:12px;color:#b8561f">💰 Caisses non marquées comme fournisseur :</strong>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        {% for c in other_caisses %}
+            <form method="post" action="/mg/soldes/toggle-fournisseur" style="display:inline">
+                <input type="hidden" name="kind" value="caisse">
+                <input type="hidden" name="id" value="{{ c.id }}">
+                <input type="hidden" name="is_fournisseur" value="1">
+                <button type="submit" class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 8px">
+                    ➕ {{ c.name }}
+                </button>
+            </form>
+        {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if other_banks %}
+    <div>
+        <strong style="font-size:12px;color:#0d47a1">🏦 Comptes bancaires non marqués comme fournisseur :</strong>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        {% for b in other_banks %}
+            <form method="post" action="/mg/soldes/toggle-fournisseur" style="display:inline">
+                <input type="hidden" name="kind" value="banque">
+                <input type="hidden" name="id" value="{{ b.id }}">
+                <input type="hidden" name="is_fournisseur" value="1">
+                <button type="submit" class="btn btn-outline btn-sm" style="font-size:11px;padding:4px 8px">
+                    ➕ {{ b.nom }} ({{ b.banque }})
+                </button>
+            </form>
+        {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 {% endblock %}

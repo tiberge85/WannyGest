@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Écritures comptables{% endblock %}
+{% block content %}
+
+<style>
+.filter-bar { background:#fff; padding:12px; border-radius:8px; margin-bottom:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.filter-bar input, .filter-bar select { padding:7px 10px; border:1.5px solid #ddd; border-radius:6px; font-size:12px }
+.tbl { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden }
+.tbl th { background:#1A7A6D; color:#fff; padding:9px; text-align:left; font-size:11px }
+.tbl td { padding:9px; border-bottom:1px solid #eee; font-size:12px }
+.tbl tr:hover td { background:#f8f9fa }
+.badge-b { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:5px; font-size:10px; font-weight:700 }
+.badge-v { background:#e8f5e9; color:#1b5e20; padding:2px 8px; border-radius:5px; font-size:10px; font-weight:700 }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📚 Écritures comptables</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">{{ ecritures|length }} écriture(s)</p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/compta-pro/saisie" class="btn btn-primary btn-sm">📝 Nouvelle écriture</a>
+        <a href="/compta-pro" class="btn btn-outline btn-sm">← Tableau de bord</a>
+    </div>
+</div>
+
+<!-- FILTRES -->
+<form method="get" class="filter-bar">
+    <input type="text" name="q" value="{{ search }}" placeholder="🔍 Rechercher (libellé, n° pièce)..." style="flex:1;min-width:180px">
+    <select name="statut">
+        <option value="">Tous statuts</option>
+        <option value="brouillard" {% if statut_filter == 'brouillard' %}selected{% endif %}>🟡 Brouillard</option>
+        <option value="valide" {% if statut_filter == 'valide' %}selected{% endif %}>✅ Validée</option>
+    </select>
+    <select name="journal">
+        <option value="">Tous journaux</option>
+        {% for j in journaux %}
+        <option value="{{ j.code }}" {% if journal_filter == j.code %}selected{% endif %}>{{ j.code }} — {{ j.libelle }}</option>
+        {% endfor %}
+    </select>
+    <input type="date" name="from" value="{{ date_from }}" title="Du">
+    <input type="date" name="to" value="{{ date_to }}" title="Au">
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+    {% if search or statut_filter or journal_filter or date_from or date_to %}
+        <a href="/compta-pro/ecritures" class="btn btn-outline btn-sm">✖ Effacer</a>
+    {% endif %}
+</form>
+
+<!-- LISTE -->
+{% if ecritures %}
+<table class="tbl">
+    <thead>
+        <tr><th>Date</th><th>Journal</th><th>N° pièce</th><th>Libellé</th><th style="text-align:right">Débit</th><th style="text-align:right">Crédit</th><th>Statut</th><th>Créé par</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+        {% for e in ecritures %}
+        <tr>
+            <td>{{ e.date }}</td>
+            <td><strong>{{ e.journal_code }}</strong></td>
+            <td style="font-family:monospace;font-size:11px">{{ e.numero_piece or '-' }}</td>
+            <td>{{ e.libelle }}</td>
+            <td style="text-align:right;color:#1565c0;font-weight:600">{{ '{:,.0f}'.format(e.total_debit) }}</td>
+            <td style="text-align:right;color:#c53030;font-weight:600">{{ '{:,.0f}'.format(e.total_credit) }}</td>
+            <td>
+                {% if e.statut == 'brouillard' %}
+                    <span class="badge-b">🟡 Brouillard</span>
+                {% else %}
+                    <span class="badge-v">✅ Validée</span>
+                {% endif %}
+            </td>
+            <td style="font-size:11px;color:#888">{{ e.creator or '—' }}</td>
+            <td style="white-space:nowrap">
+                <a href="/compta-pro/ecriture/{{ e.id }}" class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:11px">👁️</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div style="background:#fff;padding:40px;text-align:center;color:#888;border-radius:10px">
+    <div style="font-size:36px">📭</div>
+    <p style="font-size:13px;margin:8px 0 0">Aucune écriture ne correspond aux filtres.</p>
+</div>
+{% endif %}
+
+{% endblock %}

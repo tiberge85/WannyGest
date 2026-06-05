@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Paramètres documents{% endblock %}
+{% block content %}
+
+<style>
+.param-card { background:#fff; padding:18px; border-radius:12px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.param-card h3 { color:#1A7A6D; font-size:14px; border-bottom:2px solid #1A7A6D; padding-bottom:6px; margin:0 0 12px }
+.form-row { margin-bottom:10px }
+.form-row label { display:block; font-size:11px; color:#666; margin-bottom:4px; font-weight:600 }
+.form-row input, .form-row textarea { width:100%; padding:8px; border:1.5px solid #ddd; border-radius:6px; font-size:13px; box-sizing:border-box }
+.form-row textarea { resize:vertical; min-height:60px }
+.preview-box { background:#fafbfc; padding:14px; border-radius:8px; border:2px dashed #ccc; font-size:11px; margin-top:10px }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📄 Paramètres des documents</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Configurez l'entête et le pied de page de tous les documents : devis, facture, proforma, facture à éditer.
+        </p>
+    </div>
+    <a href="/admin" class="btn btn-outline btn-sm">← Admin</a>
+</div>
+
+<form method="post">
+    <!-- Société -->
+    <div class="param-card">
+        <h3>🏢 Identité de la société (entête)</h3>
+        <div class="form-row">
+            <label>Nom de la société</label>
+            <input type="text" name="company_name" value="{{ params.company_name }}" required>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="form-row">
+                <label>N° RCCM</label>
+                <input type="text" name="company_rccm" value="{{ params.company_rccm }}">
+            </div>
+            <div class="form-row">
+                <label>N° NCC (Compte Contribuable)</label>
+                <input type="text" name="company_ncc" value="{{ params.company_ncc }}">
+            </div>
+        </div>
+        <div class="form-row">
+            <label>Adresse</label>
+            <input type="text" name="company_address" value="{{ params.company_address }}">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="form-row">
+                <label>Téléphone(s)</label>
+                <input type="text" name="company_phone" value="{{ params.company_phone }}">
+            </div>
+            <div class="form-row">
+                <label>Email</label>
+                <input type="text" name="company_email" value="{{ params.company_email }}">
+            </div>
+        </div>
+        <div class="form-row">
+            <label>Site web</label>
+            <input type="text" name="company_website" value="{{ params.company_website }}">
+        </div>
+        <div class="form-row">
+            <label>Texte additionnel de l'entête (optionnel)</label>
+            <textarea name="header_text" placeholder="Ex: Spécialisée en sécurité électronique, vidéosurveillance, contrôle d'accès…">{{ params.header_text }}</textarea>
+        </div>
+    </div>
+    
+    <!-- Pied de page -->
+    <div class="param-card">
+        <h3>📋 Pied de page</h3>
+        <div class="form-row">
+            <label>Texte du pied de page</label>
+            <textarea name="footer_text" placeholder="Ex: Merci pour votre confiance">{{ params.footer_text }}</textarea>
+        </div>
+        <div class="form-row">
+            <label>Mention légale (au bas du document)</label>
+            <input type="text" name="footer_legal" value="{{ params.footer_legal }}">
+        </div>
+        <div class="form-row">
+            <label>Coordonnées bancaires (pour les factures)</label>
+            <input type="text" name="bank_for_payment" value="{{ params.bank_for_payment }}" placeholder="Ex: BICICI · 12345678901">
+        </div>
+    </div>
+    
+    <!-- Comptabilité -->
+    <div class="param-card">
+        <h3>💰 Comptabilité par défaut</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="form-row">
+                <label>Devise</label>
+                <input type="text" name="devise" value="{{ params.devise }}" maxlength="5">
+            </div>
+            <div class="form-row">
+                <label>Taux TVA (%)</label>
+                <input type="number" name="tva_rate" value="{{ params.tva_rate }}" min="0" max="100" step="0.01">
+            </div>
+        </div>
+    </div>
+    
+    <!-- Aperçu -->
+    <div class="param-card">
+        <h3>👁️ Aperçu</h3>
+        <div class="preview-box">
+            <div style="text-align:center;border-bottom:2px solid #1A7A6D;padding-bottom:8px;margin-bottom:8px">
+                <strong style="font-size:14px;color:#1A7A6D">{{ params.company_name }}</strong><br>
+                <span style="font-size:10px">RCCM : {{ params.company_rccm }} · NCC : {{ params.company_ncc }}</span><br>
+                <span style="font-size:10px">{{ params.company_address }}</span><br>
+                <span style="font-size:10px">📞 {{ params.company_phone }} · ✉️ {{ params.company_email }} · 🌐 {{ params.company_website }}</span>
+                {% if params.header_text %}<br><span style="font-size:9px;color:#666;font-style:italic">{{ params.header_text }}</span>{% endif %}
+            </div>
+            <div style="padding:20px;text-align:center;color:#bbb">— Corps du document —</div>
+            <div style="border-top:1px solid #ccc;padding-top:8px;font-size:9px;text-align:center;color:#666">
+                {% if params.footer_text %}{{ params.footer_text }}<br>{% endif %}
+                {% if params.bank_for_payment %}🏦 {{ params.bank_for_payment }}<br>{% endif %}
+                <em>{{ params.footer_legal }}</em>
+            </div>
+        </div>
+    </div>
+    
+    <div style="text-align:right">
+        <button type="submit" class="btn btn-primary" style="background:#2e7d32;font-size:14px;padding:10px 24px">
+            💾 Enregistrer les paramètres
+        </button>
+    </div>
+</form>
+
+<div style="background:#fff3cd;border-left:4px solid #f29f2f;padding:12px;border-radius:8px;margin-top:14px;font-size:11px;color:#856404">
+    ℹ️ <strong>Information :</strong> Ces paramètres s'appliquent aux documents : 
+    <strong>devis, factures, proforma, facture à éditer, ordres de virement, attestations, et tous les PDFs</strong> générés par WannyGest.
+</div>
+
+{% endblock %}
