@@ -75,10 +75,16 @@
         </div>
         
         {% if tab == 'a_editer' %}
-        <form method="post" action="/recouvrement/facture/{{ it.id }}/edit" style="display:flex;gap:6px;align-items:center;margin-top:10px;padding-top:8px;border-top:1px dashed #ccc">
-            <input type="text" name="invoice_number" placeholder="N° facture (auto si vide)" style="flex:1;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-size:12px;font-family:monospace">
-            <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-sm btn-outline">👁️ Aperçu / Modifier</a>
-            <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">🧾 Éditer la facture</button>
+        <form method="post" action="/recouvrement/facture/{{ it.id }}/edit" style="margin-top:10px;padding-top:8px;border-top:1px dashed #ccc">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+                <input type="text" name="invoice_number" placeholder="N° facture (auto si vide)" style="padding:7px;border:1.5px solid #ddd;border-radius:5px;font-size:12px;font-family:monospace">
+                <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-sm btn-outline" style="display:inline-flex;align-items:center;justify-content:center">👁️ Aperçu / Modifier</a>
+            </div>
+            <textarea name="notes" rows="2" required minlength="5" placeholder="📝 Commentaire obligatoire (référence devis, conditions, observations...)" 
+                style="width:100%;padding:6px;border:2px solid #f29f2f;border-radius:5px;font-size:11px;margin-bottom:6px"></textarea>
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+                <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">🧾 Éditer la facture</button>
+            </div>
         </form>
         {% else %}
         <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px">

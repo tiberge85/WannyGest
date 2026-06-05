@@ -147,7 +147,7 @@
                 </div>
             </div>
             
-            <textarea name="notes" rows="2" placeholder="Notes (date dépôt, contact client, etc.)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+            <textarea name="notes" rows="2" required minlength="5" placeholder="📝 Commentaire obligatoire (date dépôt, contact client, observations...)" style="width:100%;padding:6px;border:2px solid #f29f2f;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
             
             <div style="display:flex;gap:6px;justify-content:flex-end">
                 <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-outline btn-sm">👁️ Prévisualiser</a>

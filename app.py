@@ -2288,13 +2288,61 @@ def get_user_pending_tasks(user_id, user_role=None):
         except: pass
         
         # 3. Notifications importantes non lues (priority high)
+        # v147 : Filtrage par module selon le rôle de l'utilisateur
+        # Chaque rôle ne voit dans sa clôture journalière que les notifications qui le concernent
         try:
-            rows = conn.execute("""SELECT id, title, link, priority, module
-                FROM notifications
-                WHERE user_id=? AND COALESCE(read,0)=0 AND COALESCE(priority,'normal') IN ('high','urgent','critical')
-                ORDER BY id DESC LIMIT 30""", (user_id,)).fetchall()
+            # Définition des modules pertinents par rôle
+            role_modules_map = {
+                # Techniciens : interventions, remontées, projets, tech
+                'technicien':        ['interventions','remontees','tech','projets','pointage'],
+                'tech_chef':         ['interventions','remontees','tech','projets','pointage'],
+                'chef_chantier':     ['interventions','remontees','tech','projets','pointage'],
+                'centre_technique':  ['interventions','remontees','tech','projets','pointage'],
+                'informatique':      ['interventions','remontees','tech','it','pointage'],
+                # Comptable : compta, factures, trésorerie, paie
+                'comptable':         ['comptabilite','factures','tresorerie','paie','pointage'],
+                'comptabilite':      ['comptabilite','factures','tresorerie','paie','pointage'],
+                # Caissière : trésorerie, factures (paiements)
+                'caissiere':         ['tresorerie','factures','comptabilite','pointage'],
+                # Agent recouvreur : factures recouvrement
+                'agent_recouvreur':  ['factures','recouvrement','clients','pointage'],
+                # Gestion projet : projets, remontées
+                'gestionnaire_projet': ['projets','interventions','remontees','clients','devis','pointage'],
+                'coordinateur':      ['projets','interventions','remontees','clients','devis','pointage'],
+                # Commercial : devis, clients, prospects
+                'commercial':        ['devis','clients','prospects','factures','pointage'],
+                # MG / Conciergerie
+                'moyens_generaux':   ['mg','achats','stock','pointage'],
+                'mg':                ['mg','achats','stock','pointage'],
+                'conciergerie':      ['conciergerie','mg','pointage'],
+                # RH : voit tout RH + tâches sensibles
+                'rh':                None,  # None = pas de filtre (tout voir)
+                'directrice_rh':     None,
+                # DG : voit tout
+                'dg':                None,
+                'directeur':         None,
+                'admin':             None,
+            }
+            
+            allowed_modules = role_modules_map.get(user_role)
+            
+            if allowed_modules is None:
+                # Rôle privilégié → toutes les notifications HIGH
+                rows = conn.execute("""SELECT id, title, link, priority, module
+                    FROM notifications
+                    WHERE user_id=? AND COALESCE(read,0)=0 AND COALESCE(priority,'normal') IN ('high','urgent','critical')
+                    ORDER BY id DESC LIMIT 30""", (user_id,)).fetchall()
+            else:
+                # Rôle filtré → uniquement les notifications des modules pertinents
+                placeholders = ','.join(['?'] * len(allowed_modules))
+                rows = conn.execute(f"""SELECT id, title, link, priority, module
+                    FROM notifications
+                    WHERE user_id=? AND COALESCE(read,0)=0 
+                          AND COALESCE(priority,'normal') IN ('high','urgent','critical')
+                          AND (module IN ({placeholders}) OR module IS NULL OR module = '')
+                    ORDER BY id DESC LIMIT 30""", [user_id] + allowed_modules).fetchall()
+            
             for r in rows:
-                # v141 : si pas de link, utiliser /notifications/read/<id> qui redirige intelligemment
                 target_link = r['link'] if r['link'] else f"/notifications/read/{r['id']}"
                 result['notifications'].append({
                     'id': r['id'], 'task_type': 'notification',
@@ -3559,12 +3607,25 @@ def inject_globals():
                         ).fetchone()[0]
                     else: ctx['decisions_facturation_pending'] = 0
                 except: ctx['decisions_facturation_pending'] = 0
+                # v147 : Compteur transferts caisse en attente (pour DG/RH)
+                try:
+                    if user['role'] in ('admin','dg','directeur','rh','directrice_rh'):
+                        nb_vir = _nc.execute("SELECT COUNT(*) FROM caisse_virements WHERE status='en_attente'").fetchone()[0]
+                        try:
+                            nb_ov = _nc.execute(
+                                "SELECT COUNT(*) FROM ordres_virement WHERE status IN ('en_attente','en_attente_dg','en_attente_validation','attente_dg')"
+                            ).fetchone()[0]
+                        except: nb_ov = 0
+                        ctx['transferts_pending'] = nb_vir + nb_ov
+                    else: ctx['transferts_pending'] = 0
+                except: ctx['transferts_pending'] = 0
                 _nc.close()
             except: 
                 ctx['notif_count'] = 0
                 ctx['nouveau_projet_count'] = 0
                 ctx['closure_pending'] = False
                 ctx['decisions_facturation_pending'] = 0
+                ctx['transferts_pending'] = 0
             if 'fichiers' in perms or 'admin' in perms:
                 try:
                     from models import get_db as _gdb_abs
@@ -13452,21 +13513,85 @@ def _sync_caisse_op_to_journal(conn, sens, date, montant, libelle, ref, user_id,
 @app.route('/interventions')
 @login_required
 def interventions_list():
+    """v147 : Liste interventions avec onglets (en cours / exécutées / toutes), filtres + tri date."""
     conn = _gdb()
+    
+    # v147 : Paramètres de filtre + onglets
+    tab = request.args.get('tab', 'en_cours').strip()
+    search = request.args.get('q', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    tech_filter = request.args.get('technician', '').strip()
+    client_filter = request.args.get('client', '').strip()
+    sort = request.args.get('sort', 'date_desc').strip()  # date_desc / date_asc / created_desc
+    
+    # Construction WHERE
+    where_clauses = []
+    params = []
+    
+    if tab == 'en_cours':
+        where_clauses.append("status NOT IN ('cloturee','annulee','close','termine')")
+    elif tab == 'executees':
+        where_clauses.append("status IN ('termine','cloturee','close')")
+    elif tab == 'annulees':
+        where_clauses.append("status='annulee'")
+    # tab='toutes' → pas de filtre statut
+    
+    if search:
+        where_clauses.append("(reference LIKE ? OR title LIKE ? OR client_name LIKE ? OR description LIKE ?)")
+        params.extend([f"%{search}%"] * 4)
+    if date_from:
+        where_clauses.append("DATE(scheduled_date) >= ?")
+        params.append(date_from)
+    if date_to:
+        where_clauses.append("DATE(scheduled_date) <= ?")
+        params.append(date_to)
+    if tech_filter.isdigit():
+        where_clauses.append("technician_id=?")
+        params.append(int(tech_filter))
+    if client_filter.isdigit():
+        where_clauses.append("client_id=?")
+        params.append(int(client_filter))
+    
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+    
+    # Tri
+    sort_map = {
+        'date_desc':    "scheduled_date DESC, id DESC",
+        'date_asc':     "scheduled_date ASC, id ASC",
+        'created_desc': "id DESC",
+        'created_asc':  "id ASC",
+    }
+    order_by = sort_map.get(sort, "scheduled_date DESC, id DESC")
+    
     interventions = [dict(r) for r in conn.execute(
-        "SELECT * FROM interventions ORDER BY scheduled_date DESC, id DESC").fetchall()]
+        f"SELECT * FROM interventions WHERE {where_sql} ORDER BY {order_by} LIMIT 200",
+        params).fetchall()]
+    
+    # Compteurs par onglet (pour les badges)
+    counts = {
+        'en_cours': conn.execute("SELECT COUNT(*) FROM interventions WHERE status NOT IN ('cloturee','annulee','close','termine')").fetchone()[0],
+        'executees': conn.execute("SELECT COUNT(*) FROM interventions WHERE status IN ('termine','cloturee','close')").fetchone()[0],
+        'annulees': conn.execute("SELECT COUNT(*) FROM interventions WHERE status='annulee'").fetchone()[0],
+        'toutes': conn.execute("SELECT COUNT(*) FROM interventions").fetchone()[0],
+    }
+    
     projects = [dict(r) for r in conn.execute("SELECT id, name FROM projects ORDER BY name").fetchall()]
     clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
-    technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin') ORDER BY full_name").fetchall()]
-    # Marquer les interventions comme "vues" pour réinitialiser le badge (persisté BDD)
+    technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin','tech_chef','chef_chantier','centre_technique','informatique') ORDER BY full_name").fetchall()]
+    
     try:
         conn.execute("UPDATE users SET last_interventions_seen=? WHERE id=?",
                      (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session['user_id']))
         conn.commit()
     except: pass
     conn.close()
+    
     return render_template('extra_pages.html', page='interventions', interventions=interventions,
-                          projects=projects, clients=clients, technicians=technicians)
+                          projects=projects, clients=clients, technicians=technicians,
+                          tab=tab, counts=counts, search=search,
+                          date_from=date_from, date_to=date_to,
+                          tech_filter=tech_filter, client_filter=client_filter, sort=sort)
 
 @app.route('/interventions/tech')
 @login_required
@@ -18396,9 +18521,8 @@ def decisions_facturation():
 @app.route('/field-reports/<int:rid>/decide-facturation', methods=['POST'])
 @permission_required_any('facturation_decision', 'admin')
 def field_report_decide_facturation(rid):
-    """v142 : DG/RH décide si la remontée est facturable.
-    Si oui → saisit le montant + notifie comptabilité.
-    Si non → classe la remontée."""
+    """v142 / v147 : DG/RH décide si la remontée est facturable.
+    v147 : Commentaire (motif) OBLIGATOIRE dans tous les cas, montant obligatoire si facturable."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
@@ -18411,9 +18535,16 @@ def field_report_decide_facturation(rid):
     except:
         cost = 0
     
+    # v147 : Commentaire obligatoire dans tous les cas
+    if len(motif) < 5:
+        flash("⚠️ Le commentaire (motif) est obligatoire — minimum 5 caractères. "
+              "Justifiez votre décision (raison de la facturation ou de la non-facturation).", "error")
+        return redirect(f'/decisions/facturation' if request.referrer and 'decisions' in request.referrer else f'/field-reports/{rid}')
+    
+    # v147 : Montant obligatoire si facturable
     if is_facturable and cost <= 0:
-        flash("⚠️ Si facturable, le montant doit être > 0", "error")
-        return redirect(f'/field-reports/{rid}')
+        flash("⚠️ Si facturable, le montant doit être > 0 FCFA", "error")
+        return redirect(f'/decisions/facturation' if request.referrer and 'decisions' in request.referrer else f'/field-reports/{rid}')
     
     conn = _gdb()
     try:
@@ -18641,14 +18772,20 @@ def facture_modifier(fri_id):
 @app.route('/recouvrement/facture/<int:fri_id>/edit', methods=['POST'])
 @permission_required_any('facture_edit', 'admin')
 def edit_invoice_v142(fri_id):
-    """v142 / v145 : Comptabilité édite la facture (génère numéro + notifie agent recouvreur).
-    v145 : Log événement timeline."""
+    """v142 / v145 / v147 : Comptabilité édite la facture (génère numéro + notifie agent recouvreur).
+    v147 : Commentaire obligatoire."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
     invoice_number = (request.form.get('invoice_number','') or '').strip()
+    notes = (request.form.get('notes','') or '').strip()
     if not invoice_number:
         invoice_number = f"FAC-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    
+    # v147 : Commentaire obligatoire
+    if len(notes) < 5:
+        flash("⚠️ Un commentaire est obligatoire lors de l'édition de la facture (min 5 caractères).", "error")
+        return redirect('/recouvrement/factures-a-editer')
     
     conn = _gdb()
     try:
@@ -18672,7 +18809,7 @@ def edit_invoice_v142(fri_id):
         # v145 : Log événement
         _log_fri_event(fri_id, fri['field_report_id'], user['id'], user['full_name'],
             'facture_editee', f"Facture {invoice_number} éditée",
-            '🧾', f"Client : {fri['client_name']} · Montant : {fri['amount']:,.0f} XOF",
+            '🧾', f"Client : {fri['client_name']} · Montant : {fri['amount']:,.0f} XOF · Notes : {notes}",
             fri['amount'])
         
         try:
@@ -18775,6 +18912,12 @@ def recouvrement_envoyer(fri_id):
         return redirect('/recouvrement')
     if not caisse_id_str.isdigit():
         flash("⚠️ Caisse cible requise", "error")
+        return redirect('/recouvrement')
+    
+    # v147 : Notes obligatoires lors de l'envoi
+    if len(notes) < 5:
+        flash("⚠️ Un commentaire est obligatoire lors de l'envoi de la facture au client "
+              "(min 5 caractères) — date de dépôt, contact client, observations...", "error")
         return redirect('/recouvrement')
     
     caisse_id = int(caisse_id_str)
@@ -18933,6 +19076,12 @@ def caissiere_valider(fri_id):
         flash("⚠️ Montant reçu invalide", "error")
         return redirect('/caissiere/paiements')
     
+    # v147 : Notes caissière obligatoires
+    if len(cashier_notes) < 5:
+        flash("⚠️ Un commentaire est obligatoire (min 5 caractères) — observations, conformité, "
+              "différence de montant éventuelle, etc.", "error")
+        return redirect('/caissiere/paiements')
+    
     conn = _gdb()
     try:
         fri = conn.execute("""SELECT fri.*, fr.client_name, fr.reference as fr_ref
@@ -19027,6 +19176,47 @@ def serve_fri_proof(fri_id, filename):
     except Exception as e:
         flash(f"Fichier introuvable : {e}", "error")
         return redirect('/recouvrement')
+
+
+# v147 : Tableau de bord centralisé des transferts caisse en attente de validation DG/RH
+@app.route('/tresorerie/transferts-en-attente')
+@login_required
+def transferts_en_attente():
+    """v147 : Vue unifiée DG/RH de tous les transferts caisse/banque en attente de validation.
+    Regroupe : caisse_virements (banque→caisse) et ordres_virement (caisse→banque ou bénéficiaires)."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    if user['role'] not in ('admin','dg','directeur','rh','directrice_rh'):
+        flash("⛔ Accès réservé à la direction (DG/RH)", "error")
+        return redirect('/dashboard')
+    
+    conn = _gdb()
+    
+    # 1. Virements banque → caisse en attente
+    virements_bk = [dict(r) for r in conn.execute("""
+        SELECT id, reference, date, bank_name, caisse_name, amount, motif,
+               status, requested_by_name, created_at, 'banque_to_caisse' as direction
+        FROM caisse_virements WHERE status='en_attente'
+        ORDER BY created_at DESC""").fetchall()]
+    
+    # 2. Ordres de virement (caisse→banque, banque→bénéficiaire, etc.) en attente
+    try:
+        ordres = [dict(r) for r in conn.execute("""
+            SELECT id, reference, type_virement, amount, date,
+                   source_caisse_name, dest_bank_name, dest_beneficiaire_name,
+                   description, status, requested_by_name, created_at
+            FROM ordres_virement
+            WHERE status IN ('en_attente','en_attente_dg','en_attente_validation','attente_dg')
+            ORDER BY created_at DESC""").fetchall()]
+    except: ordres = []
+    
+    conn.close()
+    
+    total_amount = sum(v['amount'] or 0 for v in virements_bk) + sum(o['amount'] or 0 for o in ordres)
+    
+    return render_template('transferts_en_attente.html', page='transferts_en_attente',
+        virements_bk=virements_bk, ordres=ordres, total_amount=total_amount,
+        nb_pending=len(virements_bk) + len(ordres))
 
 
 # v145 : Page d'historique global du workflow

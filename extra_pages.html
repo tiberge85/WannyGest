@@ -6891,14 +6891,71 @@ function showTab(id){
 {% endif %}
 
 {% elif page == 'interventions' %}
+<style>
+.int-tabs { display:flex; gap:4px; border-bottom:2px solid #1A7A6D; margin-bottom:14px; flex-wrap:wrap }
+.int-tab { padding:10px 18px; border-radius:8px 8px 0 0; background:#f8f9fa; color:#666; font-weight:600; font-size:13px; text-decoration:none; border:2px solid transparent; border-bottom:none }
+.int-tab.active { background:#1A7A6D; color:#fff; border-color:#1A7A6D }
+.int-tab-badge { background:#fff; color:#c53030; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:800; margin-left:6px }
+.int-tab.active .int-tab-badge { background:rgba(255,255,255,0.3); color:#fff }
+.int-filter-bar { background:#fff; padding:10px; border-radius:8px; margin-bottom:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.int-filter-bar input, .int-filter-bar select, .int-filter-bar button { padding:7px 10px; border:1.5px solid #ddd; border-radius:6px; font-size:12px; width:100% }
+.int-filter-bar button { background:#1A7A6D; color:#fff; border-color:#1A7A6D; cursor:pointer; font-weight:600 }
+</style>
+
 <div class="page-header"><h1>🔧 Interventions</h1>
 <button class="btn btn-primary btn-sm" onclick="document.getElementById('addIntM').classList.add('active')">+ Intervention</button></div>
+
+<!-- v147 : ONGLETS -->
+<div class="int-tabs">
+    <a href="?tab=en_cours" class="int-tab {% if tab == 'en_cours' or not tab %}active{% endif %}">
+        ▶️ En cours <span class="int-tab-badge">{{ counts.en_cours }}</span>
+    </a>
+    <a href="?tab=executees" class="int-tab {% if tab == 'executees' %}active{% endif %}">
+        ✅ Déjà exécutées <span class="int-tab-badge">{{ counts.executees }}</span>
+    </a>
+    <a href="?tab=annulees" class="int-tab {% if tab == 'annulees' %}active{% endif %}">
+        ❌ Annulées <span class="int-tab-badge">{{ counts.annulees }}</span>
+    </a>
+    <a href="?tab=toutes" class="int-tab {% if tab == 'toutes' %}active{% endif %}">
+        📚 Toutes <span class="int-tab-badge">{{ counts.toutes }}</span>
+    </a>
+</div>
+
+<!-- v147 : FILTRES -->
+<form method="get" class="int-filter-bar">
+    <input type="hidden" name="tab" value="{{ tab or 'en_cours' }}">
+    <input type="text" name="q" value="{{ search }}" placeholder="🔍 Référence, titre, client...">
+    <input type="date" name="date_from" value="{{ date_from }}" title="Date début">
+    <input type="date" name="date_to" value="{{ date_to }}" title="Date fin">
+    <select name="technician">
+        <option value="">— Technicien —</option>
+        {% for t in technicians %}<option value="{{ t.id }}" {% if tech_filter == t.id|string %}selected{% endif %}>{{ t.full_name }}</option>{% endfor %}
+    </select>
+    <select name="client">
+        <option value="">— Client —</option>
+        {% for cl in clients %}<option value="{{ cl.id }}" {% if client_filter == cl.id|string %}selected{% endif %}>{{ cl.name }}</option>{% endfor %}
+    </select>
+    <select name="sort">
+        <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %}>Date ↓ (récent)</option>
+        <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %}>Date ↑ (ancien)</option>
+        <option value="created_desc" {% if sort == 'created_desc' %}selected{% endif %}>Créé ↓</option>
+        <option value="created_asc" {% if sort == 'created_asc' %}selected{% endif %}>Créé ↑</option>
+    </select>
+    <button type="submit">🔍 Filtrer</button>
+    {% if search or date_from or date_to or tech_filter or client_filter %}
+    <a href="/interventions?tab={{ tab or 'en_cours' }}" style="padding:7px 10px;background:#888;color:#fff;border-radius:6px;text-align:center;font-size:12px;text-decoration:none">✖ Effacer</a>
+    {% endif %}
+</form>
+
+<div style="font-size:11px;color:#666;margin-bottom:10px">
+    {{ interventions|length }} intervention(s) affichée(s) (max 200)
+</div>
 
 <div class="card"><div class="card-body" style="padding:0">
 {% if interventions %}
 <div class="table-wrap"><table id="intTable">
 <thead><tr>
-<th>Réf</th><th>Type</th><th>Client</th><th>Technicien</th><th>Date</th><th>Priorité</th><th>Statut</th><th>Actions</th>
+<th>Réf</th><th>Type</th><th>Client</th><th>Technicien</th><th>Date prévue</th><th>Priorité</th><th>Statut</th><th>Actions</th>
 </tr></thead>
 <tbody>{% for i in interventions %}<tr>
 <td><strong>{{ i.reference }}</strong></td>
@@ -6907,13 +6964,14 @@ function showTab(id){
 <td>{{ i.technician_name or '-' }}</td>
 <td>{{ i.scheduled_date or '-' }} {% if i.scheduled_time %}<span style="color:#1A7A6D;font-size:10px">{{ i.scheduled_time }}</span>{% endif %}</td>
 <td><span style="padding:2px 6px;border-radius:8px;font-size:9px;{% if i.priority=='urgente' %}background:#fde8e8;color:#c53030{% elif i.priority=='haute' %}background:#fff3e0;color:#e8672a{% else %}background:#f0f4f8;color:#555{% endif %}">{{ i.priority }}</span></td>
-<td><span style="padding:2px 6px;border-radius:8px;font-size:9px;{% if i.status=='livre' %}background:#e8f5e9;color:#2e7d32{% elif i.status=='controle_qualite' %}background:#f3e5f5;color:#7b1fa2{% elif i.status=='travaux_termines' %}background:#e3f2fd;color:#1565c0{% elif i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% elif i.status=='annulee' %}background:#fde8e8;color:#c53030{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ i.status }}</span></td>
+<td><span style="padding:2px 6px;border-radius:8px;font-size:9px;{% if i.status=='livre' %}background:#e8f5e9;color:#2e7d32{% elif i.status=='controle_qualite' %}background:#f3e5f5;color:#7b1fa2{% elif i.status=='travaux_termines' %}background:#e3f2fd;color:#1565c0{% elif i.status=='en_cours' %}background:#e3f2fd;color:#1A7A6D{% elif i.status in ('termine','cloturee','close') %}background:#e8f5e9;color:#2e7d32{% elif i.status=='annulee' %}background:#fde8e8;color:#c53030{% else %}background:#fff3e0;color:#e8672a{% endif %}">{{ i.status }}</span></td>
 <td style="white-space:nowrap">
+<a href="/interventions/{{ i.id }}/fiche" class="btn btn-sm btn-outline" style="font-size:9px">👁️ Fiche</a>
 {% if i.status=='planifiee' %}<a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px">▶ Démarrer</a>{% endif %}
 {% if i.status=='en_cours' %}<a href="/interventions/{{ i.id }}/status/terminee" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅ Terminer</a>{% endif %}
-{% if i.status!='terminee' and i.status!='annulee' %}<a href="/interventions/{{ i.id }}/status/annulee" class="btn btn-sm" style="color:#c53030;font-size:9px">❌</a>{% endif %}
+{% if i.status!='terminee' and i.status!='annulee' and i.status not in ('termine','cloturee','close') %}<a href="/interventions/{{ i.id }}/status/annulee" class="btn btn-sm" style="color:#c53030;font-size:9px">❌</a>{% endif %}
 </td></tr>{% endfor %}</tbody></table></div>
-{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune intervention</p>{% endif %}
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucune intervention pour ces critères</p>{% endif %}
 </div></div>
 
 <div class="modal-bg" id="addIntM"><div class="modal" style="max-width:550px"><h3>🔧 Nouvelle intervention</h3>

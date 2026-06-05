@@ -104,7 +104,7 @@
                     <input type="file" name="bordereau_file" accept="image/*,.pdf" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;background:#fff">
                 </div>
             </div>
-            <textarea name="cashier_notes" rows="2" placeholder="Notes caissière (différence, observations...)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+            <textarea name="cashier_notes" rows="2" required minlength="5" placeholder="📝 Commentaire obligatoire (conformité, observations, différence montant...)" style="width:100%;padding:6px;border:2px solid #f29f2f;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
             <div style="display:flex;gap:6px;justify-content:flex-end">
                 <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-outline btn-sm">👁️ Détails complets</a>
                 <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">✅ Valider paiement → Créditer caisse</button>

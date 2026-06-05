@@ -102,19 +102,23 @@
         <form method="post" action="/field-reports/{{ it.id }}/decide-facturation" style="margin-top:8px;padding-top:8px;border-top:1px dashed #ccc">
             <div class="form-row-radio">
                 <label class="yes">
-                    <input type="radio" name="facturable" value="1" required onchange="document.getElementById('cost_{{ it.id }}').style.display='block'">
+                    <input type="radio" name="facturable" value="1" required onchange="document.getElementById('cost_{{ it.id }}').style.display='block';document.getElementById('cost_input_{{ it.id }}').required=true">
                     <strong style="color:#2e7d32">✅ Facturable</strong>
                 </label>
                 <label class="no">
-                    <input type="radio" name="facturable" value="0" required onchange="document.getElementById('cost_{{ it.id }}').style.display='none'">
+                    <input type="radio" name="facturable" value="0" required onchange="document.getElementById('cost_{{ it.id }}').style.display='none';document.getElementById('cost_input_{{ it.id }}').required=false">
                     <strong style="color:#c53030">❌ Non facturable</strong>
                 </label>
             </div>
             <div id="cost_{{ it.id }}" style="display:none;margin-bottom:10px">
-                <input type="number" name="cost_amount" step="1" min="0" placeholder="Coût (XOF)" 
+                <label style="font-size:10px;color:#666;font-weight:600">💰 Montant à facturer (XOF) *</label>
+                <input id="cost_input_{{ it.id }}" type="number" name="cost_amount" step="1" min="1" placeholder="Ex: 50000 (obligatoire si facturable)" 
                     style="width:100%;padding:8px;border:2px solid #1A7A6D;border-radius:6px;font-weight:700">
             </div>
-            <textarea name="motif" rows="2" placeholder="Motif (optionnel)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+            <label style="font-size:10px;color:#666;font-weight:600">📝 Commentaire / Justification * (obligatoire)</label>
+            <textarea name="motif" rows="2" required minlength="5" 
+                placeholder="Justifiez votre décision (raison de facturation, garantie, geste commercial, contrat...)"
+                style="width:100%;padding:6px;border:2px solid #f29f2f;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
             <div style="display:flex;gap:6px;justify-content:flex-end">
                 <a href="/field-reports/{{ it.id }}" class="btn btn-outline btn-sm">📋 Détail</a>
                 <button type="submit" class="btn btn-sm" style="background:#f29f2f;color:#fff;font-weight:700">💰 Valider décision</button>

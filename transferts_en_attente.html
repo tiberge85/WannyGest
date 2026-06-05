@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Transferts en attente DG/RH{% endblock %}
+{% block content %}
+
+<style>
+.tr-card { background:#fff; border-radius:10px; padding:14px; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,0.06); border-left:4px solid #f29f2f }
+.tr-card.bk-to-caisse { border-left-color:#1565c0 }
+.tr-card.caisse-to-bk { border-left-color:#2e7d32 }
+.tr-section { background:#fff; padding:14px; border-radius:10px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06) }
+.tr-section h2 { margin:0 0 12px; font-size:15px; color:#1A7A6D; padding-bottom:8px; border-bottom:2px solid #e0e0e0 }
+.tr-amount { font-size:18px; font-weight:700; color:#1A7A6D }
+.tr-meta { font-size:11px; color:#666 }
+.summary-card { background:linear-gradient(135deg,#f29f2f,#e8672a); color:#fff; padding:18px; border-radius:12px; margin-bottom:14px }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>🏦 Transferts en attente de validation</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Direction Générale / RH — validation requise avant exécution</p>
+    </div>
+    <a href="/dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<!-- SUMMARY -->
+<div class="summary-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div>
+            <div style="font-size:32px;font-weight:800">{{ nb_pending }}</div>
+            <div style="font-size:13px;opacity:0.95">transfert(s) en attente de votre validation</div>
+        </div>
+        <div style="text-align:right">
+            <div style="font-size:11px;opacity:0.8;text-transform:uppercase">Montant total en attente</div>
+            <div style="font-size:24px;font-weight:800">{{ '{:,.0f}'.format(total_amount) }} <span style="font-size:14px">XOF</span></div>
+        </div>
+    </div>
+</div>
+
+<!-- VIREMENTS BANQUE → CAISSE -->
+<div class="tr-section">
+    <h2>🏛️ → 💰 Virements banque vers caisse ({{ virements_bk|length }})</h2>
+    {% if virements_bk %}
+        {% for v in virements_bk %}
+        <div class="tr-card bk-to-caisse">
+            <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+                <div style="flex:1;min-width:240px">
+                    <strong style="color:#0d47a1">🏦 {{ v.reference }}</strong>
+                    <div class="tr-meta" style="margin-top:3px">
+                        <strong>{{ v.bank_name or 'Banque' }}</strong> → <strong>{{ v.caisse_name }}</strong>
+                    </div>
+                    <div class="tr-meta">Demandé par : <strong>{{ v.requested_by_name or '?' }}</strong> · {{ v.created_at[:16] if v.created_at else '?' }}</div>
+                    {% if v.motif %}<div style="font-size:11px;color:#555;margin-top:5px;font-style:italic">📝 {{ v.motif }}</div>{% endif %}
+                </div>
+                <div style="text-align:right">
+                    <div class="tr-amount">{{ '{:,.0f}'.format(v.amount) }} XOF</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+                <form method="post" action="/comptabilite/virement/{{ v.id }}/refuser" style="display:inline" onsubmit="return confirm('Refuser ce virement ?')">
+                    <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;border:1.5px solid #c53030">❌ Refuser</button>
+                </form>
+                <form method="post" action="/comptabilite/virement/{{ v.id }}/valider" style="display:inline" onsubmit="return confirm('Valider ce virement ? La caisse sera créditée.')">
+                    <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">✅ Valider</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <p style="text-align:center;color:#888;padding:14px;font-size:12px">Aucun virement banque→caisse en attente</p>
+    {% endif %}
+</div>
+
+<!-- ORDRES DE VIREMENT -->
+<div class="tr-section">
+    <h2>📋 Ordres de virement ({{ ordres|length }})</h2>
+    {% if ordres %}
+        {% for o in ordres %}
+        <div class="tr-card caisse-to-bk">
+            <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap">
+                <div style="flex:1;min-width:240px">
+                    <strong style="color:#1b5e20">📋 {{ o.reference }}</strong>
+                    <div class="tr-meta" style="margin-top:3px">
+                        Type : <strong>{{ o.type_virement }}</strong>
+                        {% if o.source_caisse_name %} · Source : {{ o.source_caisse_name }}{% endif %}
+                        {% if o.dest_bank_name %} → {{ o.dest_bank_name }}{% endif %}
+                        {% if o.dest_beneficiaire_name %} → {{ o.dest_beneficiaire_name }}{% endif %}
+                    </div>
+                    <div class="tr-meta">Demandé par : <strong>{{ o.requested_by_name or '?' }}</strong> · {{ o.created_at[:16] if o.created_at else '?' }}</div>
+                    {% if o.description %}<div style="font-size:11px;color:#555;margin-top:5px;font-style:italic">📝 {{ o.description }}</div>{% endif %}
+                </div>
+                <div style="text-align:right">
+                    <div class="tr-amount">{{ '{:,.0f}'.format(o.amount) }} XOF</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+                <a href="/ordres-virement" class="btn btn-sm btn-outline">📋 Détail / Action</a>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+    <p style="text-align:center;color:#888;padding:14px;font-size:12px">Aucun ordre de virement en attente</p>
+    {% endif %}
+</div>
+
+{% if nb_pending == 0 %}
+<div style="background:#e8f5e9;padding:30px;border-radius:10px;text-align:center;color:#1b5e20">
+    <div style="font-size:40px;margin-bottom:10px">✅</div>
+    <p style="font-size:14px;margin:0">Aucun transfert en attente — tous les flux sont validés !</p>
+</div>
+{% endif %}
+
+{% endblock %}
