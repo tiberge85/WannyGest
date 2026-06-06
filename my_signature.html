@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Ma signature{% endblock %}
+{% block content %}
+
+<style>
+.sig-card { background:#fff; padding:24px; border-radius:14px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:14px }
+.sig-card h3 { color:#1A7A6D; font-size:14px; border-bottom:2px solid #1A7A6D; padding-bottom:8px; margin:0 0 12px }
+canvas { border:2px dashed #f29f2f; border-radius:10px; background:#fffef0; cursor:crosshair; touch-action:none; width:100%; max-width:600px; height:200px; display:block }
+.controls { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; justify-content:flex-end }
+.btn-clear { background:#fde8e8; color:#c53030 }
+.btn-save { background:#2e7d32; color:#fff; font-weight:700 }
+.btn-delete { background:#c53030; color:#fff }
+.preview-saved { background:#e8f5e9; padding:14px; border-radius:10px; border:2px solid #2e7d32; text-align:center }
+.preview-saved img { max-width:300px; max-height:120px; background:#fff; padding:8px; border-radius:6px }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>🖊️ Ma signature personnelle</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            Enregistrez votre signature une seule fois. Elle sera automatiquement réutilisée pour toutes vos validations.
+        </p>
+    </div>
+</div>
+
+{% if sig_data %}
+<!-- SIGNATURE ENREGISTRÉE -->
+<div class="sig-card">
+    <h3>✅ Votre signature actuelle</h3>
+    <div class="preview-saved">
+        <img src="{{ sig_data }}" alt="Signature enregistrée">
+        <p style="margin:8px 0 0;font-size:11px;color:#666">
+            Enregistrée le : {{ sig_updated[:16] if sig_updated else '?' }}
+        </p>
+    </div>
+    <form method="post" style="margin-top:14px;text-align:center" onsubmit="return confirm('Supprimer votre signature enregistrée ?')">
+        <input type="hidden" name="action" value="delete">
+        <button type="submit" class="btn btn-delete">🗑️ Supprimer ma signature</button>
+    </form>
+</div>
+{% endif %}
+
+<!-- DESSINER UNE NOUVELLE SIGNATURE -->
+<div class="sig-card">
+    <h3>{% if sig_data %}🔄 Mettre à jour ma signature{% else %}✍️ Dessiner ma signature{% endif %}</h3>
+    
+    <p style="font-size:12px;color:#666;margin-bottom:10px">
+        Utilisez votre souris (ou votre doigt sur mobile) pour dessiner votre signature dans le cadre ci-dessous.
+    </p>
+    
+    <canvas id="sig" width="600" height="200"></canvas>
+    
+    <form method="post" id="sigForm">
+        <input type="hidden" name="signature_data" id="signature_data">
+        <input type="hidden" name="action" value="save">
+        <div class="controls">
+            <button type="button" class="btn btn-clear" onclick="clearSig()">🗑️ Effacer</button>
+            <button type="submit" class="btn btn-save" onclick="return saveSig()">💾 Enregistrer ma signature</button>
+        </div>
+    </form>
+</div>
+
+<div style="background:#fff3cd;border-left:4px solid #f29f2f;padding:14px;border-radius:8px;font-size:12px;color:#856404">
+    ℹ️ <strong>Information :</strong> Votre signature enregistrée sera utilisée automatiquement à chaque fois que vous validez :
+    <ul style="margin:6px 0 0;padding-left:20px">
+        <li>Factures et devis</li>
+        <li>Bons de livraison et ABE (Attestations de Bonne Exécution)</li>
+        <li>Ordres de virement et décisions DG</li>
+        <li>Tous les documents nécessitant votre signature</li>
+    </ul>
+    Vous pouvez la modifier ou la supprimer à tout moment depuis cette page.
+</div>
+
+<script>
+const canvas = document.getElementById('sig');
+const ctx = canvas.getContext('2d');
+let drawing = false;
+let lastX = 0, lastY = 0;
+
+function setupCanvas() {
+    ctx.strokeStyle = '#1a3a5c';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+}
+setupCanvas();
+
+function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    return { x: x * (canvas.width / rect.width), y: y * (canvas.height / rect.height) };
+}
+
+function start(e) {
+    e.preventDefault();
+    drawing = true;
+    const pos = getPos(e);
+    lastX = pos.x; lastY = pos.y;
+}
+function draw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    lastX = pos.x; lastY = pos.y;
+}
+function stop() { drawing = false; }
+
+canvas.addEventListener('mousedown', start);
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('mouseup', stop);
+canvas.addEventListener('mouseleave', stop);
+canvas.addEventListener('touchstart', start, {passive: false});
+canvas.addEventListener('touchmove', draw, {passive: false});
+canvas.addEventListener('touchend', stop);
+
+function clearSig() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setupCanvas();
+}
+
+function saveSig() {
+    // Vérifier qu'il y a quelque chose de dessiné
+    const blank = document.createElement('canvas');
+    blank.width = canvas.width; blank.height = canvas.height;
+    if (canvas.toDataURL() === blank.toDataURL()) {
+        alert("Veuillez dessiner votre signature avant d'enregistrer");
+        return false;
+    }
+    document.getElementById('signature_data').value = canvas.toDataURL('image/png');
+    return true;
+}
+</script>
+
+{% endblock %}

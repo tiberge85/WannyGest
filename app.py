@@ -2336,6 +2336,23 @@ try:
 except Exception as _e: print(f"[v155-MGCols] Err : {_e}", flush=True)
 
 
+# v156 : Signature enregistrée par utilisateur (réutilisable) — table seulement
+try:
+    from models import get_db as _gdb_v156s
+    _v156s = _gdb_v156s()
+    _v156s.execute("""CREATE TABLE IF NOT EXISTS user_signatures (
+        user_id INTEGER PRIMARY KEY,
+        signature_data TEXT,
+        full_name TEXT,
+        role TEXT,
+        updated_at TEXT
+    )""")
+    _v156s.commit()
+    _v156s.close()
+    print("[v156-Sig] Table user_signatures OK", flush=True)
+except Exception as _e: print(f"[v156-Sig] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -2619,13 +2636,13 @@ def get_user_pending_tasks(user_id, user_role=None):
                 })
         except: pass
         
-        # v142 / v150 : Coordinateur — TOUTES les remontées non traitées (visibilité globale)
-        # v150 : Admin ne reçoit PAS cette vue globale dans sa clôture (lui-même n'a pas de rôle métier ici)
+        # v142 / v150 / v156 : Coordinateur — remontées non traitées (visibilité globale)
+        # v156 : Exclure les remontées 'executee' (passées en décision facturation DG/RH)
         if user_role in ('coordinateur', 'gestionnaire_projet', 'resp_projet') and not is_admin_silent:
             try:
                 rows = conn.execute("""SELECT id, reference, type_info, priorite, statut, client_name
                     FROM field_reports
-                    WHERE statut IN ('recue','en_analyse','en_execution','executee')
+                    WHERE statut IN ('recue','en_analyse','en_execution')
                     ORDER BY id DESC LIMIT 50""").fetchall()
                 # Filtrer pour éviter les doublons avec les remontées de l'auteur
                 existing_ids = {r['id'] for r in result['remontees']}
@@ -15343,7 +15360,11 @@ def api_notifications_count():
 @login_required
 def notification_read(nid):
     """v133 : Marque la notif comme lue + ouvre directement le lien associé.
-    Si pas de lien explicite, fallback intelligent selon le module."""
+    v156 : Si la query string demande view=detail, ouvre une vue détaillée avec navigation prev/next."""
+    # v156 : Mode vue détaillée
+    if request.args.get('view') == 'detail':
+        return redirect(url_for('notification_detail', nid=nid))
+    
     conn = _gdb()
     n = conn.execute("SELECT * FROM notifications WHERE id=?", (nid,)).fetchone()
     if n:
@@ -15375,6 +15396,136 @@ def notification_read(nid):
         link = module_links.get(module, '/dashboard')
     
     return redirect(link)
+
+
+# v156 : Vue détaillée d'une notification avec navigation suivante/précédente
+@app.route('/notifications/<int:nid>/view')
+@login_required
+def notification_detail(nid):
+    """v156 : Affiche une notification dans une vue dédiée avec navigation suivante/précédente.
+    Marque automatiquement comme lue à l'ouverture."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    conn = _gdb()
+    
+    # Récupérer la notif courante (sécurité : seulement les notifs du user)
+    notif = conn.execute("""SELECT n.* FROM notifications n 
+        WHERE n.id=? AND n.user_id=?""", (nid, user['id'])).fetchone()
+    if not notif:
+        conn.close()
+        flash("Notification introuvable", "error")
+        return redirect('/notifications')
+    
+    # Marquer comme lue à l'ouverture
+    conn.execute("UPDATE notifications SET read=1 WHERE id=?", (nid,))
+    conn.commit()
+    
+    notif = dict(notif)
+    notif['read'] = 1  # à jour pour l'affichage
+    
+    # Navigation : précédente et suivante (par order created_at DESC = chronologique inverse)
+    prev_n = conn.execute("""SELECT id FROM notifications 
+        WHERE user_id=? AND id > ? ORDER BY id ASC LIMIT 1""",
+        (user['id'], nid)).fetchone()
+    next_n = conn.execute("""SELECT id FROM notifications 
+        WHERE user_id=? AND id < ? ORDER BY id DESC LIMIT 1""",
+        (user['id'], nid)).fetchone()
+    
+    # Comptes
+    unread_count = conn.execute(
+        "SELECT COUNT(*) FROM notifications WHERE user_id=? AND COALESCE(read,0)=0",
+        (user['id'],)).fetchone()[0]
+    total_count = conn.execute(
+        "SELECT COUNT(*) FROM notifications WHERE user_id=?",
+        (user['id'],)).fetchone()[0]
+    
+    conn.close()
+    
+    return render_template('notification_detail.html', page='notifications',
+        notif=notif,
+        prev_id=prev_n[0] if prev_n else None,
+        next_id=next_n[0] if next_n else None,
+        unread_count=unread_count, total_count=total_count)
+
+
+# v156 : Route API pour enregistrer/récupérer la signature personnelle
+@app.route('/api/my-signature', methods=['GET', 'POST'])
+@login_required
+def api_my_signature():
+    """v156 : GET → récupère la signature enregistrée ; POST → sauvegarde."""
+    from flask import jsonify
+    user = get_user_by_id(session['user_id'])
+    if not user: return jsonify({'ok': False, 'error': 'Non connecté'}), 401
+    
+    conn = _gdb()
+    if request.method == 'POST':
+        sig_data = (request.form.get('signature_data', '') or '').strip()
+        if not sig_data or len(sig_data) < 50:
+            conn.close()
+            return jsonify({'ok': False, 'error': 'Signature vide ou invalide'}), 400
+        try:
+            conn.execute("""INSERT OR REPLACE INTO user_signatures
+                (user_id, signature_data, full_name, role, updated_at)
+                VALUES (?, ?, ?, ?, datetime('now'))""",
+                (user['id'], sig_data, user['full_name'], user['role']))
+            conn.commit()
+            conn.close()
+            return jsonify({'ok': True, 'message': 'Signature enregistrée'})
+        except Exception as e:
+            conn.close()
+            return jsonify({'ok': False, 'error': str(e)}), 500
+    else:
+        try:
+            r = conn.execute("SELECT signature_data, updated_at FROM user_signatures WHERE user_id=?",
+                (user['id'],)).fetchone()
+            conn.close()
+            if r:
+                return jsonify({'ok': True, 'has_signature': True,
+                    'signature_data': r['signature_data'], 'updated_at': r['updated_at']})
+            return jsonify({'ok': True, 'has_signature': False})
+        except Exception as e:
+            conn.close()
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# v156 : Page de gestion de la signature personnelle
+@app.route('/my/signature', methods=['GET', 'POST'])
+@login_required
+def my_signature_page():
+    """v156 : Page permettant à l'utilisateur de gérer sa signature personnelle réutilisable."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    
+    if request.method == 'POST':
+        sig_data = (request.form.get('signature_data', '') or '').strip()
+        action = request.form.get('action', 'save')
+        conn = _gdb()
+        if action == 'delete':
+            conn.execute("DELETE FROM user_signatures WHERE user_id=?", (user['id'],))
+            conn.commit()
+            flash("🗑️ Signature supprimée", "success")
+        elif sig_data and len(sig_data) >= 50:
+            conn.execute("""INSERT OR REPLACE INTO user_signatures
+                (user_id, signature_data, full_name, role, updated_at)
+                VALUES (?, ?, ?, ?, datetime('now'))""",
+                (user['id'], sig_data, user['full_name'], user['role']))
+            conn.commit()
+            flash("✅ Signature enregistrée — Elle sera réutilisée pour vos validations futures", "success")
+        else:
+            flash("⚠️ Veuillez dessiner une signature avant d'enregistrer", "error")
+        conn.close()
+        return redirect('/my/signature')
+    
+    conn = _gdb()
+    sig = conn.execute("SELECT signature_data, updated_at FROM user_signatures WHERE user_id=?",
+        (user['id'],)).fetchone()
+    conn.close()
+    
+    return render_template('my_signature.html', page='my_signature',
+        sig_data=sig['signature_data'] if sig else '',
+        sig_updated=sig['updated_at'] if sig else None,
+        user=user)
 
 
 @app.route('/notifications/<int:nid>/mark-read')
@@ -15881,31 +16032,27 @@ def prospect_item_delete(pid, table, item_id):
 @app.route('/gestion-projets/controle-qualite')
 @permission_required('controle_qualite')
 def gestion_controle_qualite():
-    """Liste des interventions à contrôler — UNIQUEMENT projets neufs / installations.
-    Les entretiens et dépannages ne passent pas par contrôle qualité (livrables directs)."""
+    """v156 : Liste des interventions à contrôler — TOUS les types (le filtre projets neufs causait un décalage
+    entre le compteur sidebar et la liste vide)."""
     conn = _gdb()
-    PROJET_TYPES = ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs')
-    placeholders = ','.join(['?'] * len(PROJET_TYPES))
-    # À contrôler : projet neuf + travaux_termines + cq pas encore passé
-    to_check = [dict(r) for r in conn.execute(f"""
+    # v156 : Plus de filtre par type → toutes les interventions en travaux_termines à contrôler
+    to_check = [dict(r) for r in conn.execute("""
         SELECT i.*, c.name as client_name_full, c.client_code,
                u.full_name as tech_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         LEFT JOIN users u ON i.technician_id = u.id
         WHERE i.status = 'travaux_termines' AND COALESCE(i.cq_status,'') = ''
-          AND LOWER(COALESCE(i.type,'')) IN ({placeholders})
         ORDER BY i.end_work_at DESC
-    """, PROJET_TYPES).fetchall()]
-    # Validées récemment (toujours filtrer projet neuf)
-    done = [dict(r) for r in conn.execute(f"""
+    """).fetchall()]
+    # Validées récemment
+    done = [dict(r) for r in conn.execute("""
         SELECT i.*, c.name as client_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         WHERE i.cq_status IN ('passed','failed')
-          AND LOWER(COALESCE(i.type,'')) IN ({placeholders})
         ORDER BY i.cq_at DESC LIMIT 20
-    """, PROJET_TYPES).fetchall()]
+    """).fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='controle_qualite',
                            to_check=to_check, done=done)
@@ -19466,8 +19613,8 @@ def facture_reporter(fri_id):
 @app.route('/recouvrement/facture/<int:fri_id>/edit', methods=['POST'])
 @permission_required_any('facture_edit', 'admin')
 def edit_invoice_v142(fri_id):
-    """v142 / v145 / v147 : Comptabilité édite la facture (génère numéro + notifie agent recouvreur).
-    v147 : Commentaire obligatoire."""
+    """v142 / v145 / v147 / v156 : Comptabilité édite la facture.
+    v147 : Commentaire obligatoire. v156 : TVA optionnelle (case à cocher tva_apply)."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
@@ -19481,7 +19628,24 @@ def edit_invoice_v142(fri_id):
         flash("⚠️ Un commentaire est obligatoire lors de l'édition de la facture (min 5 caractères).", "error")
         return redirect('/recouvrement/factures-a-editer')
     
+    # v156 : TVA optionnelle (par défaut activée si tva_apply absent du form pour rétrocompatibilité)
+    tva_apply = request.form.get('tva_apply', '0').strip() in ('1', 'on', 'true', 'yes')
+    tva_rate = float(request.form.get('tva_rate', '18') or 18)
+    
     conn = _gdb()
+    # Migration silencieuse : ajouter colonnes tva si manquantes
+    try:
+        conn.execute("SELECT tva_apply FROM field_report_invoices LIMIT 1")
+    except:
+        try: conn.execute("ALTER TABLE field_report_invoices ADD COLUMN tva_apply INTEGER DEFAULT 1")
+        except: pass
+    try:
+        conn.execute("SELECT tva_rate FROM field_report_invoices LIMIT 1")
+    except:
+        try: conn.execute("ALTER TABLE field_report_invoices ADD COLUMN tva_rate REAL DEFAULT 18")
+        except: pass
+    conn.commit()
+    
     try:
         fri = conn.execute("""SELECT fri.*, fr.client_name, fr.reference as fr_ref
                               FROM field_report_invoices fri
@@ -19492,18 +19656,20 @@ def edit_invoice_v142(fri_id):
             flash("Facture introuvable", "error")
             return redirect('/recouvrement/factures-a-editer')
         
+        # v156 : Sauvegarder le choix TVA
         conn.execute("""UPDATE field_report_invoices
             SET invoice_number=?, emitted_by=?, emitted_at=datetime('now'),
-                status='facture_editee', updated_at=datetime('now')
+                status='facture_editee', tva_apply=?, tva_rate=?, updated_at=datetime('now')
             WHERE id=?""",
-            (invoice_number, user['id'], fri_id))
+            (invoice_number, user['id'], 1 if tva_apply else 0, tva_rate, fri_id))
         conn.commit()
         conn.close()
         
+        tva_msg = f"TVA {tva_rate}%" if tva_apply else "Sans TVA"
         # v145 : Log événement
         _log_fri_event(fri_id, fri['field_report_id'], user['id'], user['full_name'],
-            'facture_editee', f"Facture {invoice_number} éditée",
-            '🧾', f"Client : {fri['client_name']} · Montant : {fri['amount']:,.0f} XOF · Notes : {notes}",
+            'facture_editee', f"Facture {invoice_number} éditée ({tva_msg})",
+            '🧾', f"Client : {fri['client_name']} · Montant : {fri['amount']:,.0f} XOF · {tva_msg} · Notes : {notes}",
             fri['amount'])
         
         try:
@@ -22378,7 +22544,8 @@ def project_detail(pid):
 @app.route('/projects/<int:pid>/advance', methods=['POST'])
 @project_access_required
 def project_advance(pid):
-    """Fait avancer un projet vers le statut suivant (avec validation)."""
+    """v132 / v148 / v156 : Fait avancer un projet vers le statut suivant.
+    v156 : Seul le commercial (et admin/dg) peut démarrer un projet (valide → demarre)."""
     to_status = request.form.get('to_status', '').strip()
     comment = request.form.get('comment', '').strip()
     
@@ -22390,6 +22557,14 @@ def project_advance(pid):
         flash("Projet introuvable", "error")
         return redirect('/projects')
     current = p['status']
+    
+    # v156 : Seul le commercial (et admin/dg) peut démarrer un projet (valide → demarre)
+    user_pa = get_user_by_id(session.get('user_id', 0))
+    if current == 'valide' and to_status == 'demarre':
+        if not user_pa or user_pa['role'] not in ('admin', 'dg', 'directeur', 'commercial'):
+            conn.close()
+            flash("⛔ Seul le commercial (ou la direction) peut démarrer un projet.", "error")
+            return redirect(f'/projects/{pid}')
     
     # v132 : Transitions selon workflow métier strict avec 2 étapes techniques
     valid_transitions = {
@@ -28330,19 +28505,34 @@ from models import get_db as _gdb, db_insert as _dbi
 @app.route('/rapports-journaliers')
 @permission_required('rapports_j')
 def rapports_journaliers():
-    """v155 : Le gestionnaire de projet peut maintenant voir tous les rapports journaliers
-    (notamment ceux des techniciens) et les valider."""
+    """v155 / v156 : Le gestionnaire de projet voit uniquement les rapports de l'équipe technique
+    (technicien, tech_chef, chef_chantier, centre_technique, informatique).
+    RH/Admin/DG voient tous les rapports."""
     u = dict(get_user_by_id(session['user_id']))
     conn = _gdb()
-    # v155 : Coordinateur / gestionnaire projet voient aussi tous les rapports (techniciens)
-    roles_voient_tout = ('admin', 'dg', 'rh', 'directeur', 'directrice_rh',
-                          'coordinateur', 'gestionnaire_projet', 'resp_projet')
-    if u['role'] in roles_voient_tout:
-        rapports = [dict(r) for r in conn.execute("""SELECT rj.*, u.full_name FROM rapports_journaliers rj 
-            LEFT JOIN users u ON rj.user_id=u.id ORDER BY rj.date DESC, rj.created_at DESC LIMIT 100""").fetchall()]
+    # Rôles techniques (visibles par les gestionnaires de projet)
+    TECH_ROLES = ('technicien','tech_chef','chef_chantier','centre_technique','informatique')
+    
+    if u['role'] in ('admin', 'dg', 'rh', 'directeur', 'directrice_rh'):
+        # Voit TOUT
+        rapports = [dict(r) for r in conn.execute("""SELECT rj.*, u.full_name, u.role as user_role
+            FROM rapports_journaliers rj 
+            LEFT JOIN users u ON rj.user_id=u.id 
+            ORDER BY rj.date DESC, rj.created_at DESC LIMIT 100""").fetchall()]
+    elif u['role'] in ('coordinateur', 'gestionnaire_projet', 'resp_projet'):
+        # v156 : Seulement les rôles techniques
+        placeholders = ','.join(['?'] * len(TECH_ROLES))
+        rapports = [dict(r) for r in conn.execute(f"""SELECT rj.*, u.full_name, u.role as user_role
+            FROM rapports_journaliers rj 
+            LEFT JOIN users u ON rj.user_id=u.id 
+            WHERE u.role IN ({placeholders})
+            ORDER BY rj.date DESC, rj.created_at DESC LIMIT 100""", TECH_ROLES).fetchall()]
     else:
-        rapports = [dict(r) for r in conn.execute("""SELECT rj.*, u.full_name FROM rapports_journaliers rj 
-            LEFT JOIN users u ON rj.user_id=u.id WHERE rj.user_id=? ORDER BY rj.date DESC LIMIT 50""",
+        # Autres rôles : leurs propres rapports seulement
+        rapports = [dict(r) for r in conn.execute("""SELECT rj.*, u.full_name, u.role as user_role
+            FROM rapports_journaliers rj 
+            LEFT JOIN users u ON rj.user_id=u.id 
+            WHERE rj.user_id=? ORDER BY rj.date DESC LIMIT 50""",
             (session['user_id'],)).fetchall()]
     
     # My counter this week
@@ -28354,8 +28544,9 @@ def rapports_journaliers():
     my_total = conn.execute("SELECT COUNT(*) FROM rapports_journaliers WHERE user_id=?",
         (session['user_id'],)).fetchone()[0]
     conn.close()
-    # v155 : Indique si l'utilisateur peut valider
-    can_validate = u['role'] in roles_voient_tout
+    # Indique si l'utilisateur peut valider
+    can_validate = u['role'] in ('admin', 'dg', 'rh', 'directeur', 'directrice_rh',
+                                  'coordinateur', 'gestionnaire_projet', 'resp_projet')
     return render_template('rapports_journaliers.html', page='rapports_j', rapports=rapports, user=u,
         my_week=my_week, my_total=my_total, can_validate=can_validate)
 

@@ -230,6 +230,8 @@
             {% endif %}
             {# v129 : Badge notif non-lues + raccourci préférences #}
             <a href="/notifications" class="{% if page == 'notifications' or page == 'notifications_prefs' %}active{% endif %}" style="position:relative">🔔 Notifications{% if notif_count %} <span class="badge sidebar-notif-badge" style="background:#c53030;color:#fff">{{ notif_count }}</span>{% else %}<span class="sidebar-notif-badge" style="display:none"></span>{% endif %}</a>
+            {# v156 : Ma signature personnelle (réutilisable pour toutes les validations) #}
+            <a href="/my/signature" class="{% if page == 'my_signature' %}active{% endif %}">🖊️ Ma signature</a>
             {# v139 : Clôture journalière obligatoire — visible pour tous les utilisateurs #}
             {# v139 : Clôture journalière obligatoire — visible pour tous les utilisateurs.
                v141 : Badge "À FAIRE" si pas encore clôturée pour aujourd'hui. #}

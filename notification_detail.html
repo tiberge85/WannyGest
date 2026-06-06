@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}🔔 Notification #{{ notif.id }}{% endblock %}
+{% block content %}
+
+<style>
+.notif-card { background:#fff; padding:24px; border-radius:14px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:14px }
+.notif-meta { display:flex; gap:12px; font-size:11px; color:#888; margin-bottom:10px; flex-wrap:wrap }
+.notif-meta span { display:inline-flex; align-items:center; gap:4px }
+.priority-high { background:#fde8e8; color:#c53030; padding:3px 10px; border-radius:5px; font-weight:700; font-size:11px }
+.priority-normal { background:#e3f2fd; color:#0d47a1; padding:3px 10px; border-radius:5px; font-weight:700; font-size:11px }
+.priority-low { background:#f5f5f5; color:#666; padding:3px 10px; border-radius:5px; font-weight:700; font-size:11px }
+.nav-arrows { display:flex; justify-content:space-between; gap:8px; margin-top:14px }
+.nav-btn { padding:10px 18px; border-radius:10px; text-decoration:none; font-weight:600; flex:1; text-align:center; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.15s }
+.nav-btn:hover { transform:translateY(-1px); box-shadow:0 2px 6px rgba(0,0,0,0.1) }
+.nav-btn.prev { background:#e3f2fd; color:#0d47a1 }
+.nav-btn.next { background:#1A7A6D; color:#fff }
+.nav-btn.disabled { background:#f0f0f0; color:#bbb; cursor:not-allowed; pointer-events:none }
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div>
+        <h1 style="margin:0;font-size:18px;color:#1A7A6D">🔔 Notification</h1>
+        <p style="color:#666;font-size:11px;margin:4px 0 0">
+            {{ unread_count }} non lue(s) / {{ total_count }} total
+        </p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/notifications" class="btn btn-outline btn-sm">📋 Liste complète</a>
+    </div>
+</div>
+
+<div class="notif-card">
+    <div class="notif-meta">
+        <span style="font-size:32px">{{ notif.icon or '🔔' }}</span>
+        <div style="flex:1">
+            <h2 style="margin:0 0 6px;font-size:16px;color:#222">{{ notif.title }}</h2>
+            <div>
+                <span>📅 {{ notif.created_at[:16] }}</span>
+                {% if notif.module %}<span style="background:#f0f0f0;padding:2px 8px;border-radius:5px">{{ notif.module }}</span>{% endif %}
+                {% if notif.priority == 'high' %}
+                    <span class="priority-high">🚨 URGENT</span>
+                {% elif notif.priority == 'normal' %}
+                    <span class="priority-normal">📢 Normal</span>
+                {% else %}
+                    <span class="priority-low">📌 Info</span>
+                {% endif %}
+                <span style="background:#e8f5e9;color:#1b5e20;padding:2px 8px;border-radius:5px;font-weight:700">✅ LUE</span>
+            </div>
+        </div>
+    </div>
+    
+    <div style="font-size:14px;color:#333;line-height:1.7;margin-top:14px;padding:14px;background:#fafbfc;border-radius:10px;border-left:4px solid #1A7A6D">
+        {{ notif.message|nl2br|safe if notif.message else 'Pas de contenu' }}
+    </div>
+    
+    {% if notif.link %}
+    <div style="margin-top:14px;text-align:center">
+        <a href="{{ notif.link }}" class="btn btn-primary" style="font-size:14px;padding:10px 24px">
+            🔗 Aller à l'élément concerné
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- NAVIGATION SUIVANT / PRÉCÉDENT -->
+<div class="nav-arrows">
+    {% if prev_id %}
+        <a href="/notifications/{{ prev_id }}/view" class="nav-btn prev">⬅️ Précédente (#{{ prev_id }})</a>
+    {% else %}
+        <a class="nav-btn prev disabled">⬅️ Aucune précédente</a>
+    {% endif %}
+    
+    <a href="/notifications" class="nav-btn" style="background:#f0f0f0;color:#666;max-width:180px">📋 Toutes</a>
+    
+    {% if next_id %}
+        <a href="/notifications/{{ next_id }}/view" class="nav-btn next">Suivante (#{{ next_id }}) ➡️</a>
+    {% else %}
+        <a class="nav-btn next disabled" style="background:#f0f0f0;color:#bbb">Aucune suivante ➡️</a>
+    {% endif %}
+</div>
+
+{# v156 : Raccourcis clavier ←/→ pour navigation rapide #}
+<script>
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowLeft' {% if prev_id %} && true {% else %} && false {% endif %}) {
+        {% if prev_id %}window.location.href = '/notifications/{{ prev_id }}/view';{% endif %}
+    } else if (e.key === 'ArrowRight' {% if next_id %} && true {% else %} && false {% endif %}) {
+        {% if next_id %}window.location.href = '/notifications/{{ next_id }}/view';{% endif %}
+    }
+});
+</script>
+
+<div style="background:#fff8e1;padding:10px;border-radius:8px;font-size:11px;color:#856404;text-align:center;margin-top:10px">
+    💡 Raccourcis : <strong>← →</strong> pour naviguer entre les notifications
+</div>
+
+{% endblock %}

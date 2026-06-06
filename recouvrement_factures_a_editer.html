@@ -81,6 +81,16 @@
                 <input type="text" name="invoice_number" placeholder="N° facture (auto si vide)" style="padding:7px;border:1.5px solid #ddd;border-radius:5px;font-size:12px;font-family:monospace">
                 <a href="/recouvrement/facture/{{ it.id }}/preview" class="btn btn-sm btn-outline" style="display:inline-flex;align-items:center;justify-content:center">👁️ Aperçu / Modifier</a>
             </div>
+            {# v156 : TVA optionnelle #}
+            <div style="background:#fff8e1;padding:8px 12px;border-radius:6px;margin-bottom:6px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px">
+                <label style="cursor:pointer;font-weight:600">
+                    <input type="checkbox" name="tva_apply" value="1" checked style="vertical-align:middle"> 
+                    Appliquer la TVA
+                </label>
+                <span>Taux : <input type="number" name="tva_rate" value="18" min="0" max="100" step="0.1" 
+                    style="width:60px;padding:3px;border:1.5px solid #ddd;border-radius:4px"> %</span>
+                <small style="color:#888;font-style:italic">Décocher si exonéré (export, ONG, secteur public...)</small>
+            </div>
             <textarea name="notes" rows="2" required minlength="5" placeholder="📝 Commentaire obligatoire (référence devis, conditions, observations...)" 
                 style="width:100%;padding:6px;border:2px solid #f29f2f;border-radius:5px;font-size:11px;margin-bottom:6px"></textarea>
             <div style="display:flex;gap:6px;justify-content:flex-end">
