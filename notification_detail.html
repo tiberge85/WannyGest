@@ -65,17 +65,17 @@
 <!-- NAVIGATION SUIVANT / PRÉCÉDENT -->
 <div class="nav-arrows">
     {% if prev_id %}
-        <a href="/notifications/{{ prev_id }}/view" class="nav-btn prev">⬅️ Précédente (#{{ prev_id }})</a>
+        <a href="/notifications/{{ prev_id }}/view" class="nav-btn prev">⬅️ Précéd</a>
     {% else %}
-        <a class="nav-btn prev disabled">⬅️ Aucune précédente</a>
+        <a class="nav-btn prev disabled">⬅️ Précéd</a>
     {% endif %}
     
     <a href="/notifications" class="nav-btn" style="background:#f0f0f0;color:#666;max-width:180px">📋 Toutes</a>
     
     {% if next_id %}
-        <a href="/notifications/{{ next_id }}/view" class="nav-btn next">Suivante (#{{ next_id }}) ➡️</a>
+        <a href="/notifications/{{ next_id }}/view" class="nav-btn next">Suiv ➡️</a>
     {% else %}
-        <a class="nav-btn next disabled" style="background:#f0f0f0;color:#bbb">Aucune suivante ➡️</a>
+        <a class="nav-btn next disabled" style="background:#f0f0f0;color:#bbb">Suiv ➡️</a>
     {% endif %}
 </div>
 

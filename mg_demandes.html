@@ -45,7 +45,8 @@
 </td>
 <td style="display:flex;gap:3px;flex-wrap:wrap">
     <a href="/mg/demandes/{{ d.id }}/preview" class="btn btn-sm btn-outline" title="Prévisualiser">👁️</a>
-    {% if d.status == 'en_attente' or (d.status == 'validee' and not d.compta_visible_at) %}
+    {# v158 : Bouton Modifier élargi — toujours possible sauf si refusée/payée définitivement #}
+    {% if d.status not in ('refusee', 'payee', 'livree') %}
     <a href="/mg/demandes/{{ d.id }}/edit" class="btn btn-sm" style="background:#fff3e0;color:#b8561f" title="Modifier">✏️</a>
     {% endif %}
     {% if d.status == 'en_attente' %}

@@ -21,6 +21,22 @@
     <div><strong>Réf :</strong> {{ visit.proforma_ref }}</div>
     <div><strong>Montant :</strong> {{ '{:,.0f}'.format(visit.proforma_amount or 0) }} FCFA</div>
     <div><strong>Envoyé le :</strong> {{ visit.proforma_sent_at[:16] if visit.proforma_sent_at else '-' }}</div>
-</div></div>{% endif %}
+</div></div>
+{% else %}
+{# v158 : Bouton de transformation Visite → Proforma complet #}
+<div class="card" style="border:2px dashed #f29f2f;background:#fff8e1">
+    <div class="card-body" style="text-align:center;padding:20px">
+        <h3 style="color:#b8561f;margin-bottom:10px">🚀 Transformer cette visite en Proforma</h3>
+        <p style="font-size:12px;color:#666;margin-bottom:14px">
+            Créez un proforma complet avec articles, quantités, prix, remise %, TVA optionnelle.<br>
+            Les équipements de la visite seront pré-remplis automatiquement avec les prix du stock.
+        </p>
+        <a href="/visites/{{ visit.id }}/convert-to-devis" class="btn btn-primary" 
+            style="background:#f29f2f;font-size:14px;padding:10px 24px">
+            ➡️ Créer le Proforma complet
+        </a>
+    </div>
+</div>
+{% endif %}
 <div style="margin-top:14px"><a href="/visites" class="btn btn-outline">← Retour</a></div>
 {% endblock %}

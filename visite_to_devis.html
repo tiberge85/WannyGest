@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Visite → Proforma{% endblock %}
+{% block content %}
+
+<style>
+.card-vis { background:#fff; padding:18px; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:14px }
+.card-vis h3 { color:#1A7A6D; font-size:14px; margin:0 0 10px; border-bottom:2px solid #1A7A6D; padding-bottom:6px }
+.item-row { display:grid; grid-template-columns:2fr 1fr 0.8fr 1fr 1fr auto; gap:6px; margin-bottom:6px; align-items:center; padding:8px; background:#fafbfc; border-radius:6px }
+.item-row input, .item-row select { padding:6px 8px; border:1.5px solid #ddd; border-radius:5px; font-size:12px; width:100% }
+.item-stock { background:#e8f5e9 !important; border-color:#2e7d32 !important }
+.btn-add { background:#1A7A6D; color:#fff; padding:8px 16px; border-radius:6px; border:none; cursor:pointer; font-size:13px; font-weight:600 }
+.totals-box { background:#fff8e1; padding:14px; border-radius:8px; margin:10px 0; font-size:13px }
+.totals-box .row { display:flex; justify-content:space-between; padding:3px 0 }
+.totals-box .ttc { font-size:18px; font-weight:800; color:#1A7A6D; border-top:2px solid #1A7A6D; margin-top:8px; padding-top:8px }
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📋 Transformer la visite en Proforma</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">{{ visit.client_name }} — Visite du {{ visit.visit_date }}</p>
+    </div>
+    <a href="/visites/{{ visit.id }}" class="btn btn-outline btn-sm">← Retour visite</a>
+</div>
+
+<form method="post">
+    <!-- Infos visite -->
+    <div class="card-vis">
+        <h3>📍 Informations de la visite</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
+            <div><strong>Client :</strong> {{ visit.client_name }}</div>
+            <div><strong>Site :</strong> {{ visit.site_name or '-' }}</div>
+            <div><strong>Contact :</strong> {{ visit.contact_name or '-' }}</div>
+            <div><strong>Tél :</strong> {{ visit.contact_tel or '-' }}</div>
+        </div>
+        {% if visit.needs %}<div style="margin-top:10px;padding:8px;background:#f0f7f6;border-radius:6px;font-size:11px"><strong>Besoins :</strong> {{ visit.needs }}</div>{% endif %}
+        {% if visit.observations %}<div style="margin-top:6px;padding:8px;background:#fff8e1;border-radius:6px;font-size:11px"><strong>Observations :</strong> {{ visit.observations }}</div>{% endif %}
+    </div>
+
+    <!-- Items (équipements) -->
+    <div class="card-vis">
+        <h3>📦 Articles du proforma</h3>
+        {% if items %}
+        <p style="color:#666;font-size:11px;margin-bottom:8px">
+            💡 Articles détectés depuis la visite. <strong>Lignes vertes</strong> = trouvés dans le stock (prix auto-rempli).
+        </p>
+        {% endif %}
+        <div id="itemsList">
+            {% for it in items %}
+            <div class="item-row {% if it.from_stock %}item-stock{% endif %}">
+                <input type="text" name="item_{{ loop.index }}_designation" value="{{ it.designation }}" placeholder="Désignation" list="catalogList">
+                <input type="text" name="item_{{ loop.index }}_detail" placeholder="Détail" value="{{ it.detail }}">
+                <input type="number" name="item_{{ loop.index }}_qty" value="{{ it.qty }}" min="1" step="1" onchange="recalc()">
+                <input type="number" name="item_{{ loop.index }}_prix" value="{{ it.prix|int }}" min="0" step="100" placeholder="Prix XOF" onchange="recalc()">
+                <input type="number" name="item_{{ loop.index }}_remise" value="{{ it.remise|int }}" min="0" step="100" placeholder="Remise XOF" onchange="recalc()">
+                <button type="button" onclick="this.parentElement.remove();recalc()" style="background:#fde8e8;color:#c53030;border:none;padding:6px;border-radius:5px;cursor:pointer">🗑️</button>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="button" class="btn-add" onclick="addItem()">➕ Ajouter une ligne</button>
+        
+        <datalist id="catalogList">
+            {% for ci in catalog_items[:200] %}
+            <option value="{{ ci.designation }}" data-prix="{{ ci.prix_vente or ci.prix_unitaire or 0 }}">
+            {% endfor %}
+        </datalist>
+    </div>
+
+    <!-- Frais additionnels + remise + TVA -->
+    <div class="card-vis">
+        <h3>💰 Frais & options</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+                <label style="font-size:11px;color:#666;font-weight:600">Main d'œuvre (XOF)</label>
+                <input type="number" id="moField" name="main_oeuvre" value="0" min="0" step="500" 
+                    onchange="recalc()" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-top:4px">
+            </div>
+            <div>
+                <label style="font-size:11px;color:#666;font-weight:600">Petites fournitures (XOF)</label>
+                <input type="number" id="pfField" name="petites_fournitures" value="0" min="0" step="100"
+                    onchange="recalc()" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-top:4px">
+            </div>
+        </div>
+        
+        <div style="margin-top:14px">
+            <label style="font-size:11px;color:#666;font-weight:600">Remise globale</label>
+            <div style="display:grid;grid-template-columns:2fr 3fr;gap:6px;margin-top:4px">
+                <input type="number" id="remPct" name="remise_pct" min="0" max="100" step="0.1" 
+                    placeholder="% (ex: 5)" onchange="recalc()"
+                    style="background:#fff8e1;border:1.5px solid #f29f2f;padding:8px;border-radius:6px">
+                <input type="number" id="remFix" name="remise" value="0" min="0" step="500"
+                    placeholder="Montant fixe (XOF)" onchange="recalc()"
+                    style="padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            </div>
+            <small style="color:#888;font-size:10px">💡 % prioritaire si rempli</small>
+        </div>
+        
+        <div style="margin-top:14px;padding:10px;background:#e3f2fd;border-radius:8px">
+            <label style="font-size:12px;font-weight:700;color:#0d47a1;cursor:pointer">
+                <input type="checkbox" name="tva_active" value="1" checked onchange="recalc()" id="tvaCheck"> 
+                Appliquer la TVA
+            </label>
+            <span style="margin-left:14px;font-size:11px">Taux : 
+                <input type="number" name="tva_rate" value="18" min="0" max="100" step="0.1" id="tvaRate"
+                    onchange="recalc()" style="width:60px;padding:3px;border:1.5px solid #ddd;border-radius:4px"> %
+            </span>
+        </div>
+    </div>
+
+    <!-- TOTAUX -->
+    <div class="totals-box">
+        <div class="row"><span>Total HT articles :</span><strong id="totHT">0</strong></div>
+        <div class="row"><span>+ Main d'œuvre :</span><strong id="totMO">0</strong></div>
+        <div class="row"><span>+ Petites fournitures :</span><strong id="totPF">0</strong></div>
+        <div class="row" style="color:#c53030"><span>− Remise globale :</span><strong id="totRem">0</strong></div>
+        <div class="row"><span>+ TVA :</span><strong id="totTVA">0</strong></div>
+        <div class="row ttc"><span>TOTAL TTC :</span><span id="totTTC">0 XOF</span></div>
+    </div>
+
+    <div style="text-align:right;margin-top:14px">
+        <a href="/visites/{{ visit.id }}" class="btn btn-outline" style="margin-right:6px">Annuler</a>
+        <button type="submit" class="btn btn-primary" style="background:#2e7d32;font-size:14px;padding:10px 24px">
+            ✅ Créer le Proforma
+        </button>
+    </div>
+</form>
+
+<script>
+// Auto-remplir prix depuis catalogue quand on choisit dans la datalist
+document.addEventListener('change', function(e) {
+    if (e.target.name && e.target.name.includes('_designation')) {
+        const val = e.target.value;
+        const opts = document.querySelectorAll('#catalogList option');
+        for (const o of opts) {
+            if (o.value === val) {
+                const prix = parseFloat(o.getAttribute('data-prix') || 0);
+                if (prix > 0) {
+                    const row = e.target.closest('.item-row');
+                    const prixField = row.querySelector('input[name*="_prix"]');
+                    if (prixField && !prixField.value) prixField.value = prix;
+                    row.classList.add('item-stock');
+                    recalc();
+                }
+                break;
+            }
+        }
+    }
+});
+
+let itemCounter = {{ items|length }};
+function addItem() {
+    itemCounter++;
+    const row = document.createElement('div');
+    row.className = 'item-row';
+    row.innerHTML = `
+        <input type="text" name="item_${itemCounter}_designation" placeholder="Désignation" list="catalogList">
+        <input type="text" name="item_${itemCounter}_detail" placeholder="Détail">
+        <input type="number" name="item_${itemCounter}_qty" value="1" min="1" step="1" onchange="recalc()">
+        <input type="number" name="item_${itemCounter}_prix" value="0" min="0" step="100" placeholder="Prix XOF" onchange="recalc()">
+        <input type="number" name="item_${itemCounter}_remise" value="0" min="0" step="100" placeholder="Remise XOF" onchange="recalc()">
+        <button type="button" onclick="this.parentElement.remove();recalc()" style="background:#fde8e8;color:#c53030;border:none;padding:6px;border-radius:5px;cursor:pointer">🗑️</button>
+    `;
+    document.getElementById('itemsList').appendChild(row);
+}
+
+function recalc() {
+    let totalHT = 0;
+    document.querySelectorAll('#itemsList .item-row').forEach(row => {
+        const qty = parseFloat(row.querySelector('input[name*="_qty"]')?.value || 0);
+        const prix = parseFloat(row.querySelector('input[name*="_prix"]')?.value || 0);
+        const rem = parseFloat(row.querySelector('input[name*="_remise"]')?.value || 0);
+        totalHT += qty * prix - rem;
+    });
+    const mo = parseFloat(document.getElementById('moField').value || 0);
+    const pf = parseFloat(document.getElementById('pfField').value || 0);
+    
+    // Remise globale (% prioritaire)
+    const remPct = parseFloat(document.getElementById('remPct').value || 0);
+    const remFix = parseFloat(document.getElementById('remFix').value || 0);
+    const baseRem = totalHT + mo + pf;
+    const remGlob = remPct > 0 ? Math.round(baseRem * remPct / 100) : remFix;
+    
+    const baseTVA = totalHT + mo + pf - remGlob;
+    const tvaActive = document.getElementById('tvaCheck').checked;
+    const tvaRate = parseFloat(document.getElementById('tvaRate').value || 18);
+    const tva = tvaActive ? Math.round(baseTVA * tvaRate / 100) : 0;
+    const ttc = baseTVA + tva;
+    
+    const fmt = (n) => Math.round(n).toLocaleString('fr-FR').replace(/,/g, ' ') + ' XOF';
+    document.getElementById('totHT').textContent = fmt(totalHT);
+    document.getElementById('totMO').textContent = fmt(mo);
+    document.getElementById('totPF').textContent = fmt(pf);
+    document.getElementById('totRem').textContent = fmt(remGlob);
+    document.getElementById('totTVA').textContent = fmt(tva);
+    document.getElementById('totTTC').textContent = fmt(ttc);
+}
+recalc();
+</script>
+
+{% endblock %}

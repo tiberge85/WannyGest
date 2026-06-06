@@ -4168,9 +4168,12 @@ def inject_globals():
                     try:
                         ctx['pending_ordres_count'] = _c.execute("SELECT COUNT(*) FROM ordres_virement WHERE status='en_attente'").fetchone()[0]
                     except: ctx['pending_ordres_count'] = 0
-                    # Contrôle qualité en attente
+                    # Contrôle qualité en attente — v158 : UNIQUEMENT projets neufs (cohérent avec la liste)
                     try:
-                        ctx['pending_cq_count'] = _c.execute("SELECT COUNT(*) FROM interventions WHERE status='travaux_termines' AND COALESCE(cq_status,'')=''").fetchone()[0]
+                        ctx['pending_cq_count'] = _c.execute("""SELECT COUNT(*) FROM interventions 
+                            WHERE status='travaux_termines' AND COALESCE(cq_status,'')=''
+                              AND LOWER(COALESCE(type,'')) IN ('installation','projet','projet_neuf','projet neuf','travaux_neufs')
+                            """).fetchone()[0]
                     except: ctx['pending_cq_count'] = 0
                     # Livraisons à programmer / en attente
                     try:
@@ -8461,6 +8464,7 @@ def visite_detail(vid):
 @app.route('/visites/proforma/<int:vid>', methods=['POST'])
 @permission_required('proforma')
 def visites_proforma(vid):
+    """v158 : Legacy — référence proforma simple. Conservée pour rétrocompatibilité."""
     ref = request.form.get('proforma_ref', '').strip()
     amount = float(request.form.get('proforma_amount', 0) or 0)
     update_visit_proforma(vid, ref, amount, session['user_id'])
@@ -8469,6 +8473,156 @@ def visites_proforma(vid):
                 'Proforma', f"Proforma {ref} envoyé pour visite #{vid}", request.remote_addr)
     flash(f"Proforma {ref} envoyé", "success")
     return redirect(url_for('visites_page'))
+
+
+# v158 : Nouveau workflow Visite → Proforma avec toutes les options du devis
+@app.route('/visites/<int:vid>/convert-to-devis', methods=['GET', 'POST'])
+@permission_required('proforma_edit')
+def visite_convert_to_devis(vid):
+    """v158 : Transforme une visite en proforma/devis complet avec toutes les options :
+    items, quantités, prix, remise %, TVA optionnelle, main d'œuvre, etc.
+    GET → affiche le formulaire pré-rempli avec les données de la visite + items détectés.
+    POST → crée un nouveau devis (doc_type=proforma) lié à la visite."""
+    visit = get_visit_by_id(vid)
+    if not visit:
+        flash("Visite introuvable", "error")
+        return redirect('/visites')
+    
+    if request.method == 'POST':
+        # Réutiliser la logique de /devis/new avec doc_type=proforma
+        from models import create_devis
+        items = []
+        i = 1
+        while request.form.get(f'item_{i}_designation'):
+            items.append({
+                'num': i,
+                'designation': request.form.get(f'item_{i}_designation', ''),
+                'detail': request.form.get(f'item_{i}_detail', ''),
+                'qty': int(request.form.get(f'item_{i}_qty', 1) or 1),
+                'prix': float(request.form.get(f'item_{i}_prix', 0) or 0),
+                'remise': float(request.form.get(f'item_{i}_remise', 0) or 0),
+            })
+            i += 1
+        
+        total_ht = sum(it['qty'] * it['prix'] - it['remise'] for it in items)
+        main_oeuvre = float(request.form.get('main_oeuvre', 0) or 0)
+        petites_fourn = float(request.form.get('petites_fournitures', 0) or 0)
+        # Remise en % (prioritaire) ou montant fixe
+        remise_pct_raw = (request.form.get('remise_pct', '') or '').strip()
+        if remise_pct_raw:
+            try:
+                pct = float(remise_pct_raw.replace(',', '.'))
+                base_remise = total_ht + main_oeuvre + petites_fourn
+                remise_glob = round(base_remise * pct / 100, 0)
+            except: remise_glob = float(request.form.get('remise', 0) or 0)
+        else:
+            remise_glob = float(request.form.get('remise', 0) or 0)
+        
+        # TVA optionnelle
+        tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
+        tva_rate = float(request.form.get('tva_rate', 18) or 18)
+        tva_amount = round((total_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
+        total_ttc = total_ht + main_oeuvre + petites_fourn - remise_glob + tva_amount
+        
+        client_id = visit.get('client_id')
+        cur_u = get_user_by_id(session['user_id'])
+        redacteur_name = (cur_u['full_name'] if cur_u else '') or 'Utilisateur'
+        
+        # Créer le devis avec doc_type='proforma'
+        objet = f"Suite à la visite du {visit.get('visit_date','')} chez {visit.get('client_name','')}"
+        try:
+            did, ref = create_devis(
+                doc_type='proforma',
+                client_id=client_id,
+                client_name=visit.get('client_name', ''),
+                objet=objet,
+                date=datetime.now().strftime('%Y-%m-%d'),
+                validite='30',
+                items=items,
+                main_oeuvre=main_oeuvre,
+                remise_global=remise_glob,
+                petites_fournitures=petites_fourn,
+                total_ttc=total_ttc,
+                redacteur_name=redacteur_name,
+                created_by=session['user_id'],
+                status='brouillon'
+            )
+        except TypeError:
+            # Signature différente — fallback minimal
+            from models import get_db as _gdb_d
+            conn = _gdb_d()
+            ref = f"PRO-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            try:
+                cur = conn.execute("""INSERT INTO devis 
+                    (reference, doc_type, client_id, client_name, objet, date, validite,
+                     items_json, main_oeuvre, remise_global, total_ttc, status, 
+                     created_by, created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+                    (ref, 'proforma', client_id, visit.get('client_name', ''), objet,
+                     datetime.now().strftime('%Y-%m-%d'), '30',
+                     json.dumps(items), main_oeuvre, remise_glob, total_ttc,
+                     'brouillon', session['user_id']))
+                did = cur.lastrowid
+                conn.commit()
+            except Exception as e:
+                conn.close()
+                flash(f"Erreur création proforma : {e}", "error")
+                return redirect(f'/visites/{vid}/convert-to-devis')
+            conn.close()
+        
+        # Marquer la visite comme transformée
+        try:
+            update_visit_proforma(vid, ref, total_ttc, session['user_id'])
+        except: pass
+        
+        flash(f"✅ Proforma {ref} créé depuis la visite ({total_ttc:,.0f} XOF)", "success")
+        return redirect(f'/devis/edit/{did}')
+    
+    # GET : afficher le formulaire pré-rempli avec données visite
+    # Auto-détecter les items à partir du champ "equipment" ou "needs"
+    suggested_items = []
+    equipment = (visit.get('equipment') or '').strip()
+    needs = (visit.get('needs') or '').strip()
+    
+    # Parser les équipements (un par ligne ou séparés par virgule)
+    sources = []
+    if equipment: sources.extend([l.strip() for l in equipment.replace(',', '\n').split('\n') if l.strip()])
+    if needs and not equipment: sources.extend([l.strip() for l in needs.replace(',', '\n').split('\n') if l.strip()])
+    
+    # Récupérer le catalogue stock pour suggestions de prix
+    catalog_items = []
+    try:
+        conn = _gdb()
+        rows = conn.execute("""SELECT id, designation, prix_unitaire, prix_vente, unite, stock_qty 
+            FROM stock_articles WHERE COALESCE(is_active,1)=1 
+            ORDER BY designation LIMIT 500""").fetchall()
+        catalog_items = [dict(r) for r in rows]
+        conn.close()
+    except: pass
+    
+    for src in sources[:10]:  # Max 10 items pré-remplis
+        # Chercher dans le catalogue (match partiel)
+        match = None
+        src_low = src.lower()
+        for ci in catalog_items:
+            if (ci['designation'] or '').lower() == src_low or src_low in (ci['designation'] or '').lower():
+                match = ci
+                break
+        suggested_items.append({
+            'designation': src,
+            'qty': 1,
+            'prix': float(match['prix_vente'] or match['prix_unitaire'] or 0) if match else 0,
+            'detail': '',
+            'remise': 0,
+            'from_stock': bool(match),
+        })
+    
+    if not suggested_items:
+        # Au moins une ligne vide
+        suggested_items.append({'designation':'','qty':1,'prix':0,'detail':'','remise':0,'from_stock':False})
+    
+    return render_template('visite_to_devis.html', page='visites',
+        visit=visit, items=suggested_items, catalog_items=catalog_items)
 
 
 # ======================== LANGUE ========================
@@ -14334,11 +14488,23 @@ def _timeline_add(conn, iid, step, title, description, actor_id=None, actor_name
             (iid, step, title, description, actor_id, actor_name, actor_role))
     except: pass
 
-@app.route('/interventions/<int:iid>/status/<status>')
+@app.route('/interventions/<int:iid>/status/<status>', methods=['GET', 'POST'])
 @login_required
 def intervention_status(iid, status):
     valid = ('planifiee','en_cours','travaux_termines','controle_qualite','livre','annulee')
     if status not in valid: flash("Statut invalide","error"); return redirect('/interventions')
+    
+    # v158 : Pour terminer (travaux_termines / livre), commentaire OBLIGATOIRE
+    if status in ('travaux_termines', 'livre'):
+        commentaire = (request.form.get('commentaire','') or request.args.get('commentaire','') or '').strip()
+        if len(commentaire) < 5:
+            # Si pas de commentaire, demander via formulaire
+            from flask import Markup
+            flash(Markup("⚠️ Un commentaire est OBLIGATOIRE pour terminer une tâche.<br>"
+                  "Retournez sur la fiche intervention et utilisez le formulaire 'Rapport de clôture' "
+                  "pour saisir vos observations avant de terminer."), "error")
+            return redirect(f'/interventions/{iid}/fiche')
+    
     conn = _gdb()
     inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
     if inter:
@@ -14347,6 +14513,11 @@ def intervention_status(iid, status):
         actor_name = user['full_name'] if user else '?'
         actor_role = user['role'] if user else ''
         updates = {'status': status}
+        if status in ('travaux_termines', 'livre'):
+            # v158 : Stocker le commentaire dans le rapport (si pas déjà rempli)
+            existing_rapport = inter.get('rapport') or ''
+            new_rapport = existing_rapport + ("\n\n" if existing_rapport else "") + f"[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {actor_name} : {commentaire}"
+            updates['rapport'] = new_rapport
         if status == 'en_cours':
             updates['start_date'] = datetime.now().strftime('%Y-%m-%d')
             _timeline_add(conn, iid, 'start', "🔧 Intervention démarrée",
@@ -14425,13 +14596,22 @@ def intervention_status(iid, status):
 @app.route('/interventions/<int:iid>/rapport', methods=['POST'])
 @login_required
 def intervention_rapport(iid):
-    """Rapport final du technicien — met les coûts mais NE TERMINE PAS. Statut → travaux_termines."""
+    """v158 : Rapport final du technicien — Commentaire (rapport) OBLIGATOIRE avant de terminer."""
+    rapport = (request.form.get('rapport','') or '').strip()
+    
+    # v158 : Commentaire obligatoire (minimum 5 caractères)
+    if len(rapport) < 5:
+        flash("⚠️ Un commentaire/rapport est OBLIGATOIRE avant de terminer une tâche (minimum 5 caractères). "
+              "Détaillez : travaux effectués, observations, anomalies, etc.", "error")
+        return redirect(f'/interventions/{iid}/fiche')
+    
     conn = _gdb()
     material_cost = float(request.form.get('material_cost',0) or 0)
     labor_cost = float(request.form.get('labor_cost',0) or 0)
     conn.execute("""UPDATE interventions SET rapport=?, material_used=?, material_cost=?, 
-        labor_cost=?, total_cost=?, duration_hours=?, status='travaux_termines' WHERE id=?""",
-        (request.form.get('rapport',''), request.form.get('material_used',''),
+        labor_cost=?, total_cost=?, duration_hours=?, status='travaux_termines',
+        end_work_at=datetime('now') WHERE id=?""",
+        (rapport, request.form.get('material_used',''),
          material_cost, labor_cost, material_cost + labor_cost,
          float(request.form.get('duration_hours',0) or 0), iid))
     
@@ -16102,27 +16282,32 @@ def prospect_item_delete(pid, table, item_id):
 @app.route('/gestion-projets/controle-qualite')
 @permission_required('controle_qualite')
 def gestion_controle_qualite():
-    """v156 : Liste des interventions à contrôler — TOUS les types (le filtre projets neufs causait un décalage
-    entre le compteur sidebar et la liste vide)."""
+    """v158 : Liste des interventions à contrôler — UNIQUEMENT projets neufs / installations.
+    Les entretiens et dépannages ne passent pas par contrôle qualité (livrables directs).
+    Cohérent avec le compteur sidebar."""
     conn = _gdb()
-    # v156 : Plus de filtre par type → toutes les interventions en travaux_termines à contrôler
-    to_check = [dict(r) for r in conn.execute("""
+    PROJET_TYPES = ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs')
+    placeholders = ','.join(['?'] * len(PROJET_TYPES))
+    
+    to_check = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full, c.client_code,
                u.full_name as tech_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         LEFT JOIN users u ON i.technician_id = u.id
         WHERE i.status = 'travaux_termines' AND COALESCE(i.cq_status,'') = ''
+          AND LOWER(COALESCE(i.type,'')) IN ({placeholders})
         ORDER BY i.end_work_at DESC
-    """).fetchall()]
-    # Validées récemment
-    done = [dict(r) for r in conn.execute("""
+    """, PROJET_TYPES).fetchall()]
+    
+    done = [dict(r) for r in conn.execute(f"""
         SELECT i.*, c.name as client_name_full
         FROM interventions i
         LEFT JOIN clients c ON i.client_id = c.id
         WHERE i.cq_status IN ('passed','failed')
+          AND LOWER(COALESCE(i.type,'')) IN ({placeholders})
         ORDER BY i.cq_at DESC LIMIT 20
-    """).fetchall()]
+    """, PROJET_TYPES).fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='controle_qualite',
                            to_check=to_check, done=done)
@@ -30344,10 +30529,15 @@ def mg_demande_edit(did):
         flash("Demande introuvable", "error")
         return redirect('/mg/demandes')
     demande = dict(row)
-    # Bloquer la modification si déjà transmise à la compta
-    if demande.get('status') == 'validee' and demande.get('compta_visible_at'):
+    # v158 : Bloquer la modification uniquement si statut définitif
+    if demande.get('status') in ('refusee', 'payee', 'livree'):
         conn.close()
-        flash("⚠️ Cette demande a déjà été transmise à la Comptabilité — modification bloquée", "error")
+        flash("⚠️ Cette demande a un statut définitif — modification bloquée", "error")
+        return redirect('/mg/demandes')
+    # Avertir si déjà transmise à la compta
+    if demande.get('compta_visible_at') and demande.get('compta_status') in ('validee', 'refusee'):
+        conn.close()
+        flash("⚠️ Cette demande a été décidée par la Comptabilité — modification bloquée", "error")
         return redirect('/mg/demandes')
     
     if request.method == 'POST':
