@@ -78,7 +78,17 @@
     <div class="form-row">
         <div class="form-group"><label>Main d'œuvre (FCFA)</label><input type="number" name="main_oeuvre" step="1" value="0"></div>
         <div class="form-group"><label>Petites fournitures</label><input type="number" name="petites_fournitures" step="1" value="0"></div>
-        <div class="form-group"><label>Remise globale</label><input type="number" name="remise" step="1" value="0"></div>
+        <div class="form-group">
+            <label>Remise globale</label>
+            <div style="display:grid;grid-template-columns:2fr 3fr;gap:6px">
+                {# v155 : Remise en pourcentage (prioritaire si saisi) #}
+                <input type="number" name="remise_pct" step="0.1" min="0" max="100" placeholder="% (ex: 5)" 
+                    title="Remise en pourcentage — prioritaire sur le montant fixe"
+                    style="background:#fff8e1;border-color:#f29f2f">
+                <input type="number" name="remise" step="1" value="0" placeholder="Montant fixe (XOF)">
+            </div>
+            <small style="color:#888;font-size:10px">💡 Saisir un % (recommandé) OU un montant fixe. Le % a la priorité.</small>
+        </div>
     </div>
     <div class="form-row" style="align-items:end;background:#fff8ed;padding:10px;border-radius:8px;border:1px solid #ffe4b5">
         <div class="form-group" style="flex:0 0 auto">

@@ -11,14 +11,26 @@
     <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ d_stats.accepte }}</div><div class="stat-label">Acceptés</div></div></div>
     <div class="stat-card"><div class="stat-icon red">❌</div><div class="stat-info"><div class="stat-num">{{ d_stats.refuse }}</div><div class="stat-label">Refusés</div></div></div>
 </div>
-<div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+<div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
     <a href="/devis?tab=all" class="btn {% if tab=='all' %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous ({{ d_stats.total }})</a>
     <a href="/devis?tab=devis" class="btn {% if tab=='devis' %}btn-primary{% else %}btn-outline{% endif %}">Devis</a>
     <a href="/devis?tab=proforma" class="btn {% if tab=='proforma' %}btn-primary{% else %}btn-outline{% endif %}">Proformas</a>
-    <a href="/devis/new" class="btn btn-orange" style="margin-left:auto">+ Nouveau devis</a>
+    {# v155 : Onglet "Mes devis" pour que le commercial retrouve facilement ses créations #}
+    <a href="/devis?tab=mine" class="btn {% if tab=='mine' %}btn-primary{% else %}btn-outline{% endif %}" style="background:{% if tab=='mine' %}#f29f2f{% endif %}">👤 Mes devis ({{ mine_count }})</a>
+    {# v155 : Nouveau devis dans une nouvelle fenêtre #}
+    <a href="/devis/new" target="_blank" class="btn btn-orange" style="margin-left:auto">+ Nouveau devis (nouvelle fenêtre)</a>
 </div>
 <div class="card"><div class="card-body">
-{% if devis_list %}<div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un devis..." onkeyup="filterTable('searchInput','devisTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="devisTable">
+{# v155 : Barre de recherche serveur (en plus du filtre client JS) #}
+<form method="get" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="q" value="{{ search }}" placeholder="🔍 Rechercher (réf, client, objet)..." 
+        style="padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;flex:1;min-width:200px">
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+    {% if search %}<a href="/devis?tab={{ tab }}" class="btn btn-outline btn-sm">✖ Effacer</a>{% endif %}
+    <span style="font-size:11px;color:#666">{{ devis_list|length }} résultat(s)</span>
+</form>
+{% if devis_list %}<div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Filtrer la liste..." onkeyup="filterTable('searchInput','devisTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="devisTable">
 <thead><tr>
 <th style="cursor:pointer" onclick="sortTable('devisTable',0,'text')">Réf <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
 <th>Type</th>
@@ -38,7 +50,7 @@
     {% elif d.status=='refuse' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">❌ Refusé</span>{% endif %}</td>
 <td style="white-space:nowrap">
     <a href="/devis/preview/{{ d.id }}" class="btn btn-outline btn-sm" title="Prévisualiser" target="_blank">👁️</a>
-    <a href="/devis/edit/{{ d.id }}" class="btn btn-outline btn-sm" title="Modifier">✏️</a>
+    <a href="/devis/edit/{{ d.id }}" class="btn btn-outline btn-sm" title="Modifier (nouvelle fenêtre)" target="_blank">✏️</a>
     <a href="/devis/pdf/{{ d.id }}" class="btn btn-primary btn-sm" title="PDF">📥</a>
     {% if d.status=='brouillon' %}
     <a href="/devis/status/{{ d.id }}/envoye" class="btn btn-sm" style="background:#ff9800;color:#fff" title="Envoyé">📤</a>

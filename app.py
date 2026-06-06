@@ -2288,6 +2288,54 @@ except Exception as _e:
     print(f"[v153-Backfill] Err : {_e}", flush=True)
 
 
+# v155 : S'assurer que les gestionnaires de projet ont la permission rapports_j (voir + valider)
+try:
+    from models import get_db as _gdb_v155
+    _v155 = _gdb_v155()
+    fl_v155 = _v155.execute("SELECT value FROM app_settings WHERE key='v155_perms_added'").fetchone()
+    if not fl_v155:
+        n_v155 = 0
+        for role in ('coordinateur', 'gestionnaire_projet', 'resp_projet'):
+            exists = _v155.execute("SELECT 1 FROM permissions WHERE role=? AND permission='rapports_j'", (role,)).fetchone()
+            if not exists:
+                try:
+                    _v155.execute("INSERT INTO permissions (role, permission) VALUES (?, 'rapports_j')", (role,))
+                    n_v155 += 1
+                except: pass
+        try:
+            _v155.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v155_perms_added', '1', datetime('now'))")
+        except: pass
+        if n_v155 > 0:
+            print(f"[v155-Perms] {n_v155} rôle(s) gestionnaire ont reçu la permission rapports_j", flush=True)
+    _v155.commit()
+    _v155.close()
+except Exception as _e:
+    print(f"[v155-Perms] Err : {_e}", flush=True)
+
+
+# v155 : Migration colonne is_fournisseur sur caisses + tresorerie_comptes_bancaires
+try:
+    from models import get_db as _gdb_v155b
+    _v155b = _gdb_v155b()
+    for table in ('caisses', 'tresorerie_comptes_bancaires'):
+        try: _v155b.execute(f"SELECT is_fournisseur FROM {table} LIMIT 1")
+        except:
+            try: 
+                _v155b.execute(f"ALTER TABLE {table} ADD COLUMN is_fournisseur INTEGER DEFAULT 0")
+                print(f"[v155-MGCols] Colonne is_fournisseur ajoutée à {table}", flush=True)
+            except: pass
+    # Vérifier que tresorerie_comptes_bancaires a solde_actuel
+    try: _v155b.execute("SELECT solde_actuel FROM tresorerie_comptes_bancaires LIMIT 1")
+    except:
+        try: 
+            _v155b.execute("ALTER TABLE tresorerie_comptes_bancaires ADD COLUMN solde_actuel REAL DEFAULT 0")
+            print("[v155-MGCols] Colonne solde_actuel ajoutée à tresorerie_comptes_bancaires", flush=True)
+        except: pass
+    _v155b.commit()
+    _v155b.close()
+except Exception as _e: print(f"[v155-MGCols] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -8432,10 +8480,46 @@ def export_stats():
 @app.route('/devis')
 @permission_required('proforma')
 def devis_page():
+    """v155 : Onglet 'Mes devis' pour que le commercial retrouve ses créations + recherche."""
     tab = request.args.get('tab', 'all')
+    search = (request.args.get('q', '') or '').strip()
+    
     d_stats = get_devis_stats()
-    devis_list = get_all_devis(tab if tab in ('devis', 'proforma') else None)
-    return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list, d_stats=d_stats)
+    
+    # Récupérer la liste appropriée
+    if tab == 'mine':
+        # v155 : Devis créés par l'utilisateur connecté
+        from models import get_db as _gdb_d
+        conn = _gdb_d()
+        rows = conn.execute("""SELECT d.*, u.full_name as created_by_name FROM devis d
+            LEFT JOIN users u ON d.created_by=u.id
+            WHERE d.created_by=? ORDER BY d.created_at DESC""", (session['user_id'],)).fetchall()
+        conn.close()
+        devis_list = [dict(r) for r in rows]
+    elif tab in ('devis', 'proforma'):
+        devis_list = get_all_devis(tab)
+    else:
+        devis_list = get_all_devis(None)
+    
+    # v155 : Recherche libre
+    if search:
+        s_low = search.lower()
+        devis_list = [d for d in devis_list
+            if (s_low in (d.get('reference','') or '').lower()
+                or s_low in (d.get('client_name','') or '').lower()
+                or s_low in (d.get('objet','') or '').lower())]
+    
+    # Compteur de mes devis
+    try:
+        from models import get_db as _gdb_d
+        conn = _gdb_d()
+        mine_count = conn.execute(
+            "SELECT COUNT(*) FROM devis WHERE created_by=?", (session['user_id'],)).fetchone()[0]
+        conn.close()
+    except: mine_count = 0
+    
+    return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list, 
+        d_stats=d_stats, search=search, mine_count=mine_count)
 
 @app.route('/devis/new', methods=['GET', 'POST'])
 @permission_required('proforma_edit')
@@ -8457,7 +8541,17 @@ def devis_new():
         total_ht = sum(it['qty'] * it['prix'] - it['remise'] for it in items)
         main_oeuvre = float(request.form.get('main_oeuvre', 0) or 0)
         petites_fourn = float(request.form.get('petites_fournitures', 0) or 0)
-        remise_glob = float(request.form.get('remise', 0) or 0)
+        # v155 : Remise globale — accepte pourcentage OU montant fixe
+        remise_pct_raw = (request.form.get('remise_pct', '') or '').strip()
+        if remise_pct_raw:
+            try:
+                pct = float(remise_pct_raw.replace(',', '.'))
+                # Base de la remise = total_ht + main_oeuvre + petites_fourn
+                base_remise = total_ht + main_oeuvre + petites_fourn
+                remise_glob = round(base_remise * pct / 100, 0)
+            except: remise_glob = float(request.form.get('remise', 0) or 0)
+        else:
+            remise_glob = float(request.form.get('remise', 0) or 0)
         # TVA optionnelle
         tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
         tva_rate = float(request.form.get('tva_rate', 18) or 18)
@@ -28236,10 +28330,14 @@ from models import get_db as _gdb, db_insert as _dbi
 @app.route('/rapports-journaliers')
 @permission_required('rapports_j')
 def rapports_journaliers():
+    """v155 : Le gestionnaire de projet peut maintenant voir tous les rapports journaliers
+    (notamment ceux des techniciens) et les valider."""
     u = dict(get_user_by_id(session['user_id']))
     conn = _gdb()
-    # v74 : RH voit tous les rapports journaliers (comme admin/dg)
-    if u['role'] in ('admin', 'dg', 'rh'):
+    # v155 : Coordinateur / gestionnaire projet voient aussi tous les rapports (techniciens)
+    roles_voient_tout = ('admin', 'dg', 'rh', 'directeur', 'directrice_rh',
+                          'coordinateur', 'gestionnaire_projet', 'resp_projet')
+    if u['role'] in roles_voient_tout:
         rapports = [dict(r) for r in conn.execute("""SELECT rj.*, u.full_name FROM rapports_journaliers rj 
             LEFT JOIN users u ON rj.user_id=u.id ORDER BY rj.date DESC, rj.created_at DESC LIMIT 100""").fetchall()]
     else:
@@ -28256,8 +28354,10 @@ def rapports_journaliers():
     my_total = conn.execute("SELECT COUNT(*) FROM rapports_journaliers WHERE user_id=?",
         (session['user_id'],)).fetchone()[0]
     conn.close()
+    # v155 : Indique si l'utilisateur peut valider
+    can_validate = u['role'] in roles_voient_tout
     return render_template('rapports_journaliers.html', page='rapports_j', rapports=rapports, user=u,
-        my_week=my_week, my_total=my_total)
+        my_week=my_week, my_total=my_total, can_validate=can_validate)
 
 @app.route('/rapports-journaliers/add', methods=['POST'])
 @login_required
@@ -28277,9 +28377,11 @@ def rapports_journaliers_add():
 @app.route('/rapports-journaliers/<int:rid>/validate', methods=['POST'])
 @login_required
 def rapports_journaliers_validate(rid):
+    """v155 : Le gestionnaire de projet peut maintenant valider les rapports journaliers."""
     u = dict(get_user_by_id(session['user_id']))
-    # v74 : RH peut aussi valider les rapports journaliers
-    if u['role'] not in ('admin', 'dg', 'rh'):
+    # v155 : Élargi aux gestionnaires de projet
+    if u['role'] not in ('admin', 'dg', 'rh', 'directeur', 'directrice_rh',
+                          'coordinateur', 'gestionnaire_projet', 'resp_projet'):
         flash("Seuls les responsables peuvent valider", "error")
         return redirect('/rapports-journaliers')
     conn = _gdb()
@@ -30517,6 +30619,77 @@ def mg_soldes_fournisseur():
 
 
 # v154 : Toggle d'une caisse/banque comme fournisseur (admin seulement)
+# v155 : Création d'une caisse OU banque fournisseur depuis /mg/soldes (admin)
+@app.route('/mg/soldes/create', methods=['POST'])
+@permission_required('admin')
+def mg_soldes_create():
+    """v155 : Permet à l'admin de créer rapidement une caisse ou banque fournisseur depuis /mg/soldes."""
+    kind = (request.form.get('kind') or '').strip()  # 'caisse' ou 'banque'
+    name = (request.form.get('name') or '').strip()
+    solde_initial = float(request.form.get('solde_initial', 0) or 0)
+    
+    if not name:
+        flash("Le nom est obligatoire", "error")
+        return redirect('/mg/soldes')
+    
+    conn = _gdb()
+    try:
+        if kind == 'caisse':
+            description = (request.form.get('description') or 'Caisse fournisseur').strip()
+            conn.execute("""INSERT INTO caisses 
+                (name, description, solde_initial, solde_actuel, is_active, is_fournisseur, created_at)
+                VALUES (?, ?, ?, ?, 1, 1, datetime('now'))""",
+                (name, description, solde_initial, solde_initial))
+            flash(f"✅ Caisse fournisseur '{name}' créée avec solde initial {solde_initial:,.0f} XOF", "success")
+        elif kind == 'banque':
+            banque = (request.form.get('banque') or 'Banque').strip()
+            numero = (request.form.get('numero_compte') or '').strip()
+            type_compte = (request.form.get('type_compte') or 'Courant').strip()
+            conn.execute("""INSERT INTO tresorerie_comptes_bancaires
+                (nom, banque, numero_compte, type_compte, solde_actuel, is_active, is_fournisseur)
+                VALUES (?, ?, ?, ?, ?, 1, 1)""",
+                (name, banque, numero, type_compte, solde_initial))
+            flash(f"✅ Compte bancaire fournisseur '{name}' créé chez {banque} avec solde {solde_initial:,.0f} XOF", "success")
+        else:
+            flash("Type inconnu", "error")
+        conn.commit()
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    conn.close()
+    return redirect('/mg/soldes')
+
+
+# v155 : Suppression d'une caisse ou banque (admin seulement)
+@app.route('/mg/soldes/delete', methods=['POST'])
+@permission_required('admin')
+def mg_soldes_delete():
+    """v155 : Admin peut supprimer une caisse ou banque fournisseur (uniquement si solde=0)."""
+    kind = (request.form.get('kind') or '').strip()
+    item_id = int(request.form.get('id', 0))
+    
+    conn = _gdb()
+    try:
+        if kind == 'caisse':
+            # Vérifier qu'il n'y a pas d'opérations liées
+            nb_ops = conn.execute(
+                "SELECT (SELECT COUNT(*) FROM caisse_entrees WHERE caisse_id=?) + (SELECT COUNT(*) FROM caisse_sorties WHERE caisse_id=?)",
+                (item_id, item_id)).fetchone()[0]
+            if nb_ops > 0:
+                conn.close()
+                flash(f"⛔ Impossible de supprimer : {nb_ops} opération(s) liée(s) à cette caisse. Désactivez-la plutôt.", "error")
+                return redirect('/mg/soldes')
+            conn.execute("UPDATE caisses SET is_active=0 WHERE id=?", (item_id,))
+            flash("🗑️ Caisse désactivée (sera masquée de toutes les listes)", "success")
+        elif kind == 'banque':
+            conn.execute("UPDATE tresorerie_comptes_bancaires SET is_active=0 WHERE id=?", (item_id,))
+            flash("🗑️ Compte bancaire désactivé", "success")
+        conn.commit()
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    conn.close()
+    return redirect('/mg/soldes')
+
+
 @app.route('/mg/soldes/toggle-fournisseur', methods=['POST'])
 @permission_required('admin')
 def toggle_fournisseur():

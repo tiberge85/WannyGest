@@ -52,17 +52,35 @@
 <div class="section-card">
     <div class="section-header caisse">
         <h2 class="section-title caisse">💰 CAISSE FOURNISSEUR</h2>
-        <div style="font-size:11px;color:#888">{{ caisses_fourn|length }} caisse(s)</div>
+        <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:#888">{{ caisses_fourn|length }} caisse(s)</span>
+            {% if is_admin %}
+            <button type="button" onclick="document.getElementById('createCaisseModal').style.display='flex'" 
+                class="btn btn-sm" style="background:#f29f2f;color:#fff;font-size:11px;padding:4px 10px">➕ Nouvelle caisse</button>
+            {% endif %}
+        </div>
     </div>
     
     {% if caisses_fourn %}
         {% for c in caisses_fourn %}
         <div class="solde-item caisse">
             <div style="flex:1">
-                <div class="solde-name">💰 {{ c.name }}</div>
+                <div class="solde-name">💰 {{ c.name }}
+                    {% if c.is_fournisseur %}<span style="background:#f29f2f;color:#fff;padding:1px 6px;border-radius:4px;font-size:9px;margin-left:6px">FOURN</span>{% endif %}
+                </div>
                 {% if c.description %}<div class="solde-meta">{{ c.description }}</div>{% endif %}
             </div>
-            <div class="solde-val caisse">{{ '{:,.0f}'.format(c.solde_calcule) }} <span style="font-size:13px">F CFA</span></div>
+            <div style="text-align:right">
+                <div class="solde-val caisse">{{ '{:,.0f}'.format(c.solde_calcule) }} <span style="font-size:13px">F CFA</span></div>
+                {% if is_admin %}
+                <form method="post" action="/mg/soldes/delete" style="display:inline;margin-top:5px" 
+                    onsubmit="return confirm('Désactiver cette caisse ? (Elle ne sera plus visible)')">
+                    <input type="hidden" name="kind" value="caisse">
+                    <input type="hidden" name="id" value="{{ c.id }}">
+                    <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:2px 8px">🗑️</button>
+                </form>
+                {% endif %}
+            </div>
         </div>
         {% endfor %}
         <div class="subtotal caisse" style="margin-top:10px">
@@ -72,9 +90,10 @@
         <div style="text-align:center;padding:22px;color:#888;font-size:12px">
             <div style="font-size:32px">💰</div>
             <p style="margin:6px 0 0">Aucune caisse fournisseur configurée.</p>
-            <p style="font-size:10px;margin-top:6px">Pour créer une caisse "Fournisseur", demandez à l'admin de l'ajouter dans 
-                Comptabilité → Caisses avec "fournisseur" dans le nom ou la description.
-            </p>
+            {% if is_admin %}
+            <button type="button" onclick="document.getElementById('createCaisseModal').style.display='flex'" 
+                class="btn btn-primary btn-sm" style="margin-top:8px">➕ Créer une caisse fournisseur</button>
+            {% endif %}
         </div>
     {% endif %}
 </div>
@@ -85,20 +104,38 @@
 <div class="section-card">
     <div class="section-header banque">
         <h2 class="section-title banque">🏦 COMPTE FOURNISSEUR</h2>
-        <div style="font-size:11px;color:#888">{{ banques_fourn|length }} compte(s)</div>
+        <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;color:#888">{{ banques_fourn|length }} compte(s)</span>
+            {% if is_admin %}
+            <button type="button" onclick="document.getElementById('createBanqueModal').style.display='flex'" 
+                class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:11px;padding:4px 10px">➕ Nouveau compte</button>
+            {% endif %}
+        </div>
     </div>
     
     {% if banques_fourn %}
         {% for b in banques_fourn %}
         <div class="solde-item banque">
             <div style="flex:1">
-                <div class="solde-name">🏦 {{ b.nom }}</div>
+                <div class="solde-name">🏦 {{ b.nom }}
+                    {% if b.is_fournisseur %}<span style="background:#1565c0;color:#fff;padding:1px 6px;border-radius:4px;font-size:9px;margin-left:6px">FOURN</span>{% endif %}
+                </div>
                 <div class="solde-meta">
                     {{ b.banque }} · {{ b.type_compte or 'Courant' }}
                     {% if b.numero_compte %} · N° ***{{ b.numero_compte[-4:] }}{% endif %}
                 </div>
             </div>
-            <div class="solde-val banque">{{ '{:,.0f}'.format(b.solde) }} <span style="font-size:13px">F CFA</span></div>
+            <div style="text-align:right">
+                <div class="solde-val banque">{{ '{:,.0f}'.format(b.solde) }} <span style="font-size:13px">F CFA</span></div>
+                {% if is_admin %}
+                <form method="post" action="/mg/soldes/delete" style="display:inline;margin-top:5px" 
+                    onsubmit="return confirm('Désactiver ce compte bancaire ?')">
+                    <input type="hidden" name="kind" value="banque">
+                    <input type="hidden" name="id" value="{{ b.id }}">
+                    <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:2px 8px">🗑️</button>
+                </form>
+                {% endif %}
+            </div>
         </div>
         {% endfor %}
         <div class="subtotal banque" style="margin-top:10px">
@@ -108,12 +145,79 @@
         <div style="text-align:center;padding:22px;color:#888;font-size:12px">
             <div style="font-size:32px">🏦</div>
             <p style="margin:6px 0 0">Aucun compte bancaire fournisseur configuré.</p>
-            <p style="font-size:10px;margin-top:6px">Pour configurer, demandez à l'admin d'ajouter un compte avec "fournisseur" dans le nom dans 
-                Trésorerie → Comptes bancaires.
-            </p>
+            {% if is_admin %}
+            <button type="button" onclick="document.getElementById('createBanqueModal').style.display='flex'" 
+                class="btn btn-primary btn-sm" style="margin-top:8px">➕ Créer un compte bancaire</button>
+            {% endif %}
         </div>
     {% endif %}
 </div>
+
+{# v155 : Modals création caisse + banque #}
+{% if is_admin %}
+<!-- MODAL CRÉATION CAISSE -->
+<div id="createCaisseModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:5000;align-items:center;justify-content:center">
+    <div style="background:#fff;padding:24px;border-radius:14px;max-width:480px;width:90%">
+        <h3 style="margin:0 0 12px;color:#b8561f">➕ Nouvelle caisse fournisseur</h3>
+        <form method="post" action="/mg/soldes/create">
+            <input type="hidden" name="kind" value="caisse">
+            <label style="font-size:12px;font-weight:600">Nom de la caisse *</label>
+            <input type="text" name="name" required placeholder="Ex : Caisse Fournisseur Principale" 
+                style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin:5px 0 10px">
+            <label style="font-size:12px;font-weight:600">Description (optionnel)</label>
+            <input type="text" name="description" placeholder="Ex : Pour règlements fournisseurs en espèces"
+                style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin:5px 0 10px">
+            <label style="font-size:12px;font-weight:600">Solde initial (XOF)</label>
+            <input type="number" name="solde_initial" min="0" step="1" value="0"
+                style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin:5px 0 14px">
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+                <button type="button" onclick="document.getElementById('createCaisseModal').style.display='none'" 
+                    class="btn btn-outline">Annuler</button>
+                <button type="submit" class="btn btn-primary" style="background:#f29f2f">✅ Créer la caisse</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL CRÉATION BANQUE -->
+<div id="createBanqueModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:5000;align-items:center;justify-content:center">
+    <div style="background:#fff;padding:24px;border-radius:14px;max-width:480px;width:90%">
+        <h3 style="margin:0 0 12px;color:#0d47a1">➕ Nouveau compte bancaire fournisseur</h3>
+        <form method="post" action="/mg/soldes/create">
+            <input type="hidden" name="kind" value="banque">
+            <label style="font-size:12px;font-weight:600">Nom du compte *</label>
+            <input type="text" name="name" required placeholder="Ex : Compte Fournisseur BDU"
+                style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin:5px 0 10px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+                <div>
+                    <label style="font-size:12px;font-weight:600">Banque</label>
+                    <input type="text" name="banque" placeholder="Ex : BDU"
+                        style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-top:5px">
+                </div>
+                <div>
+                    <label style="font-size:12px;font-weight:600">Type</label>
+                    <select name="type_compte" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-top:5px">
+                        <option value="Courant">Courant</option>
+                        <option value="Épargne">Épargne</option>
+                        <option value="Fournisseur">Fournisseur</option>
+                    </select>
+                </div>
+            </div>
+            <label style="font-size:12px;font-weight:600">N° de compte (optionnel)</label>
+            <input type="text" name="numero_compte" placeholder="Ex : 12345678901"
+                style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin:5px 0 10px">
+            <label style="font-size:12px;font-weight:600">Solde actuel (XOF)</label>
+            <input type="number" name="solde_initial" min="0" step="1" value="0"
+                style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin:5px 0 14px">
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+                <button type="button" onclick="document.getElementById('createBanqueModal').style.display='none'" 
+                    class="btn btn-outline">Annuler</button>
+                <button type="submit" class="btn btn-primary" style="background:#1565c0">✅ Créer le compte</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <!-- INFO -->
 <div style="background:#fff3cd;border-left:4px solid #f29f2f;padding:14px;border-radius:8px;margin-top:14px;font-size:12px;color:#856404">
