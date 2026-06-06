@@ -233,20 +233,40 @@
     <!-- TOTAUX -->
     <div class="inv-totals">
         <div class="inv-totals-box">
-            {% set ht = (f.amount / 1.18) %}
-            {% set tva = f.amount - ht %}
-            <div class="inv-total-line">
-                <span>Total HT :</span>
-                <strong>{{ '{:,.0f}'.format(ht) }} XOF</strong>
-            </div>
-            <div class="inv-total-line">
-                <span>TVA 18% :</span>
-                <strong>{{ '{:,.0f}'.format(tva) }} XOF</strong>
-            </div>
-            <div class="inv-total-line ttc">
-                <span>TOTAL TTC :</span>
-                <span>{{ '{:,.0f}'.format(f.amount) }} XOF</span>
-            </div>
+            {# v157 : TVA optionnelle — vérifier tva_apply #}
+            {% set tva_active = (f.tva_apply if f.tva_apply is not none else 1) %}
+            {% set tva_rate = (f.tva_rate if f.tva_rate else 18) %}
+            {% if tva_active %}
+                {% set tva_div = 1 + (tva_rate / 100) %}
+                {% set ht = (f.amount / tva_div) %}
+                {% set tva = f.amount - ht %}
+                <div class="inv-total-line">
+                    <span>Total HT :</span>
+                    <strong>{{ '{:,.0f}'.format(ht) }} XOF</strong>
+                </div>
+                <div class="inv-total-line">
+                    <span>TVA {{ tva_rate }}% :</span>
+                    <strong>{{ '{:,.0f}'.format(tva) }} XOF</strong>
+                </div>
+                <div class="inv-total-line ttc">
+                    <span>TOTAL TTC :</span>
+                    <span>{{ '{:,.0f}'.format(f.amount) }} XOF</span>
+                </div>
+            {% else %}
+                {# v157 : Sans TVA — montant = HT = TTC #}
+                <div class="inv-total-line">
+                    <span>Total HT :</span>
+                    <strong>{{ '{:,.0f}'.format(f.amount) }} XOF</strong>
+                </div>
+                <div class="inv-total-line" style="color:#888;font-style:italic">
+                    <span>TVA :</span>
+                    <strong>Exonérée (0 XOF)</strong>
+                </div>
+                <div class="inv-total-line ttc">
+                    <span>TOTAL :</span>
+                    <span>{{ '{:,.0f}'.format(f.amount) }} XOF HT</span>
+                </div>
+            {% endif %}
         </div>
     </div>
 

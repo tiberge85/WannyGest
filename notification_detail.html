@@ -50,7 +50,7 @@
     </div>
     
     <div style="font-size:14px;color:#333;line-height:1.7;margin-top:14px;padding:14px;background:#fafbfc;border-radius:10px;border-left:4px solid #1A7A6D">
-        {{ notif.message|nl2br|safe if notif.message else 'Pas de contenu' }}
+        {% if notif.message %}{{ notif.message|replace('\n', '<br>')|safe }}{% else %}Pas de contenu{% endif %}
     </div>
     
     {% if notif.link %}

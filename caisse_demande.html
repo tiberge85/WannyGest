@@ -46,10 +46,21 @@
         <label style="font-size:13px;font-weight:700;color:#1e1e2d;display:block;margin-bottom:6px">✍️ Signature du bénéficiaire</label>
         <canvas id="sigPad" class="sig-pad" width="540" height="120"></canvas>
         <input type="hidden" name="sig_beneficiaire" id="sigData">
-        <div style="display:flex;gap:6px;margin-top:6px">
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center">
             <button type="button" class="btn btn-outline btn-sm" onclick="clearSig()">🗑️ Effacer</button>
-            <span style="font-size:11px;color:#888;padding-top:6px" id="sigStatus">Dessinez votre signature ci-dessus</span>
+            {# v157 : Bouton pour utiliser sa signature enregistrée #}
+            {% if user_signature %}
+            <button type="button" class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="useSavedSignature()">📥 Utiliser ma signature enregistrée</button>
+            {% else %}
+            <a href="/my/signature" target="_blank" class="btn btn-sm" style="background:#f29f2f;color:#fff;text-decoration:none">🖊️ Enregistrer une signature (pour la réutiliser)</a>
+            {% endif %}
+            <span style="font-size:11px;color:#888;padding-top:6px" id="sigStatus">
+                {% if user_signature %}Cliquez "Utiliser ma signature" OU dessinez ci-dessus{% else %}Dessinez votre signature ci-dessus{% endif %}
+            </span>
         </div>
+        {% if user_signature %}
+        <script>window.SAVED_SIGNATURE = "{{ user_signature|safe }}";</script>
+        {% endif %}
     </div>
     
     <div style="background:#fff3e0;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#e8672a">
@@ -102,6 +113,30 @@ function clearSig(){
     document.getElementById('sigStatus').textContent = 'Dessinez votre signature ci-dessus';
     canvas.classList.remove('signed');
     hasSigned = false;
+}
+
+// v157 : Charger la signature enregistrée
+function useSavedSignature() {
+    if (!window.SAVED_SIGNATURE) {
+        alert("Aucune signature enregistrée. Allez dans 'Ma signature' pour en créer une.");
+        return;
+    }
+    clearSig();
+    var img = new Image();
+    img.onload = function() {
+        // Adapter à la taille du canvas
+        var scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+        var w = img.width * scale;
+        var h = img.height * scale;
+        var x = (canvas.width - w) / 2;
+        var y = (canvas.height - h) / 2;
+        ctx.drawImage(img, x, y, w, h);
+        document.getElementById('sigData').value = canvas.toDataURL('image/png');
+        document.getElementById('sigStatus').textContent = '✅ Signature enregistrée chargée';
+        canvas.classList.add('signed');
+        hasSigned = true;
+    };
+    img.src = window.SAVED_SIGNATURE;
 }
 </script>
 {% endblock %}

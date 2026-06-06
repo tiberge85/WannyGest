@@ -2353,6 +2353,23 @@ try:
 except Exception as _e: print(f"[v156-Sig] Err : {_e}", flush=True)
 
 
+# v157 : Migrate is_fournisseur=0 (initial default) to NULL pour permettre auto-detection
+# si l'admin n'a jamais touché. Une fois passé par toggle/delete, il sera explicit 0 ou 1.
+try:
+    from models import get_db as _gdb_v157
+    _v157 = _gdb_v157()
+    fl_v157 = _v157.execute("SELECT value FROM app_settings WHERE key='v157_fourn_null'").fetchone()
+    if not fl_v157:
+        # Passer tous les is_fournisseur=0 à NULL (état initial = auto-détection)
+        _v157.execute("UPDATE caisses SET is_fournisseur=NULL WHERE COALESCE(is_fournisseur,0)=0")
+        _v157.execute("UPDATE tresorerie_comptes_bancaires SET is_fournisseur=NULL WHERE COALESCE(is_fournisseur,0)=0")
+        _v157.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v157_fourn_null', '1', datetime('now'))")
+        _v157.commit()
+        print("[v157-Fourn] is_fournisseur initialisé à NULL pour auto-détection", flush=True)
+    _v157.close()
+except Exception as _e: print(f"[v157-Fourn] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -2672,6 +2689,42 @@ def get_user_pending_tasks(user_id, user_role=None):
                         'status': r['status'],
                     })
             except: pass
+        
+        # v157 : Visites à traiter par le commercial (pour faire un proforma)
+        if user_role in ('commercial', 'dg') and not is_admin_silent:
+            try:
+                rows = conn.execute("""SELECT id, client_name, visit_date, site_name
+                    FROM visit_reports
+                    WHERE (proforma_ref IS NULL OR proforma_ref = '')
+                          AND COALESCE(status, 'pending') != 'classee'
+                    ORDER BY id DESC LIMIT 20""").fetchall()
+                for r in rows:
+                    result['others'].append({
+                        'id': r['id'], 'task_type': 'visite',
+                        'label': f"📋 Visite à traiter : {r['client_name']} — {r['site_name'] or 'site'} ({r['visit_date'] or '?'})",
+                        'link': f"/visites/{r['id']}", 'status': 'à transformer en proforma',
+                        'priority': 'high',
+                    })
+            except Exception as _e: print(f"[v157] visites pending err : {_e}", flush=True)
+            
+            # v157 : Remontées de type "nouveau projet" à transformer en devis
+            try:
+                rows = conn.execute("""SELECT id, reference, type_info, client_name, description
+                    FROM field_reports
+                    WHERE LOWER(COALESCE(type_info,'')) LIKE '%nouveau%projet%'
+                          OR LOWER(COALESCE(type_info,'')) LIKE '%nouveau_projet%'
+                          OR LOWER(COALESCE(type_info,'')) LIKE '%installation%'
+                          OR LOWER(COALESCE(type_info,'')) LIKE '%projet neuf%'
+                    AND statut IN ('recue','en_analyse')
+                    ORDER BY id DESC LIMIT 15""").fetchall()
+                for r in rows:
+                    result['others'].append({
+                        'id': r['id'], 'task_type': 'remontee_projet',
+                        'label': f"🎯 Nouveau projet à traiter : {r['reference']} — {r['client_name']}",
+                        'link': f"/field-reports/{r['id']}", 'status': 'à transformer en devis',
+                        'priority': 'high',
+                    })
+            except Exception as _e: print(f"[v157] remontees projet err : {_e}", flush=True)
         
         # v142 / v150 : Agent recouvreur — factures à envoyer/déposer
         if user_role == 'agent_recouvreur' and not is_admin_silent:
@@ -8379,7 +8432,18 @@ def visites_new():
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?',
                     'Visite', f"Rapport de visite créé — {client_name}", request.remote_addr)
-        flash("Rapport de visite créé — En attente de proforma", "success")
+        
+        # v157 : Notifier tous les commerciaux qu'une nouvelle visite à traiter (pour faire proforma)
+        try:
+            notify_roles(['commercial','admin','dg'],
+                title=f"📋 Nouvelle visite à traiter : {client_name}",
+                message=f"Une visite a été enregistrée chez {client_name} par {user['full_name'] if user else '?'}. "
+                        f"À traiter en proforma pour suivi commercial.",
+                link='/visites',
+                type='info', module='clients', icon='📋', priority='high', force=True)
+        except Exception as _e: print(f"[v157] notif visite err : {_e}", flush=True)
+        
+        flash("Rapport de visite créé — En attente de proforma · Commerciaux notifiés", "success")
         return redirect(url_for('visites_page'))
     
     clients = get_all_clients()
@@ -15359,12 +15423,14 @@ def api_notifications_count():
 @app.route('/notifications/read/<int:nid>')
 @login_required
 def notification_read(nid):
-    """v133 : Marque la notif comme lue + ouvre directement le lien associé.
-    v156 : Si la query string demande view=detail, ouvre une vue détaillée avec navigation prev/next."""
-    # v156 : Mode vue détaillée
-    if request.args.get('view') == 'detail':
+    """v133 / v157 : Cliquer "Voir" sur une notification → ouvre la VUE DÉTAILLÉE
+    avec navigation prev/next, plutôt que de rediriger vers la liste du module.
+    Marque automatiquement comme lue."""
+    # v157 : Toujours rediriger vers la vue détaillée (sauf si query explicit ?direct=1)
+    if request.args.get('direct') != '1':
         return redirect(url_for('notification_detail', nid=nid))
     
+    # Comportement legacy : redirection directe vers le lien (utilisé par les notifs push/SMS)
     conn = _gdb()
     n = conn.execute("SELECT * FROM notifications WHERE id=?", (nid,)).fetchone()
     if n:
@@ -15377,9 +15443,7 @@ def notification_read(nid):
         module = ''
     conn.close()
     
-    # v133 : éviter la boucle "Voir" → /notifications → "Voir"
     if not link or link.rstrip('/') in ('', '/notifications'):
-        # Fallback intelligent selon le module de la notif
         module_links = {
             'remontees':     '/field-reports',
             'interventions': '/centre-technique/mes-interventions',
@@ -15424,13 +15488,19 @@ def notification_detail(nid):
     notif = dict(notif)
     notif['read'] = 1  # à jour pour l'affichage
     
-    # Navigation : précédente et suivante (par order created_at DESC = chronologique inverse)
-    prev_n = conn.execute("""SELECT id FROM notifications 
+    # v157 : Navigation par chronologie (created_at DESC = ordre d'affichage liste)
+    # "Précédente" dans la liste = notif PLUS RÉCENTE → id plus grand
+    # "Suivante" dans la liste = notif PLUS ANCIENNE → id plus petit
+    # NB : Si une notif n'a pas d'id supérieur/inférieur de l'utilisateur, on retourne None
+    prev_row = conn.execute("""SELECT id FROM notifications 
         WHERE user_id=? AND id > ? ORDER BY id ASC LIMIT 1""",
         (user['id'], nid)).fetchone()
-    next_n = conn.execute("""SELECT id FROM notifications 
+    next_row = conn.execute("""SELECT id FROM notifications 
         WHERE user_id=? AND id < ? ORDER BY id DESC LIMIT 1""",
         (user['id'], nid)).fetchone()
+    
+    prev_id = prev_row['id'] if prev_row else None
+    next_id = next_row['id'] if next_row else None
     
     # Comptes
     unread_count = conn.execute(
@@ -15444,8 +15514,8 @@ def notification_detail(nid):
     
     return render_template('notification_detail.html', page='notifications',
         notif=notif,
-        prev_id=prev_n[0] if prev_n else None,
-        next_id=next_n[0] if next_n else None,
+        prev_id=prev_id,
+        next_id=next_id,
         unread_count=unread_count, total_count=total_count)
 
 
@@ -19038,6 +19108,18 @@ def field_report_new():
         
         _field_report_log(report_id, 'Création', f"Type: {FIELD_REPORT_TYPES.get(type_info, type_info)}, Priorité: {priorite}")
         _field_report_notify(report_id, 'created')
+        
+        # v157 : Si la remontée est de type "nouveau projet"/installation → notifier les commerciaux
+        tlow = (type_info or '').lower()
+        if ('nouveau' in tlow and 'projet' in tlow) or 'installation' in tlow or 'projet_neuf' in tlow:
+            try:
+                notify_roles(['commercial','admin','dg'],
+                    title=f"🎯 NOUVEAU PROJET — {ref} : {client_name}",
+                    message=f"Une remontée de type nouveau projet a été créée par {user['full_name'] if user else 'Anonyme'}. "
+                            f"Description : {description[:200]}. À traiter en devis / proforma.",
+                    link=f'/field-reports/{report_id}',
+                    type='info', module='clients', icon='🎯', priority='high', force=True)
+            except Exception as _e: print(f"[v157] notif nouveau projet err : {_e}", flush=True)
         
         flash(f"✅ Remontée {ref} enregistrée et notifications envoyées", "success")
         return redirect(f'/field-reports/{report_id}')
@@ -27804,8 +27886,17 @@ def caisse_demande():
             caisse_fonct = dict(cf_row)
             # v115 : utiliser la fonction unifiée pour éviter les divergences
             caisse_fonct['solde_actuel'] = get_caisse_fonctionnement_solde()
+    # v157 : Récupérer la signature enregistrée de l'utilisateur (réutilisable)
+    user_signature = None
+    try:
+        sig_row = conn.execute("SELECT signature_data FROM user_signatures WHERE user_id=?",
+            (session['user_id'],)).fetchone()
+        if sig_row:
+            user_signature = sig_row['signature_data']
+    except: pass
     conn.close()
-    return render_template('caisse_demande.html', page='caisse_sortie', caisses=caisses, caisse_fonct=caisse_fonct)
+    return render_template('caisse_demande.html', page='caisse_sortie', caisses=caisses, 
+        caisse_fonct=caisse_fonct, user_signature=user_signature)
 
 @app.route('/caisse-sortie/<int:sid>/valider')
 @login_required
@@ -30732,7 +30823,8 @@ def mg_soldes_fournisseur():
         except: pass
     conn.commit()
     
-    # v154 : Liste élargie de mots-clés pour la détection automatique
+    # v154 / v157 : Liste élargie de mots-clés pour la détection automatique
+    # v157 : Si is_fournisseur=0 EXPLICITEMENT défini (par admin), on respecte ce choix
     keywords_fourn = ['fournisseur', 'fourn', 'supplier', 'achats', 'achat',
                       'bdu', 'banque dépôt', 'banque depot', 'compte fournisseur']
     
@@ -30740,13 +30832,19 @@ def mg_soldes_fournisseur():
     like_conditions_caisse = " OR ".join([f"LOWER(name) LIKE '%{k}%' OR LOWER(COALESCE(description,'')) LIKE '%{k}%'" for k in keywords_fourn])
     like_conditions_bank = " OR ".join([f"LOWER(nom) LIKE '%{k}%' OR LOWER(COALESCE(banque,'')) LIKE '%{k}%'" for k in keywords_fourn])
     
-    # 1. Caisses fournisseur (par mot-clé OU flag is_fournisseur=1)
+    # 1. Caisses fournisseur (flag=1 OU mot-clé, mais SAUF si flag=0 explicitement)
+    # v157 : is_fournisseur=1 → toujours ; is_fournisseur=0 + match keyword → toujours ; is_fournisseur=0 sans keyword → exclu
+    # Pour respecter le retrait admin : ajouter NOT(is_fournisseur=0 AND keyword_match) ? non...
+    # En fait : on inclut tout ce qui est is_fournisseur=1 ; on inclut keyword_match si is_fournisseur IS NULL ou 1 mais PAS si 0
+    # → flag NULL = pas encore décidé (auto-détection autorisée)
+    # → flag 0 = explicitement retiré par admin (ne pas afficher même si keyword)
+    # → flag 1 = explicitement ajouté par admin (toujours afficher)
     caisses_fourn = [dict(r) for r in conn.execute(f"""
         SELECT id, name, COALESCE(solde_actuel, 0) as solde, description,
                COALESCE(is_fournisseur, 0) as is_fournisseur
         FROM caisses 
         WHERE COALESCE(is_active,1)=1 
-              AND (COALESCE(is_fournisseur,0)=1 OR {like_conditions_caisse})
+              AND (is_fournisseur=1 OR (is_fournisseur IS NULL AND ({like_conditions_caisse})))
         ORDER BY is_fournisseur DESC, name""").fetchall()]
     
     # Recalcul du solde si non maintenu (somme entrees - sorties)
@@ -30767,14 +30865,14 @@ def mg_soldes_fournisseur():
             c['solde_calcule'] = float(c.get('solde', 0))
             c['type'] = 'Fournisseur'
     
-    # 2. Comptes bancaires fournisseur (idem)
+    # 2. Comptes bancaires fournisseur (même logique)
     try:
         banques_fourn = [dict(r) for r in conn.execute(f"""
             SELECT id, nom, banque, type_compte, numero_compte, COALESCE(solde_actuel, 0) as solde,
                    COALESCE(is_fournisseur, 0) as is_fournisseur
             FROM tresorerie_comptes_bancaires
             WHERE COALESCE(is_active,1)=1 
-                  AND (COALESCE(is_fournisseur,0)=1 OR {like_conditions_bank})
+                  AND (is_fournisseur=1 OR (is_fournisseur IS NULL AND ({like_conditions_bank})))
             ORDER BY is_fournisseur DESC, nom""").fetchall()]
     except: banques_fourn = []
     
@@ -30854,26 +30952,41 @@ def mg_soldes_create():
 @app.route('/mg/soldes/delete', methods=['POST'])
 @permission_required('admin')
 def mg_soldes_delete():
-    """v155 : Admin peut supprimer une caisse ou banque fournisseur (uniquement si solde=0)."""
+    """v155 / v157 : Admin retire une caisse/banque de la vue MG SANS la désactiver pour la compta.
+    v157 : Retire uniquement le flag is_fournisseur (la caisse reste active partout ailleurs)."""
     kind = (request.form.get('kind') or '').strip()
     item_id = int(request.form.get('id', 0))
     
     conn = _gdb()
     try:
         if kind == 'caisse':
-            # Vérifier qu'il n'y a pas d'opérations liées
-            nb_ops = conn.execute(
-                "SELECT (SELECT COUNT(*) FROM caisse_entrees WHERE caisse_id=?) + (SELECT COUNT(*) FROM caisse_sorties WHERE caisse_id=?)",
-                (item_id, item_id)).fetchone()[0]
-            if nb_ops > 0:
-                conn.close()
-                flash(f"⛔ Impossible de supprimer : {nb_ops} opération(s) liée(s) à cette caisse. Désactivez-la plutôt.", "error")
-                return redirect('/mg/soldes')
-            conn.execute("UPDATE caisses SET is_active=0 WHERE id=?", (item_id,))
-            flash("🗑️ Caisse désactivée (sera masquée de toutes les listes)", "success")
+            # v157 : Retirer juste le flag is_fournisseur (pas désactiver)
+            conn.execute("UPDATE caisses SET is_fournisseur=0 WHERE id=?", (item_id,))
+            # Vérifier si le mot 'fournisseur' était dans le nom (auto-détection)
+            row = conn.execute("SELECT name, description FROM caisses WHERE id=?", (item_id,)).fetchone()
+            if row and (
+                'fournisseur' in (row['name'] or '').lower() 
+                or 'fournisseur' in (row['description'] or '').lower()
+                or 'fourn' in (row['name'] or '').lower()
+                or 'bdu' in (row['name'] or '').lower()
+            ):
+                flash("⚠️ Cette caisse contient des mots-clés (fournisseur/BDU) qui la font apparaître automatiquement. "
+                      "Modifiez son nom dans Comptabilité → Caisses pour la retirer définitivement.", "warning")
+            else:
+                flash("✅ Caisse retirée de la vue MG (toujours active pour la comptabilité)", "success")
         elif kind == 'banque':
-            conn.execute("UPDATE tresorerie_comptes_bancaires SET is_active=0 WHERE id=?", (item_id,))
-            flash("🗑️ Compte bancaire désactivé", "success")
+            conn.execute("UPDATE tresorerie_comptes_bancaires SET is_fournisseur=0 WHERE id=?", (item_id,))
+            row = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (item_id,)).fetchone()
+            if row and (
+                'fournisseur' in (row['nom'] or '').lower()
+                or 'fourn' in (row['nom'] or '').lower()
+                or 'bdu' in (row['nom'] or '').lower()
+                or 'bdu' in (row['banque'] or '').lower()
+            ):
+                flash("⚠️ Ce compte contient des mots-clés (fournisseur/BDU) qui le font apparaître automatiquement. "
+                      "Modifiez son nom dans Trésorerie → Comptes pour le retirer définitivement.", "warning")
+            else:
+                flash("✅ Compte bancaire retiré de la vue MG (toujours actif pour la comptabilité)", "success")
         conn.commit()
     except Exception as e:
         flash(f"Erreur : {e}", "error")
