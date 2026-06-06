@@ -1918,6 +1918,7 @@ try:
         "facturation_decided_by INTEGER",
         "facturation_decided_at TEXT",
         "facturation_motif TEXT",
+        "traiter_le TEXT",  # v159 : date de traitement planifiée (vide/NULL = traiter maintenant)
     ]:
         col_name = col_def.split()[0]
         try: _v142.execute(f"SELECT {col_name} FROM field_reports LIMIT 1")
@@ -2643,6 +2644,7 @@ def get_user_pending_tasks(user_id, user_role=None):
             rows = conn.execute("""SELECT id, reference, type_info, priorite, statut
                 FROM field_reports
                 WHERE auteur_id=? AND statut IN ('recue','en_analyse','en_execution')
+                  AND (traiter_le IS NULL OR traiter_le='' OR traiter_le <= date('now','localtime'))
                 ORDER BY id DESC LIMIT 20""", (user_id,)).fetchall()
             for r in rows:
                 result['remontees'].append({
@@ -2660,6 +2662,7 @@ def get_user_pending_tasks(user_id, user_role=None):
                 rows = conn.execute("""SELECT id, reference, type_info, priorite, statut, client_name
                     FROM field_reports
                     WHERE statut IN ('recue','en_analyse','en_execution')
+                      AND (traiter_le IS NULL OR traiter_le='' OR traiter_le <= date('now','localtime'))
                     ORDER BY id DESC LIMIT 50""").fetchall()
                 # Filtrer pour éviter les doublons avec les remontées de l'auteur
                 existing_ids = {r['id'] for r in result['remontees']}
@@ -6481,6 +6484,18 @@ def pwa_manifest():
 @app.route('/sw.js')
 def service_worker():
     return app.send_static_file('sw.js') if os.path.exists(os.path.join(BASE_DIR, 'sw.js')) else ('', 204)
+
+
+# v159 : Multi-fenêtres in-app — servir le JS depuis BASE_DIR
+@app.route('/floating_windows.js')
+def floating_windows_js():
+    """v159 : Sert le script de gestion des fenêtres flottantes in-app."""
+    from flask import Response
+    path = os.path.join(BASE_DIR, 'floating_windows.js')
+    if not os.path.exists(path): return ('', 404)
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    return Response(content, mimetype='application/javascript')
 
 
 # ======================== CONTRATS ========================
@@ -19219,7 +19234,12 @@ def field_report_new():
     site_zone = request.form.get('site_zone', '').strip()  # v137
     site_code = request.form.get('site_code', '').strip()  # v140 : code client du site
     create_site = request.form.get('create_site') in ('1', 'on', 'true')  # v137
-    
+    # v159 : date de traitement planifiée — "maintenant" ou "plus tard" (à une date)
+    traitement_mode = request.form.get('traitement_mode', 'maintenant')
+    traiter_le = request.form.get('traiter_le', '').strip()
+    if traitement_mode != 'plus_tard':
+        traiter_le = ''  # traiter maintenant → visible dans les tâches du jour immédiatement
+
     if not description:
         flash("Description requise", "error")
         return redirect('/field-reports/new')
@@ -19277,16 +19297,17 @@ def field_report_new():
             try: conn.execute("ALTER TABLE field_reports ADD COLUMN site_code TEXT")
             except: pass
         
-        cur = conn.execute("""INSERT INTO field_reports 
+        cur = conn.execute("""INSERT INTO field_reports
             (reference, client_id, client_name, site_name, site_address, site_code, type_info,
-             description, priorite, date_constat, auteur_id, auteur_name, statut,
+             description, priorite, date_constat, auteur_id, auteur_name, statut, traiter_le,
              created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recue',datetime('now'),datetime('now'))""",
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recue',?,datetime('now'),datetime('now'))""",
             (ref, int(client_id) if client_id and client_id.isdigit() else None,
              client_name or 'Non spécifié', site_name, site_address, site_code, type_info,
              description, priorite, date_constat,
              session.get('user_id'),
-             user['full_name'] if user else 'Anonyme'))
+             user['full_name'] if user else 'Anonyme',
+             traiter_le or None))
         report_id = cur.lastrowid
         conn.commit()
         conn.close()

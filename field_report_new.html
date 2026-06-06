@@ -202,8 +202,24 @@
         </div>
         <div class="form-group">
             <label>Description détaillée *</label>
-            <textarea name="description" rows="6" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:7px;font-family:inherit" 
+            <textarea name="description" rows="6" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:7px;font-family:inherit"
                 placeholder="Décrivez précisément l'information remontée : contexte, observations, attentes du client, opportunité commerciale potentielle, etc."></textarea>
+        </div>
+        <!-- v159 : Planification du traitement de la remontée -->
+        <div class="form-group">
+            <label>🗓️ Quand traiter cette remontée ?</label>
+            <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+                    <input type="radio" name="traitement_mode" value="maintenant" checked onchange="_toggleTraiterLe()"> Maintenant
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
+                    <input type="radio" name="traitement_mode" value="plus_tard" onchange="_toggleTraiterLe()"> Plus tard, le&nbsp;:
+                </label>
+                <input type="date" name="traiter_le" id="traiter_le_input" disabled
+                    title="Date de traitement prévue" aria-label="Date de traitement prévue"
+                    style="padding:8px;border:1.5px solid #ddd;border-radius:7px">
+            </div>
+            <small style="color:#888">« Maintenant » → la remontée apparaît dans les tâches du jour. Une date future → elle n'y apparaîtra qu'à cette date.</small>
         </div>
     </div>
 </div>
@@ -496,5 +512,22 @@ function toggleNewSite() {
 
 // Date du jour par défaut
 document.querySelector('input[name="date_constat"]').value = new Date().toISOString().split('T')[0];
+
+// v159 : activer/désactiver le champ date selon "maintenant / plus tard"
+function _toggleTraiterLe() {
+    var later = document.querySelector('input[name="traitement_mode"]:checked').value === 'plus_tard';
+    var inp = document.getElementById('traiter_le_input');
+    inp.disabled = !later;
+    if (later) {
+        var tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+        inp.min = new Date().toISOString().split('T')[0];
+        if (!inp.value) inp.value = tomorrow;
+        inp.required = true;
+        inp.focus();
+    } else {
+        inp.required = false;
+        inp.value = '';
+    }
+}
 </script>
 {% endblock %}

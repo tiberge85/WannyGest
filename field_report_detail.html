@@ -36,6 +36,7 @@
                     <tr><td style="padding:8px;color:#666;vertical-align:top">Client</td><td style="padding:8px"><strong>{{ report.client_name }}</strong></td></tr>
                     {% if report.site_name %}<tr><td style="padding:8px;color:#666;vertical-align:top">Site</td><td style="padding:8px">📍 {{ report.site_name }}{% if report.site_address %}<br><span style="font-size:11px;color:#888">{{ report.site_address }}</span>{% endif %}</td></tr>{% endif %}
                     <tr><td style="padding:8px;color:#666;vertical-align:top">Date constat</td><td style="padding:8px">{{ report.date_constat[:10] if report.date_constat else '-' }}</td></tr>
+                    {% if report.traiter_le %}<tr><td style="padding:8px;color:#666;vertical-align:top">Traitement prévu</td><td style="padding:8px"><span style="background:#fff3cd;color:#856404;padding:4px 10px;border-radius:12px;font-weight:600">🗓️ {{ report.traiter_le }}</span> <span style="font-size:11px;color:#888">— n'apparaît dans les tâches du jour qu'à partir de cette date</span></td></tr>{% endif %}
                     <tr><td style="padding:8px;color:#666;vertical-align:top">Description</td><td style="padding:8px;line-height:1.6;background:#f8faf9;border-left:3px solid #1A7A6D;padding-left:12px">{{ report.description|replace('\n','<br>')|safe }}</td></tr>
                 </table>
             </div>
