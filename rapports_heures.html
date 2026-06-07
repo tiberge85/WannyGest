@@ -14,7 +14,7 @@
             </div>
             <div class="form-group">
                 <label>Type</label>
-                <select name="type_label" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px">
+                <select name="type_label" title="Type de rapport" aria-label="Type de rapport" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px">
                     <option value="DPCI">DPCI</option>
                     <option value="Pharmacie">Pharmacie</option>
                     <option value="Traitement">Traitement</option>
@@ -65,4 +65,25 @@
 <div style="padding:24px;text-align:center;color:#888">Aucun rapport d'heures envoyé</div>
 {% endif %}
 </div></div>
+
+<script>
+// v159 : pré-remplir le montant mémorisé pour ce client + type
+(function(){
+  var cli = document.querySelector('input[name="client_name"]');
+  var typ = document.querySelector('select[name="type_label"]');
+  var mnt = document.querySelector('input[name="montant"]');
+  if(!cli || !typ || !mnt) return;
+  async function prefill(){
+    var c = (cli.value||'').trim(); if(!c) return;
+    try{
+      var r = await fetch('/rapports-heures/montant?client='+encodeURIComponent(c)+'&type='+encodeURIComponent(typ.value||''));
+      var j = await r.json();
+      if(j && j.montant && j.montant > 0){ mnt.value = Math.round(j.montant); mnt.title = 'Montant mémorisé pour ce client'; }
+    }catch(e){}
+  }
+  cli.addEventListener('change', prefill);
+  cli.addEventListener('blur', prefill);
+  typ.addEventListener('change', prefill);
+})();
+</script>
 {% endblock %}

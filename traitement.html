@@ -414,6 +414,37 @@
     </div>
 </div>
 
+<!-- v159 : Envoyer en facturation -->
+<div class="card" style="margin-top:16px;border:1.5px solid #1A7A6D"><div class="card-body">
+  <h3 style="margin-top:0;color:#1A7A6D">💰 Envoyer ce calcul en facturation</h3>
+  <p style="font-size:12px;color:#666">Saisissez le <strong>montant à facturer</strong> au client → il part en « Facturation à décider » (le DG valide, puis la compta édite la facture). Le montant est mémorisé pour ce client.</p>
+  <form method="post" action="/rapports-heures/envoyer">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="type_label" value="Traitement">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label>Client *</label>
+        <input type="text" name="client_name" id="fac_client" required placeholder="Nom du client" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px"></div>
+      <div class="form-group"><label>Période</label>
+        <input type="text" name="periode" placeholder="Ex : Juin 2026" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px"></div>
+      <div class="form-group"><label>💰 Montant à facturer (FCFA) *</label>
+        <input type="number" name="montant" id="fac_montant" step="1" min="1" required placeholder="Ex : 350000" style="width:100%;padding:9px;border:2px solid #1A7A6D;border-radius:8px;font-weight:700"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">📤 Envoyer en facturation</button>
+  </form>
+</div></div>
+<script>
+(function(){
+  var cli=document.getElementById('fac_client'), mnt=document.getElementById('fac_montant');
+  if(!cli||!mnt) return;
+  var gen=document.getElementById('clientInput');
+  if(gen && gen.value && !cli.value) cli.value = gen.value;
+  async function pf(){ var c=(cli.value||'').trim(); if(!c) return;
+    try{ var r=await fetch('/rapports-heures/montant?client='+encodeURIComponent(c)+'&type=Traitement'); var j=await r.json();
+      if(j && j.montant>0) mnt.value=Math.round(j.montant); }catch(e){} }
+  cli.addEventListener('blur', pf); cli.addEventListener('change', pf);
+})();
+</script>
+
 <script>
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('excelFile');

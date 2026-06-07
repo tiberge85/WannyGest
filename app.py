@@ -2523,6 +2523,14 @@ try:
         CREATE INDEX IF NOT EXISTS idx_vente_items_vente ON vente_items(vente_id);
         CREATE INDEX IF NOT EXISTS idx_paiements_vente ON paiements(vente_id);
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON caisse_sessions(user_id, status);
+        CREATE TABLE IF NOT EXISTS rapport_heures_montants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_name TEXT,
+            type_label TEXT,
+            montant REAL,
+            updated_at TEXT,
+            UNIQUE(client_name, type_label)
+        );
     ''')
     _pos.commit()
     _flpos = _pos.execute("SELECT value FROM app_settings WHERE key='v159_pos_perms'").fetchone()
@@ -34018,6 +34026,46 @@ def stock_mouvements():
 #   → apparaît dans /decisions/facturation où le DG valide SANS ressaisir le montant
 #   → comptable édite la facture, puis recouvrement (pipeline existant).
 # ════════════════════════════════════════════════════════════════════
+def _get_rapport_montant(client_name, type_label):
+    """v159 : Montant mémorisé pour ce client + type (pré-remplissage), ou 0."""
+    try:
+        conn = _gdb()
+        r = conn.execute("SELECT montant FROM rapport_heures_montants WHERE client_name=? AND type_label=?",
+                         (client_name, type_label)).fetchone()
+        conn.close()
+        return float(r['montant']) if r and r['montant'] is not None else 0
+    except Exception:
+        return 0
+
+
+def _remember_rapport_montant(client_name, type_label, montant):
+    """v159 : Mémorise le dernier montant saisi pour ce client + type (upsert manuel)."""
+    if not client_name or montant <= 0:
+        return
+    try:
+        conn = _gdb()
+        ex = conn.execute("SELECT id FROM rapport_heures_montants WHERE client_name=? AND type_label=?",
+                          (client_name, type_label)).fetchone()
+        if ex:
+            conn.execute("UPDATE rapport_heures_montants SET montant=?, updated_at=datetime('now') WHERE id=?",
+                         (montant, ex['id']))
+        else:
+            conn.execute("INSERT INTO rapport_heures_montants (client_name, type_label, montant, updated_at) VALUES (?,?,?,datetime('now'))",
+                         (client_name, type_label, montant))
+        conn.commit(); conn.close()
+    except Exception as _e:
+        print(f"[v159-RH] memoire montant err : {_e}", flush=True)
+
+
+@app.route('/rapports-heures/montant')
+@permission_required_any('traitement', 'admin')
+def rapports_heures_montant():
+    """v159 : Renvoie le montant mémorisé pour un client + type (pré-remplissage JS)."""
+    client = (request.args.get('client','') or '').strip()
+    type_label = (request.args.get('type','') or '').strip()
+    return jsonify({'montant': _get_rapport_montant(client, type_label)})
+
+
 @app.route('/rapports-heures')
 @permission_required_any('traitement', 'admin')
 def rapports_heures_list():
@@ -34086,6 +34134,8 @@ def rapports_heures_envoyer():
 
     try: _field_report_log(rid, 'Rapport heures envoyé', f"Montant à facturer : {int(montant)} XOF — {type_label}")
     except Exception: pass
+    # v159 : mémoriser le montant pour ce client + type (pré-remplissage des prochains envois)
+    _remember_rapport_montant(client_name, type_label, montant)
     # Notifier DG/RH pour validation (sans montant à saisir)
     try:
         notify_roles(['dg', 'directeur', 'rh', 'directrice_rh', 'admin'],
