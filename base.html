@@ -570,6 +570,7 @@
                     {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">Calcul d'heures</a>{% endif %}
                     {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/dpci" class="{% if page == 'dpci' %}active{% endif %}">🏢 Calcul d'heures DPCI</a>{% endif %}
                     {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/pharma" class="{% if page == 'pharma' %}active{% endif %}">💊 Calcul d'heures Pharmacie</a>{% endif %}
+                    {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/rapports-heures" class="{% if page == 'rapports_heures' %}active{% endif %}">💰 Rapports d'heures à facturer</a>{% endif %}
                     {% if 'pointage_edit' in permissions or 'admin' in permissions %}<a href="/emploi-du-temps" class="{% if page == 'schedule' %}active{% endif %}">📅 Emploi du temps</a>{% endif %}
                     {% if 'pointage_admin' in permissions or 'admin' in permissions %}<a href="/alertes" class="{% if page == 'alertes' %}active{% endif %}">Alertes assiduité</a>{% endif %}
                     {% if 'traitement' in permissions or 'admin' in permissions %}<a href="/comparaison" class="{% if page == 'comparaison' %}active{% endif %}">Comparaison</a>{% endif %}

@@ -18939,6 +18939,7 @@ FIELD_REPORT_TYPES = {
     'contrat_entretien': '📝 Contrat d\'entretien à proposer',
     'mise_a_niveau': '⬆️ Mise à niveau d\'installation',
     'reclamation': '⚠️ Réclamation client',
+    'rapport_heures': '⏱️ Rapport de calcul d\'heures (RH)',
     'autre': '📌 Autre',
 }
 
@@ -19635,7 +19636,8 @@ def decisions_facturation():
     if tab == 'nouvelles':
         where_clauses.append("fr.statut IN ('executee','traitee')")
         where_clauses.append("fr.facturable IS NULL")
-        where_clauses.append("fr.linked_intervention_id IS NOT NULL")
+        # v159 : remontées liées à une intervention OU rapports d'heures envoyés par la RH
+        where_clauses.append("(fr.linked_intervention_id IS NOT NULL OR fr.type_info='rapport_heures')")
         order_by = "COALESCE(fr.executed_at, fr.updated_at) DESC"
     elif tab == 'avec_facture':
         where_clauses.append("fr.facturable=1")
@@ -19675,7 +19677,7 @@ def decisions_facturation():
     counts = {
         'nouvelles': conn.execute(
             "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
-            "AND facturable IS NULL AND linked_intervention_id IS NOT NULL"
+            "AND facturable IS NULL AND (linked_intervention_id IS NOT NULL OR type_info='rapport_heures')"
         ).fetchone()[0],
         'avec_facture': conn.execute("SELECT COUNT(*) FROM field_reports WHERE facturable=1").fetchone()[0],
         'sans_facture': conn.execute("SELECT COUNT(*) FROM field_reports WHERE facturable=0").fetchone()[0],
@@ -19710,19 +19712,25 @@ def field_report_decide_facturation(rid):
         flash("⚠️ Le commentaire (motif) est obligatoire — minimum 5 caractères. "
               "Justifiez votre décision (raison de la facturation ou de la non-facturation).", "error")
         return redirect(f'/decisions/facturation' if request.referrer and 'decisions' in request.referrer else f'/field-reports/{rid}')
-    
-    # v147 : Montant obligatoire si facturable
-    if is_facturable and cost <= 0:
-        flash("⚠️ Si facturable, le montant doit être > 0 FCFA", "error")
-        return redirect(f'/decisions/facturation' if request.referrer and 'decisions' in request.referrer else f'/field-reports/{rid}')
-    
+
     conn = _gdb()
     try:
-        r = conn.execute("SELECT reference, client_name FROM field_reports WHERE id=?", (rid,)).fetchone()
+        r = conn.execute("SELECT reference, client_name, cost_amount, type_info FROM field_reports WHERE id=?", (rid,)).fetchone()
         if not r:
             conn.close()
             flash("Remontée introuvable", "error")
             return redirect('/field-reports')
+
+        # v159 : Montant déjà saisi en amont (ex: rapport d'heures envoyé par la RH) →
+        # le DG valide sans ressaisir le montant ; on retombe sur le montant existant.
+        if is_facturable and cost <= 0:
+            try: cost = float(r['cost_amount'] or 0)
+            except: cost = 0
+        # Montant obligatoire si facturable
+        if is_facturable and cost <= 0:
+            conn.close()
+            flash("⚠️ Si facturable, le montant doit être > 0 FCFA", "error")
+            return redirect(f'/decisions/facturation' if request.referrer and 'decisions' in request.referrer else f'/field-reports/{rid}')
         
         # Mettre à jour la remontée
         conn.execute("""UPDATE field_reports
@@ -34001,3 +34009,91 @@ def stock_mouvements():
         LEFT JOIN stock_items i ON i.id = m.item_id ORDER BY m.id DESC LIMIT 300""").fetchall()]
     conn.close()
     return render_template('stock_mouvements.html', page='pos', mouvements=rows)
+
+
+# ════════════════════════════════════════════════════════════════════
+# v159 : RAPPORTS DE CALCUL D'HEURES À FACTURER (RH → Facturation à décider)
+#   La RH envoie un rapport d'heures avec le montant à facturer.
+#   → crée une "remontée" type 'rapport_heures' en statut 'executee' (montant pré-saisi)
+#   → apparaît dans /decisions/facturation où le DG valide SANS ressaisir le montant
+#   → comptable édite la facture, puis recouvrement (pipeline existant).
+# ════════════════════════════════════════════════════════════════════
+@app.route('/rapports-heures')
+@permission_required_any('traitement', 'admin')
+def rapports_heures_list():
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute("""
+        SELECT fr.*, fri.status AS fri_status, fri.invoice_number
+        FROM field_reports fr
+        LEFT JOIN field_report_invoices fri ON fri.field_report_id = fr.id
+        WHERE fr.type_info='rapport_heures'
+        ORDER BY fr.id DESC LIMIT 200""").fetchall()]
+    clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
+    conn.close()
+    return render_template('rapports_heures.html', page='rapports_heures',
+        rapports=rows, clients=clients,
+        recovery_status=FACTURATION_RECOVERY_STATUS)
+
+
+@app.route('/rapports-heures/envoyer', methods=['POST'])
+@permission_required_any('traitement', 'admin')
+def rapports_heures_envoyer():
+    user = get_user_by_id(session['user_id'])
+    client_name = (request.form.get('client_name','') or '').strip()
+    client_id = request.form.get('client_id') or None
+    periode = (request.form.get('periode','') or '').strip()
+    type_label = (request.form.get('type_label','') or 'Calcul d\'heures').strip()
+    notes = (request.form.get('notes','') or '').strip()
+    montant_str = (request.form.get('montant','') or '0').replace(',', '.').strip()
+    try:
+        montant = float(montant_str or 0)
+    except ValueError:
+        montant = 0
+    if not client_name:
+        flash("Le client est obligatoire.", "error")
+        return redirect('/rapports-heures')
+    if montant <= 0:
+        flash("Le montant à facturer doit être supérieur à 0 FCFA.", "error")
+        return redirect('/rapports-heures')
+
+    if client_id:
+        try: client_id = int(client_id)
+        except ValueError: client_id = None
+
+    ref = _gen_field_report_ref()
+    description = f"Rapport de calcul d'heures — {type_label}" + (f" — {periode}" if periode else "")
+    if notes:
+        description += f"\n{notes}"
+    conn = _gdb()
+    try:
+        cur = conn.execute("""INSERT INTO field_reports
+            (reference, client_id, client_name, type_info, description, priorite, date_constat,
+             auteur_id, auteur_name, statut, cost_amount, cost_currency,
+             executed_by, executed_at, execution_notes, created_at, updated_at)
+            VALUES (?,?,?, 'rapport_heures', ?, 'moyen', date('now'),
+             ?,?, 'executee', ?, 'XOF', ?, datetime('now'), ?, datetime('now'), datetime('now'))""",
+            (ref, client_id, client_name, description,
+             user['id'], user['full_name'], montant,
+             user['id'], f"Montant à facturer saisi par la RH ({user['full_name']})"))
+        rid = cur.lastrowid
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        flash(f"Erreur : {e}", "error")
+        return redirect('/rapports-heures')
+
+    try: _field_report_log(rid, 'Rapport heures envoyé', f"Montant à facturer : {int(montant)} XOF — {type_label}")
+    except Exception: pass
+    # Notifier DG/RH pour validation (sans montant à saisir)
+    try:
+        notify_roles(['dg', 'directeur', 'rh', 'directrice_rh', 'admin'],
+            title=f"💰 VALIDATION FACTURATION — Rapport d'heures {ref}",
+            message=f"La RH a envoyé un rapport d'heures à facturer pour {client_name} : "
+                    f"{int(montant)} XOF. À valider dans « Facturation à décider » (le montant est déjà saisi).",
+            link='/decisions/facturation',
+            type='warning', module='factures', icon='💰', priority='high', force=True)
+    except Exception: pass
+    flash(f"✅ Rapport d'heures {ref} envoyé en « Facturation à décider » ({int(montant)} XOF). Le DG n'a plus qu'à valider.", "success")
+    return redirect('/rapports-heures')

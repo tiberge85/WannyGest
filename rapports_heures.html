@@ -1,0 +1,68 @@
+{% extends "base.html" %}{% block title %}WannyGest - Rapports d'heures à facturer{% endblock %}{% block content %}
+<div class="page-header"><h1>⏱️ Rapports de calcul d'heures à facturer</h1></div>
+
+<div class="card" style="max-width:760px;margin-bottom:18px"><div class="card-body">
+    <h3 style="margin-top:0;color:#1A7A6D">Envoyer un rapport en facturation</h3>
+    <p style="font-size:12px;color:#666">Saisissez le <strong>montant à facturer</strong>. Après envoi, le rapport part en « Facturation à décider » : le DG <strong>valide simplement</strong> (sans ressaisir le montant), puis la comptabilité édite la facture.</p>
+    <form method="post" action="/rapports-heures/envoyer">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group">
+                <label>Client *</label>
+                <input list="clients_dl" name="client_name" required placeholder="Nom du client" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px">
+                <datalist id="clients_dl">{% for c in clients %}<option value="{{ c.name }}">{% endfor %}</datalist>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select name="type_label" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px">
+                    <option value="DPCI">DPCI</option>
+                    <option value="Pharmacie">Pharmacie</option>
+                    <option value="Traitement">Traitement</option>
+                    <option value="Autre">Autre</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Période</label>
+                <input type="text" name="periode" placeholder="Ex : Juin 2026" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px">
+            </div>
+            <div class="form-group">
+                <label>💰 Montant à facturer (FCFA) *</label>
+                <input type="number" name="montant" step="1" min="1" required placeholder="Ex : 350000" style="width:100%;padding:9px;border:2px solid #1A7A6D;border-radius:8px;font-weight:700">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Note (facultatif)</label>
+            <textarea name="notes" rows="2" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px" placeholder="Précisions sur le calcul d'heures..."></textarea>
+        </div>
+        <button class="btn btn-primary" type="submit">📤 Envoyer en facturation</button>
+    </form>
+</div></div>
+
+<div class="card"><div class="card-body" style="padding:0">
+    <div style="padding:12px 16px;font-weight:700;color:#1A7A6D">📋 Rapports envoyés</div>
+{% if rapports %}
+<div class="table-wrap"><table style="width:100%;font-size:13px">
+<thead><tr style="background:#1A7A6D;color:#fff">
+    <th style="padding:8px;text-align:left">Référence</th><th style="text-align:left">Client</th><th style="text-align:left">Objet</th>
+    <th style="text-align:right">Montant</th><th style="text-align:left">État</th><th style="text-align:left">Facture</th>
+</tr></thead><tbody>
+{% for r in rapports %}
+<tr style="border-bottom:1px solid #eee">
+    <td style="padding:8px;font-weight:600"><a href="/field-reports/{{ r.id }}">{{ r.reference }}</a></td>
+    <td style="padding:8px">{{ r.client_name }}</td>
+    <td style="padding:8px;font-size:12px;color:#555">{{ (r.description or '').split('\n')[0] }}</td>
+    <td style="padding:8px;text-align:right;font-weight:700">{{ r.cost_amount|int if r.cost_amount else 0 }}</td>
+    <td style="padding:8px">
+        {% if r.facturable is none %}<span style="background:#ede7f6;color:#5e35b1;padding:2px 8px;border-radius:6px;font-size:11px">⏳ À valider (DG)</span>
+        {% elif r.facturable == 0 %}<span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:6px;font-size:11px">❌ Non facturable</span>
+        {% else %}<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:6px;font-size:11px">✅ Validé facturer</span>{% endif %}
+    </td>
+    <td style="padding:8px;font-size:11px">{% if r.fri_status %}{{ recovery_status.get(r.fri_status, r.fri_status) }}{% if r.invoice_number %}<br>{{ r.invoice_number }}{% endif %}{% else %}—{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div style="padding:24px;text-align:center;color:#888">Aucun rapport d'heures envoyé</div>
+{% endif %}
+</div></div>
+{% endblock %}
