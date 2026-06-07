@@ -208,7 +208,49 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════ -->
-<!-- TABLEAU 3 : REMONTÉES DÉJÀ EXÉCUTÉES (transformee_projet/opportunite + classee + traitee) -->
+<!-- v159 — FACTURATION À DÉCIDER (technicien a terminé, décision DG/RH en attente) -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="card" style="border-top:4px solid #5e35b1;margin-bottom:18px">
+    <div class="card-header" style="background:#ede7f6">
+        <h3 style="color:#5e35b1;margin:0">💰 Facturation à décider ({{ (facturation_a_decider or [])|length }})</h3>
+        <p style="font-size:11px;color:#4527a0;margin:4px 0 0">Le technicien a terminé l'intervention — en attente de la décision de facturation (DG/RH)</p>
+    </div>
+    <div class="card-body" style="padding:0">
+{% if facturation_a_decider %}
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead><tr style="background:#5e35b1;color:#fff">
+    <th style="padding:8px;text-align:left">Référence</th>
+    <th style="text-align:left">Date constat</th>
+    <th style="text-align:left">Client / Site</th>
+    <th style="text-align:left">Type</th>
+    <th style="text-align:left">Priorité</th>
+    <th style="text-align:left">🛠️ Technicien</th>
+    <th style="text-align:center">Action</th>
+</tr></thead>
+<tbody>
+{% for r in facturation_a_decider %}
+<tr style="border-bottom:1px solid #d1c4e9;background:#faf7ff">
+    <td style="padding:8px;font-weight:600">{{ r.reference }}</td>
+    <td style="padding:8px">{{ r.date_constat }}</td>
+    <td style="padding:8px"><strong>{{ r.client_name }}</strong>{% if r.site_name %}<br><small style="color:#888">{{ r.site_name }}</small>{% endif %}</td>
+    <td style="padding:8px">{{ r.type_label }}</td>
+    <td style="padding:8px"><span style="background:{{ r.priorite_color }};color:#fff;font-size:10px;padding:2px 6px;border-radius:6px">{{ r.priorite_label }}</span></td>
+    <td style="padding:8px">{% if r._tech_name %}<strong>{{ r._tech_name }}</strong>{% else %}—{% endif %}</td>
+    <td style="padding:8px;text-align:center">
+        <a href="/decisions/facturation" class="btn btn-sm" style="background:#5e35b1;color:#fff;font-size:10px">💰 Décider</a>
+        <a href="/field-reports/{{ r.id }}" class="btn btn-sm" style="background:#ede7f6;color:#5e35b1;font-size:10px">👁️</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div style="padding:24px;text-align:center;color:#888">Aucune remontée en attente de décision facturation</div>
+{% endif %}
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- TABLEAU 4 : REMONTÉES DÉJÀ EXÉCUTÉES (décision prise + transformee + classee + traitee) -->
 <!-- ═══════════════════════════════════════════════════════════════════ -->
 <div class="card" style="border-top:4px solid #2e7d32">
     <div class="card-header" style="background:#e8f5e9">

@@ -207,19 +207,24 @@
         </div>
         <!-- v159 : Planification du traitement de la remontée -->
         <div class="form-group">
-            <label>🗓️ Quand traiter cette remontée ?</label>
-            <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
-                <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-                    <input type="radio" name="traitement_mode" value="maintenant" checked onchange="_toggleTraiterLe()"> Maintenant
+            <label style="display:block;margin-bottom:8px">🗓️ Quand traiter cette remontée ?</label>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                <label id="opt_maintenant" style="flex:1;min-width:210px;display:flex;align-items:center;gap:10px;padding:12px 14px;border:2px solid #1A7A6D;border-radius:9px;cursor:pointer;background:#e9f5f3">
+                    <input type="radio" name="traitement_mode" value="maintenant" checked onchange="_toggleTraiterLe()">
+                    <span><strong>Maintenant</strong><br><span style="font-size:11px;color:#666">Apparaît dans les tâches du jour</span></span>
                 </label>
-                <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer">
-                    <input type="radio" name="traitement_mode" value="plus_tard" onchange="_toggleTraiterLe()"> Plus tard, le&nbsp;:
+                <label id="opt_plustard" style="flex:1;min-width:210px;display:flex;align-items:center;gap:10px;padding:12px 14px;border:2px solid #ddd;border-radius:9px;cursor:pointer;background:#fff">
+                    <input type="radio" name="traitement_mode" value="plus_tard" onchange="_toggleTraiterLe()">
+                    <span><strong>Plus tard</strong><br><span style="font-size:11px;color:#666">À une date précise</span></span>
                 </label>
+            </div>
+            <div id="traiter_le_wrap" style="display:none;margin-top:10px;padding:12px 14px;background:#fff8ec;border:1px solid #f0d9a8;border-radius:9px">
+                <label for="traiter_le_input" style="font-weight:600;font-size:13px;margin-right:8px">Traiter le&nbsp;:</label>
                 <input type="date" name="traiter_le" id="traiter_le_input" disabled
                     title="Date de traitement prévue" aria-label="Date de traitement prévue"
                     style="padding:8px;border:1.5px solid #ddd;border-radius:7px">
+                <div style="font-size:11px;color:#856404;margin-top:6px">La remontée n'apparaîtra dans les tâches du jour qu'à partir de cette date.</div>
             </div>
-            <small style="color:#888">« Maintenant » → la remontée apparaît dans les tâches du jour. Une date future → elle n'y apparaîtra qu'à cette date.</small>
         </div>
     </div>
 </div>
@@ -517,7 +522,16 @@ document.querySelector('input[name="date_constat"]').value = new Date().toISOStr
 function _toggleTraiterLe() {
     var later = document.querySelector('input[name="traitement_mode"]:checked').value === 'plus_tard';
     var inp = document.getElementById('traiter_le_input');
+    var wrap = document.getElementById('traiter_le_wrap');
+    var optM = document.getElementById('opt_maintenant');
+    var optP = document.getElementById('opt_plustard');
     inp.disabled = !later;
+    wrap.style.display = later ? 'block' : 'none';
+    // Surbrillance de la carte sélectionnée
+    optM.style.borderColor = later ? '#ddd' : '#1A7A6D';
+    optM.style.background  = later ? '#fff' : '#e9f5f3';
+    optP.style.borderColor = later ? '#1A7A6D' : '#ddd';
+    optP.style.background  = later ? '#e9f5f3' : '#fff';
     if (later) {
         var tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
         inp.min = new Date().toISOString().split('T')[0];

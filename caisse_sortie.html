@@ -153,7 +153,7 @@
 <td style="white-space:nowrap">
     <a href="/caisse-sortie/{{ s.id }}/preview" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="Aperçu">👁️</a>
     <a href="/caisse-sortie/{{ s.id }}/pdf" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="PDF">📄</a>
-    {% if current_user.role in ('admin','dg','directeur') %}<a href="/caisse-sortie/{{ s.id }}/edit" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="Modifier">✏️</a>{% endif %}
+    {% if current_user.role in ('admin','dg','directeur') or (s.demandeur_id == current_user.id and s.status == 'en_attente') %}<a href="/caisse-sortie/{{ s.id }}/edit" class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 6px" title="Modifier">✏️</a>{% endif %}
     
     {# v108 : Validation DG ou RH (3ème signataire) #}
     {% if s.status == 'en_attente' and current_user.role in ('admin','rh','directeur','dg') %}

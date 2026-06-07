@@ -28,8 +28,10 @@
 <div class="actions-bar">
     <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimer</button>
     <a href="/caisse-sortie/{{ s.id }}/pdf" class="btn btn-orange">📥 PDF</a>
-    {% if current_user.role in ('admin','dg','directeur') %}
+    {% if current_user.role in ('admin','dg','directeur') or (s.demandeur_id == current_user.id and s.status == 'en_attente') %}
     <a href="/caisse-sortie/{{ s.id }}/edit" class="btn btn-outline">✏️ Modifier</a>
+    {% endif %}
+    {% if current_user.role in ('admin','dg','directeur') %}
     <a href="/caisse-sortie/{{ s.id }}/delete" class="btn btn-red" onclick="return confirm('Supprimer cette pièce ?')">🗑️ Supprimer</a>
     {% endif %}
 </div>

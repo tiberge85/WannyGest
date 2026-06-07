@@ -19021,16 +19021,20 @@ def field_reports_list():
     q = (request.args.get('q', '') or '').strip()
     filtered = _filter_field_reports(all_reports, statut_f, priorite_f, type_f, q)
     
-    # v131 : Séparer en 3 listes — À traiter / En exécution / Déjà exécutées
+    # v131 : Séparer en listes — À traiter / En exécution / Facturation à décider / Déjà exécutées
     to_treat_statuts = ('recue', 'en_analyse')
     in_execution_statuts = ('en_execution', 'transformee_intervention')  # technicien assigné
     treated_statuts = ('traitee', 'transformee_projet', 'transformee_opportunite', 'classee')
     a_traiter = [r for r in filtered if r.get('statut') in to_treat_statuts]
     en_execution = [r for r in filtered if r.get('statut') in in_execution_statuts]
-    deja_executees = [r for r in filtered if r.get('statut') in treated_statuts]
-    
+    # v159 : Le technicien a terminé (statut 'executee') → en attente de décision facturation.
+    #        Une fois la décision prise (facturable renseigné), la remontée rejoint "Déjà exécutées".
+    facturation_a_decider = [r for r in filtered if r.get('statut') == 'executee' and r.get('facturable') is None]
+    deja_executees = [r for r in filtered if r.get('statut') in treated_statuts
+                      or (r.get('statut') == 'executee' and r.get('facturable') is not None)]
+
     # Enrichir affichage
-    for lst in (a_traiter, en_execution, deja_executees):
+    for lst in (a_traiter, en_execution, facturation_a_decider, deja_executees):
         for r in lst:
             sl = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))
             pl = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))
@@ -19083,7 +19087,8 @@ def field_reports_list():
     conn.close()
     
     return render_template('field_reports_dashboard.html', page='field_reports',
-        a_traiter=a_traiter, en_execution=en_execution, deja_executees=deja_executees,
+        a_traiter=a_traiter, en_execution=en_execution,
+        facturation_a_decider=facturation_a_decider, deja_executees=deja_executees,
         stats=stats, stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
         top_auteurs=top_auteurs,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
@@ -28467,12 +28472,19 @@ def caisse_refuser_compta(sid):
 def caisse_edit(sid):
     from models import get_db
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'dg', 'directeur'):
-        flash("Seul l'admin ou le DG peut modifier", "error"); return redirect(url_for('caisse_sortie'))
     conn = get_db()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
     conn.close()
     if not s: flash("Non trouvé","error"); return redirect(url_for('caisse_sortie'))
+    s = dict(s)
+    # v159 : le demandeur peut modifier SA demande tant qu'elle n'est pas validée ;
+    #        admin / dg / directeur peuvent toujours modifier.
+    is_privileged = bool(user and user['role'] in ('admin', 'dg', 'directeur'))
+    is_owner_pending = bool(user and s.get('demandeur_id') == user['id']
+                            and (s.get('status') or 'en_attente') == 'en_attente')
+    if not (is_privileged or is_owner_pending):
+        flash("Vous ne pouvez modifier qu'une de vos demandes non encore validée.", "error")
+        return redirect(url_for('caisse_sortie'))
     if request.method == 'POST':
         conn = get_db()
         conn.execute("""UPDATE caisse_sorties SET beneficiaire=?, type_beneficiaire=?, montant=?,
@@ -28483,7 +28495,8 @@ def caisse_edit(sid):
         conn.commit(); conn.close()
         flash("Sortie de caisse modifiée", "success")
         return redirect(url_for('caisse_sortie'))
-    return render_template('caisse_preview.html', page='caisse_sortie', s=dict(s))
+    # v159 : afficher le vrai formulaire d'édition (et non l'aperçu)
+    return render_template('caisse_edit.html', page='caisse_sortie', s=s)
 
 @app.route('/caisse-sortie/<int:sid>/preview')
 @login_required
