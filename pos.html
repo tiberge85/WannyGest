@@ -1,0 +1,182 @@
+{% extends "base.html" %}{% block title %}WannyGest - Point de vente{% endblock %}{% block content %}
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <h1 style="margin:0">🛒 Point de vente</h1>
+    {% if session_caisse %}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="background:#e3f2ee;color:#1A7A6D;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700">
+            🟢 Caisse ouverte{% if caisse_courante %} — {{ caisse_courante }}{% endif %} · {{ session_caisse.nb_ventes }} vente(s) · {{ session_caisse.total_ventes|int }} FCFA
+        </span>
+        <a href="/caisse/session/{{ session_caisse.id }}/ventes" class="btn btn-outline btn-sm">📜 Historique</a>
+        <button type="button" class="btn btn-sm" style="background:#fde8e8;color:#c53030" onclick="document.getElementById('closeBox').style.display='block'">🔒 Fermer la caisse</button>
+    </div>
+    {% endif %}
+</div>
+
+{% if not session_caisse %}
+<div class="card" style="max-width:540px"><div class="card-body">
+    <h3 style="color:#1A7A6D;margin-top:0">Ouvrir une caisse</h3>
+    <p style="font-size:13px;color:#666">Une caisse doit être ouverte avant toute vente.</p>
+    <form method="post" action="/caisse/session/open">
+        <div class="form-group"><label>Caisse *</label>
+            <select name="caisse_id" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px">
+                <option value="">— Choisir une caisse —</option>
+                {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }} (solde {{ c.solde_actuel|int }} FCFA)</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-group"><label>Fond de caisse à l'ouverture (FCFA)</label>
+            <input type="number" name="opening_balance" value="0" step="1" min="0" style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px"></div>
+        <button class="btn btn-primary" type="submit" style="width:100%">🔓 Ouvrir la caisse</button>
+    </form>
+    {% if not caisses %}<p style="color:#c53030;font-size:12px;margin-top:10px">Aucune caisse active. Créez-en une dans la trésorerie (MG / Soldes).</p>{% endif %}
+</div></div>
+{% else %}
+
+<!-- Boîte de fermeture (cachée) -->
+<div id="closeBox" class="card" style="display:none;max-width:520px;margin-bottom:14px;border:2px solid #c53030"><div class="card-body">
+    <h3 style="margin-top:0;color:#c53030">🔒 Fermeture de caisse</h3>
+    <form method="post" action="/caisse/session/close">
+        <div class="form-group"><label>Montant compté en caisse (FCFA)</label>
+            <input type="number" name="closing_balance" value="0" step="1" min="0" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px"></div>
+        <div class="form-group"><label>Notes (facultatif)</label>
+            <input type="text" name="notes" style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px"></div>
+        <div style="display:flex;gap:8px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('closeBox').style.display='none'">Annuler</button>
+            <button class="btn btn-primary" type="submit" style="flex:1;background:#c53030">Confirmer la fermeture</button>
+        </div>
+    </form>
+</div></div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:start">
+    <!-- Catalogue produits -->
+    <div class="card"><div class="card-body">
+        <input type="text" id="search" placeholder="🔍 Rechercher un produit..." onkeyup="renderProducts()"
+            style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px;margin-bottom:12px">
+        <div id="productGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;max-height:60vh;overflow-y:auto"></div>
+    </div></div>
+
+    <!-- Panier -->
+    <div class="card" style="position:sticky;top:10px"><div class="card-body">
+        <h3 style="margin-top:0;color:#1A7A6D">🧺 Panier</h3>
+        <div id="cart" style="max-height:38vh;overflow-y:auto;margin-bottom:10px"></div>
+        <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:800;color:#1A7A6D;border-top:2px solid #eee;padding-top:8px">
+            <span>TOTAL</span><span id="cartTotal">0 FCFA</span>
+        </div>
+        <div class="form-group" style="margin-top:10px"><label>Client (facultatif)</label>
+            <select id="clientSelect" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px">
+                <option value="">Client de passage</option>
+                {% for cl in clients %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-group"><label>Mode de paiement</label>
+            <select id="payMethod" onchange="togglePaid()" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px">
+                {% for k, v in payment_methods.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="form-group" id="paidBox"><label>Montant reçu (espèces)</label>
+            <input type="number" id="amountPaid" step="1" min="0" oninput="renderCart()" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px">
+            <div id="changeLine" style="font-size:13px;color:#2e7d32;margin-top:4px"></div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;font-size:16px;padding:12px" onclick="validerVente()">✅ Valider la vente</button>
+    </div></div>
+</div>
+
+<script>
+const PRODUCTS = {{ products|tojson }};
+let cart = [];
+
+function fmt(n){ return Math.round(n).toLocaleString('fr-FR') + ' FCFA'; }
+
+function renderProducts(){
+    const q = (document.getElementById('search').value||'').toLowerCase();
+    const grid = document.getElementById('productGrid');
+    grid.innerHTML = '';
+    PRODUCTS.filter(p => !q || (p.name||'').toLowerCase().includes(q) || (p.reference||'').toLowerCase().includes(q))
+      .forEach(p => {
+        const d = document.createElement('div');
+        d.style.cssText = 'border:1.5px solid #e0e0e0;border-radius:8px;padding:8px;cursor:pointer;text-align:center;transition:all .1s';
+        d.onmouseover = ()=> d.style.borderColor='#1A7A6D';
+        d.onmouseout = ()=> d.style.borderColor='#e0e0e0';
+        d.onclick = ()=> addToCart(p);
+        d.innerHTML = `<div style="font-weight:600;font-size:12px;line-height:1.3">${p.name}</div>
+            <div style="color:#1A7A6D;font-weight:700;font-size:13px;margin-top:4px">${fmt(p.unit_price)}</div>
+            <div style="color:#888;font-size:10px">stock : ${p.quantity}</div>`;
+        grid.appendChild(d);
+    });
+    if(!grid.children.length) grid.innerHTML = '<div style="color:#888;grid-column:1/-1;text-align:center;padding:20px">Aucun produit</div>';
+}
+
+function addToCart(p){
+    const ex = cart.find(i => i.product_id === p.id);
+    if(ex){ if(ex.quantity < p.quantity) ex.quantity++; else alert('Stock maximum atteint pour '+p.name); }
+    else cart.push({product_id:p.id, name:p.name, unit_price:p.unit_price, quantity:1, stock:p.quantity});
+    renderCart();
+}
+function setQty(pid, q){
+    const it = cart.find(i=>i.product_id===pid); if(!it) return;
+    q = parseInt(q)||0;
+    if(q<=0){ cart = cart.filter(i=>i.product_id!==pid); }
+    else if(q > it.stock){ alert('Stock insuffisant (max '+it.stock+')'); it.quantity = it.stock; }
+    else it.quantity = q;
+    renderCart();
+}
+function cartTotal(){ return cart.reduce((s,i)=> s + i.unit_price*i.quantity, 0); }
+
+function renderCart(){
+    const box = document.getElementById('cart'); box.innerHTML='';
+    cart.forEach(i => {
+        const row = document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #f0f0f0';
+        row.innerHTML = `<div style="flex:1;font-size:12px"><strong>${i.name}</strong><br><span style="color:#888">${fmt(i.unit_price)}</span></div>
+            <input type="number" value="${i.quantity}" min="0" max="${i.stock}" style="width:48px;padding:4px;border:1px solid #ddd;border-radius:5px" onchange="setQty(${i.product_id}, this.value)">
+            <div style="width:80px;text-align:right;font-weight:600;font-size:12px">${fmt(i.unit_price*i.quantity)}</div>
+            <button onclick="setQty(${i.product_id},0)" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:16px">×</button>`;
+        box.appendChild(row);
+    });
+    if(!cart.length) box.innerHTML='<div style="color:#888;text-align:center;padding:16px">Panier vide</div>';
+    const total = cartTotal();
+    document.getElementById('cartTotal').textContent = fmt(total);
+    // rendu monnaie
+    const cl = document.getElementById('changeLine');
+    if(document.getElementById('payMethod').value === 'cash'){
+        const paid = parseFloat(document.getElementById('amountPaid').value)||0;
+        cl.textContent = paid >= total && total>0 ? ('Monnaie à rendre : ' + fmt(paid-total)) : '';
+    } else cl.textContent='';
+}
+function togglePaid(){
+    document.getElementById('paidBox').style.display = document.getElementById('payMethod').value==='cash' ? 'block':'none';
+    renderCart();
+}
+
+let _selling = false;
+async function validerVente(){
+    if(_selling) return;
+    if(!cart.length){ alert('Le panier est vide.'); return; }
+    const method = document.getElementById('payMethod').value;
+    const total = cartTotal();
+    const paid = method==='cash' ? (parseFloat(document.getElementById('amountPaid').value)||0) : total;
+    if(method==='cash' && paid < total){ alert('Montant reçu insuffisant.'); return; }
+    _selling = true;
+    try {
+        const res = await fetch('/ventes/create', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+                items: cart.map(i=>({product_id:i.product_id, quantity:i.quantity})),
+                payment_method: method, amount_paid: paid,
+                client_id: document.getElementById('clientSelect').value || null
+            })
+        });
+        const j = await res.json();
+        if(!j.ok){ alert('❌ ' + (j.error||'Erreur')); _selling=false; return; }
+        // Reçu PDF dans un nouvel onglet + reset
+        window.open(j.receipt_url, '_blank');
+        let msg = '✅ Vente ' + j.reference + ' enregistrée';
+        if(method==='cash' && j.change_due>0) msg += ' — Monnaie : ' + fmt(j.change_due);
+        alert(msg);
+        location.reload();
+    } catch(e){ alert('Erreur réseau : '+e); _selling=false; }
+}
+
+renderProducts(); renderCart(); togglePaid();
+</script>
+{% endif %}
+{% endblock %}

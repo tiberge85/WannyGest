@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block title %}WannyGest - Vente {{ v.reference }}{% endblock %}{% block content %}
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <h1 style="margin:0">🧾 Vente {{ v.reference }}</h1>
+    <div style="display:flex;gap:8px">
+        <a href="/ventes/{{ v.id }}/recu.pdf" target="_blank" class="btn btn-orange btn-sm">📄 Reçu PDF</a>
+        <a href="/caisse/pos" class="btn btn-outline btn-sm">← Caisse</a>
+    </div>
+</div>
+<div class="card" style="max-width:640px"><div class="card-body">
+    <table style="width:100%;font-size:13px">
+        <tr><td style="padding:6px;color:#666">Date</td><td style="padding:6px">{{ v.created_at[:16] if v.created_at else '-' }}</td></tr>
+        <tr><td style="padding:6px;color:#666">Client</td><td style="padding:6px">{{ v.client_name or 'Client de passage' }}</td></tr>
+        <tr><td style="padding:6px;color:#666">Vendeur</td><td style="padding:6px">{{ v.created_by_name or '-' }}</td></tr>
+        <tr><td style="padding:6px;color:#666">Paiement</td><td style="padding:6px">{{ payment_methods.get(v.payment_method, v.payment_method) }}</td></tr>
+        <tr><td style="padding:6px;color:#666">Statut</td><td style="padding:6px">{{ v.status }}</td></tr>
+    </table>
+    <table style="width:100%;font-size:13px;margin-top:12px;border-collapse:collapse">
+        <thead><tr style="background:#1A7A6D;color:#fff"><th style="padding:8px;text-align:left">Produit</th><th style="text-align:center">Qté</th><th style="text-align:right">PU</th><th style="text-align:right;padding-right:8px">Total</th></tr></thead>
+        <tbody>
+        {% for it in items %}
+        <tr style="border-bottom:1px solid #eee"><td style="padding:8px">{{ it.designation }}</td><td style="text-align:center">{{ it.quantity|int }}</td><td style="text-align:right">{{ it.unit_price|int }}</td><td style="text-align:right;padding-right:8px">{{ it.line_total|int }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:800;color:#1A7A6D;border-top:2px solid #eee;padding:10px 8px 0">
+        <span>TOTAL</span><span>{{ v.total_amount|int }} FCFA</span>
+    </div>
+    {% if v.payment_method == 'cash' %}
+    <div style="text-align:right;font-size:12px;color:#666;padding:0 8px">Reçu : {{ v.amount_paid|int }} FCFA · Rendu : {{ v.change_due|int }} FCFA</div>
+    {% endif %}
+</div></div>
+{% endblock %}

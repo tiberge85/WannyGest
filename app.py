@@ -2454,6 +2454,93 @@ CLOSURE_JUSTIFICATION_MOTIFS = {
 }
 
 
+# ════════════════════════════════════════════════════════════════════
+# v159 : MODULE CAISSE / POINT DE VENTE (POS)
+#   Sessions de caisse + ventes + items + paiements.
+#   Réutilise stock_items (produits), stock_movements (décrément stock),
+#   caisses (solde physique) et caisse_operations (traçabilité).
+# ════════════════════════════════════════════════════════════════════
+POS_PAYMENT_METHODS = {
+    'cash':         '💵 Espèces',
+    'mobile_money': '📱 Mobile Money',
+    'carte':        '💳 Carte bancaire',
+}
+try:
+    from models import get_db as _gdb_pos
+    _pos = _gdb_pos()
+    _pos.executescript('''
+        CREATE TABLE IF NOT EXISTS caisse_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            caisse_id INTEGER,
+            user_id INTEGER,
+            user_name TEXT,
+            opening_balance REAL DEFAULT 0,
+            closing_balance REAL,
+            expected_balance REAL,
+            total_ventes REAL DEFAULT 0,
+            nb_ventes INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'ouverte',
+            notes TEXT,
+            opened_at TEXT DEFAULT (datetime('now')),
+            closed_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS ventes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT UNIQUE,
+            caisse_session_id INTEGER,
+            caisse_id INTEGER,
+            client_id INTEGER,
+            client_name TEXT,
+            total_amount REAL NOT NULL DEFAULT 0,
+            payment_method TEXT DEFAULT 'cash',
+            amount_paid REAL DEFAULT 0,
+            change_due REAL DEFAULT 0,
+            status TEXT DEFAULT 'validee',
+            created_by INTEGER,
+            created_by_name TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (caisse_session_id) REFERENCES caisse_sessions(id)
+        );
+        CREATE TABLE IF NOT EXISTS vente_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vente_id INTEGER NOT NULL,
+            product_id INTEGER,
+            designation TEXT,
+            quantity REAL NOT NULL DEFAULT 1,
+            unit_price REAL NOT NULL DEFAULT 0,
+            line_total REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY (vente_id) REFERENCES ventes(id)
+        );
+        CREATE TABLE IF NOT EXISTS paiements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vente_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            method TEXT DEFAULT 'cash',
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (vente_id) REFERENCES ventes(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ventes_session ON ventes(caisse_session_id);
+        CREATE INDEX IF NOT EXISTS idx_vente_items_vente ON vente_items(vente_id);
+        CREATE INDEX IF NOT EXISTS idx_paiements_vente ON paiements(vente_id);
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON caisse_sessions(user_id, status);
+    ''')
+    _pos.commit()
+    _flpos = _pos.execute("SELECT value FROM app_settings WHERE key='v159_pos_perms'").fetchone()
+    if not _flpos:
+        for _r in ('admin', 'caissiere', 'dg', 'directeur', 'comptable', 'comptabilite', 'tresorerie'):
+            try:
+                if not _pos.execute("SELECT 1 FROM permissions WHERE role=? AND permission='pos_vente'", (_r,)).fetchone():
+                    _pos.execute("INSERT INTO permissions (role, permission) VALUES (?, 'pos_vente')", (_r,))
+            except: pass
+        try: _pos.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v159_pos_perms','1',datetime('now'))")
+        except: pass
+        _pos.commit()
+    _pos.close()
+    print("[v159-POS] Tables POS (caisse_sessions/ventes/vente_items/paiements) OK", flush=True)
+except Exception as _e:
+    print(f"[v159-POS] Migration err : {_e}", flush=True)
+
+
 def get_user_pending_tasks(user_id, user_role=None):
     """v139 / v141 / v150 : Récupère toutes les tâches en attente d'un utilisateur selon son rôle.
     v141 : Correction des URL → toutes vérifiées contre les routes réelles.
@@ -33604,3 +33691,313 @@ def stock_category_delete(cid):
     conn.commit(); conn.close()
     flash("Catégorie supprimée","success")
     return redirect('/achats?tab=stock')
+
+
+# ════════════════════════════════════════════════════════════════════
+# v159 : MODULE CAISSE / POINT DE VENTE (POS) — routes & logique métier
+# ════════════════════════════════════════════════════════════════════
+def _pos_active_session(user_id):
+    """Retourne la session de caisse OUVERTE de l'utilisateur, ou None."""
+    try:
+        conn = _gdb()
+        s = conn.execute("SELECT * FROM caisse_sessions WHERE user_id=? AND status='ouverte' ORDER BY id DESC LIMIT 1",
+                         (user_id,)).fetchone()
+        conn.close()
+        return dict(s) if s else None
+    except Exception:
+        return None
+
+
+def _gen_vente_ref():
+    return f"VTE-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+
+
+@app.route('/caisse/pos')
+@permission_required('pos_vente')
+def pos_screen():
+    """Écran principal du point de vente."""
+    user = get_user_by_id(session.get('user_id'))
+    sess = _pos_active_session(user['id']) if user else None
+    conn = _gdb()
+    caisses = [dict(r) for r in conn.execute(
+        "SELECT id, name, solde_actuel FROM caisses WHERE is_active=1 ORDER BY name").fetchall()]
+    products = []
+    clients = []
+    caisse_courante = None
+    if sess:
+        products = [dict(r) for r in conn.execute(
+            "SELECT id, name, reference, quantity, unit_price FROM stock_items WHERE quantity > 0 ORDER BY name").fetchall()]
+        clients = [dict(r) for r in conn.execute(
+            "SELECT id, name FROM clients ORDER BY name").fetchall()]
+        if sess.get('caisse_id'):
+            cc = conn.execute("SELECT name FROM caisses WHERE id=?", (sess['caisse_id'],)).fetchone()
+            caisse_courante = cc['name'] if cc else None
+    conn.close()
+    return render_template('pos.html', page='pos', session_caisse=sess,
+        caisses=caisses, products=products, clients=clients,
+        payment_methods=POS_PAYMENT_METHODS, caisse_courante=caisse_courante)
+
+
+@app.route('/caisse/session/open', methods=['POST'])
+@permission_required('pos_vente')
+def pos_session_open():
+    user = get_user_by_id(session.get('user_id'))
+    if _pos_active_session(user['id']):
+        flash("Vous avez déjà une caisse ouverte.", "error")
+        return redirect('/caisse/pos')
+    try:
+        caisse_id = int(request.form.get('caisse_id') or 0) or None
+    except ValueError:
+        caisse_id = None
+    try:
+        opening = float(request.form.get('opening_balance') or 0)
+    except ValueError:
+        opening = 0
+    if not caisse_id:
+        flash("Sélectionnez une caisse à ouvrir.", "error")
+        return redirect('/caisse/pos')
+    conn = _gdb()
+    conn.execute("""INSERT INTO caisse_sessions (caisse_id, user_id, user_name, opening_balance, status, opened_at)
+        VALUES (?,?,?,?,'ouverte',datetime('now'))""",
+        (caisse_id, user['id'], user['full_name'], opening))
+    conn.commit(); conn.close()
+    log_activity(user['id'], user['full_name'], 'Caisse POS', f"Ouverture caisse (fond {int(opening)} FCFA)", request.remote_addr)
+    flash("✅ Caisse ouverte. Bonnes ventes !", "success")
+    return redirect('/caisse/pos')
+
+
+@app.route('/caisse/session/close', methods=['POST'])
+@permission_required('pos_vente')
+def pos_session_close():
+    user = get_user_by_id(session.get('user_id'))
+    sess = _pos_active_session(user['id'])
+    if not sess:
+        flash("Aucune caisse ouverte.", "error")
+        return redirect('/caisse/pos')
+    try:
+        closing = float(request.form.get('closing_balance') or 0)
+    except ValueError:
+        closing = 0
+    conn = _gdb()
+    # Espèces encaissées pendant la session
+    cash = conn.execute("""SELECT COALESCE(SUM(total_amount),0) AS s FROM ventes
+        WHERE caisse_session_id=? AND status='validee' AND payment_method='cash'""", (sess['id'],)).fetchone()['s']
+    expected = (sess.get('opening_balance') or 0) + (cash or 0)
+    conn.execute("""UPDATE caisse_sessions SET status='fermee', closing_balance=?, expected_balance=?,
+        notes=?, closed_at=datetime('now') WHERE id=?""",
+        (closing, expected, request.form.get('notes',''), sess['id']))
+    conn.commit(); conn.close()
+    ecart = closing - expected
+    log_activity(user['id'], user['full_name'], 'Caisse POS',
+        f"Fermeture caisse — attendu {int(expected)}, compté {int(closing)}, écart {int(ecart)} FCFA", request.remote_addr)
+    flash(f"🔒 Caisse fermée. Attendu : {int(expected)} FCFA · Compté : {int(closing)} FCFA · Écart : {int(ecart)} FCFA", "success")
+    return redirect(f"/caisse/session/{sess['id']}/ventes")
+
+
+@app.route('/ventes/create', methods=['POST'])
+@permission_required('pos_vente')
+def vente_create():
+    """Valide une vente : total auto, items, décrément stock, paiement, crédit caisse."""
+    user = get_user_by_id(session.get('user_id'))
+    sess = _pos_active_session(user['id'])
+    if not sess:
+        return jsonify({'ok': False, 'error': "Aucune caisse ouverte. Ouvrez une caisse avant de vendre."}), 400
+    data = request.get_json(silent=True) or {}
+    raw_items = data.get('items') or []
+    payment_method = data.get('payment_method', 'cash')
+    if payment_method not in POS_PAYMENT_METHODS:
+        return jsonify({'ok': False, 'error': "Mode de paiement invalide."}), 400
+    if not raw_items:
+        return jsonify({'ok': False, 'error': "Le panier est vide."}), 400
+
+    conn = _gdb()
+    try:
+        # Construire les lignes côté serveur (prix/stock depuis la base, pas le client)
+        line_items = []
+        total = 0.0
+        for it in raw_items:
+            pid = int(it.get('product_id'))
+            qty = float(it.get('quantity') or 0)
+            if qty <= 0:
+                continue
+            prod = conn.execute("SELECT id, name, quantity, unit_price FROM stock_items WHERE id=?", (pid,)).fetchone()
+            if not prod:
+                conn.close()
+                return jsonify({'ok': False, 'error': f"Produit introuvable (id {pid})."}), 400
+            if (prod['quantity'] or 0) < qty:
+                conn.close()
+                return jsonify({'ok': False, 'error': f"Stock insuffisant pour « {prod['name']} » (dispo : {prod['quantity']})."}), 400
+            up = float(prod['unit_price'] or 0)
+            lt = up * qty
+            total += lt
+            line_items.append({'product_id': pid, 'designation': prod['name'], 'quantity': qty, 'unit_price': up, 'line_total': lt})
+        if not line_items:
+            conn.close()
+            return jsonify({'ok': False, 'error': "Aucune ligne valide dans le panier."}), 400
+
+        try:
+            amount_paid = float(data.get('amount_paid') or total)
+        except (TypeError, ValueError):
+            amount_paid = total
+        if payment_method == 'cash' and amount_paid < total:
+            conn.close()
+            return jsonify({'ok': False, 'error': f"Montant reçu insuffisant ({int(amount_paid)} < {int(total)} FCFA)."}), 400
+        change_due = (amount_paid - total) if payment_method == 'cash' else 0
+
+        client_id = data.get('client_id') or None
+        client_name = ''
+        if client_id:
+            try:
+                cl = conn.execute("SELECT name FROM clients WHERE id=?", (int(client_id),)).fetchone()
+                client_name = cl['name'] if cl else ''
+            except (TypeError, ValueError):
+                client_id = None
+
+        ref = _gen_vente_ref()
+        cur = conn.execute("""INSERT INTO ventes
+            (reference, caisse_session_id, caisse_id, client_id, client_name, total_amount,
+             payment_method, amount_paid, change_due, status, created_by, created_by_name, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?, 'validee', ?,?, datetime('now'))""",
+            (ref, sess['id'], sess.get('caisse_id'), client_id, client_name, total,
+             payment_method, amount_paid, change_due, user['id'], user['full_name']))
+        vente_id = cur.lastrowid
+
+        for li in line_items:
+            conn.execute("""INSERT INTO vente_items (vente_id, product_id, designation, quantity, unit_price, line_total)
+                VALUES (?,?,?,?,?,?)""",
+                (vente_id, li['product_id'], li['designation'], li['quantity'], li['unit_price'], li['line_total']))
+            # Décrément du stock + mouvement
+            conn.execute("UPDATE stock_items SET quantity = quantity - ? WHERE id=?", (li['quantity'], li['product_id']))
+            conn.execute("""INSERT INTO stock_movements (item_id, movement_type, quantity, unit_price, reference, notes, created_by, created_at)
+                VALUES (?, 'sortie', ?, ?, ?, ?, ?, datetime('now'))""",
+                (li['product_id'], li['quantity'], li['unit_price'], ref, 'Vente POS', user['id']))
+
+        # Paiement
+        conn.execute("INSERT INTO paiements (vente_id, amount, method, created_at) VALUES (?,?,?,datetime('now'))",
+            (vente_id, total, payment_method))
+
+        # Crédit de la caisse physique (espèces uniquement) + traçabilité
+        if sess.get('caisse_id'):
+            if payment_method == 'cash':
+                conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) + ? WHERE id=?", (total, sess['caisse_id']))
+            try:
+                conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by, created_at)
+                    VALUES (?, 'entree', ?, ?, ?, 'vente_pos', ?, datetime('now'))""",
+                    (sess['caisse_id'], total, f"Vente POS {ref}" + (f" — {client_name}" if client_name else ''), ref, user['id']))
+            except Exception:
+                pass
+
+        # Totaux de session
+        conn.execute("UPDATE caisse_sessions SET total_ventes = COALESCE(total_ventes,0) + ?, nb_ventes = COALESCE(nb_ventes,0) + 1 WHERE id=?",
+            (total, sess['id']))
+        conn.commit()
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'ok': False, 'error': f"Erreur lors de l'enregistrement : {e}"}), 500
+    conn.close()
+    log_activity(user['id'], user['full_name'], 'Caisse POS', f"Vente {ref} — {int(total)} FCFA ({payment_method})", request.remote_addr)
+    return jsonify({'ok': True, 'vente_id': vente_id, 'reference': ref, 'total': total,
+                    'change_due': change_due, 'receipt_url': f"/ventes/{vente_id}/recu.pdf"})
+
+
+@app.route('/ventes/<int:vid>')
+@permission_required('pos_vente')
+def vente_detail(vid):
+    conn = _gdb()
+    v = conn.execute("SELECT * FROM ventes WHERE id=?", (vid,)).fetchone()
+    if not v:
+        conn.close(); flash("Vente introuvable", "error"); return redirect('/caisse/pos')
+    v = dict(v)
+    items = [dict(r) for r in conn.execute("SELECT * FROM vente_items WHERE vente_id=? ORDER BY id", (vid,)).fetchall()]
+    conn.close()
+    return render_template('vente_detail.html', page='pos', v=v, items=items,
+        payment_methods=POS_PAYMENT_METHODS)
+
+
+@app.route('/ventes/<int:vid>/recu.pdf')
+@permission_required('pos_vente')
+def vente_recu_pdf(vid):
+    conn = _gdb()
+    v = conn.execute("SELECT * FROM ventes WHERE id=?", (vid,)).fetchone()
+    if not v:
+        conn.close(); flash("Vente introuvable", "error"); return redirect('/caisse/pos')
+    v = dict(v)
+    items = [dict(r) for r in conn.execute("SELECT * FROM vente_items WHERE vente_id=? ORDER BY id", (vid,)).fetchall()]
+    conn.close()
+    dp = get_doc_params()
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas as _canvas
+    import io as _io
+    buf = _io.BytesIO()
+    width = 80 * mm
+    height = (120 + len(items) * 7) * mm
+    c = _canvas.Canvas(buf, pagesize=(width, height))
+    y = height - 10 * mm
+    def line(txt, size=8, bold=False, center=True, dy=4.5):
+        nonlocal y
+        c.setFont('Helvetica-Bold' if bold else 'Helvetica', size)
+        if center:
+            c.drawCentredString(width / 2, y, txt)
+        else:
+            c.drawString(5 * mm, y, txt)
+        y -= dy * mm
+    line(dp.get('societe', 'RAMYA TECHNOLOGIE'), 10, True)
+    if dp.get('adresse'): line(dp.get('adresse'), 6)
+    if dp.get('telephone'): line("Tel : " + dp.get('telephone'), 6)
+    line("-" * 42, 7)
+    line("RECU DE VENTE", 9, True)
+    line(v['reference'], 8)
+    line(v.get('created_at', '')[:16], 7)
+    if v.get('client_name'): line("Client : " + v['client_name'], 7)
+    line("-" * 42, 7)
+    c.setFont('Helvetica', 7)
+    for it in items:
+        c.drawString(5 * mm, y, f"{it['designation'][:24]}")
+        y -= 3.8 * mm
+        c.drawString(7 * mm, y, f"{int(it['quantity'])} x {int(it['unit_price'])}")
+        c.drawRightString(width - 5 * mm, y, f"{int(it['line_total'])}")
+        y -= 4.5 * mm
+    line("-" * 42, 7)
+    c.setFont('Helvetica-Bold', 10)
+    c.drawString(5 * mm, y, "TOTAL")
+    c.drawRightString(width - 5 * mm, y, f"{int(v['total_amount'])} FCFA")
+    y -= 6 * mm
+    line(POS_PAYMENT_METHODS.get(v['payment_method'], v['payment_method']), 8)
+    if v['payment_method'] == 'cash':
+        line(f"Recu : {int(v.get('amount_paid') or 0)} / Rendu : {int(v.get('change_due') or 0)} FCFA", 7)
+    line("-" * 42, 7)
+    line("Merci de votre visite !", 8, True)
+    c.showPage(); c.save()
+    buf.seek(0)
+    return send_file(buf, mimetype='application/pdf', as_attachment=False,
+                     download_name=f"recu_{v['reference']}.pdf")
+
+
+@app.route('/caisse/session/<int:sid>/ventes')
+@permission_required('pos_vente')
+def pos_session_ventes(sid):
+    conn = _gdb()
+    sess = conn.execute("SELECT * FROM caisse_sessions WHERE id=?", (sid,)).fetchone()
+    if not sess:
+        conn.close(); flash("Session introuvable", "error"); return redirect('/caisse/pos')
+    sess = dict(sess)
+    ventes = [dict(r) for r in conn.execute(
+        "SELECT * FROM ventes WHERE caisse_session_id=? ORDER BY id DESC", (sid,)).fetchall()]
+    caisse_name = None
+    if sess.get('caisse_id'):
+        cc = conn.execute("SELECT name FROM caisses WHERE id=?", (sess['caisse_id'],)).fetchone()
+        caisse_name = cc['name'] if cc else None
+    conn.close()
+    return render_template('pos_session_ventes.html', page='pos', sess=sess, ventes=ventes,
+        caisse_name=caisse_name, payment_methods=POS_PAYMENT_METHODS)
+
+
+@app.route('/stock/mouvements')
+@permission_required('pos_vente')
+def stock_mouvements():
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute("""SELECT m.*, i.name AS item_name FROM stock_movements m
+        LEFT JOIN stock_items i ON i.id = m.item_id ORDER BY m.id DESC LIMIT 300""").fetchall()]
+    conn.close()
+    return render_template('stock_mouvements.html', page='pos', mouvements=rows)

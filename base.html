@@ -468,6 +468,19 @@
                 </div>
             </div>
             {% endif %}
+
+            {# v159 : POINT DE VENTE (POS) #}
+            {% if 'pos_vente' in permissions or 'admin' in permissions %}
+            <div class="nav-section" id="sec-pos" {% if user_role == 'caissiere' %}data-primary="true"{% endif %}>
+                <div class="nav-section-title" onclick="toggleSection('sec-pos')" style="background:linear-gradient(135deg,#1A7A6D,#0d5a51);color:#fff">
+                    🛒 POINT DE VENTE <span class="arrow">▼</span>
+                </div>
+                <div class="nav-section-items">
+                    <a href="/caisse/pos" class="{% if page == 'pos' %}active{% endif %}">🛒 Caisse / Ventes</a>
+                    <a href="/stock/mouvements">📦 Mouvements de stock</a>
+                </div>
+            </div>
+            {% endif %}
             
             {# ═══════════════════════════════════════════════════════════════ #}
             {# 💵 TRÉSORERIE : section visible si l'utilisateur a au moins 1 outil complet #}
