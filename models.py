@@ -5625,11 +5625,18 @@ def compta_cloturer_periode(annee, mois, user_id):
         if bad and bad > 0:
             conn.close()
             return False, f"❌ {bad} écriture(s) en brouillard sur cette période. Validez-les ou supprimez-les avant de clôturer."
-        
-        conn.execute("""INSERT INTO compta_periodes (annee, mois, statut, cloture_at, cloture_by)
-            VALUES (?, ?, 'cloturee', ?, ?)
-            ON CONFLICT(annee, mois) DO UPDATE SET statut='cloturee', cloture_at=excluded.cloture_at, cloture_by=excluded.cloture_by""",
-            (annee, mois, _dt.now().isoformat(), user_id))
+
+        # Upsert manuel (sans ON CONFLICT) : robuste même si la contrainte
+        # UNIQUE(annee, mois) est absente sur d'anciennes bases.
+        now = _dt.now().isoformat()
+        existing = conn.execute("SELECT id FROM compta_periodes WHERE annee=? AND mois=?",
+                                (annee, mois)).fetchone()
+        if existing:
+            conn.execute("""UPDATE compta_periodes SET statut='cloturee', cloture_at=?, cloture_by=?
+                WHERE annee=? AND mois=?""", (now, user_id, annee, mois))
+        else:
+            conn.execute("""INSERT INTO compta_periodes (annee, mois, statut, cloture_at, cloture_by)
+                VALUES (?, ?, 'cloturee', ?, ?)""", (annee, mois, now, user_id))
         conn.commit()
         conn.close()
         return True, f"Période {annee}-{mois:02d} clôturée"
