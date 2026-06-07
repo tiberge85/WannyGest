@@ -26,7 +26,17 @@ Veuillez trouver ci-joint le rapport de pointage pour la période {{ job.period 
 Cordialement,
 RAMYA TECHNOLOGIE & INNOVATION</textarea>
             </div>
-            
+
+            <!-- v159 : Montant à facturer -->
+            <div class="form-group" style="background:#f4f9f8;border:1.5px solid #1A7A6D;border-radius:10px;padding:12px 14px">
+                <label style="font-weight:700;color:#1A7A6D">💰 Montant à facturer au client (FCFA)</label>
+                <input type="number" name="montant_facture" step="1" min="0"
+                    value="{% if montant_memo %}{{ montant_memo|int }}{% endif %}"
+                    placeholder="Ex : 350000 — laisser vide pour ne pas facturer"
+                    style="width:100%;padding:9px;border:2px solid #1A7A6D;border-radius:8px;font-weight:700">
+                <div class="hint" style="margin-top:4px">Si renseigné, à l'envoi le rapport part aussi en « Facturation à décider » (le DG valide, la compta édite). Montant mémorisé pour ce client.</div>
+            </div>
+
             <div style="background:#f8faf9;border-radius:10px;padding:16px;margin:16px 0">
                 <h4 style="color:#1a7a6d;margin-bottom:10px;font-size:14px">⚙️ Configuration SMTP</h4>
                 <div class="hint" style="margin-bottom:10px">Paramètres de votre serveur email (Gmail, Outlook, etc.)</div>

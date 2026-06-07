@@ -38,15 +38,19 @@
     </form>
 </div></div>
 
-<div class="card"><div class="card-body" style="padding:0">
-    <div style="padding:12px 16px;font-weight:700;color:#1A7A6D">📋 Rapports envoyés</div>
-{% if rapports %}
+{% if groupes %}
+{% for g in groupes %}
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:0">
+    <div style="padding:12px 16px;font-weight:700;color:#1A7A6D;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;background:#f4f9f8">
+        <span>📅 {{ g.mois }}</span>
+        <span style="font-size:12px;font-weight:600"><span style="color:#5e35b1">⏳ {{ g.nb_attente }} en attente</span> · <span style="color:#2e7d32">✅ {{ g.nb_traites }} traité(s)</span></span>
+    </div>
 <div class="table-wrap"><table style="width:100%;font-size:13px">
 <thead><tr style="background:#1A7A6D;color:#fff">
     <th style="padding:8px;text-align:left">Référence</th><th style="text-align:left">Client</th><th style="text-align:left">Objet</th>
     <th style="text-align:right">Montant</th><th style="text-align:left">État</th><th style="text-align:left">Facture</th>
 </tr></thead><tbody>
-{% for r in rapports %}
+{% for r in g.rapports %}
 <tr style="border-bottom:1px solid #eee">
     <td style="padding:8px;font-weight:600"><a href="/field-reports/{{ r.id }}">{{ r.reference }}</a></td>
     <td style="padding:8px">{{ r.client_name }}</td>
@@ -61,10 +65,11 @@
 </tr>
 {% endfor %}
 </tbody></table></div>
-{% else %}
-<div style="padding:24px;text-align:center;color:#888">Aucun rapport d'heures envoyé</div>
-{% endif %}
 </div></div>
+{% endfor %}
+{% else %}
+<div class="card"><div class="card-body" style="padding:24px;text-align:center;color:#888">Aucun rapport d'heures envoyé</div></div>
+{% endif %}
 
 <script>
 // v159 : pré-remplir le montant mémorisé pour ce client + type

@@ -7306,7 +7306,9 @@ def fichiers_email(job_id):
     # Pré-remplir avec les infos client
     client = get_client_by_id(job['client_id']) if job.get('client_id') else None
     default_email = client['email'] if client and client.get('email') else ''
-    
+    # v159 : montant à facturer mémorisé pour ce client (pré-remplissage)
+    montant_memo = _get_rapport_montant(job.get('client_name', '') or '', "Calcul d'heures")
+
     if request.method == 'POST':
         to_email = request.form.get('to_email', '').strip()
         subject = request.form.get('subject', '').strip()
@@ -7324,7 +7326,7 @@ def fichiers_email(job_id):
             flash("Tous les champs SMTP sont obligatoires", "error")
             smtp = get_smtp_settings(session['user_id'])
             return render_template('email_send.html', page='fichiers', job=job,
-                                 default_email=default_email, smtp=smtp)
+                                 default_email=default_email, smtp=smtp, montant_memo=montant_memo)
         
         # Préparer le fichier PDF
         files_dir = os.path.join(app.config['FILES_FOLDER'], secure_filename(job_id))
@@ -7365,15 +7367,29 @@ def fichiers_email(job_id):
             user = get_user_by_id(session['user_id'])
             log_activity(session['user_id'], user['full_name'] if user else '?',
                         'Email', f"Rapport envoyé par email à {to_email}", request.remote_addr)
-            
-            flash(f"Email envoyé avec succès à {to_email}", "success")
+
+            # v159 : si un montant à facturer est saisi → créer l'entrée « Facturation à décider »
+            fac_ref = None
+            try:
+                montant_fac = float((request.form.get('montant_facture', '') or '0').replace(',', '.').strip() or 0)
+            except ValueError:
+                montant_fac = 0
+            if montant_fac > 0:
+                fac_ref = _creer_rapport_heures_facturation(
+                    user, job.get('client_name', '') or 'Client', job.get('client_id'),
+                    "Calcul d'heures", job.get('period', '') or '', montant_fac)
+
+            if fac_ref:
+                flash(f"Email envoyé à {to_email} · Rapport {fac_ref} envoyé en « Facturation à décider » ({int(montant_fac)} XOF) — le DG valide.", "success")
+            else:
+                flash(f"Email envoyé avec succès à {to_email}", "success")
             return redirect(url_for('fichiers'))
         
         except Exception as e:
             flash(f"Erreur d'envoi : {str(e)}", "error")
     
     smtp = get_smtp_settings(session['user_id'])
-    return render_template('email_send.html', page='fichiers', job=job, default_email=default_email, smtp=smtp)
+    return render_template('email_send.html', page='fichiers', job=job, default_email=default_email, smtp=smtp, montant_memo=montant_memo)
 
 
 # ======================== COMPTABILITÉ ========================
@@ -34057,6 +34073,48 @@ def _remember_rapport_montant(client_name, type_label, montant):
         print(f"[v159-RH] memoire montant err : {_e}", flush=True)
 
 
+def _creer_rapport_heures_facturation(user, client_name, client_id, type_label, periode, montant, notes=''):
+    """v159 : Crée un rapport d'heures facturable (statut executee, montant pré-saisi),
+    le place en « Facturation à décider », mémorise le montant et notifie le DG.
+    Retourne la référence ou None."""
+    if not client_name or not montant or montant <= 0:
+        return None
+    ref = _gen_field_report_ref()
+    description = f"Rapport de calcul d'heures — {type_label}" + (f" — {periode}" if periode else "")
+    if notes:
+        description += f"\n{notes}"
+    conn = _gdb()
+    try:
+        cur = conn.execute("""INSERT INTO field_reports
+            (reference, client_id, client_name, type_info, description, priorite, date_constat,
+             auteur_id, auteur_name, statut, cost_amount, cost_currency,
+             executed_by, executed_at, execution_notes, created_at, updated_at)
+            VALUES (?,?,?, 'rapport_heures', ?, 'moyen', date('now'),
+             ?,?, 'executee', ?, 'XOF', ?, datetime('now'), ?, datetime('now'), datetime('now'))""",
+            (ref, client_id, client_name, description,
+             user['id'], user['full_name'], montant,
+             user['id'], f"Montant à facturer saisi par la RH ({user['full_name']})"))
+        rid = cur.lastrowid
+        conn.commit(); conn.close()
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        print(f"[v159-RH] creation facturation err : {e}", flush=True)
+        return None
+    try: _field_report_log(rid, 'Rapport heures envoyé', f"Montant à facturer : {int(montant)} XOF — {type_label}")
+    except Exception: pass
+    _remember_rapport_montant(client_name, type_label, montant)
+    try:
+        notify_roles(['dg', 'directeur', 'rh', 'directrice_rh', 'admin'],
+            title=f"💰 VALIDATION FACTURATION — Rapport d'heures {ref}",
+            message=f"Rapport d'heures à facturer pour {client_name} : {int(montant)} XOF. "
+                    f"À valider dans « Facturation à décider » (le montant est déjà saisi).",
+            link='/decisions/facturation',
+            type='warning', module='factures', icon='💰', priority='high', force=True)
+    except Exception: pass
+    return ref
+
+
 @app.route('/rapports-heures/montant')
 @permission_required_any('traitement', 'admin')
 def rapports_heures_montant():
@@ -34078,8 +34136,28 @@ def rapports_heures_list():
         ORDER BY fr.id DESC LIMIT 200""").fetchall()]
     clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
     conn.close()
+
+    # v159 : regrouper par mois (en attente + envoyés ensemble), ordre décroissant
+    _MOIS_FR = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet',
+                'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+    from collections import OrderedDict as _OD
+    _groups = _OD()
+    for r in rows:
+        ym = (r.get('created_at') or '')[:7]
+        _groups.setdefault(ym, []).append(r)
+    groupes = []
+    for ym, lst in _groups.items():
+        try:
+            y, m = ym.split('-'); label = f"{_MOIS_FR[int(m)]} {y}"
+        except Exception:
+            label = ym or 'Sans date'
+        en_attente = [x for x in lst if x.get('facturable') is None]
+        traites = [x for x in lst if x.get('facturable') is not None]
+        groupes.append({'mois': label, 'rapports': lst,
+                        'nb_attente': len(en_attente), 'nb_traites': len(traites)})
+
     return render_template('rapports_heures.html', page='rapports_heures',
-        rapports=rows, clients=clients,
+        rapports=rows, groupes=groupes, clients=clients,
         recovery_status=FACTURATION_RECOVERY_STATUS)
 
 
