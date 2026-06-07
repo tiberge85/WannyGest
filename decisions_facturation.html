@@ -78,6 +78,9 @@
                 {% elif it.facturable == 0 %}
                 <span style="background:#fde8e8;color:#c53030;padding:4px 10px;border-radius:6px;font-weight:700">❌ Non facturable</span>
                 <div style="font-size:10px;color:#888;margin-top:3px">Décidé par {{ it.decided_by_name or '?' }} · {{ it.facturation_decided_at[:16] if it.facturation_decided_at else '' }}</div>
+                {% elif it.cost_amount %}
+                <div style="font-size:18px;font-weight:700;color:#5e35b1">💰 {{ '{:,.0f}'.format(it.cost_amount or 0) }} XOF</div>
+                <div style="font-size:10px;color:#5e35b1">Montant proposé par la RH</div>
                 {% endif %}
             </div>
         </div>
