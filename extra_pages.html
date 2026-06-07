@@ -8218,12 +8218,20 @@ function updateSel(){
     <td style="font-size:10px">{{ p.cloture_at[:16] if p.cloture_at else '—' }}</td>
     <td>
     {% if p.statut == 'ouverte' %}
+        {% if p.nb_brouillard %}
+        <a href="/compta-pro/ecritures?statut=brouillard&from={{ p.annee }}-{{ '%02d'|format(p.mois) }}-01&to={{ p.annee }}-{{ '%02d'|format(p.mois) }}-31"
+           class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:10px;border:1px solid #f29f2f"
+           title="Validez ou supprimez les écritures en brouillard pour pouvoir clôturer">
+           ⚠️ {{ p.nb_brouillard }} brouillard(s) à valider →
+        </a>
+        {% else %}
         <form method="post" style="display:inline" onsubmit="return confirm('Clôturer la période {{ p.annee }}-{{ '%02d'|format(p.mois) }} ? Les écritures ne pourront plus être ajoutées.')">
             <input type="hidden" name="action" value="cloturer">
             <input type="hidden" name="annee" value="{{ p.annee }}">
             <input type="hidden" name="mois" value="{{ p.mois }}">
-            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px" {% if p.nb_brouillard %}disabled title="Validez les brouillards d'abord"{% endif %}>🔒 Clôturer</button>
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px">🔒 Clôturer</button>
         </form>
+        {% endif %}
     {% else %}
         <form method="post" style="display:inline" onsubmit="return confirm('Ré-ouvrir la période {{ p.annee }}-{{ '%02d'|format(p.mois) }} ?')">
             <input type="hidden" name="action" value="rouvrir">
