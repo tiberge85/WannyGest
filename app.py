@@ -4076,7 +4076,7 @@ def inject_globals():
                     if user['role'] in ('admin','dg','directeur','rh','directrice_rh'):
                         ctx['decisions_facturation_pending'] = _nc.execute(
                             "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
-                            "AND facturable IS NULL AND linked_intervention_id IS NOT NULL"
+                            "AND facturable IS NULL AND (linked_intervention_id IS NOT NULL OR type_info='rapport_heures')"
                         ).fetchone()[0]
                     else: ctx['decisions_facturation_pending'] = 0
                 except: ctx['decisions_facturation_pending'] = 0
@@ -4092,13 +4092,24 @@ def inject_globals():
                         ctx['transferts_pending'] = nb_vir + nb_ov
                     else: ctx['transferts_pending'] = 0
                 except: ctx['transferts_pending'] = 0
+                # v159 : compteurs recouvrement + paiements à valider
+                try:
+                    ctx['recouvrement_pending'] = _nc.execute(
+                        "SELECT COUNT(*) FROM field_report_invoices WHERE status='facture_editee'").fetchone()[0]
+                except: ctx['recouvrement_pending'] = 0
+                try:
+                    ctx['paiements_a_valider_pending'] = _nc.execute(
+                        "SELECT COUNT(*) FROM field_report_invoices WHERE status='caisse_choisie'").fetchone()[0]
+                except: ctx['paiements_a_valider_pending'] = 0
                 _nc.close()
-            except: 
+            except:
                 ctx['notif_count'] = 0
                 ctx['nouveau_projet_count'] = 0
                 ctx['closure_pending'] = False
                 ctx['decisions_facturation_pending'] = 0
                 ctx['transferts_pending'] = 0
+                ctx['recouvrement_pending'] = 0
+                ctx['paiements_a_valider_pending'] = 0
             if 'fichiers' in perms or 'admin' in perms:
                 try:
                     from models import get_db as _gdb_abs

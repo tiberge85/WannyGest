@@ -452,7 +452,7 @@
                     📤 RECOUVREMENT <span class="arrow">▼</span>
                 </div>
                 <div class="nav-section-items">
-                    <a href="/recouvrement" class="{% if page == 'recouvrement' %}active{% endif %}">📋 Factures à recouvrer</a>
+                    <a href="/recouvrement" class="{% if page == 'recouvrement' %}active{% endif %}" style="position:relative">📋 Factures à recouvrer{% if recouvrement_pending and recouvrement_pending > 0 %} <span class="badge" style="background:#c53030;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ recouvrement_pending }}</span>{% endif %}</a>
                 </div>
             </div>
             {% endif %}
@@ -464,7 +464,7 @@
                     💵 CAISSIÈRE <span class="arrow">▼</span>
                 </div>
                 <div class="nav-section-items">
-                    <a href="/caissiere/paiements" class="{% if page == 'caissiere_paiements' %}active{% endif %}">💵 Paiements à valider</a>
+                    <a href="/caissiere/paiements" class="{% if page == 'caissiere_paiements' %}active{% endif %}" style="position:relative">💵 Paiements à valider{% if paiements_a_valider_pending and paiements_a_valider_pending > 0 %} <span class="badge" style="background:#c53030;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ paiements_a_valider_pending }}</span>{% endif %}</a>
                 </div>
             </div>
             {% endif %}
