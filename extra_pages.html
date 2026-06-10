@@ -819,7 +819,7 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
             <div style="display:flex;gap:4px;flex-wrap:wrap">
                 <a href="/interventions/{{ i.id }}/fiche" class="btn btn-outline btn-sm" style="font-size:9px" target="_blank">📄 Fiche</a>
                 {% if i.status=='planifiee' %}<a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px">▶ Démarrer</a>{% endif %}
-                {% if i.status=='travaux_termines' %}<a href="/interventions/{{ i.id }}/status/controle_qualite" class="btn btn-sm" style="background:#7b1fa2;color:#fff;font-size:9px">🔍 CQ</a>{% endif %}
+                {% if i.status=='travaux_termines' and (i.type or '')|lower|trim in ('installation','projet','projet_neuf','projet neuf','travaux_neufs') %}<a href="/interventions/{{ i.id }}/status/controle_qualite" class="btn btn-sm" style="background:#7b1fa2;color:#fff;font-size:9px">🔍 CQ</a>{% endif %}
                 {% if i.status=='controle_qualite' %}<a href="/interventions/{{ i.id }}/status/livre" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">📦 Livrer</a>{% endif %}
             </div>
         </div>
@@ -7072,7 +7072,11 @@ function showTab(id){
             <div class="form-group"><label>Main d'œuvre (F)</label><input type="number" name="labor_cost" step="1" min="0" value="0"></div>
         </div>
         <button type="submit" class="btn btn-sm" style="background:#e8672a;color:#fff">🏗️ Travaux terminés — Soumettre</button>
-        <div style="font-size:9px;color:#888;margin-top:4px">Le client devra valider avant le contrôle qualité</div>
+        {% if (i.type or '')|lower|trim in ('installation','projet','projet_neuf','projet neuf','travaux_neufs') %}
+        <div style="font-size:9px;color:#888;margin-top:4px">Projet neuf : passe en contrôle qualité avant la livraison</div>
+        {% else %}
+        <div style="font-size:9px;color:#888;margin-top:4px">Entretien/dépannage : l'intervention sera clôturée directement (pas de contrôle qualité)</div>
+        {% endif %}
     </form></details>
 </div>
 {% endfor %}

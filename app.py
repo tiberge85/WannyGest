@@ -2371,6 +2371,50 @@ try:
 except Exception as _e: print(f"[v157-Fourn] Err : {_e}", flush=True)
 
 
+# v160 : Débloquer les interventions entretien/dépannage coincées en 'travaux_termines'.
+# Avant ce correctif, le formulaire "Rapport de clôture" mettait TOUJOURS 'travaux_termines',
+# même pour les types sans contrôle qualité → elles ne quittaient jamais l'onglet "En cours".
+try:
+    from models import get_db as _gdb_v160
+    _v160 = _gdb_v160()
+    fl_v160 = _v160.execute("SELECT value FROM app_settings WHERE key='v160_unstick_interventions'").fetchone()
+    if not fl_v160:
+        _v160.execute("""
+            UPDATE interventions
+            SET status='livre',
+                end_date=COALESCE(end_date, date('now')),
+                delivered_at=COALESCE(delivered_at, datetime('now'))
+            WHERE status='travaux_termines'
+              AND LOWER(TRIM(COALESCE(type,''))) NOT IN
+                  ('installation','projet','projet_neuf','projet neuf','travaux_neufs')
+        """)
+        _v160.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v160_unstick_interventions', '1', datetime('now'))")
+        _v160.commit()
+        print("[v160-Unstick] Interventions entretien/dépannage débloquées (travaux_termines → livre)", flush=True)
+    _v160.close()
+except Exception as _e: print(f"[v160-Unstick] Err : {_e}", flush=True)
+
+
+# v160 : Colonnes de liaison trésorerie sur les demandes MG.
+# À la validation Comptabilité, le portefeuille fournisseur (caisse OU compte bancaire)
+# choisi est débité du montant de la demande.
+try:
+    from models import get_db as _gdb_v160t
+    _v160t = _gdb_v160t()
+    for _col in ["tresorerie_type TEXT",          # 'caisse' ou 'banque'
+                 "tresorerie_caisse_id INTEGER",
+                 "tresorerie_banque_id INTEGER",
+                 "tresorerie_montant REAL",
+                 "tresorerie_debited INTEGER DEFAULT 0",
+                 "tresorerie_debited_at TEXT"]:
+        try: _v160t.execute(f"ALTER TABLE achats_demandes ADD COLUMN {_col}")
+        except: pass
+    _v160t.commit()
+    _v160t.close()
+    print("[v160-MGTreso] Colonnes trésorerie ajoutées sur achats_demandes", flush=True)
+except Exception as _e: print(f"[v160-MGTreso] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -2578,9 +2622,13 @@ def get_user_pending_tasks(user_id, user_role=None):
     try:
         # 1. Interventions assignées non clôturées
         try:
+            # v160 : statuts terminaux RÉELS de l'app = 'livre','terminee' (+ legacy).
+            # Avant, 'livre'/'terminee' n'étaient pas exclus → une intervention livrée
+            # comptait à vie comme tâche en attente et bloquait la clôture de journée.
             rows = conn.execute("""SELECT id, reference, type, status, scheduled_date, client_name
-                FROM interventions 
-                WHERE technician_id=? AND status NOT IN ('cloturee','annulee','close','termine')
+                FROM interventions
+                WHERE technician_id=? AND status NOT IN
+                    ('cloturee','annulee','close','termine','terminee','livre','reporte')
                 ORDER BY scheduled_date, id LIMIT 50""", (user_id,)).fetchall()
             for r in rows:
                 result['interventions'].append({
@@ -3625,6 +3673,7 @@ PERM_CATEGORIES = {
         ('pointage_force_via_closure', 'Pointage départ obligatoire via la clôture journalière (impossible en direct si tâches en attente)'),
         ('pointage_auto_logout_closure', 'Déconnexion automatique après clôture si pointage départ accepté'),
         ('closure_choose_departure', 'Lors de la clôture, choisir si on pointe le départ ou si on continue la session'),
+        ('pointage_no_zone_restriction', 'Pointer de n\'importe où (sans restriction de zone GPS) — sinon limité aux zones autorisées'),
     ],
     
     '💰 Workflow Facturation (v142-v147)': [
@@ -12378,7 +12427,16 @@ def intervention_quality(iid):
     inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
     if not inter: flash("Intervention introuvable","error"); conn.close(); return redirect('/interventions')
     inter = dict(inter)
-    
+
+    # v160 : Le contrôle qualité est réservé aux NOUVEAUX PROJETS uniquement.
+    # Entretien/dépannage sont clôturés directement, sans CQ.
+    _cq_type = (inter.get('type') or '').lower().strip()
+    if _cq_type not in ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs'):
+        conn.close()
+        flash("❌ Le contrôle qualité ne concerne que les nouveaux projets/installations — "
+              "les interventions d'entretien et de dépannage sont clôturées directement.", "error")
+        return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
     # Save quality photos
     img_names = []
     files = request.files.getlist('photos')
@@ -14630,7 +14688,21 @@ def _timeline_add(conn, iid, step, title, description, actor_id=None, actor_name
 def intervention_status(iid, status):
     valid = ('planifiee','en_cours','travaux_termines','controle_qualite','livre','annulee')
     if status not in valid: flash("Statut invalide","error"); return redirect('/interventions')
-    
+
+    # v160 : le statut 'controle_qualite' est réservé aux nouveaux projets/installations
+    if status == 'controle_qualite':
+        _ctyp = ''
+        try:
+            _cr = _gdb()
+            _crow = _cr.execute("SELECT type FROM interventions WHERE id=?", (iid,)).fetchone()
+            _ctyp = ((_crow['type'] if _crow else '') or '').lower().strip()
+            _cr.close()
+        except: pass
+        if _ctyp not in ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs'):
+            flash("❌ Seuls les nouveaux projets/installations passent en contrôle qualité — "
+                  "entretien et dépannage sont clôturés directement.", "error")
+            return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
     # v158 : Pour terminer (travaux_termines / livre), commentaire OBLIGATOIRE
     if status in ('travaux_termines', 'livre'):
         commentaire = (request.form.get('commentaire','') or request.args.get('commentaire','') or '').strip()
@@ -14745,23 +14817,69 @@ def intervention_rapport(iid):
     conn = _gdb()
     material_cost = float(request.form.get('material_cost',0) or 0)
     labor_cost = float(request.form.get('labor_cost',0) or 0)
-    conn.execute("""UPDATE interventions SET rapport=?, material_used=?, material_cost=?, 
-        labor_cost=?, total_cost=?, duration_hours=?, status='travaux_termines',
-        end_work_at=datetime('now') WHERE id=?""",
-        (rapport, request.form.get('material_used',''),
-         material_cost, labor_cost, material_cost + labor_cost,
-         float(request.form.get('duration_hours',0) or 0), iid))
-    
-    # Notify coordinator + client
+    duration_hours = float(request.form.get('duration_hours',0) or 0)
+    material_used = request.form.get('material_used','')
+
     inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
-    if inter:
-        for u in conn.execute("SELECT id FROM users WHERE role IN ('admin','resp_projet') AND is_active=1").fetchall():
+    if not inter:
+        conn.close(); flash("Intervention introuvable", "error"); return redirect('/interventions/tech')
+    inter = dict(inter)
+    user = get_user_by_id(session['user_id'])
+    actor_name = user['full_name'] if user else '?'
+    actor_role = user['role'] if user else ''
+
+    # v160 : même logique que intervention_status — bifurcation selon le type
+    # Entretien/dépannage : pas de CQ → directement 'livre' (sort de "En cours")
+    # Projet neuf/installation : 'travaux_termines' → attente contrôle qualité
+    inter_type = (inter.get('type') or '').lower().strip()
+    is_projet_neuf = inter_type in ('installation', 'projet', 'projet_neuf', 'projet neuf', 'travaux_neufs')
+    new_status = 'travaux_termines' if is_projet_neuf else 'livre'
+
+    conn.execute("""UPDATE interventions SET rapport=?, material_used=?, material_cost=?,
+        labor_cost=?, total_cost=?, duration_hours=?, status=?,
+        end_work_at=datetime('now'), end_work_by=? WHERE id=?""",
+        (rapport, material_used, material_cost, labor_cost,
+         material_cost + labor_cost, duration_hours, new_status,
+         session['user_id'], iid))
+
+    if not is_projet_neuf:
+        # Clôture directe : pas de contrôle qualité pour entretien/dépannage
+        conn.execute("""UPDATE interventions SET end_date=?, delivered_at=datetime('now')
+            WHERE id=?""", (datetime.now().strftime('%Y-%m-%d'), iid))
+        _timeline_add(conn, iid, 'delivered', "✅ Intervention terminée",
+            f"{actor_name} a clôturé l'intervention {inter_type or 'entretien/dépannage'} — pas de contrôle qualité requis pour ce type",
+            session['user_id'], actor_name, actor_role)
+        _notify_client(conn, iid, f"✅ Intervention terminée — {inter['reference']}",
+            f"L'intervention « {inter['title']} » est terminée. Merci pour votre confiance.")
+        if inter.get('is_billable') and (material_cost + labor_cost) > 0:
+            try:
+                auto_ecriture(conn, datetime.now().strftime('%Y-%m-%d'),
+                    f"Intervention {inter['reference']} — {inter['client_name']}",
+                    '411', '706', material_cost + labor_cost, inter['reference'])
+            except: pass
+        if inter.get('task_id'):
+            try: conn.execute("UPDATE tasks SET status='terminee' WHERE id=?", (inter['task_id'],))
+            except: pass
+        flash("Rapport final soumis — Intervention terminée ✅", "success")
+    else:
+        # Projet neuf : notifier l'équipe CQ
+        _timeline_add(conn, iid, 'end_work', "🏗️ Travaux terminés par le technicien",
+            f"{actor_name} a déclaré les travaux terminés — en attente de contrôle qualité",
+            session['user_id'], actor_name, actor_role)
+        for u in conn.execute(
+            "SELECT id FROM users WHERE role IN ('admin','dg','resp_projet','coordinateur') AND is_active=1").fetchall():
             conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
-                (u['id'], 'intervention', f"🏗️ Travaux terminés — {inter['client_name']}",
-                 f"{inter['reference']}: En attente validation client puis contrôle qualité", f"/interventions/{iid}/fiche"))
-    
+                (u['id'], 'intervention', f"🔍 Contrôle qualité à réaliser — {inter['reference']}",
+                 f"Le technicien {actor_name} a terminé {inter['title']} chez {inter['client_name']}. Effectuer le CQ.",
+                 f"/gestion-projets/controle-qualite"))
+        _notify_client(conn, iid, f"🏗️ Travaux terminés — {inter['reference']}",
+            f"Les travaux « {inter['title']} » sont terminés. Nos équipes procèdent au contrôle qualité avant la livraison.")
+        flash("Rapport final soumis — En attente de contrôle qualité", "success")
+
     conn.commit(); conn.close()
-    flash("Rapport final soumis — En attente de validation client", "success")
+    # v131 : synchroniser le statut de la remontée liée
+    try: _sync_remontee_status_from_intervention(iid)
+    except: pass
     return redirect('/interventions/tech')
 
 
@@ -24904,11 +25022,21 @@ def pointage_action():
     #                       Départ = libre (peut être sur chantier)
     #   - Autres rôles : zone obligatoire si configurée (comportement v149)
     user_pt = get_user_by_id(uid)
-    is_technical = (user_pt and user_pt['role'] in 
+    is_technical = (user_pt and user_pt['role'] in
         ('technicien','tech_chef','chef_chantier','centre_technique','informatique'))
-    
+
+    # v160 : permission 'pointage_no_zone_restriction' → pointer de n'importe où, sans contrôle de zone
+    try:
+        _perms_zone = get_role_permissions(user_pt['role']) if user_pt else []
+    except: _perms_zone = []
+    no_zone_restriction = 'pointage_no_zone_restriction' in _perms_zone
+
+    if no_zone_restriction:
+        # Autorisé à pointer partout — on enregistre la zone si on y est, sinon mention déplacement
+        in_zone, zone_name = is_in_authorized_zone(lat_f, lng_f)
+        location_address = zone_name or 'Hors zone (autorisé partout)'
     # Pour le départ de l'équipe technique : ne pas exiger la zone (peut être sur chantier)
-    if is_technical and type_action == 'depart':
+    elif is_technical and type_action == 'depart':
         in_zone, zone_name = is_in_authorized_zone(lat_f, lng_f)
         location_address = zone_name or 'Hors zone (chantier/déplacement)'
         # Pas de blocage — on accepte le pointage hors zone pour les techniciens en départ
@@ -30949,6 +31077,44 @@ def compta_demandes_mg():
         solde_caisse=solde_caisse)
 
 
+def _fournisseur_wallets(conn):
+    """v160 : Retourne (caisses_fourn, banques_fourn) — mêmes critères que /mg/soldes.
+    Solde caisse = solde_initial + Σ entrées - Σ sorties (validées + comptabilisées).
+    Solde banque = solde_actuel. Chaque dict porte une clé 'solde' (float)."""
+    keywords = ['fournisseur', 'fourn', 'supplier', 'achats', 'achat',
+                'bdu', 'banque dépôt', 'banque depot', 'compte fournisseur']
+    like_c = " OR ".join([f"LOWER(name) LIKE '%{k}%' OR LOWER(COALESCE(description,'')) LIKE '%{k}%'" for k in keywords])
+    like_b = " OR ".join([f"LOWER(nom) LIKE '%{k}%' OR LOWER(COALESCE(banque,'')) LIKE '%{k}%'" for k in keywords])
+    caisses = []
+    try:
+        caisses = [dict(r) for r in conn.execute(f"""
+            SELECT id, name, COALESCE(solde_initial,0) AS solde_initial, COALESCE(solde_actuel,0) AS solde_actuel
+            FROM caisses
+            WHERE COALESCE(is_active,1)=1
+              AND (is_fournisseur=1 OR (is_fournisseur IS NULL AND ({like_c})))
+            ORDER BY is_fournisseur DESC, name""").fetchall()]
+        for c in caisses:
+            try:
+                e = conn.execute("SELECT COALESCE(SUM(montant),0) FROM caisse_entrees WHERE caisse_id=?",
+                                 (c['id'],)).fetchone()[0] or 0
+                s = conn.execute("SELECT COALESCE(SUM(montant),0) FROM caisse_sorties WHERE caisse_id=? AND status='valide' AND comptabilise=1",
+                                 (c['id'],)).fetchone()[0] or 0
+                c['solde'] = float(c['solde_initial']) + float(e) - float(s)
+            except:
+                c['solde'] = float(c.get('solde_actuel', 0) or 0)
+    except: caisses = []
+    banques = []
+    try:
+        banques = [dict(r) for r in conn.execute(f"""
+            SELECT id, nom, banque, numero_compte, COALESCE(solde_actuel,0) AS solde
+            FROM tresorerie_comptes_bancaires
+            WHERE COALESCE(is_active,1)=1
+              AND (is_fournisseur=1 OR (is_fournisseur IS NULL AND ({like_b})))
+            ORDER BY is_fournisseur DESC, nom""").fetchall()]
+    except: banques = []
+    return caisses, banques
+
+
 @app.route('/comptabilite/demandes-mg/<int:did>/preview')
 @permission_required_any('mg_compta_validate', 'admin')
 def compta_demande_mg_preview(did):
@@ -30956,7 +31122,7 @@ def compta_demande_mg_preview(did):
     conn = _gdb()
     row = conn.execute("""SELECT d.*, u.username as requester_name, u.full_name as requester_full,
         u2.full_name as approved_by_name
-        FROM achats_demandes d 
+        FROM achats_demandes d
         LEFT JOIN users u ON d.requested_by = u.id
         LEFT JOIN users u2 ON d.approved_by = u2.id
         WHERE d.id=?""", (did,)).fetchone()
@@ -30965,69 +31131,153 @@ def compta_demande_mg_preview(did):
         flash("Demande introuvable", "error")
         return redirect('/comptabilite/demandes-mg')
     demande = dict(row)
-    
+
     # Récupérer les items
-    items = [dict(r) for r in conn.execute("""SELECT * FROM achats_demande_items 
+    items = [dict(r) for r in conn.execute("""SELECT * FROM achats_demande_items
         WHERE demande_id=? ORDER BY id""", (did,)).fetchall()]
     total_items = sum((it.get('quantity') or 0) * (it.get('estimated_price') or 0) for it in items)
-    
+
+    # v160 : portefeuilles fournisseur sélectionnables pour le débit à la validation
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+
     conn.close()
-    
+
     # v107 + v115 : Solde caisse pour aide à la décision (calcul UNIFIÉ)
     solde_caisse = 0
     try:
         solde_caisse = get_caisse_fonctionnement_solde()
     except: pass
-    
+
     return render_template('compta_demande_mg_preview.html', page='compta_demandes_mg',
         demande=demande, items=items, total_items=total_items,
-        solde_caisse=solde_caisse)
+        solde_caisse=solde_caisse,
+        caisses_fourn=caisses_fourn, banques_fourn=banques_fourn)
 
 
 @app.route('/comptabilite/demandes-mg/<int:did>/decision', methods=['POST'])
 @permission_required_any('mg_compta_validate', 'admin')
 def compta_demande_mg_decision(did):
-    """Valider ou refuser la demande côté Comptabilité."""
+    """Valider ou refuser la demande côté Comptabilité.
+    v160 : à la validation, débite le portefeuille fournisseur choisi (caisse OU compte bancaire)."""
     action = request.form.get('action', '').strip()
     notes = request.form.get('notes', '').strip()
     motif = request.form.get('motif_refus', '').strip()
-    
+    tresorerie_type = (request.form.get('tresorerie_type', '') or '').strip()  # 'caisse' / 'banque'
+
     if action not in ('validee', 'refusee'):
         flash("Action invalide", "error")
         return redirect('/comptabilite/demandes-mg')
-    
+
     # v107 : motif obligatoire en cas de refus
     if action == 'refusee' and not motif:
         flash("⚠️ Le motif est obligatoire en cas de refus", "error")
         return redirect(f'/comptabilite/demandes-mg/{did}/preview')
-    
+
     user = get_user_by_id(session.get('user_id'))
+    user_name = user['full_name'] if user else 'Comptable'
     try:
         conn = _gdb()
-        row = conn.execute("SELECT id, reference, requested_by FROM achats_demandes WHERE id=?", (did,)).fetchone()
+        row = conn.execute("""SELECT id, reference, requested_by, compta_montant_estime,
+            COALESCE(tresorerie_debited,0) AS tresorerie_debited
+            FROM achats_demandes WHERE id=?""", (did,)).fetchone()
         if not row:
             conn.close()
             flash("Demande introuvable", "error")
             return redirect('/comptabilite/demandes-mg')
-        conn.execute("""UPDATE achats_demandes SET 
+        row = dict(row)
+
+        # v160 : déterminer le montant à débiter (estimé compta, sinon somme des items)
+        montant = float(row.get('compta_montant_estime') or 0)
+        if montant <= 0:
+            try:
+                montant = float(conn.execute(
+                    "SELECT COALESCE(SUM(quantity*COALESCE(estimated_price,0)),0) FROM achats_demande_items WHERE demande_id=?",
+                    (did,)).fetchone()[0] or 0)
+            except: montant = 0
+
+        # v160 : si validation → exiger et débiter un portefeuille fournisseur
+        debit_msg = ""
+        if action == 'validee':
+            already_debited = int(row.get('tresorerie_debited') or 0) == 1
+            if not already_debited:
+                caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+                if tresorerie_type == 'caisse':
+                    cid = request.form.get('tresorerie_caisse_id', '')
+                    cid = int(cid) if str(cid).isdigit() else 0
+                    target = next((c for c in caisses_fourn if c['id'] == cid), None)
+                    if not target:
+                        conn.close()
+                        flash("⚠️ Sélectionnez une caisse fournisseur valide à débiter.", "error")
+                        return redirect(f'/comptabilite/demandes-mg/{did}/preview')
+                    if montant > 0:
+                        # Décaissement validé + comptabilisé (cohérent avec /mg/soldes)
+                        try:
+                            ref_s = gen_caisse_ref()
+                        except: ref_s = f"MG{did}"
+                        conn.execute("""INSERT INTO caisse_sorties
+                            (reference, date, beneficiaire, type_beneficiaire, montant, nature, motif,
+                             status, valideur_id, valideur_name, validated_at,
+                             comptabilise, comptabilise_at, comptabilise_par, caisse_id, demandeur_id, demandeur_name, notes)
+                            VALUES (?,?,?,?,?,?,?,'valide',?,?,datetime('now'),1,datetime('now'),?,?,?,?,?)""",
+                            (ref_s, datetime.now().strftime('%Y-%m-%d'),
+                             "Fournisseur (demande MG)", 'fournisseur', montant, 'espece',
+                             f"Demande MG {row['reference']}",
+                             session.get('user_id'), user_name, user_name,
+                             cid, row.get('requested_by'), user_name,
+                             f"Débit automatique validation demande MG {row['reference']}"))
+                        conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
+                                     (montant, cid))
+                        debit_msg = f" — {montant:,.0f} XOF débités de la caisse « {target['name']} »"
+                    conn.execute("""UPDATE achats_demandes SET tresorerie_type='caisse',
+                        tresorerie_caisse_id=?, tresorerie_banque_id=NULL, tresorerie_montant=?,
+                        tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
+                        (cid, montant, did))
+                elif tresorerie_type == 'banque':
+                    bid = request.form.get('tresorerie_banque_id', '')
+                    bid = int(bid) if str(bid).isdigit() else 0
+                    target = next((b for b in banques_fourn if b['id'] == bid), None)
+                    if not target:
+                        conn.close()
+                        flash("⚠️ Sélectionnez un compte bancaire fournisseur valide à débiter.", "error")
+                        return redirect(f'/comptabilite/demandes-mg/{did}/preview')
+                    if montant > 0:
+                        conn.execute("UPDATE tresorerie_comptes_bancaires SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
+                                     (montant, bid))
+                        try:
+                            conn.execute("""INSERT INTO tresorerie_mouvements
+                                (type, sens, source, source_id, date, montant, libelle, reference, banque_id, created_by)
+                                VALUES ('decaissement','sortie','demande_mg',?,?,?,?,?,?,?)""",
+                                (did, datetime.now().strftime('%Y-%m-%d'), montant,
+                                 f"Demande MG {row['reference']}", row['reference'], bid, session.get('user_id')))
+                        except: pass
+                        debit_msg = f" — {montant:,.0f} XOF débités du compte « {target['nom']} »"
+                    conn.execute("""UPDATE achats_demandes SET tresorerie_type='banque',
+                        tresorerie_banque_id=?, tresorerie_caisse_id=NULL, tresorerie_montant=?,
+                        tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
+                        (bid, montant, did))
+                else:
+                    conn.close()
+                    flash("⚠️ Choisissez le portefeuille fournisseur à débiter (caisse ou compte bancaire) pour valider.", "error")
+                    return redirect(f'/comptabilite/demandes-mg/{did}/preview')
+
+        conn.execute("""UPDATE achats_demandes SET
             compta_status=?, compta_user_id=?, compta_user_name=?, compta_decision_at=datetime('now'),
             compta_notes=?, compta_refus_motif=?
             WHERE id=?""",
-            (action, session.get('user_id'),
-             user['full_name'] if user else 'Comptable',
+            (action, session.get('user_id'), user_name,
              notes, motif if action == 'refusee' else None, did))
         conn.commit()
         # Notifier le demandeur initial
         if row['requested_by']:
             try:
                 if action == 'validee':
-                    msg = f"✅ Demande MG {row['reference']} validée par la Comptabilité"
+                    msg = f"✅ Demande MG {row['reference']} validée par la Comptabilité{debit_msg}"
                 else:
                     msg = f"❌ Demande MG {row['reference']} refusée par la Comptabilité : {motif[:80]}"
                 notify(row['requested_by'], msg)
             except: pass
         conn.close()
-        flash(f"✅ Demande {row['reference']} {'validée' if action == 'validee' else 'refusée'}", "success")
+        flash(f"✅ Demande {row['reference']} {'validée' if action == 'validee' else 'refusée'}{debit_msg}", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect('/comptabilite/demandes-mg')
@@ -31194,14 +31444,15 @@ def mg_soldes_fournisseur():
     # → flag 0 = explicitement retiré par admin (ne pas afficher même si keyword)
     # → flag 1 = explicitement ajouté par admin (toujours afficher)
     caisses_fourn = [dict(r) for r in conn.execute(f"""
-        SELECT id, name, COALESCE(solde_actuel, 0) as solde, description,
+        SELECT id, name, COALESCE(solde_actuel, 0) as solde, COALESCE(solde_initial,0) as solde_initial, description,
                COALESCE(is_fournisseur, 0) as is_fournisseur
-        FROM caisses 
-        WHERE COALESCE(is_active,1)=1 
+        FROM caisses
+        WHERE COALESCE(is_active,1)=1
               AND (is_fournisseur=1 OR (is_fournisseur IS NULL AND ({like_conditions_caisse})))
         ORDER BY is_fournisseur DESC, name""").fetchall()]
-    
-    # Recalcul du solde si non maintenu (somme entrees - sorties)
+
+    # v160 : solde = solde_initial + Σ entrées − Σ sorties (validées+comptabilisées).
+    # L'omission de solde_initial (avant v160) affichait un solde négatif après le 1er débit.
     for c in caisses_fourn:
         try:
             entrees = conn.execute(
@@ -31210,12 +31461,9 @@ def mg_soldes_fournisseur():
             sorties = conn.execute(
                 "SELECT COALESCE(SUM(montant),0) FROM caisse_sorties WHERE caisse_id=? AND status='valide' AND comptabilise=1",
                 (c['id'],)).fetchone()[0]
-            c['solde_calcule'] = float(entrees or 0) - float(sorties or 0)
+            c['solde_calcule'] = float(c.get('solde_initial') or 0) + float(entrees or 0) - float(sorties or 0)
             c['type'] = 'Fournisseur'
-            # v154 : Si solde_actuel est défini et différent du calcul, privilégier solde_actuel
-            if c.get('solde', 0) and abs(c['solde_calcule']) < 0.01:
-                c['solde_calcule'] = float(c['solde'])
-        except: 
+        except:
             c['solde_calcule'] = float(c.get('solde', 0))
             c['type'] = 'Fournisseur'
     

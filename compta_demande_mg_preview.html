@@ -135,23 +135,65 @@
                         <textarea name="motif_refus" id="motif_refus_field" rows="3" style="width:100%;padding:8px;border:2px solid #c53030;border-radius:7px" placeholder="Ex: Budget de trésorerie insuffisant, à reporter au mois prochain..."></textarea>
                         <p style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Ce motif sera communiqué au demandeur</p>
                     </div>
+                    {# v160 : portefeuille fournisseur à débiter — visible uniquement si VALIDER #}
+                    <div class="form-group" id="tresorerie_block" style="display:none;background:#f0f8f5;border:1.5px solid #1A7A6D;border-radius:8px;padding:12px">
+                        <label style="color:#1A7A6D;font-weight:700">💸 Portefeuille fournisseur à débiter *</label>
+                        <p style="font-size:11px;color:#666;margin:2px 0 8px">Le montant <strong>{{ '{:,.0f}'.format(montant_demande).replace(',', ' ') }} F</strong> sera déduit du solde choisi à la validation.</p>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+                            <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
+                                <input type="radio" name="tresorerie_type" value="caisse" id="tt_caisse"> 🧰 Caisse fournisseur
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
+                                <input type="radio" name="tresorerie_type" value="banque" id="tt_banque"> 🏦 Compte bancaire
+                            </label>
+                        </div>
+                        <select name="tresorerie_caisse_id" id="sel_caisse" style="display:none;width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
+                            <option value="">— Choisir une caisse fournisseur —</option>
+                            {% for c in caisses_fourn %}<option value="{{ c.id }}">{{ c.name }} — solde {{ '{:,.0f}'.format(c.solde).replace(',', ' ') }} F</option>{% endfor %}
+                        </select>
+                        <select name="tresorerie_banque_id" id="sel_banque" style="display:none;width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
+                            <option value="">— Choisir un compte bancaire fournisseur —</option>
+                            {% for b in banques_fourn %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — solde {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}
+                        </select>
+                        {% if not caisses_fourn and not banques_fourn %}
+                        <p style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucune caisse/compte fournisseur configuré. Créez-en un dans <a href="/mg/soldes">MG → Soldes</a> avant de valider.</p>
+                        {% endif %}
+                    </div>
                     <script>
-                    // v107 : Toggle required selon l'action choisie
+                    // v107 + v160 : Toggle required + bloc trésorerie selon l'action choisie
                     (function(){
                         var radios = document.querySelectorAll('input[name="action"]');
                         var motifBlock = document.getElementById('motif_block');
                         var motifField = document.getElementById('motif_refus_field');
+                        var tresoBlock = document.getElementById('tresorerie_block');
+                        var ttCaisse = document.getElementById('tt_caisse');
+                        var ttBanque = document.getElementById('tt_banque');
+                        var selCaisse = document.getElementById('sel_caisse');
+                        var selBanque = document.getElementById('sel_banque');
                         radios.forEach(function(r){
                             r.addEventListener('change', function(){
                                 if (r.value === 'refusee' && r.checked) {
                                     motifBlock.style.display = 'block';
                                     motifField.required = true;
+                                    tresoBlock.style.display = 'none';
                                 } else if (r.value === 'validee' && r.checked) {
                                     motifBlock.style.display = 'none';
                                     motifField.required = false;
+                                    tresoBlock.style.display = 'block';
                                 }
                             });
                         });
+                        function syncTreso(){
+                            if (ttCaisse && ttCaisse.checked) {
+                                selCaisse.style.display = 'block'; selCaisse.required = true;
+                                selBanque.style.display = 'none'; selBanque.required = false; selBanque.value = '';
+                            } else if (ttBanque && ttBanque.checked) {
+                                selBanque.style.display = 'block'; selBanque.required = true;
+                                selCaisse.style.display = 'none'; selCaisse.required = false; selCaisse.value = '';
+                            }
+                        }
+                        if (ttCaisse) ttCaisse.addEventListener('change', syncTreso);
+                        if (ttBanque) ttBanque.addEventListener('change', syncTreso);
                     })();
                     </script>
                     <div class="form-group">
