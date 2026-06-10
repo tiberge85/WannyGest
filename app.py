@@ -31148,11 +31148,12 @@ def _fournisseur_wallets(conn):
             ORDER BY is_fournisseur DESC, name""").fetchall()]
         for c in caisses:
             try:
-                e = conn.execute("SELECT COALESCE(SUM(montant),0) FROM caisse_entrees WHERE caisse_id=?",
-                                 (c['id'],)).fetchone()[0] or 0
-                s = conn.execute("SELECT COALESCE(SUM(montant),0) FROM caisse_sorties WHERE caisse_id=? AND status='valide' AND comptabilise=1",
-                                 (c['id'],)).fetchone()[0] or 0
-                c['solde'] = float(c['solde_initial']) + float(e) - float(s)
+                # v160 : MÊME source que la trésorerie/compta → caisse_operations (sinon écart de solde)
+                e = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (c['id'],)).fetchone()[0] or 0
+                s = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (c['id'],)).fetchone()[0] or 0
+                ti = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+                to = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+                c['solde'] = float(c['solde_initial']) + float(e) + float(ti) - float(s) - float(to)
             except:
                 c['solde'] = float(c.get('solde_actuel', 0) or 0)
     except: caisses = []
@@ -31263,21 +31264,11 @@ def compta_demande_mg_decision(did):
                         flash("⚠️ Sélectionnez une caisse fournisseur valide à débiter.", "error")
                         return redirect(f'/comptabilite/demandes-mg/{did}/preview')
                     if montant > 0:
-                        # Décaissement validé + comptabilisé (cohérent avec /mg/soldes)
-                        try:
-                            ref_s = gen_caisse_ref()
-                        except: ref_s = f"MG{did}"
-                        conn.execute("""INSERT INTO caisse_sorties
-                            (reference, date, beneficiaire, type_beneficiaire, montant, nature, motif,
-                             status, valideur_id, valideur_name, validated_at,
-                             comptabilise, comptabilise_at, comptabilise_par, caisse_id, demandeur_id, demandeur_name, notes)
-                            VALUES (?,?,?,?,?,?,?,'valide',?,?,datetime('now'),1,datetime('now'),?,?,?,?,?)""",
-                            (ref_s, datetime.now().strftime('%Y-%m-%d'),
-                             "Fournisseur (demande MG)", 'fournisseur', montant, 'espece',
-                             f"Demande MG {row['reference']}",
-                             session.get('user_id'), user_name, user_name,
-                             cid, row.get('requested_by'), user_name,
-                             f"Débit automatique validation demande MG {row['reference']}"))
+                        # v160 : décaissement dans caisse_operations (source partagée trésorerie/MG)
+                        conn.execute("""INSERT INTO caisse_operations
+                            (caisse_id, type, amount, description, reference, category, created_by, created_at)
+                            VALUES (?, 'sortie', ?, ?, ?, 'fournisseur', ?, datetime('now'))""",
+                            (cid, montant, f"Demande MG {row['reference']}", row['reference'], session.get('user_id')))
                         conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
                                      (montant, cid))
                         debit_msg = f" — {montant:,.0f} XOF débités de la caisse « {target['name']} »"
@@ -31422,9 +31413,15 @@ def mg_paiements():
     fournisseurs = [dict(r) for r in conn.execute(
         "SELECT * FROM achats_fournisseurs WHERE status='actif' OR status IS NULL ORDER BY name"
     ).fetchall()]
+    # v160 : soldes des portefeuilles fournisseur (vue avant de payer)
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
     conn.close()
+    solde_caisses = sum(c['solde'] for c in caisses_fourn)
+    solde_banques = sum(b['solde'] for b in banques_fourn)
     return render_template('mg_paiements.html', paiements=paiements,
-                          commandes=commandes_data, fournisseurs=fournisseurs)
+                          commandes=commandes_data, fournisseurs=fournisseurs,
+                          solde_caisses=solde_caisses, solde_banques=solde_banques,
+                          solde_total_fourn=solde_caisses + solde_banques)
 
 
 @app.route('/mg/paiements/add', methods=['POST'])
@@ -31504,17 +31501,15 @@ def mg_soldes_fournisseur():
               AND (is_fournisseur=1 OR (is_fournisseur IS NULL AND ({like_conditions_caisse})))
         ORDER BY is_fournisseur DESC, name""").fetchall()]
 
-    # v160 : solde = solde_initial + Σ entrées − Σ sorties (validées+comptabilisées).
-    # L'omission de solde_initial (avant v160) affichait un solde négatif après le 1er débit.
+    # v160 : solde caisse depuis caisse_operations — MÊME source que la trésorerie/compta
+    # (sinon un solde alimenté via caisse_operations apparaissait à 0 côté MG).
     for c in caisses_fourn:
         try:
-            entrees = conn.execute(
-                "SELECT COALESCE(SUM(montant),0) FROM caisse_entrees WHERE caisse_id=?",
-                (c['id'],)).fetchone()[0]
-            sorties = conn.execute(
-                "SELECT COALESCE(SUM(montant),0) FROM caisse_sorties WHERE caisse_id=? AND status='valide' AND comptabilise=1",
-                (c['id'],)).fetchone()[0]
-            c['solde_calcule'] = float(c.get('solde_initial') or 0) + float(entrees or 0) - float(sorties or 0)
+            entrees = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (c['id'],)).fetchone()[0] or 0
+            sorties = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (c['id'],)).fetchone()[0] or 0
+            trans_in = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+            trans_out = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+            c['solde_calcule'] = float(c.get('solde_initial') or 0) + float(entrees) + float(trans_in) - float(sorties) - float(trans_out)
             c['type'] = 'Fournisseur'
         except:
             c['solde_calcule'] = float(c.get('solde', 0))
@@ -31582,22 +31577,27 @@ def mg_soldes_historique(kind, item_id):
             if not row:
                 conn.close(); flash("Caisse introuvable", "error"); return redirect('/mg/soldes')
             row = dict(row); titre = row['name']
-            # Entrées (crédit) — caisse_entrees : description/source (pas de motif/libelle)
+            # v160 : historique depuis caisse_operations (source partagée trésorerie/MG)
             try:
-                for r in conn.execute("SELECT date, montant, COALESCE(description, source, 'Entrée') AS libelle, reference FROM caisse_entrees WHERE caisse_id=? ORDER BY date DESC, id DESC", (item_id,)).fetchall():
+                for r in conn.execute("""SELECT created_at AS date, amount, type, source_caisse_id, dest_caisse_id,
+                    COALESCE(description,'') AS libelle, reference FROM caisse_operations
+                    WHERE caisse_id=? OR source_caisse_id=? OR dest_caisse_id=? ORDER BY id DESC""",
+                    (item_id, item_id, item_id)).fetchall():
                     r = dict(r)
-                    mouvements.append({'date': r.get('date') or '', 'sens': 'entree', 'montant': float(r.get('montant') or 0),
-                                       'libelle': r.get('libelle') or 'Entrée', 'reference': r.get('reference') or ''})
-            except Exception as _e: print(f"[v160-Histo] entrées : {_e}", flush=True)
-            # Sorties validées + comptabilisées (débit)
-            try:
-                for r in conn.execute("SELECT date, montant, motif, reference, beneficiaire FROM caisse_sorties WHERE caisse_id=? AND status='valide' AND comptabilise=1 ORDER BY date DESC, id DESC", (item_id,)).fetchall():
-                    r = dict(r)
-                    lib = r.get('motif') or 'Sortie'
-                    if r.get('beneficiaire'): lib = f"{lib} — {r['beneficiaire']}"
-                    mouvements.append({'date': r.get('date') or '', 'sens': 'sortie', 'montant': float(r.get('montant') or 0),
-                                       'libelle': lib, 'reference': r.get('reference') or ''})
-            except Exception as _e: print(f"[v160-Histo] sorties : {_e}", flush=True)
+                    typ = (r.get('type') or '').lower()
+                    if typ == 'transfert':
+                        if r.get('dest_caisse_id') == item_id:
+                            sens = 'entree'
+                        elif r.get('source_caisse_id') == item_id:
+                            sens = 'sortie'
+                        else:
+                            continue
+                    else:
+                        sens = 'entree' if typ == 'entree' else 'sortie'
+                    mouvements.append({'date': r.get('date') or '', 'sens': sens, 'montant': float(r.get('amount') or 0),
+                                       'libelle': r.get('libelle') or ('Entrée' if sens == 'entree' else 'Sortie'),
+                                       'reference': r.get('reference') or ''})
+            except Exception as _e: print(f"[v160-Histo] caisse_operations : {_e}", flush=True)
             solde = float(row['solde_initial']) + sum(m['montant'] for m in mouvements if m['sens'] == 'entree') - sum(m['montant'] for m in mouvements if m['sens'] == 'sortie')
         else:
             row = conn.execute("SELECT id, nom, banque, COALESCE(solde_actuel,0) AS solde_actuel FROM tresorerie_comptes_bancaires WHERE id=?", (item_id,)).fetchone()
@@ -31635,16 +31635,12 @@ def _debit_fournisseur_wallet(conn, kind, wallet_id, montant, libelle, reference
         target = conn.execute("SELECT name FROM caisses WHERE id=?", (wallet_id,)).fetchone()
         if not target:
             return False, None
-        try: ref_s = gen_caisse_ref()
-        except: ref_s = reference
-        conn.execute("""INSERT INTO caisse_sorties
-            (reference, date, beneficiaire, type_beneficiaire, montant, nature, motif,
-             status, valideur_id, valideur_name, validated_at,
-             comptabilise, comptabilise_at, comptabilise_par, caisse_id, demandeur_id, demandeur_name, notes)
-            VALUES (?,?,?,?,?,?,?,'valide',?,?,datetime('now'),1,datetime('now'),?,?,?,?,?)""",
-            (ref_s, datetime.now().strftime('%Y-%m-%d'), 'Fournisseur (paiement MG)', 'fournisseur',
-             montant, 'espece', libelle, user_id, user_name, user_name,
-             wallet_id, user_id, user_name, libelle))
+        # v160 : écrire dans caisse_operations (source de vérité partagée trésorerie/MG)
+        # + mettre à jour solde_actuel. (Avant : caisse_sorties → effacé par la resync v115.)
+        conn.execute("""INSERT INTO caisse_operations
+            (caisse_id, type, amount, description, reference, category, created_by, created_at)
+            VALUES (?, 'sortie', ?, ?, ?, 'fournisseur', ?, datetime('now'))""",
+            (wallet_id, montant, libelle, reference, user_id))
         conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?", (montant, wallet_id))
         return True, target['name']
     elif kind == 'banque':

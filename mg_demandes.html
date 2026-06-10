@@ -96,11 +96,50 @@
         </small>
     </div>
 </div>
-<div style="display:flex;gap:8px;justify-content:flex-end">
+{# v160 : lignes de produit (Désignation / Quantité / Prix unitaire / Notes) #}
+<div style="margin-top:10px;border:1.5px solid #e5e7eb;border-radius:8px;padding:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="color:#1a3a5c;font-size:13px">📦 Articles demandés</strong>
+        <button type="button" onclick="addDMItem()" class="btn btn-outline btn-sm">+ Ajouter une ligne</button>
+    </div>
+    <div class="table-wrap"><table style="width:100%;font-size:12px" id="dmItemsTable">
+        <thead style="background:#f8faf9"><tr>
+            <th style="text-align:left;padding:6px">Désignation *</th>
+            <th style="text-align:center;padding:6px;width:80px">Quantité</th>
+            <th style="text-align:right;padding:6px;width:130px">Prix unitaire (F)</th>
+            <th style="text-align:left;padding:6px">Notes</th>
+            <th style="width:36px"></th>
+        </tr></thead>
+        <tbody id="dmItemsBody">
+        <tr>
+            <td style="padding:3px"><input type="text" name="item_designation[]" placeholder="Désignation de l'article..." style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
+            <td style="padding:3px"><input type="number" name="item_quantity[]" value="1" min="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:center"></td>
+            <td style="padding:3px"><input type="number" name="item_price[]" value="0" min="0" step="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:right"></td>
+            <td style="padding:3px"><input type="text" name="item_notes[]" placeholder="Notes..." style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
+            <td style="text-align:center;padding:3px"><button type="button" onclick="this.closest('tr').remove()" class="btn btn-sm" style="background:none;color:#c53030;font-size:14px;padding:2px 6px">🗑️</button></td>
+        </tr>
+        </tbody>
+    </table></div>
+    <p style="font-size:11px;color:#888;margin:6px 0 0">💡 Les lignes vides sont ignorées. Le montant total estimé reste saisi ci-dessus.</p>
+</div>
+
+<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
     <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
     <button type="submit" class="btn btn-primary">📋 Créer la demande</button>
 </div>
 </form></div></div>
+<script>
+function addDMItem(){
+    var tb=document.getElementById('dmItemsBody');
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td style="padding:3px"><input type="text" name="item_designation[]" placeholder="Désignation de l\'article..." style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>'+
+        '<td style="padding:3px"><input type="number" name="item_quantity[]" value="1" min="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:center"></td>'+
+        '<td style="padding:3px"><input type="number" name="item_price[]" value="0" min="0" step="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:right"></td>'+
+        '<td style="padding:3px"><input type="text" name="item_notes[]" placeholder="Notes..." style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>'+
+        '<td style="text-align:center;padding:3px"><button type="button" onclick="this.closest(\'tr\').remove()" class="btn btn-sm" style="background:none;color:#c53030;font-size:14px;padding:2px 6px">🗑️</button></td>';
+    tb.appendChild(tr);
+}
+</script>
 
 <!-- v100 : Modal Envoyer à la Comptabilité -->
 <div class="modal-bg" id="sendComptaModal"><div class="modal" style="max-width:550px">

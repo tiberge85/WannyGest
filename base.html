@@ -415,6 +415,9 @@
                     {% if 'mg_compta_validate' in permissions or 'admin' in permissions or user_role in ('comptable','comptabilite','dg','directeur') %}
                     <a href="/comptabilite/demandes-mg" class="{% if page == 'compta_demandes_mg' %}active{% endif %}" style="position:relative">📋 Demandes MG à valider{% if compta_demandes_pending and compta_demandes_pending > 0 %} <span class="badge" style="background:#e8672a;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ compta_demandes_pending }}</span>{% endif %}</a>
                     {% endif %}
+                    {% if 'prestataires_view' in permissions or 'admin' in permissions or user_role in ('comptable','comptabilite','dg','directeur') %}
+                    <a href="/mg/prestataires" class="{% if page == 'mg_prestataires' %}active{% endif %}">🤝 Prestataires</a>
+                    {% endif %}
                     {# v142 : Factures à éditer (workflow remontée → facture) #}
                     {% if 'facture_edit' in permissions or 'admin' in permissions or user_role in ('comptable','comptabilite') %}
                     <a href="/recouvrement/factures-a-editer" class="{% if page == 'factures_a_editer' %}active{% endif %}" style="background:linear-gradient(135deg,#f29f2f,#e8672a);color:#fff !important;font-weight:600;margin-top:4px">🧾 Factures à éditer</a>

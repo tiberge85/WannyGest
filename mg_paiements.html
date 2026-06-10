@@ -4,6 +4,22 @@
     <a href="/mg" class="btn btn-outline btn-sm">← Retour MG</a>
 </div>
 
+{# v160 : soldes des portefeuilles fournisseur — visibles AVANT de payer #}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px">
+    <div style="background:#eaf4f1;border-left:4px solid #1A7A6D;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1A7A6D;font-weight:700;letter-spacing:1px">💰 Caisse fournisseur</div>
+        <div style="font-size:20px;font-weight:900;color:#1A7A6D;margin-top:3px">{{ '{:,.0f}'.format(solde_caisses).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#e7f0fa;border-left:4px solid #1565c0;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1565c0;font-weight:700;letter-spacing:1px">🏦 Banque fournisseur</div>
+        <div style="font-size:20px;font-weight:900;color:#1565c0;margin-top:3px">{{ '{:,.0f}'.format(solde_banques).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#1A7A6D;border-radius:8px;padding:12px;color:#fff">
+        <div style="font-size:10px;text-transform:uppercase;opacity:.85;font-weight:700;letter-spacing:1px">Σ Disponible fournisseur</div>
+        <div style="font-size:22px;font-weight:900;margin-top:3px">{{ '{:,.0f}'.format(solde_total_fourn).replace(',', ' ') }} F</div>
+    </div>
+</div>
+
 <button class="btn btn-orange btn-sm" onclick="document.getElementById('addPAY').classList.add('active')" style="margin-bottom:14px">+ Enregistrer un paiement</button>
 
 <div class="card"><div class="card-body">
