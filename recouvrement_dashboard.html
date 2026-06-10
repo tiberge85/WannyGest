@@ -95,6 +95,7 @@
         {% if current_user and current_user.role in ('admin','dg') and not it.recovery_sent_at %}
         <form method="post" action="/recouvrement/facture/{{ it.id }}/modifier" class="proof-section" style="background:#e3f2fd;border:1.5px solid #1565c0;margin-bottom:8px">
             <h4 style="color:#0d47a1;margin:0 0 8px">🔒 Modifier la facture avant envoi (Admin / DG)</h4>
+            <input type="hidden" name="tva_form" value="1">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
                 <div>
                     <label style="font-size:10px;color:#666;display:block">N° facture</label>
@@ -104,6 +105,13 @@
                     <label style="font-size:10px;color:#666;display:block">Montant TTC (XOF) *</label>
                     <input type="number" name="amount" value="{{ it.amount|int }}" step="1" min="0" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
                 </div>
+            </div>
+            <div style="background:#fff8e1;padding:7px 10px;border-radius:6px;margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px">
+                <label style="cursor:pointer;font-weight:600">
+                    <input type="checkbox" name="tva_apply" value="1" {% if it.tva_apply is none or it.tva_apply %}checked{% endif %} style="vertical-align:middle"> Appliquer la TVA
+                </label>
+                <span>Taux : <input type="number" name="tva_rate" value="{{ it.tva_rate if it.tva_rate is not none else 18 }}" min="0" max="100" step="0.1" style="width:60px;padding:3px;border:1.5px solid #ddd;border-radius:4px"> %</span>
+                <small style="color:#888;font-style:italic">Décocher si exonéré (export, ONG, secteur public...)</small>
             </div>
             <textarea name="notes" rows="2" required minlength="5" placeholder="📝 Raison de la modification (obligatoire)" style="width:100%;padding:6px;border:2px solid #1565c0;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
             <div style="display:flex;justify-content:flex-end">

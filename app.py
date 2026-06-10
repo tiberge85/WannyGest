@@ -2415,6 +2415,20 @@ try:
 except Exception as _e: print(f"[v160-MGTreso] Err : {_e}", flush=True)
 
 
+# v160 : garantir les colonnes TVA sur field_report_invoices (avant ajoutées paresseusement
+# dans /recouvrement/facture/<id>/edit) — nécessaires à la modification TVA d'une facture.
+try:
+    from models import get_db as _gdb_v160tva
+    _v160tva = _gdb_v160tva()
+    for _col in ["tva_apply INTEGER DEFAULT 1", "tva_rate REAL DEFAULT 18"]:
+        try: _v160tva.execute(f"ALTER TABLE field_report_invoices ADD COLUMN {_col}")
+        except: pass
+    _v160tva.commit()
+    _v160tva.close()
+    print("[v160-FRITva] Colonnes tva_apply/tva_rate garanties sur field_report_invoices", flush=True)
+except Exception as _e: print(f"[v160-FRITva] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -20079,14 +20093,25 @@ def facture_modifier(fri_id):
         old_amount = old['amount']
         old_inv_num = old['invoice_number']
         fr_id = old['field_report_id']
-        
+
         # Conserver le numéro existant si pas fourni, sauf si vide volontairement
         final_inv_num = new_invoice_number if new_invoice_number else old_inv_num
-        
-        conn.execute("""UPDATE field_report_invoices
-            SET amount=?, invoice_number=?, updated_at=datetime('now')
-            WHERE id=?""",
-            (new_amount, final_inv_num, fri_id))
+
+        # v160 : TVA modifiable (appliquer ou non + taux). Mis à jour seulement si le
+        # formulaire envoie le marqueur tva_form (sinon on préserve la TVA existante).
+        if request.form.get('tva_form'):
+            tva_apply = 1 if (request.form.get('tva_apply') in ('1', 'on', 'true', 'yes')) else 0
+            try: tva_rate = float((request.form.get('tva_rate') or 18))
+            except: tva_rate = 18
+            conn.execute("""UPDATE field_report_invoices
+                SET amount=?, invoice_number=?, tva_apply=?, tva_rate=?, updated_at=datetime('now')
+                WHERE id=?""",
+                (new_amount, final_inv_num, tva_apply, tva_rate, fri_id))
+        else:
+            conn.execute("""UPDATE field_report_invoices
+                SET amount=?, invoice_number=?, updated_at=datetime('now')
+                WHERE id=?""",
+                (new_amount, final_inv_num, fri_id))
         
         # v146 : Si on était à 'a_facturer', sync field_reports.cost_amount aussi
         if old['status'] == 'a_facturer':

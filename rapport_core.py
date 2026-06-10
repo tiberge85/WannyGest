@@ -630,25 +630,25 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         # v67 : ajout colonnes Pause début + Pause fin entre Arrivée et Départ
         # v69 : lisibilité prioritaire — police minimum 7pt (au lieu de 6pt en v67)
         nb_recs_for_style = len(enriched)
-        is_dense = nb_recs_for_style > 25
-        
+        # v160 : seuil dense relevé (25 → 31) pour qu'un mois complet (~26 j) garde la police lisible
+        is_dense = nb_recs_for_style > 31
+
         if is_dense:
-            # Mode dense (>25 records) : police 7pt avec leading 7.5 (lisible)
-            s_c = ParagraphStyle('s_c', fontName='Helvetica', fontSize=7, alignment=TA_CENTER, leading=7.5)
-            s_cb = ParagraphStyle('s_cb', fontName='Helvetica-Bold', fontSize=7, alignment=TA_CENTER, leading=7.5)
-            s_h = ParagraphStyle('s_h', fontName='Helvetica-Bold', fontSize=7, textColor=white, alignment=TA_CENTER, leading=8)
-            s_g = ParagraphStyle('s_g', fontName='Helvetica-Bold', fontSize=7, textColor=GREEN, alignment=TA_CENTER, leading=7.5)
-            s_r = ParagraphStyle('s_r', fontName='Helvetica-Bold', fontSize=7, textColor=RED, alignment=TA_CENTER, leading=7.5)
-            s_b = ParagraphStyle('s_b', fontName='Helvetica-Bold', fontSize=7, textColor=BLUE, alignment=TA_CENTER, leading=7.5)
+            # v160 : mode dense — police 8pt (était 7pt), leading 9.5 pour des lignes plus lisibles
+            s_c = ParagraphStyle('s_c', fontName='Helvetica', fontSize=8, alignment=TA_CENTER, leading=9.5)
+            s_cb = ParagraphStyle('s_cb', fontName='Helvetica-Bold', fontSize=8, alignment=TA_CENTER, leading=9.5)
+            s_h = ParagraphStyle('s_h', fontName='Helvetica-Bold', fontSize=8, textColor=white, alignment=TA_CENTER, leading=10)
+            s_g = ParagraphStyle('s_g', fontName='Helvetica-Bold', fontSize=8, textColor=GREEN, alignment=TA_CENTER, leading=9.5)
+            s_r = ParagraphStyle('s_r', fontName='Helvetica-Bold', fontSize=8, textColor=RED, alignment=TA_CENTER, leading=9.5)
+            s_b = ParagraphStyle('s_b', fontName='Helvetica-Bold', fontSize=8, textColor=BLUE, alignment=TA_CENTER, leading=9.5)
         else:
-            # Mode normal : utilise les styles par défaut (8pt avec leading 10)
-            # v69 : on agrandit aussi les styles par défaut pour meilleure lisibilité
-            s_c = ParagraphStyle('s_c2', fontName='Helvetica', fontSize=8, alignment=TA_CENTER, leading=10)
-            s_cb = ParagraphStyle('s_cb2', fontName='Helvetica-Bold', fontSize=8, alignment=TA_CENTER, leading=10)
-            s_h = ParagraphStyle('s_h2', fontName='Helvetica-Bold', fontSize=8, textColor=white, alignment=TA_CENTER, leading=10)
-            s_g = ParagraphStyle('s_g2', fontName='Helvetica-Bold', fontSize=8, textColor=GREEN, alignment=TA_CENTER, leading=10)
-            s_r = ParagraphStyle('s_r2', fontName='Helvetica-Bold', fontSize=8, textColor=RED, alignment=TA_CENTER, leading=10)
-            s_b = ParagraphStyle('s_b2', fontName='Helvetica-Bold', fontSize=8, textColor=BLUE, alignment=TA_CENTER, leading=10)
+            # v160 : mode normal — police 9.5pt (était 8pt), leading 12.5 pour des lignes bien visibles
+            s_c = ParagraphStyle('s_c2', fontName='Helvetica', fontSize=9.5, alignment=TA_CENTER, leading=12.5)
+            s_cb = ParagraphStyle('s_cb2', fontName='Helvetica-Bold', fontSize=9.5, alignment=TA_CENTER, leading=12.5)
+            s_h = ParagraphStyle('s_h2', fontName='Helvetica-Bold', fontSize=9.5, textColor=white, alignment=TA_CENTER, leading=12.5)
+            s_g = ParagraphStyle('s_g2', fontName='Helvetica-Bold', fontSize=9.5, textColor=GREEN, alignment=TA_CENTER, leading=12.5)
+            s_r = ParagraphStyle('s_r2', fontName='Helvetica-Bold', fontSize=9.5, textColor=RED, alignment=TA_CENTER, leading=12.5)
+            s_b = ParagraphStyle('s_b2', fontName='Helvetica-Bold', fontSize=9.5, textColor=BLUE, alignment=TA_CENTER, leading=12.5)
         
         # v73 : Colonnes Pause masquées si show_pause=False
         if show_pause:
@@ -717,9 +717,9 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
         # v67 : ajuster les indices BACKGROUND (header indices décalés de 2)
         # v67 : compactage adaptatif pour rester sur 2 pages max
         if is_dense:
-            top_pad = 0; bot_pad = 0
+            top_pad = 1; bot_pad = 1       # v160 : un peu d'air même en mode dense
         else:
-            top_pad = 1; bot_pad = 1
+            top_pad = 2.5; bot_pad = 2.5   # v160 : lignes plus hautes / lisibles
         sc = [('BACKGROUND',(0,0),(-1,0),TEAL),('BACKGROUND',(10,0),(12,0),DARK_TEAL),
               ('GRID',(0,0),(-1,-1),0.3,colors.grey),
               ('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
