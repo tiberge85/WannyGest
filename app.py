@@ -2448,6 +2448,33 @@ try:
 except Exception as _e: print(f"[v160-Prestataire] Err : {_e}", flush=True)
 
 
+# v160 : Entité PRESTATAIRES (distincte des fournisseurs) — factures simples + paiements.
+try:
+    from models import get_db as _gdb_v160pr
+    _v160pr = _gdb_v160pr()
+    _v160pr.execute("""CREATE TABLE IF NOT EXISTS prestataires (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nom TEXT NOT NULL, contact TEXT, tel TEXT, email TEXT, adresse TEXT,
+        metier TEXT, notes TEXT, is_active INTEGER DEFAULT 1,
+        created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    _v160pr.execute("""CREATE TABLE IF NOT EXISTS prestataire_factures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prestataire_id INTEGER NOT NULL, reference TEXT, montant REAL NOT NULL DEFAULT 0,
+        date TEXT, date_echeance TEXT, description TEXT, statut TEXT DEFAULT 'impayee',
+        created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    _v160pr.execute("""CREATE TABLE IF NOT EXISTS prestataire_paiements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prestataire_id INTEGER NOT NULL, facture_id INTEGER, montant REAL NOT NULL,
+        mode TEXT DEFAULT 'virement', date_paiement TEXT,
+        tresorerie_type TEXT, caisse_id INTEGER, banque_id INTEGER,
+        reference TEXT, reference_externe TEXT, commentaire TEXT,
+        valide_par INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    _v160pr.commit()
+    _v160pr.close()
+    print("[v160-PrestataireEntite] Tables prestataires/factures/paiements OK", flush=True)
+except Exception as _e: print(f"[v160-PrestataireEntite] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -31662,17 +31689,17 @@ def _debit_fournisseur_wallet(conn, kind, wallet_id, montant, libelle, reference
 @app.route('/mg/prestataires')
 @permission_required_any('prestataires_view', 'mg_view', 'admin')
 def mg_prestataires():
-    """v160 : onglet Prestataires — par fournisseur : facturé / payé / reste à payer / solde,
-    + soldes des portefeuilles fournisseur (caisse + banque)."""
+    """v160 : onglet Prestataires (entité dédiée, distincte des fournisseurs) —
+    par prestataire : facturé / payé / reste à payer + soldes portefeuilles."""
     conn = _gdb()
     rows = conn.execute("""
-        SELECT f.id, f.name, f.tel, f.email, f.status,
-            COALESCE((SELECT SUM(total) FROM achats_commandes WHERE fournisseur_id=f.id AND status!='annulee'),0) AS total_facture,
-            COALESCE((SELECT SUM(montant) FROM mg_paiements WHERE fournisseur_id=f.id),0) AS total_paye,
-            COALESCE((SELECT COUNT(*) FROM achats_commandes WHERE fournisseur_id=f.id AND status!='annulee'),0) AS nb_factures
-        FROM achats_fournisseurs f
-        WHERE f.status='actif' OR f.status IS NULL
-        ORDER BY f.name
+        SELECT p.id, p.nom, p.tel, p.email, p.metier,
+            COALESCE((SELECT SUM(montant) FROM prestataire_factures WHERE prestataire_id=p.id),0) AS total_facture,
+            COALESCE((SELECT SUM(montant) FROM prestataire_paiements WHERE prestataire_id=p.id),0) AS total_paye,
+            COALESCE((SELECT COUNT(*) FROM prestataire_factures WHERE prestataire_id=p.id),0) AS nb_factures
+        FROM prestataires p
+        WHERE COALESCE(p.is_active,1)=1
+        ORDER BY p.nom
     """).fetchall()
     prestataires = []
     for r in rows:
@@ -31691,81 +31718,137 @@ def mg_prestataires():
         solde_total_fourn=solde_caisses + solde_banques)
 
 
-@app.route('/mg/prestataires/<int:fid>')
-@permission_required_any('prestataires_view', 'mg_view', 'admin')
-def mg_prestataire_detail(fid):
-    """v160 : fiche prestataire — factures (commandes), paiements, reste à payer,
-    + formulaire de paiement (débite le portefeuille fournisseur choisi)."""
+@app.route('/mg/prestataires/add', methods=['POST'])
+@permission_required_any('prestataires_payer', 'mg_gestion', 'admin')
+def mg_prestataire_add():
+    """v160 : créer un prestataire (entité dédiée)."""
+    nom = (request.form.get('nom', '') or '').strip()
+    if not nom:
+        flash("Le nom du prestataire est obligatoire", "error"); return redirect('/mg/prestataires')
     conn = _gdb()
-    f = conn.execute("SELECT * FROM achats_fournisseurs WHERE id=?", (fid,)).fetchone()
-    if not f:
+    conn.execute("""INSERT INTO prestataires (nom, contact, tel, email, adresse, metier, notes, is_active, created_by, created_at)
+        VALUES (?,?,?,?,?,?,?,1,?,datetime('now'))""",
+        (nom, request.form.get('contact', ''), request.form.get('tel', ''), request.form.get('email', ''),
+         request.form.get('adresse', ''), request.form.get('metier', ''), request.form.get('notes', ''),
+         session['user_id']))
+    pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit(); conn.close()
+    flash(f"✅ Prestataire « {nom} » créé", "success")
+    return redirect(f'/mg/prestataires/{pid}')
+
+
+@app.route('/mg/prestataires/<int:pid>')
+@permission_required_any('prestataires_view', 'mg_view', 'admin')
+def mg_prestataire_detail(pid):
+    """v160 : fiche prestataire — factures, paiements, reste à payer, + formulaires
+    (ajouter facture, payer en débitant le portefeuille fournisseur choisi)."""
+    conn = _gdb()
+    p = conn.execute("SELECT * FROM prestataires WHERE id=?", (pid,)).fetchone()
+    if not p:
         conn.close(); flash("Prestataire introuvable", "error"); return redirect('/mg/prestataires')
-    f = dict(f)
-    commandes = [dict(r) for r in conn.execute("""SELECT c.*,
-        COALESCE((SELECT SUM(montant) FROM mg_paiements WHERE commande_id=c.id),0) AS paye
-        FROM achats_commandes c WHERE c.fournisseur_id=? ORDER BY c.date DESC, c.id DESC""", (fid,)).fetchall()]
-    for c in commandes:
-        c['reste'] = (c['total'] or 0) - (c['paye'] or 0)
-    paiements = [dict(r) for r in conn.execute("""SELECT p.*, c.reference AS commande_ref
-        FROM mg_paiements p LEFT JOIN achats_commandes c ON p.commande_id=c.id
-        WHERE p.fournisseur_id=? ORDER BY p.date_paiement DESC, p.id DESC""", (fid,)).fetchall()]
-    total_facture = sum((c['total'] or 0) for c in commandes)
-    total_paye = sum((p['montant'] or 0) for p in paiements)
+    p = dict(p)
+    factures = [dict(r) for r in conn.execute("""SELECT fa.*,
+        COALESCE((SELECT SUM(montant) FROM prestataire_paiements WHERE facture_id=fa.id),0) AS paye
+        FROM prestataire_factures fa WHERE fa.prestataire_id=? ORDER BY fa.date DESC, fa.id DESC""", (pid,)).fetchall()]
+    for fa in factures:
+        fa['reste'] = (fa['montant'] or 0) - (fa['paye'] or 0)
+    paiements = [dict(r) for r in conn.execute("""SELECT pa.*, fa.reference AS facture_ref
+        FROM prestataire_paiements pa LEFT JOIN prestataire_factures fa ON pa.facture_id=fa.id
+        WHERE pa.prestataire_id=? ORDER BY pa.date_paiement DESC, pa.id DESC""", (pid,)).fetchall()]
+    total_facture = sum((fa['montant'] or 0) for fa in factures)
+    total_paye = sum((pa['montant'] or 0) for pa in paiements)
     caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
     conn.close()
     return render_template('mg_prestataire_detail.html', page='mg_prestataires',
-        f=f, commandes=commandes, paiements=paiements,
+        p=p, factures=factures, paiements=paiements,
         total_facture=total_facture, total_paye=total_paye, reste=total_facture - total_paye,
         caisses_fourn=caisses_fourn, banques_fourn=banques_fourn)
 
 
-@app.route('/mg/prestataires/<int:fid>/payer', methods=['POST'])
+@app.route('/mg/prestataires/<int:pid>/facture/add', methods=['POST'])
 @permission_required_any('prestataires_payer', 'mg_gestion', 'admin')
-def mg_prestataire_payer(fid):
-    """v160 : MG valide un paiement fournisseur → débite le portefeuille choisi (caisse OU banque)."""
+def mg_prestataire_facture_add(pid):
+    """v160 : enregistrer une facture émise par le prestataire."""
+    try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
+    except: montant = 0
+    if montant <= 0:
+        flash("Montant de la facture invalide", "error"); return redirect(f'/mg/prestataires/{pid}')
+    conn = _gdb()
+    if not conn.execute("SELECT id FROM prestataires WHERE id=?", (pid,)).fetchone():
+        conn.close(); flash("Prestataire introuvable", "error"); return redirect('/mg/prestataires')
+    conn.execute("""INSERT INTO prestataire_factures
+        (prestataire_id, reference, montant, date, date_echeance, description, statut, created_by, created_at)
+        VALUES (?,?,?,?,?,?, 'impayee', ?, datetime('now'))""",
+        (pid, request.form.get('reference', ''), montant,
+         request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('date_echeance', ''), request.form.get('description', ''),
+         session['user_id']))
+    conn.commit(); conn.close()
+    flash(f"✅ Facture de {montant:,.0f} XOF enregistrée", "success")
+    return redirect(f'/mg/prestataires/{pid}')
+
+
+def _prestataire_maj_statut_facture(conn, facture_id):
+    """v160 : recalcule le statut d'une facture prestataire (impayee/partielle/payee)."""
+    if not facture_id:
+        return
+    fa = conn.execute("SELECT montant FROM prestataire_factures WHERE id=?", (facture_id,)).fetchone()
+    if not fa:
+        return
+    paye = conn.execute("SELECT COALESCE(SUM(montant),0) FROM prestataire_paiements WHERE facture_id=?", (facture_id,)).fetchone()[0] or 0
+    montant = float(fa['montant'] or 0)
+    statut = 'payee' if paye >= montant - 0.01 else ('partielle' if paye > 0 else 'impayee')
+    conn.execute("UPDATE prestataire_factures SET statut=? WHERE id=?", (statut, facture_id))
+
+
+@app.route('/mg/prestataires/<int:pid>/payer', methods=['POST'])
+@permission_required_any('prestataires_payer', 'mg_gestion', 'admin')
+def mg_prestataire_payer(pid):
+    """v160 : MG valide un paiement prestataire → débite le portefeuille choisi (caisse OU banque)."""
     user = get_user_by_id(session['user_id']); user_name = user['full_name'] if user else 'MG'
     try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
     except: montant = 0
     if montant <= 0:
-        flash("Montant invalide", "error"); return redirect(f'/mg/prestataires/{fid}')
+        flash("Montant invalide", "error"); return redirect(f'/mg/prestataires/{pid}')
     ttype = (request.form.get('tresorerie_type', '') or '').strip()
-    cmd_raw = request.form.get('commande_id', '') or ''
-    cmd_id = int(cmd_raw) if cmd_raw.isdigit() else None
+    fac_raw = request.form.get('facture_id', '') or ''
+    facture_id = int(fac_raw) if fac_raw.isdigit() else None
     mode = request.form.get('mode', 'virement')
     conn = _gdb()
-    frow = conn.execute("SELECT name FROM achats_fournisseurs WHERE id=?", (fid,)).fetchone()
-    if not frow:
+    prow = conn.execute("SELECT nom FROM prestataires WHERE id=?", (pid,)).fetchone()
+    if not prow:
         conn.close(); flash("Prestataire introuvable", "error"); return redirect('/mg/prestataires')
-    fnom = frow['name']
+    pnom = prow['nom']
     caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
-    ref = f"PAY-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    libelle = f"Paiement fournisseur {fnom}" + (f" — cmd {cmd_id}" if cmd_id else "")
+    ref = f"PRP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    libelle = f"Paiement prestataire {pnom}"
     caisse_id = banque_id = None; label = ''
     if ttype == 'caisse':
         wid_raw = request.form.get('caisse_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
         if not any(c['id'] == wid for c in caisses_fourn):
-            conn.close(); flash("⚠️ Choisissez une caisse fournisseur valide à débiter.", "error"); return redirect(f'/mg/prestataires/{fid}')
-        ok, label = _debit_fournisseur_wallet(conn, 'caisse', wid, montant, libelle, ref, session['user_id'], user_name, fid)
+            conn.close(); flash("⚠️ Choisissez une caisse fournisseur valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
+        ok, label = _debit_fournisseur_wallet(conn, 'caisse', wid, montant, libelle, ref, session['user_id'], user_name, pid)
         caisse_id = wid
     elif ttype == 'banque':
         wid_raw = request.form.get('banque_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
         if not any(b['id'] == wid for b in banques_fourn):
-            conn.close(); flash("⚠️ Choisissez un compte bancaire fournisseur valide à débiter.", "error"); return redirect(f'/mg/prestataires/{fid}')
-        ok, label = _debit_fournisseur_wallet(conn, 'banque', wid, montant, libelle, ref, session['user_id'], user_name, fid)
+            conn.close(); flash("⚠️ Choisissez un compte bancaire fournisseur valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
+        ok, label = _debit_fournisseur_wallet(conn, 'banque', wid, montant, libelle, ref, session['user_id'], user_name, pid)
         banque_id = wid
     else:
-        conn.close(); flash("⚠️ Choisissez le portefeuille à débiter (caisse OU compte bancaire fournisseur).", "error"); return redirect(f'/mg/prestataires/{fid}')
-    conn.execute("""INSERT INTO mg_paiements
-        (reference, fournisseur_id, commande_id, montant, type_paiement, mode, date_paiement,
-         reference_externe, commentaire, paid_by, statut, tresorerie_type, caisse_id, banque_id, valide_par, tresorerie_debited, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?, 'valide', ?, ?, ?, ?, 1, datetime('now'))""",
-        (ref, fid, cmd_id, montant, request.form.get('type_paiement', 'solde'), mode,
+        conn.close(); flash("⚠️ Choisissez le portefeuille à débiter (caisse OU compte bancaire fournisseur).", "error"); return redirect(f'/mg/prestataires/{pid}')
+    conn.execute("""INSERT INTO prestataire_paiements
+        (prestataire_id, facture_id, montant, mode, date_paiement, tresorerie_type, caisse_id, banque_id,
+         reference, reference_externe, commentaire, valide_par, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))""",
+        (pid, facture_id, montant, mode,
          request.form.get('date_paiement', datetime.now().strftime('%Y-%m-%d')),
-         request.form.get('reference_externe', ''), request.form.get('commentaire', ''),
-         session['user_id'], ttype, caisse_id, banque_id, session['user_id']))
+         ttype, caisse_id, banque_id, ref, request.form.get('reference_externe', ''),
+         request.form.get('commentaire', ''), session['user_id']))
+    _prestataire_maj_statut_facture(conn, facture_id)
     conn.commit(); conn.close()
     flash(f"✅ Paiement {montant:,.0f} XOF enregistré et débité de « {label} »", "success")
-    return redirect(f'/mg/prestataires/{fid}')
+    return redirect(f'/mg/prestataires/{pid}')
 
 
 # v154 : Toggle d'une caisse/banque comme fournisseur (admin seulement)

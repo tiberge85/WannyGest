@@ -5,8 +5,10 @@
         <p style="color:#666;font-size:12px;margin:4px 0 0">Factures, paiements, reste à payer et soldes par prestataire</p>
     </div>
     <div style="display:flex;gap:6px">
+        {% if 'prestataires_payer' in permissions or 'mg_gestion' in permissions or 'admin' in permissions %}
+        <button type="button" class="btn btn-sm" style="background:#1A7A6D;color:#fff" onclick="document.getElementById('addPrestaModal').style.display='flex'">+ Nouveau prestataire</button>
+        {% endif %}
         <a href="/mg/soldes" class="btn btn-outline btn-sm">💰 Soldes portefeuilles</a>
-        <a href="/fournisseurs" class="btn btn-outline btn-sm">🏭 Fiches fournisseurs</a>
     </div>
 </div>
 
@@ -59,7 +61,8 @@
             {% for p in prestataires %}
             <tr style="border-bottom:1px solid #eee;{% if loop.index0 % 2 == 1 %}background:#fafafa{% endif %}">
                 <td style="padding:8px 12px">
-                    <strong>{{ p.name }}</strong>
+                    <strong>{{ p.nom }}</strong>
+                    {% if p.metier %}<span style="font-size:10px;background:#eef;color:#1565c0;padding:1px 6px;border-radius:4px;margin-left:4px">{{ p.metier }}</span>{% endif %}
                     {% if p.tel %}<div style="font-size:11px;color:#888">{{ p.tel }}</div>{% endif %}
                 </td>
                 <td style="padding:8px 12px;text-align:center">{{ p.nb_factures }}</td>
@@ -74,8 +77,30 @@
     {% else %}
     <div style="text-align:center;padding:40px;color:#888">
         <div style="font-size:40px">🤝</div>
-        <p style="margin:8px 0 0">Aucun prestataire actif. Ajoutez-en dans <a href="/fournisseurs">Fournisseurs &amp; Paiements</a>.</p>
+        <p style="margin:8px 0 0">Aucun prestataire enregistré. Cliquez sur « + Nouveau prestataire » pour en ajouter un.</p>
     </div>
     {% endif %}
+</div>
+
+{# v160 : Modal création prestataire #}
+<div id="addPrestaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:18px;max-width:520px;width:92%;max-height:90vh;overflow:auto">
+        <h3 style="margin:0 0 12px;color:#1A7A6D">🤝 Nouveau prestataire</h3>
+        <form method="post" action="/mg/prestataires/add">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div><label style="font-size:10px;color:#666;display:block">Nom *</label><input type="text" name="nom" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Métier / Prestation</label><input type="text" name="metier" placeholder="Ex: Électricien, Consultant..." style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Contact</label><input type="text" name="contact" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Téléphone</label><input type="text" name="tel" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Email</label><input type="email" name="email" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Adresse</label><input type="text" name="adresse" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+            </div>
+            <textarea name="notes" rows="2" placeholder="Notes" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:10px"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('addPrestaModal').style.display='none'">Annuler</button>
+                <button type="submit" class="btn" style="background:#1A7A6D;color:#fff">Créer</button>
+            </div>
+        </form>
+    </div>
 </div>
 {% endblock %}
