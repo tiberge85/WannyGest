@@ -1,0 +1,81 @@
+{% extends "base.html" %}{% block title %}WannyGest - Prestataires{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>🤝 Prestataires</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Factures, paiements, reste à payer et soldes par prestataire</p>
+    </div>
+    <div style="display:flex;gap:6px">
+        <a href="/mg/soldes" class="btn btn-outline btn-sm">💰 Soldes portefeuilles</a>
+        <a href="/fournisseurs" class="btn btn-outline btn-sm">🏭 Fiches fournisseurs</a>
+    </div>
+</div>
+
+{# v160 : Soldes des portefeuilles fournisseur (Caisse + Banque) #}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+    <div style="background:#eaf4f1;border-left:4px solid #1A7A6D;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1A7A6D;font-weight:700;letter-spacing:1px">💰 Caisse fournisseur</div>
+        <div style="font-size:20px;font-weight:900;color:#1A7A6D;margin-top:3px">{{ '{:,.0f}'.format(solde_caisses).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#e7f0fa;border-left:4px solid #1565c0;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1565c0;font-weight:700;letter-spacing:1px">🏦 Banque fournisseur</div>
+        <div style="font-size:20px;font-weight:900;color:#1565c0;margin-top:3px">{{ '{:,.0f}'.format(solde_banques).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#1A7A6D;border-radius:8px;padding:12px;color:#fff">
+        <div style="font-size:10px;text-transform:uppercase;opacity:.85;font-weight:700;letter-spacing:1px">Σ Disponible fournisseur</div>
+        <div style="font-size:22px;font-weight:900;margin-top:3px">{{ '{:,.0f}'.format(solde_total_fourn).replace(',', ' ') }} F</div>
+    </div>
+</div>
+
+{# Totaux globaux dette fournisseurs #}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#888;font-weight:700">Total facturé</div>
+        <div style="font-size:18px;font-weight:800;color:#1a3a5c;margin-top:3px">{{ '{:,.0f}'.format(tot_facture).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#888;font-weight:700">Total payé</div>
+        <div style="font-size:18px;font-weight:800;color:#2FA85B;margin-top:3px">{{ '{:,.0f}'.format(tot_paye).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#888;font-weight:700">Reste à payer</div>
+        <div style="font-size:18px;font-weight:800;color:#c53030;margin-top:3px">{{ '{:,.0f}'.format(tot_reste).replace(',', ' ') }} F</div>
+    </div>
+</div>
+
+<div class="card" style="padding:0;overflow-x:auto">
+    {% if prestataires %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+            <tr style="background:#1A7A6D;color:#fff">
+                <th style="padding:10px 12px;text-align:left">Prestataire</th>
+                <th style="padding:10px 12px;text-align:center">Factures</th>
+                <th style="padding:10px 12px;text-align:right">Total facturé</th>
+                <th style="padding:10px 12px;text-align:right">Payé</th>
+                <th style="padding:10px 12px;text-align:right">Reste à payer</th>
+                <th style="padding:10px 12px;text-align:center">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in prestataires %}
+            <tr style="border-bottom:1px solid #eee;{% if loop.index0 % 2 == 1 %}background:#fafafa{% endif %}">
+                <td style="padding:8px 12px">
+                    <strong>{{ p.name }}</strong>
+                    {% if p.tel %}<div style="font-size:11px;color:#888">{{ p.tel }}</div>{% endif %}
+                </td>
+                <td style="padding:8px 12px;text-align:center">{{ p.nb_factures }}</td>
+                <td style="padding:8px 12px;text-align:right">{{ '{:,.0f}'.format(p.total_facture).replace(',', ' ') }}</td>
+                <td style="padding:8px 12px;text-align:right;color:#2FA85B;font-weight:600">{{ '{:,.0f}'.format(p.total_paye).replace(',', ' ') }}</td>
+                <td style="padding:8px 12px;text-align:right;font-weight:700;color:{% if p.reste > 0 %}#c53030{% else %}#2FA85B{% endif %}">{{ '{:,.0f}'.format(p.reste).replace(',', ' ') }}</td>
+                <td style="padding:8px 12px;text-align:center"><a href="/mg/prestataires/{{ p.id }}" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:11px;padding:4px 10px">Voir / Payer →</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:40px;color:#888">
+        <div style="font-size:40px">🤝</div>
+        <p style="margin:8px 0 0">Aucun prestataire actif. Ajoutez-en dans <a href="/fournisseurs">Fournisseurs &amp; Paiements</a>.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

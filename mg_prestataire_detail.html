@@ -1,0 +1,152 @@
+{% extends "base.html" %}{% block title %}WannyGest - {{ f.name }}{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>🤝 {{ f.name }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            {% if f.tel %}📞 {{ f.tel }}{% endif %}{% if f.email %} · ✉️ {{ f.email }}{% endif %}
+            {% if f.sector %} · {{ f.sector }}{% endif %}
+        </p>
+    </div>
+    <a href="/mg/prestataires" class="btn btn-outline btn-sm">← Tous les prestataires</a>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#888;font-weight:700">Total facturé</div>
+        <div style="font-size:18px;font-weight:800;color:#1a3a5c;margin-top:3px">{{ '{:,.0f}'.format(total_facture).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#888;font-weight:700">Payé (reçu)</div>
+        <div style="font-size:18px;font-weight:800;color:#2FA85B;margin-top:3px">{{ '{:,.0f}'.format(total_paye).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+        <div style="font-size:10px;text-transform:uppercase;color:#888;font-weight:700">Reste à payer (solde)</div>
+        <div style="font-size:18px;font-weight:800;color:{% if reste > 0 %}#c53030{% else %}#2FA85B{% endif %};margin-top:3px">{{ '{:,.0f}'.format(reste).replace(',', ' ') }} F</div>
+    </div>
+</div>
+
+{# Formulaire de paiement — réservé prestataires_payer / mg_gestion / admin #}
+{% if 'prestataires_payer' in permissions or 'mg_gestion' in permissions or 'admin' in permissions %}
+<div class="card" style="border-left:4px solid #1A7A6D;margin-bottom:16px">
+    <h3 style="margin:0 0 10px;color:#1A7A6D;font-size:15px">💵 Enregistrer un paiement (débite le portefeuille fournisseur)</h3>
+    <form method="post" action="/mg/prestataires/{{ f.id }}/payer">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px">
+            <div>
+                <label style="font-size:10px;color:#666;display:block">Montant (XOF) *</label>
+                <input type="number" name="montant" step="1" min="1" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+            </div>
+            <div>
+                <label style="font-size:10px;color:#666;display:block">Rattacher à une facture/commande</label>
+                <select name="commande_id" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+                    <option value="">— (aucune / paiement libre) —</option>
+                    {% for c in commandes %}{% if c.reste > 0 %}<option value="{{ c.id }}">{{ c.reference or ('CMD-' ~ c.id) }} — reste {{ '{:,.0f}'.format(c.reste).replace(',', ' ') }} F</option>{% endif %}{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="font-size:10px;color:#666;display:block">Type</label>
+                <select name="type_paiement" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+                    <option value="solde">Solde</option>
+                    <option value="acompte">Acompte</option>
+                    <option value="partiel">Partiel</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size:10px;color:#666;display:block">Mode</label>
+                <select name="mode" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+                    <option value="virement">Virement</option>
+                    <option value="especes">Espèces</option>
+                    <option value="cheque">Chèque</option>
+                    <option value="mobile_money">Mobile Money</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size:10px;color:#666;display:block">Date</label>
+                <input type="date" name="date_paiement" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+            </div>
+            <div>
+                <label style="font-size:10px;color:#666;display:block">Référence externe</label>
+                <input type="text" name="reference_externe" placeholder="N° virement/chèque" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+            </div>
+        </div>
+
+        <div style="background:#f0f8f5;border:1.5px solid #1A7A6D;border-radius:8px;padding:10px;margin-bottom:10px">
+            <label style="font-size:11px;color:#1A7A6D;font-weight:700;display:block;margin-bottom:6px">💸 Portefeuille fournisseur à débiter *</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+                <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
+                    <input type="radio" name="tresorerie_type" value="caisse" id="pp_caisse" required> 🧰 Caisse fournisseur
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
+                    <input type="radio" name="tresorerie_type" value="banque" id="pp_banque" required> 🏦 Compte bancaire
+                </label>
+            </div>
+            <select name="caisse_id" id="pp_sel_caisse" style="display:none;width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:6px">
+                <option value="">— Choisir une caisse fournisseur —</option>
+                {% for c in caisses_fourn %}<option value="{{ c.id }}">{{ c.name }} — solde {{ '{:,.0f}'.format(c.solde).replace(',', ' ') }} F</option>{% endfor %}
+            </select>
+            <select name="banque_id" id="pp_sel_banque" style="display:none;width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:6px">
+                <option value="">— Choisir un compte bancaire fournisseur —</option>
+                {% for b in banques_fourn %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — solde {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}
+            </select>
+            {% if not caisses_fourn and not banques_fourn %}
+            <p style="font-size:11px;color:#c53030;margin:4px 0 0">⚠️ Aucune caisse/compte fournisseur configuré. Créez-en un dans <a href="/mg/soldes">MG → Soldes</a>.</p>
+            {% endif %}
+        </div>
+
+        <textarea name="commentaire" rows="2" placeholder="Commentaire (optionnel)" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-size:12px;margin-bottom:8px"></textarea>
+        <div style="display:flex;justify-content:flex-end">
+            <button type="submit" class="btn" style="background:#1A7A6D;color:#fff;font-weight:700">✅ Valider le paiement &amp; débiter</button>
+        </div>
+    </form>
+    <script>
+    (function(){
+        var rc=document.getElementById('pp_caisse'), rb=document.getElementById('pp_banque');
+        var sc=document.getElementById('pp_sel_caisse'), sb=document.getElementById('pp_sel_banque');
+        function sync(){
+            if(rc.checked){ sc.style.display='block'; sc.required=true; sb.style.display='none'; sb.required=false; sb.value=''; }
+            else if(rb.checked){ sb.style.display='block'; sb.required=true; sc.style.display='none'; sc.required=false; sc.value=''; }
+        }
+        rc.addEventListener('change',sync); rb.addEventListener('change',sync);
+    })();
+    </script>
+</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card" style="padding:0;overflow-x:auto">
+        <h3 style="margin:0;padding:10px 12px;background:#1a3a5c;color:#fff;font-size:13px">📄 Factures / Commandes</h3>
+        {% if commandes %}
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:#f1f5f9"><th style="padding:7px;text-align:left">Réf.</th><th style="padding:7px;text-align:right">Total</th><th style="padding:7px;text-align:right">Payé</th><th style="padding:7px;text-align:right">Reste</th></tr></thead>
+            <tbody>
+            {% for c in commandes %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:7px">{{ c.reference or ('CMD-' ~ c.id) }}<div style="font-size:10px;color:#888">{{ c.date or '' }}</div></td>
+                <td style="padding:7px;text-align:right">{{ '{:,.0f}'.format(c.total or 0).replace(',', ' ') }}</td>
+                <td style="padding:7px;text-align:right;color:#2FA85B">{{ '{:,.0f}'.format(c.paye or 0).replace(',', ' ') }}</td>
+                <td style="padding:7px;text-align:right;font-weight:700;color:{% if c.reste > 0 %}#c53030{% else %}#2FA85B{% endif %}">{{ '{:,.0f}'.format(c.reste).replace(',', ' ') }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<p style="padding:14px;color:#888;font-size:12px">Aucune commande/facture.</p>{% endif %}
+    </div>
+
+    <div class="card" style="padding:0;overflow-x:auto">
+        <h3 style="margin:0;padding:10px 12px;background:#2FA85B;color:#fff;font-size:13px">💵 Paiements effectués</h3>
+        {% if paiements %}
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:#f1f5f9"><th style="padding:7px;text-align:left">Date</th><th style="padding:7px;text-align:left">Mode</th><th style="padding:7px;text-align:right">Montant</th></tr></thead>
+            <tbody>
+            {% for p in paiements %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:7px">{{ p.date_paiement or '' }}<div style="font-size:10px;color:#888">{{ p.reference or '' }}</div></td>
+                <td style="padding:7px">{{ p.mode or '-' }}{% if p.tresorerie_type %} <span style="font-size:10px;color:#1A7A6D">({{ p.tresorerie_type }})</span>{% endif %}</td>
+                <td style="padding:7px;text-align:right;font-weight:600">{{ '{:,.0f}'.format(p.montant or 0).replace(',', ' ') }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<p style="padding:14px;color:#888;font-size:12px">Aucun paiement.</p>{% endif %}
+    </div>
+</div>
+{% endblock %}
