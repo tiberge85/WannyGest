@@ -91,6 +91,26 @@
         </div>
         
         {% if tab == 'nouvelles' %}
+        {# v160 : modification de la facture AVANT envoi — réservé admin/dg #}
+        {% if current_user and current_user.role in ('admin','dg') and not it.recovery_sent_at %}
+        <form method="post" action="/recouvrement/facture/{{ it.id }}/modifier" class="proof-section" style="background:#e3f2fd;border:1.5px solid #1565c0;margin-bottom:8px">
+            <h4 style="color:#0d47a1;margin:0 0 8px">🔒 Modifier la facture avant envoi (Admin / DG)</h4>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">N° facture</label>
+                    <input type="text" name="invoice_number" value="{{ it.invoice_number or '' }}" placeholder="N° facture (laisser tel quel si OK)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                </div>
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">Montant TTC (XOF) *</label>
+                    <input type="number" name="amount" value="{{ it.amount|int }}" step="1" min="0" required style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px">
+                </div>
+            </div>
+            <textarea name="notes" rows="2" required minlength="5" placeholder="📝 Raison de la modification (obligatoire)" style="width:100%;padding:6px;border:2px solid #1565c0;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+            <div style="display:flex;justify-content:flex-end">
+                <button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff;font-weight:700">✏️ Enregistrer la modification</button>
+            </div>
+        </form>
+        {% endif %}
         <!-- Formulaire d'envoi + preuves -->
         <form method="post" action="/recouvrement/{{ it.id }}/envoyer" enctype="multipart/form-data" class="proof-section">
             <h4>📤 Envoyer la facture au client + Enregistrer la preuve de paiement</h4>

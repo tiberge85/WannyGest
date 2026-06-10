@@ -655,13 +655,14 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
             hdrs = ["N°","Date","Planning","État","Arrivée","P.<br/>début","P.<br/>fin",
                     "Départ","H.<br/>travail.","Retard",
                     "H.<br/>obligat.","H.<br/>Respectée","H. sup."]
-            cw = [6*mm,15*mm,18*mm,15*mm,12*mm,11*mm,11*mm,12*mm,14*mm,12*mm,14*mm,17*mm,14*mm]
+            # v160 : colonnes élargies (total 190mm ≤ 194mm utiles en portrait A4, marges 8mm)
+            cw = [7*mm,17*mm,21*mm,17*mm,13*mm,12*mm,12*mm,13*mm,15*mm,13*mm,15*mm,19*mm,16*mm]
         else:
             hdrs = ["N°","Date","Planning","État","Arrivée",
                     "Départ","H.<br/>travail.","Retard",
                     "H.<br/>obligat.","H.<br/>Respectée","H. sup."]
-            # Largeurs élargies (gain ~22mm distribué)
-            cw = [7*mm,17*mm,21*mm,17*mm,15*mm,15*mm,16*mm,14*mm,16*mm,19*mm,16*mm]
+            # v160 : colonnes élargies (total 190mm ≤ 194mm utiles en portrait A4, marges 8mm)
+            cw = [8*mm,19*mm,24*mm,19*mm,16*mm,16*mm,17*mm,15*mm,17*mm,21*mm,18*mm]
         
         td = [[Paragraph(x, s_h) for x in hdrs]]
         

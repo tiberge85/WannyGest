@@ -20035,10 +20035,11 @@ def facture_preview(fri_id):
 
 
 @app.route('/recouvrement/facture/<int:fri_id>/modifier', methods=['POST'])
-@permission_required_any('facture_edit', 'admin')
+@permission_required_any('facture_edit', 'admin', 'dg')
 def facture_modifier(fri_id):
     """v145 / v146 : Modification d'une facture.
-    v146 : Accepte aussi modification AVANT édition (status='a_facturer')."""
+    v146 : Accepte aussi modification AVANT édition (status='a_facturer').
+    v160 : ouvert au DG ; modification interdite une fois la facture envoyée au client."""
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
@@ -20056,17 +20057,23 @@ def facture_modifier(fri_id):
     
     conn = _gdb()
     try:
-        old = conn.execute("SELECT amount, invoice_number, field_report_id, status FROM field_report_invoices WHERE id=?",
+        old = conn.execute("SELECT amount, invoice_number, field_report_id, status, recovery_sent_at FROM field_report_invoices WHERE id=?",
             (fri_id,)).fetchone()
         if not old:
             conn.close()
             flash("Facture introuvable", "error")
             return redirect('/recouvrement/factures-a-editer')
-        
+
         # v146 : Refuser modification si déjà payée
         if old['status'] == 'paye':
             conn.close()
             flash("⛔ Cette facture est déjà payée et ne peut plus être modifiée", "error")
+            return redirect(f'/recouvrement/facture/{fri_id}/preview')
+
+        # v160 : interdire la modification une fois la facture envoyée au client
+        if old['recovery_sent_at'] or old['status'] in ('caisse_choisie', 'en_recouvrement'):
+            conn.close()
+            flash("⛔ Cette facture a déjà été envoyée au client — modification impossible.", "error")
             return redirect(f'/recouvrement/facture/{fri_id}/preview')
         
         old_amount = old['amount']
@@ -31507,6 +31514,65 @@ def mg_soldes_fournisseur():
         total_caisses=total_caisses, total_banques=total_banques,
         total_global=total_caisses + total_banques,
         is_admin=is_admin, other_caisses=other_caisses, other_banks=other_banks)
+
+
+# v160 : Historique des mouvements d'une caisse OU d'un compte bancaire fournisseur
+@app.route('/mg/soldes/historique/<kind>/<int:item_id>')
+@permission_required_any('mg_view', 'admin')
+def mg_soldes_historique(kind, item_id):
+    """Affiche l'historique des mouvements (débits/crédits) d'une caisse ou
+    d'un compte bancaire fournisseur. Source caisse : caisse_entrees + caisse_sorties.
+    Source banque : tresorerie_mouvements."""
+    if kind not in ('caisse', 'banque'):
+        flash("Type invalide", "error")
+        return redirect('/mg/soldes')
+    conn = _gdb()
+    mouvements = []
+    titre = ''
+    solde = 0
+    try:
+        if kind == 'caisse':
+            row = conn.execute("SELECT id, name, COALESCE(solde_initial,0) AS solde_initial, COALESCE(solde_actuel,0) AS solde_actuel FROM caisses WHERE id=?", (item_id,)).fetchone()
+            if not row:
+                conn.close(); flash("Caisse introuvable", "error"); return redirect('/mg/soldes')
+            row = dict(row); titre = row['name']
+            # Entrées (crédit) — caisse_entrees : description/source (pas de motif/libelle)
+            try:
+                for r in conn.execute("SELECT date, montant, COALESCE(description, source, 'Entrée') AS libelle, reference FROM caisse_entrees WHERE caisse_id=? ORDER BY date DESC, id DESC", (item_id,)).fetchall():
+                    r = dict(r)
+                    mouvements.append({'date': r.get('date') or '', 'sens': 'entree', 'montant': float(r.get('montant') or 0),
+                                       'libelle': r.get('libelle') or 'Entrée', 'reference': r.get('reference') or ''})
+            except Exception as _e: print(f"[v160-Histo] entrées : {_e}", flush=True)
+            # Sorties validées + comptabilisées (débit)
+            try:
+                for r in conn.execute("SELECT date, montant, motif, reference, beneficiaire FROM caisse_sorties WHERE caisse_id=? AND status='valide' AND comptabilise=1 ORDER BY date DESC, id DESC", (item_id,)).fetchall():
+                    r = dict(r)
+                    lib = r.get('motif') or 'Sortie'
+                    if r.get('beneficiaire'): lib = f"{lib} — {r['beneficiaire']}"
+                    mouvements.append({'date': r.get('date') or '', 'sens': 'sortie', 'montant': float(r.get('montant') or 0),
+                                       'libelle': lib, 'reference': r.get('reference') or ''})
+            except Exception as _e: print(f"[v160-Histo] sorties : {_e}", flush=True)
+            solde = float(row['solde_initial']) + sum(m['montant'] for m in mouvements if m['sens'] == 'entree') - sum(m['montant'] for m in mouvements if m['sens'] == 'sortie')
+        else:
+            row = conn.execute("SELECT id, nom, banque, COALESCE(solde_actuel,0) AS solde_actuel FROM tresorerie_comptes_bancaires WHERE id=?", (item_id,)).fetchone()
+            if not row:
+                conn.close(); flash("Compte introuvable", "error"); return redirect('/mg/soldes')
+            row = dict(row); titre = f"{row['nom']} ({row['banque'] or ''})"; solde = float(row['solde_actuel'])
+            for r in conn.execute("SELECT date, montant, sens, COALESCE(libelle,'') AS libelle, reference FROM tresorerie_mouvements WHERE banque_id=? ORDER BY date DESC, id DESC LIMIT 300", (item_id,)).fetchall():
+                r = dict(r)
+                sens = 'sortie' if (r.get('sens') or '').lower() in ('sortie', 'debit', 'décaissement', 'decaissement') else 'entree'
+                mouvements.append({'date': r.get('date') or '', 'sens': sens, 'montant': float(r.get('montant') or 0),
+                                   'libelle': r.get('libelle') or '', 'reference': r.get('reference') or ''})
+        # Tri par date décroissante (chaînes ISO comparables)
+        mouvements.sort(key=lambda m: m['date'], reverse=True)
+    except Exception as _e:
+        print(f"[v160-Histo] Err : {_e}", flush=True)
+    conn.close()
+    total_entrees = sum(m['montant'] for m in mouvements if m['sens'] == 'entree')
+    total_sorties = sum(m['montant'] for m in mouvements if m['sens'] == 'sortie')
+    return render_template('mg_soldes_historique.html', page='mg_soldes',
+        kind=kind, titre=titre, mouvements=mouvements, solde=solde,
+        total_entrees=total_entrees, total_sorties=total_sorties)
 
 
 # v154 : Toggle d'une caisse/banque comme fournisseur (admin seulement)
