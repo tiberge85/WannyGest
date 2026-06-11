@@ -25,12 +25,14 @@
 
 <div class="card"><div class="card-body">
 {% if demandes %}<div class="table-wrap"><table>
-<thead><tr><th>Réf</th><th>Date</th><th>Département</th><th>Demandeur</th><th>Description</th><th>Urgence</th><th>Statut</th><th>Actions</th></tr></thead>
+<thead><tr><th>Réf</th><th>Date</th><th>Département</th><th>Demandeur</th><th>Fournisseur</th><th>Site</th><th>Description</th><th>Urgence</th><th>Statut</th><th>Actions</th></tr></thead>
 <tbody>{% for d in demandes %}<tr>
 <td><strong>{{ d.reference }}</strong></td>
 <td>{{ d.date or '-' }}</td>
 <td>{{ d.department or '-' }}</td>
 <td>{{ d.requester_name or '-' }}</td>
+<td>{{ d.fournisseur_name or '-' }}</td>
+<td>{{ d.site_name or '-' }}</td>
 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ d.description }}">{{ d.description|truncate(50) }}</td>
 <td>
     {% if d.urgency == 'urgente' %}<span style="color:#c53030;font-weight:700">🔴 Urgente</span>
@@ -70,6 +72,15 @@
 <div class="form-row">
     <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ now }}"></div>
     <div class="form-group"><label>Département / Service</label><input type="text" name="department" placeholder="Ex: IT, Logistique..."></div>
+</div>
+<div class="form-row">
+    <div class="form-group"><label>Fournisseur</label>
+        <select name="fournisseur_id">
+            <option value="">— Aucun / à définir —</option>
+            {% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="form-group"><label>Site concerné par la demande</label><input type="text" name="site_name" placeholder="Ex: Siège Cocody, Chantier Yopougon..."></div>
 </div>
 <div class="form-group">
     <label>Description / Objet de la demande *</label>

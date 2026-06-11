@@ -90,6 +90,23 @@
     </div>
     <div class="form-group"><label>Montant (FCFA) *</label><input type="number" name="montant" required step="1" id="payMontant"></div>
 </div>
+{# v160 : portefeuille fournisseur à débiter — le paiement agit sur le solde #}
+<div style="background:#f0f8f5;border:1.5px solid #1A7A6D;border-radius:8px;padding:10px;margin-bottom:10px">
+    <label style="font-size:11px;color:#1A7A6D;font-weight:700;display:block;margin-bottom:6px">💸 Portefeuille fournisseur à débiter *</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:7px;cursor:pointer;font-size:12px"><input type="radio" name="tresorerie_type" value="caisse" id="pf_caisse" required> 🧰 Caisse fournisseur</label>
+        <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:7px;cursor:pointer;font-size:12px"><input type="radio" name="tresorerie_type" value="banque" id="pf_banque" required> 🏦 Compte bancaire</label>
+    </div>
+    <select name="caisse_id" id="pf_sel_caisse" style="display:none;width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:6px">
+        <option value="">— Choisir une caisse fournisseur —</option>
+        {% for c in caisses_fourn %}<option value="{{ c.id }}">{{ c.name }} — solde {{ '{:,.0f}'.format(c.solde).replace(',', ' ') }} F</option>{% endfor %}
+    </select>
+    <select name="banque_id" id="pf_sel_banque" style="display:none;width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+        <option value="">— Choisir un compte bancaire fournisseur —</option>
+        {% for b in banques_fourn %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — solde {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}
+    </select>
+    {% if not caisses_fourn and not banques_fourn %}<p style="font-size:11px;color:#c53030;margin:4px 0 0">⚠️ Aucun portefeuille fournisseur. Créez-en un dans <a href="/mg/soldes">MG → Soldes</a>.</p>{% endif %}
+</div>
 <div class="form-group">
     <label>Référence externe (n° chèque, n° virement, etc.)</label>
     <input type="text" name="reference_externe" placeholder="Ex: VIR-2026-0123">
@@ -115,6 +132,14 @@ document.getElementById('payCommande').addEventListener('change', function() {
         if (reste && parseFloat(reste) > 0) document.getElementById('payMontant').value = reste;
     }
 });
+// v160 : bascule caisse/banque pour le portefeuille fournisseur à débiter
+(function(){
+    var rc=document.getElementById('pf_caisse'), rb=document.getElementById('pf_banque');
+    var sc=document.getElementById('pf_sel_caisse'), sb=document.getElementById('pf_sel_banque');
+    if(!rc||!rb) return;
+    function sync(){ if(rc.checked){sc.style.display='block';sc.required=true;sb.style.display='none';sb.required=false;sb.value='';}else if(rb.checked){sb.style.display='block';sb.required=true;sc.style.display='none';sc.required=false;sc.value='';} }
+    rc.addEventListener('change',sync); rb.addEventListener('change',sync);
+})();
 </script>
 
 {% endblock %}

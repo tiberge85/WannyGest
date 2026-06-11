@@ -2489,6 +2489,18 @@ try:
 except Exception as _e: print(f"[v160-PrestataireWallet] Err : {_e}", flush=True)
 
 
+# v160 : demande interne — fournisseur + site associés
+try:
+    from models import get_db as _gdb_v160dm
+    _v160dm = _gdb_v160dm()
+    for _col in ["fournisseur_id INTEGER", "site_name TEXT"]:
+        try: _v160dm.execute(f"ALTER TABLE achats_demandes ADD COLUMN {_col}")
+        except: pass
+    _v160dm.commit(); _v160dm.close()
+    print("[v160-DemandeFournSite] Colonnes fournisseur_id/site_name ajoutées", flush=True)
+except Exception as _e: print(f"[v160-DemandeFournSite] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -6551,6 +6563,7 @@ def admin_permissions():
     # v89 : Ajout des rôles coordinateur, gestionnaire_projet
     for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique',
                  'resp_projet', 'gestionnaire_projet', 'coordinateur',  # v89
+                 'agent_recouvreur', 'caissiere',  # v160
                  'concierge', 'proprietaire', 'secretaire']:
         perms = [p for p in ALL_PERMISSIONS if request.form.get(f'{role}_{p}')]
         update_role_permissions(role, perms)
@@ -30689,20 +30702,27 @@ def mg_demandes():
     if statut:
         rows = conn.execute("""
             SELECT d.*, u.username as requester_name,
+                f.name as fournisseur_name,
                 COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
             FROM achats_demandes d
             LEFT JOIN users u ON d.requested_by = u.id
+            LEFT JOIN achats_fournisseurs f ON d.fournisseur_id = f.id
             WHERE d.status=? ORDER BY d.created_at DESC""", (statut,)).fetchall()
     else:
         rows = conn.execute("""
             SELECT d.*, u.username as requester_name,
+                f.name as fournisseur_name,
                 COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
             FROM achats_demandes d
             LEFT JOIN users u ON d.requested_by = u.id
+            LEFT JOIN achats_fournisseurs f ON d.fournisseur_id = f.id
             ORDER BY d.created_at DESC""").fetchall()
     demandes = [dict(r) for r in rows]
+    # v160 : liste des fournisseurs pour le formulaire de demande
+    fournisseurs = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM achats_fournisseurs WHERE status='actif' OR status IS NULL ORDER BY name").fetchall()]
     conn.close()
-    return render_template('mg_demandes.html', demandes=demandes, current_statut=statut)
+    return render_template('mg_demandes.html', demandes=demandes, current_statut=statut, fournisseurs=fournisseurs)
 
 
 @app.route('/mg/demandes/add', methods=['POST'])
@@ -30732,11 +30752,16 @@ def mg_demandes_add():
         montant_estime = float(montant_estime_raw) if montant_estime_raw else 0
     except: montant_estime = 0
     
+    # v160 : fournisseur + site associés à la demande
+    fourn_raw = request.form.get('fournisseur_id', '') or ''
+    fournisseur_id = int(fourn_raw) if fourn_raw.isdigit() else None
+    site_name = (request.form.get('site_name', '') or '').strip()
+
     conn = _gdb()
-    cur = conn.execute("""INSERT INTO achats_demandes 
+    cur = conn.execute("""INSERT INTO achats_demandes
         (reference, date, department, requested_by, description, urgency, status, notes,
-         approved_by, approved_at, compta_montant_estime, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+         approved_by, approved_at, compta_montant_estime, fournisseur_id, site_name, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
         (ref,
          request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
          request.form.get('department', ''),
@@ -30745,7 +30770,7 @@ def mg_demandes_add():
          request.form.get('urgency', 'normale'),
          initial_status,
          request.form.get('notes', ''),
-         approved_by, approved_at, montant_estime))
+         approved_by, approved_at, montant_estime, fournisseur_id, site_name))
     did = cur.lastrowid
     
     # v110 : Insérer les items du formulaire (s'il y en a)
@@ -31525,6 +31550,7 @@ def mg_paiements():
     solde_banques = sum(b['solde'] for b in banques_fourn)
     return render_template('mg_paiements.html', paiements=paiements,
                           commandes=commandes_data, fournisseurs=fournisseurs,
+                          caisses_fourn=caisses_fourn, banques_fourn=banques_fourn,
                           solde_caisses=solde_caisses, solde_banques=solde_banques,
                           solde_total_fourn=solde_caisses + solde_banques)
 
@@ -31532,29 +31558,54 @@ def mg_paiements():
 @app.route('/mg/paiements/add', methods=['POST'])
 @permission_required_any('mg_gestion', 'admin')
 def mg_paiements_add():
+    """v160 : un paiement fournisseur DÉBITE le portefeuille fournisseur choisi (caisse OU banque)."""
+    user = get_user_by_id(session['user_id']); user_name = user['full_name'] if user else 'MG'
     fid = int(request.form.get('fournisseur_id', 0) or 0)
     cmd_id_raw = request.form.get('commande_id', '')
     cmd_id = int(cmd_id_raw) if cmd_id_raw and cmd_id_raw.isdigit() else None
-    
+
     montant = float(request.form.get('montant', 0) or 0)
     if montant <= 0:
         flash("Montant invalide", "error")
         return redirect('/mg/paiements')
-    
+
     type_p = request.form.get('type_paiement', 'solde')
     if type_p not in ('acompte', 'solde', 'partiel'):
         type_p = 'solde'
-    
+
+    ttype = (request.form.get('tresorerie_type', '') or '').strip()
+    conn = _gdb()
+    frow = conn.execute("SELECT name FROM achats_fournisseurs WHERE id=?", (fid,)).fetchone()
+    fnom = frow['name'] if frow else 'Fournisseur'
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
     ref = f"PAY-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
-    _dbi('mg_paiements', reference=ref, fournisseur_id=fid, commande_id=cmd_id,
-         montant=montant, type_paiement=type_p,
-         mode=request.form.get('mode', 'virement'),
-         date_paiement=request.form.get('date_paiement', datetime.now().strftime('%Y-%m-%d')),
-         reference_externe=request.form.get('reference_externe', ''),
-         commentaire=request.form.get('commentaire', ''),
-         paid_by=session['user_id'])
-    
-    flash(f"Paiement {ref} de {montant:,.0f} F enregistré", "success")
+    libelle = f"Paiement fournisseur {fnom}"
+    caisse_id = banque_id = None; label = ''
+    if ttype == 'caisse':
+        wid_raw = request.form.get('caisse_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
+        if not any(c['id'] == wid for c in caisses_fourn):
+            conn.close(); flash("⚠️ Choisissez une caisse fournisseur valide à débiter.", "error"); return redirect('/mg/paiements')
+        ok, label = _debit_fournisseur_wallet(conn, 'caisse', wid, montant, libelle, ref, session['user_id'], user_name, fid)
+        caisse_id = wid
+    elif ttype == 'banque':
+        wid_raw = request.form.get('banque_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
+        if not any(b['id'] == wid for b in banques_fourn):
+            conn.close(); flash("⚠️ Choisissez un compte bancaire fournisseur valide à débiter.", "error"); return redirect('/mg/paiements')
+        ok, label = _debit_fournisseur_wallet(conn, 'banque', wid, montant, libelle, ref, session['user_id'], user_name, fid)
+        banque_id = wid
+    else:
+        conn.close(); flash("⚠️ Choisissez le portefeuille fournisseur à débiter (caisse OU compte bancaire).", "error"); return redirect('/mg/paiements')
+
+    conn.execute("""INSERT INTO mg_paiements
+        (reference, fournisseur_id, commande_id, montant, type_paiement, mode, date_paiement,
+         reference_externe, commentaire, paid_by, statut, tresorerie_type, caisse_id, banque_id, valide_par, tresorerie_debited, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?, 'valide', ?, ?, ?, ?, 1, datetime('now'))""",
+        (ref, fid, cmd_id, montant, type_p, request.form.get('mode', 'virement'),
+         request.form.get('date_paiement', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('reference_externe', ''), request.form.get('commentaire', ''),
+         session['user_id'], ttype, caisse_id, banque_id, session['user_id']))
+    conn.commit(); conn.close()
+    flash(f"✅ Paiement {ref} de {montant:,.0f} F enregistré et débité de « {label} »", "success")
     return redirect('/mg/paiements')
 
 

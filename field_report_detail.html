@@ -132,11 +132,23 @@
             <div class="card-body">
                 <h3 style="margin:0 0 8px;color:#1b5e20;font-size:13px">✅ Remontée exécutée</h3>
                 <div style="font-size:12px;color:#1b5e20">
-                    📅 {{ report.executed_at[:16] }} 
+                    📅 {{ report.executed_at[:16] }}
                     {% if report.execution_notes %}
                     <br>📝 <strong>Notes :</strong> {{ report.execution_notes }}
                     {% endif %}
                 </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# v160 : commentaire de clôture du technicien (intervention liée) — visible sans ouvrir la fiche d'intervention #}
+        {% if linked_intervention and linked_intervention.rapport %}
+        <div class="card" style="margin-bottom:14px;border:2px solid #1565c0;background:#e8f1fb">
+            <div class="card-body">
+                <h3 style="margin:0 0 8px;color:#0d47a1;font-size:13px">🔧 Commentaire des tâches réalisées (technicien)</h3>
+                <div style="font-size:12px;color:#0d47a1;white-space:pre-wrap">{{ linked_intervention.rapport }}</div>
+                {% if linked_intervention.material_used %}<div style="font-size:11px;color:#555;margin-top:6px">🧰 <strong>Matériel :</strong> {{ linked_intervention.material_used }}</div>{% endif %}
+                {% if linked_intervention.reference %}<div style="font-size:11px;color:#888;margin-top:4px">Intervention {{ linked_intervention.reference }}</div>{% endif %}
             </div>
         </div>
         {% endif %}
