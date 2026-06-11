@@ -2475,6 +2475,20 @@ try:
 except Exception as _e: print(f"[v160-PrestataireEntite] Err : {_e}", flush=True)
 
 
+# v160 : flag is_prestataire sur caisses + comptes bancaires (caisse PRESTATAIRE,
+# distincte de la caisse fournisseur). Les paiements prestataire débitent ce portefeuille.
+try:
+    from models import get_db as _gdb_v160pw
+    _v160pw = _gdb_v160pw()
+    for _tbl in ('caisses', 'tresorerie_comptes_bancaires'):
+        try: _v160pw.execute(f"ALTER TABLE {_tbl} ADD COLUMN is_prestataire INTEGER")
+        except: pass
+    _v160pw.commit()
+    _v160pw.close()
+    print("[v160-PrestataireWallet] Colonne is_prestataire ajoutée (caisses + banques)", flush=True)
+except Exception as _e: print(f"[v160-PrestataireWallet] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -19881,10 +19895,12 @@ def decisions_facturation():
                fr.facturable, fr.cost_amount, fr.facturation_motif,
                fr.facturation_decided_at,
                u.full_name as executed_by_name,
-               ud.full_name as decided_by_name
+               ud.full_name as decided_by_name,
+               i.rapport as technicien_rapport
         FROM field_reports fr
         LEFT JOIN users u ON u.id = fr.executed_by
         LEFT JOIN users ud ON ud.id = fr.facturation_decided_by
+        LEFT JOIN interventions i ON i.id = fr.linked_intervention_id
         WHERE {where_sql}
         ORDER BY {order_by} LIMIT 100""", params).fetchall()]
     
@@ -29647,13 +29663,21 @@ def fournisseurs_list():
     # Compteurs
     nb_actifs = len(actives_only)
     nb_inactifs = len([s for s in suppliers if s.get('is_active') == 0])
-    
+
+    # v160 : soldes des portefeuilles FOURNISSEUR affichés directement ici
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    solde_caisse_fourn = sum(c['solde'] for c in caisses_fourn)
+    solde_banque_fourn = sum(b['solde'] for b in banques_fourn)
+
     conn.close()
     return render_template('extra_pages.html', page='fournisseurs_list',
                           suppliers=suppliers, grand_total=grand_total,
                           grand_paid=grand_paid, grand_rest=grand_rest,
                           nb_actifs=nb_actifs, nb_inactifs=nb_inactifs,
-                          is_admin_view=is_admin_view)
+                          is_admin_view=is_admin_view,
+                          solde_caisse_fourn=solde_caisse_fourn,
+                          solde_banque_fourn=solde_banque_fourn,
+                          solde_total_fourn=solde_caisse_fourn + solde_banque_fourn)
 
 
 @app.route('/fournisseurs/<int:sid>/toggle-active', methods=['POST'])
@@ -31196,6 +31220,42 @@ def _fournisseur_wallets(conn):
     return caisses, banques
 
 
+def _prestataire_wallets(conn):
+    """v160 : Retourne (caisses_presta, banques_presta) — portefeuilles PRESTATAIRE,
+    distincts des fournisseurs. Critère : is_prestataire=1 OU nom contenant 'prestataire'.
+    Solde caisse depuis caisse_operations (source partagée). Solde banque = solde_actuel."""
+    like_c = "LOWER(name) LIKE '%prestataire%' OR LOWER(COALESCE(description,'')) LIKE '%prestataire%'"
+    like_b = "LOWER(nom) LIKE '%prestataire%' OR LOWER(COALESCE(banque,'')) LIKE '%prestataire%'"
+    caisses = []
+    try:
+        caisses = [dict(r) for r in conn.execute(f"""
+            SELECT id, name, COALESCE(solde_initial,0) AS solde_initial, COALESCE(solde_actuel,0) AS solde_actuel
+            FROM caisses
+            WHERE COALESCE(is_active,1)=1
+              AND (is_prestataire=1 OR (COALESCE(is_prestataire,0)=0 AND ({like_c})))
+            ORDER BY is_prestataire DESC, name""").fetchall()]
+        for c in caisses:
+            try:
+                e = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (c['id'],)).fetchone()[0] or 0
+                s = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (c['id'],)).fetchone()[0] or 0
+                ti = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+                to = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+                c['solde'] = float(c['solde_initial']) + float(e) + float(ti) - float(s) - float(to)
+            except:
+                c['solde'] = float(c.get('solde_actuel', 0) or 0)
+    except: caisses = []
+    banques = []
+    try:
+        banques = [dict(r) for r in conn.execute(f"""
+            SELECT id, nom, banque, numero_compte, COALESCE(solde_actuel,0) AS solde
+            FROM tresorerie_comptes_bancaires
+            WHERE COALESCE(is_active,1)=1
+              AND (is_prestataire=1 OR (COALESCE(is_prestataire,0)=0 AND ({like_b})))
+            ORDER BY is_prestataire DESC, nom""").fetchall()]
+    except: banques = []
+    return caisses, banques
+
+
 @app.route('/comptabilite/demandes-mg/<int:did>/preview')
 @permission_required_any('mg_compta_validate', 'admin')
 def compta_demande_mg_preview(did):
@@ -31705,17 +31765,19 @@ def mg_prestataires():
     for r in rows:
         d = dict(r); d['reste'] = (d['total_facture'] or 0) - (d['total_paye'] or 0)
         prestataires.append(d)
-    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    caisses_presta, banques_presta = _prestataire_wallets(conn)
+    user = get_user_by_id(session.get('user_id'))
+    is_admin = user and user['role'] == 'admin'
     conn.close()
     tot_facture = sum(p['total_facture'] or 0 for p in prestataires)
     tot_paye = sum(p['total_paye'] or 0 for p in prestataires)
-    solde_caisses = sum(c['solde'] for c in caisses_fourn)
-    solde_banques = sum(b['solde'] for b in banques_fourn)
+    solde_caisses = sum(c['solde'] for c in caisses_presta)
+    solde_banques = sum(b['solde'] for b in banques_presta)
     return render_template('mg_prestataires.html', page='mg_prestataires',
         prestataires=prestataires, tot_facture=tot_facture, tot_paye=tot_paye,
         tot_reste=tot_facture - tot_paye,
         solde_caisses=solde_caisses, solde_banques=solde_banques,
-        solde_total_fourn=solde_caisses + solde_banques)
+        solde_total_presta=solde_caisses + solde_banques, is_admin=is_admin)
 
 
 @app.route('/mg/prestataires/add', methods=['POST'])
@@ -31757,12 +31819,12 @@ def mg_prestataire_detail(pid):
         WHERE pa.prestataire_id=? ORDER BY pa.date_paiement DESC, pa.id DESC""", (pid,)).fetchall()]
     total_facture = sum((fa['montant'] or 0) for fa in factures)
     total_paye = sum((pa['montant'] or 0) for pa in paiements)
-    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    caisses_presta, banques_presta = _prestataire_wallets(conn)
     conn.close()
     return render_template('mg_prestataire_detail.html', page='mg_prestataires',
         p=p, factures=factures, paiements=paiements,
         total_facture=total_facture, total_paye=total_paye, reste=total_facture - total_paye,
-        caisses_fourn=caisses_fourn, banques_fourn=banques_fourn)
+        caisses_presta=caisses_presta, banques_presta=banques_presta)
 
 
 @app.route('/mg/prestataires/<int:pid>/facture/add', methods=['POST'])
@@ -31819,24 +31881,24 @@ def mg_prestataire_payer(pid):
     if not prow:
         conn.close(); flash("Prestataire introuvable", "error"); return redirect('/mg/prestataires')
     pnom = prow['nom']
-    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    caisses_presta, banques_presta = _prestataire_wallets(conn)
     ref = f"PRP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     libelle = f"Paiement prestataire {pnom}"
     caisse_id = banque_id = None; label = ''
     if ttype == 'caisse':
         wid_raw = request.form.get('caisse_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
-        if not any(c['id'] == wid for c in caisses_fourn):
-            conn.close(); flash("⚠️ Choisissez une caisse fournisseur valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
+        if not any(c['id'] == wid for c in caisses_presta):
+            conn.close(); flash("⚠️ Choisissez une caisse prestataire valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
         ok, label = _debit_fournisseur_wallet(conn, 'caisse', wid, montant, libelle, ref, session['user_id'], user_name, pid)
         caisse_id = wid
     elif ttype == 'banque':
         wid_raw = request.form.get('banque_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
-        if not any(b['id'] == wid for b in banques_fourn):
-            conn.close(); flash("⚠️ Choisissez un compte bancaire fournisseur valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
+        if not any(b['id'] == wid for b in banques_presta):
+            conn.close(); flash("⚠️ Choisissez un compte bancaire prestataire valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
         ok, label = _debit_fournisseur_wallet(conn, 'banque', wid, montant, libelle, ref, session['user_id'], user_name, pid)
         banque_id = wid
     else:
-        conn.close(); flash("⚠️ Choisissez le portefeuille à débiter (caisse OU compte bancaire fournisseur).", "error"); return redirect(f'/mg/prestataires/{pid}')
+        conn.close(); flash("⚠️ Choisissez le portefeuille à débiter (caisse OU compte bancaire prestataire).", "error"); return redirect(f'/mg/prestataires/{pid}')
     conn.execute("""INSERT INTO prestataire_paiements
         (prestataire_id, facture_id, montant, mode, date_paiement, tresorerie_type, caisse_id, banque_id,
          reference, reference_externe, commentaire, valide_par, created_at)
@@ -31849,6 +31911,38 @@ def mg_prestataire_payer(pid):
     conn.commit(); conn.close()
     flash(f"✅ Paiement {montant:,.0f} XOF enregistré et débité de « {label} »", "success")
     return redirect(f'/mg/prestataires/{pid}')
+
+
+@app.route('/mg/prestataires/wallet/create', methods=['POST'])
+@permission_required_any('prestataires_payer', 'admin')
+def mg_prestataire_wallet_create():
+    """v160 : créer une CAISSE ou une BANQUE prestataire (is_prestataire=1)."""
+    kind = (request.form.get('kind') or '').strip()
+    name = (request.form.get('name') or '').strip()
+    solde_initial = 0
+    try: solde_initial = float((request.form.get('solde_initial', '0') or '0').replace(',', '.'))
+    except: solde_initial = 0
+    if not name:
+        flash("Le nom est obligatoire", "error"); return redirect('/mg/prestataires')
+    conn = _gdb()
+    try:
+        if kind == 'caisse':
+            conn.execute("""INSERT INTO caisses (name, description, solde_initial, solde_actuel, is_active, is_prestataire, created_at)
+                VALUES (?,?,?,?,1,1,datetime('now'))""", (name, 'Caisse prestataire', solde_initial, solde_initial))
+            flash(f"✅ Caisse prestataire « {name} » créée", "success")
+        elif kind == 'banque':
+            conn.execute("""INSERT INTO tresorerie_comptes_bancaires (nom, banque, numero_compte, type_compte, solde_actuel, is_active, is_prestataire)
+                VALUES (?,?,?,?,?,1,1)""",
+                (name, request.form.get('banque', 'Banque'), request.form.get('numero_compte', ''),
+                 request.form.get('type_compte', 'Courant'), solde_initial))
+            flash(f"✅ Compte bancaire prestataire « {name} » créé", "success")
+        else:
+            flash("Type inconnu", "error")
+        conn.commit()
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    conn.close()
+    return redirect('/mg/prestataires')
 
 
 # v154 : Toggle d'une caisse/banque comme fournisseur (admin seulement)

@@ -607,9 +607,6 @@
                     <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail') %}active{% endif %}">🏭 Fournisseurs &amp; Paiements</a>
                     {% endif %}
                     <a href="/mg/fournisseurs-dashboard" class="{% if page == 'mg_fournisseurs' %}active{% endif %}">💰 Suivi financier fournisseurs</a>
-                    {% if 'prestataires_view' in permissions or 'mg_view' in permissions or 'admin' in permissions %}
-                    <a href="/mg/prestataires" class="{% if page == 'mg_prestataires' %}active{% endif %}">🤝 Prestataires</a>
-                    {% endif %}
                     <a href="/achats?tab=commandes" class="{% if page == 'commandes' %}active{% endif %}">🚚 Bons de commande</a>
                     <a href="/mg/receptions" class="{% if page == 'mg_receptions' %}active{% endif %}">📦 Réceptions</a>
                     <a href="/mg/paiements" class="{% if page == 'mg_paiements' %}active{% endif %}">💵 Paiements fournisseurs</a>

@@ -3145,6 +3145,25 @@ function filterRecent() {
     </div>
 </div>
 
+{# v160 : Solde des portefeuilles fournisseur (caisse + banque) directement ici #}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px">
+    <div style="background:#eaf4f1;border-left:4px solid #1A7A6D;border-radius:8px;padding:10px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1A7A6D;font-weight:700;letter-spacing:1px">💰 Caisse fournisseur</div>
+        <div style="font-size:18px;font-weight:900;color:#1A7A6D;margin-top:2px">{{ '{:,.0f}'.format(solde_caisse_fourn or 0).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#e7f0fa;border-left:4px solid #1565c0;border-radius:8px;padding:10px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1565c0;font-weight:700;letter-spacing:1px">🏦 Banque fournisseur</div>
+        <div style="font-size:18px;font-weight:900;color:#1565c0;margin-top:2px">{{ '{:,.0f}'.format(solde_banque_fourn or 0).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#1A7A6D;border-radius:8px;padding:10px;color:#fff;display:flex;align-items:center;justify-content:space-between">
+        <div>
+            <div style="font-size:10px;text-transform:uppercase;opacity:.85;font-weight:700;letter-spacing:1px">Σ Disponible</div>
+            <div style="font-size:20px;font-weight:900;margin-top:2px">{{ '{:,.0f}'.format(solde_total_fourn or 0).replace(',', ' ') }} F</div>
+        </div>
+        <a href="/mg/soldes" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:5px;padding:4px 8px;font-size:11px;text-decoration:none">Gérer</a>
+    </div>
+</div>
+
 {% if is_admin_view and nb_inactifs > 0 %}
 <div style="background:#fff3e0;padding:8px 12px;border-radius:6px;font-size:11px;color:#7a4a00;margin-bottom:10px;border-left:3px solid #f29f2f">
     💡 <strong>Vue admin</strong> : vous voyez aussi les fournisseurs archivés (lignes grisées). Bouton 🔄 pour les réactiver.
