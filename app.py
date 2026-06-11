@@ -2501,6 +2501,24 @@ try:
 except Exception as _e: print(f"[v160-DemandeFournSite] Err : {_e}", flush=True)
 
 
+# v160 : registre des remises/versements de l'agent recouvreur
+try:
+    from models import get_db as _gdb_v160rv
+    _v160rv = _gdb_v160rv()
+    _v160rv.execute("""CREATE TABLE IF NOT EXISTS recouvrement_versements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id INTEGER, agent_name TEXT,
+        montant REAL NOT NULL, mode TEXT DEFAULT 'especes',
+        caisse_id INTEGER, caisse_name TEXT,
+        bordereau_number TEXT, bordereau_file TEXT,
+        date_versement TEXT, notes TEXT,
+        statut TEXT DEFAULT 'verse',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    _v160rv.commit(); _v160rv.close()
+    print("[v160-Versements] Table recouvrement_versements OK", flush=True)
+except Exception as _e: print(f"[v160-Versements] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -3348,6 +3366,23 @@ def notify_roles(roles, title, message, link=None, **kwargs):
     conn = _gdb()
     placeholders = ','.join(['?'] * len(roles))
     users = conn.execute(f"SELECT DISTINCT id FROM users WHERE role IN ({placeholders}) AND COALESCE(is_active,1)=1", tuple(roles)).fetchall()
+    conn.close()
+    ids = []
+    for u in users:
+        nid = notify_user(u['id'], title, message, link=link, **kwargs)
+        if nid: ids.append(nid)
+    return ids
+
+
+def notify_department(department, title, message, link=None, **kwargs):
+    """v160 : Notifie tous les utilisateurs d'un DÉPARTEMENT donné.
+    Si department est vide ou vaut 'Tous'/'Tous les départements' → notifie TOUS les utilisateurs actifs."""
+    dept = (department or '').strip()
+    conn = _gdb()
+    if not dept or dept.lower() in ('tous', 'tous les départements', 'tous les departements', 'all'):
+        users = conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1").fetchall()
+    else:
+        users = conn.execute("SELECT id FROM users WHERE department=? AND COALESCE(is_active,1)=1", (dept,)).fetchall()
     conn.close()
     ids = []
     for u in users:
@@ -16254,6 +16289,14 @@ def chat_file_serve(filename):
     if '..' in filename or filename.startswith('/'): abort(403)
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'chat_files'), filename)
 
+
+@app.route('/uploads/versements/<path:filename>')
+@login_required
+def versement_file_serve(filename):
+    """v160 : bordereaux de versement recouvrement."""
+    if '..' in filename or filename.startswith('/'): abort(403)
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'versements'), filename)
+
 @app.route('/uploads/client_photos/<path:filename>')
 def client_photo_serve(filename):
     """Photo profil client : accessible aux users connectés ET aux clients connectés au portail."""
@@ -20471,6 +20514,93 @@ def recouvrement_dashboard():
         recovery_methods=RECOVERY_METHODS,
         payment_types=PAYMENT_TYPES,
         tab=tab, counts=counts, totals=totals, search=search)
+
+
+@app.route('/recouvrement/versements')
+@permission_required_any('recouvrement_view', 'recouvrement_edit', 'caissiere_view', 'admin')
+def recouvrement_versements():
+    """v160 : Remise & versement — l'agent enregistre ses remises d'espèces / versements
+    (bordereau) et suit l'historique. Registre justificatif (sans impact comptable :
+    le crédit en caisse reste géré par la validation caissière)."""
+    conn = _gdb()
+    user = get_user_by_id(session['user_id'])
+    is_admin = user and user['role'] == 'admin'
+    # Un agent voit ses propres versements ; admin/caissière voient tout
+    if is_admin or (user and user['role'] in ('caissiere', 'dg', 'directeur', 'comptable', 'comptabilite')):
+        rows = conn.execute("SELECT * FROM recouvrement_versements ORDER BY date_versement DESC, id DESC LIMIT 200").fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM recouvrement_versements WHERE agent_id=? ORDER BY date_versement DESC, id DESC LIMIT 200", (session['user_id'],)).fetchall()
+    versements = [dict(r) for r in rows]
+    total = sum(v['montant'] or 0 for v in versements)
+    caisses = [dict(r) for r in conn.execute("SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
+    conn.close()
+    return render_template('recouvrement_versements.html', page='recouvrement_versements',
+        versements=versements, total=total, caisses=caisses)
+
+
+@app.route('/recouvrement/versements/add', methods=['POST'])
+@permission_required_any('recouvrement_edit', 'caissiere_validate', 'admin')
+def recouvrement_versement_add():
+    """v160 : enregistrer une remise/versement (montant, mode, caisse, bordereau)."""
+    user = get_user_by_id(session['user_id'])
+    try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
+    except: montant = 0
+    if montant <= 0:
+        flash("Montant invalide", "error"); return redirect('/recouvrement/versements')
+    cid_raw = request.form.get('caisse_id', '') or ''
+    cid = int(cid_raw) if cid_raw.isdigit() else None
+    conn = _gdb()
+    caisse_name = None
+    if cid:
+        cr = conn.execute("SELECT name FROM caisses WHERE id=?", (cid,)).fetchone()
+        caisse_name = cr['name'] if cr else None
+    # Bordereau (fichier optionnel)
+    bordereau_file = ''
+    f = request.files.get('bordereau_file')
+    if f and f.filename:
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext in ('.jpg', '.jpeg', '.png', '.webp', '.pdf'):
+            fname = f"vers_{session['user_id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+            fdir = os.path.join(app.config['UPLOAD_FOLDER'], 'versements')
+            os.makedirs(fdir, exist_ok=True)
+            f.save(os.path.join(fdir, fname))
+            bordereau_file = fname
+    conn.execute("""INSERT INTO recouvrement_versements
+        (agent_id, agent_name, montant, mode, caisse_id, caisse_name, bordereau_number, bordereau_file, date_versement, notes, statut, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?, 'verse', datetime('now'))""",
+        (session['user_id'], user['full_name'] if user else '?', montant,
+         request.form.get('mode', 'especes'), cid, caisse_name,
+         request.form.get('bordereau_number', ''), bordereau_file,
+         request.form.get('date_versement', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('notes', '')))
+    conn.commit(); conn.close()
+    # Notifier caissière + comptabilité
+    try:
+        notify_roles(['caissiere', 'comptable', 'comptabilite', 'admin'],
+            "💰 Nouvelle remise/versement recouvrement",
+            f"{(user['full_name'] if user else 'Agent')} a enregistré un versement de {montant:,.0f} XOF" + (f" — bordereau {request.form.get('bordereau_number','')}" if request.form.get('bordereau_number') else ''),
+            link='/recouvrement/versements', type='recouvrement', module='recouvrement', icon='💰')
+    except: pass
+    flash(f"✅ Remise/versement de {montant:,.0f} XOF enregistré", "success")
+    return redirect('/recouvrement/versements')
+
+
+@app.route('/recouvrement/versements/<int:vid>/delete', methods=['POST'])
+@permission_required_any('recouvrement_edit', 'admin')
+def recouvrement_versement_delete(vid):
+    """v160 : supprimer un versement (auteur ou admin)."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    v = conn.execute("SELECT agent_id FROM recouvrement_versements WHERE id=?", (vid,)).fetchone()
+    if not v:
+        conn.close(); flash("Versement introuvable", "error"); return redirect('/recouvrement/versements')
+    is_admin = user and user['role'] == 'admin'
+    if not (is_admin or (user and user['id'] == v['agent_id'])):
+        conn.close(); flash("⛔ Seul l'auteur ou un admin peut supprimer ce versement.", "error"); return redirect('/recouvrement/versements')
+    conn.execute("DELETE FROM recouvrement_versements WHERE id=?", (vid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Versement supprimé", "success")
+    return redirect('/recouvrement/versements')
 
 
 @app.route('/recouvrement/<int:fri_id>/envoyer', methods=['POST'])
@@ -30917,12 +31047,13 @@ def mg_demandes_valider(did, action):
         flash("Action invalide", "error")
         return redirect('/mg/demandes')
     conn = _gdb()
-    row = conn.execute("SELECT reference, status, compta_status FROM achats_demandes WHERE id=?", (did,)).fetchone()
+    row = conn.execute("SELECT reference, status, compta_status, department FROM achats_demandes WHERE id=?", (did,)).fetchone()
     if not row:
         conn.close()
         flash("Demande introuvable", "error")
         return redirect('/mg/demandes')
     ref = row['reference']
+    dem_department = row['department'] if 'department' in row.keys() else ''
     
     # v103 : protection — ne pas re-valider si déjà dans cet état
     if row['status'] == action:
@@ -30968,6 +31099,14 @@ def mg_demandes_valider(did, action):
     
     conn.commit()
     conn.close()
+    # v160 : notifier le département concerné par la demande (ou tous si "Tous")
+    try:
+        _lbl = 'validée' if action == 'validee' else ('refusée' if action == 'refusee' else action)
+        notify_department(dem_department,
+            f"📋 Demande interne {ref} {_lbl}",
+            f"La demande interne {ref} a été {_lbl}.",
+            link=f'/mg/demandes/{did}/preview', type='mg_demande', module='moyens_generaux', icon='📋')
+    except Exception as _e: print(f"[v160-NotifDept] {_e}", flush=True)
     if action == 'validee':
         flash(f"✅ Demande {ref} validée et transmise à la Comptabilité", "success")
     else:
@@ -31425,7 +31564,7 @@ def compta_demande_mg_decision(did):
     user_name = user['full_name'] if user else 'Comptable'
     try:
         conn = _gdb()
-        row = conn.execute("""SELECT id, reference, requested_by, compta_montant_estime,
+        row = conn.execute("""SELECT id, reference, requested_by, compta_montant_estime, department,
             COALESCE(tresorerie_debited,0) AS tresorerie_debited
             FROM achats_demandes WHERE id=?""", (did,)).fetchone()
         if not row:
@@ -31515,6 +31654,14 @@ def compta_demande_mg_decision(did):
                 notify(row['requested_by'], msg)
             except: pass
         conn.close()
+        # v160 : notifier le département concerné par la décision comptable
+        try:
+            _lbl = 'validée' if action == 'validee' else 'refusée'
+            notify_department(row.get('department'),
+                f"💰 Demande interne {row['reference']} {_lbl} (Comptabilité)",
+                f"La demande interne {row['reference']} a été {_lbl} par la Comptabilité{debit_msg if action=='validee' else ''}.",
+                link=f"/mg/demandes/{did}/preview", type='mg_demande', module='comptabilite', icon='💰')
+        except Exception as _e: print(f"[v160-NotifDept] {_e}", flush=True)
         flash(f"✅ Demande {row['reference']} {'validée' if action == 'validee' else 'refusée'}{debit_msg}", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")

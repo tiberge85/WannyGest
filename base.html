@@ -456,6 +456,7 @@
                 </div>
                 <div class="nav-section-items">
                     <a href="/recouvrement" class="{% if page == 'recouvrement' %}active{% endif %}" style="position:relative">📋 Factures à recouvrer{% if recouvrement_pending and recouvrement_pending > 0 %} <span class="badge" style="background:#c53030;color:#fff;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:800;margin-left:4px">{{ recouvrement_pending }}</span>{% endif %}</a>
+                    <a href="/recouvrement/versements" class="{% if page == 'recouvrement_versements' %}active{% endif %}">💰 Remise &amp; versement</a>
                 </div>
             </div>
             {% endif %}
