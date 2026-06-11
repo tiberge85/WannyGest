@@ -31609,6 +31609,38 @@ def mg_paiements_add():
     return redirect('/mg/paiements')
 
 
+@app.route('/mg/paiements/<int:pay_id>/debiter', methods=['POST'])
+@permission_required_any('mg_gestion', 'admin')
+def mg_paiement_debiter(pay_id):
+    """v160 : régulariser un paiement fournisseur déjà enregistré mais non débité
+    (ex. paiements créés avant le correctif) → débite le portefeuille fournisseur choisi."""
+    user = get_user_by_id(session['user_id']); user_name = user['full_name'] if user else 'MG'
+    wallet = (request.form.get('wallet', '') or '').strip()  # "caisse:ID" ou "banque:ID"
+    conn = _gdb()
+    p = conn.execute("SELECT * FROM mg_paiements WHERE id=?", (pay_id,)).fetchone()
+    if not p:
+        conn.close(); flash("Paiement introuvable", "error"); return redirect('/mg/paiements')
+    p = dict(p)
+    if int(p.get('tresorerie_debited') or 0) == 1:
+        conn.close(); flash("Ce paiement est déjà débité.", "error"); return redirect('/mg/paiements')
+    montant = float(p.get('montant') or 0)
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    kind, _, wid_raw = wallet.partition(':')
+    wid = int(wid_raw) if wid_raw.isdigit() else 0
+    libelle = f"Régularisation paiement fournisseur {p['reference']}"
+    if kind == 'caisse' and any(c['id'] == wid for c in caisses_fourn):
+        _debit_fournisseur_wallet(conn, 'caisse', wid, montant, libelle, p['reference'], session['user_id'], user_name, p.get('fournisseur_id'))
+        conn.execute("UPDATE mg_paiements SET tresorerie_type='caisse', caisse_id=?, tresorerie_debited=1, valide_par=? WHERE id=?", (wid, session['user_id'], pay_id))
+    elif kind == 'banque' and any(b['id'] == wid for b in banques_fourn):
+        _debit_fournisseur_wallet(conn, 'banque', wid, montant, libelle, p['reference'], session['user_id'], user_name, p.get('fournisseur_id'))
+        conn.execute("UPDATE mg_paiements SET tresorerie_type='banque', banque_id=?, tresorerie_debited=1, valide_par=? WHERE id=?", (wid, session['user_id'], pay_id))
+    else:
+        conn.close(); flash("⚠️ Choisissez un portefeuille fournisseur valide.", "error"); return redirect('/mg/paiements')
+    conn.commit(); conn.close()
+    flash(f"✅ Paiement {p['reference']} débité du portefeuille fournisseur ({montant:,.0f} F)", "success")
+    return redirect('/mg/paiements')
+
+
 # === ÉQUIPEMENTS ===
 
 @app.route('/mg/soldes')

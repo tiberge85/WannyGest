@@ -24,7 +24,7 @@
 
 <div class="card"><div class="card-body">
 {% if paiements %}<div class="table-wrap"><table>
-<thead><tr><th>Réf</th><th>Date</th><th>Fournisseur</th><th>Commande</th><th>Type</th><th>Mode</th><th>Montant</th><th>Réf externe</th></tr></thead>
+<thead><tr><th>Réf</th><th>Date</th><th>Fournisseur</th><th>Commande</th><th>Type</th><th>Mode</th><th>Montant</th><th>Réf externe</th><th>Débit portefeuille</th></tr></thead>
 <tbody>{% for p in paiements %}<tr>
 <td><strong>{{ p.reference }}</strong></td>
 <td>{{ p.date_paiement }}</td>
@@ -38,6 +38,20 @@
 <td>{{ p.mode }}</td>
 <td style="text-align:right;font-weight:700;color:#2e7d32">{{ '{:,.0f}'.format(p.montant) }} F</td>
 <td style="font-size:11px;color:#666">{{ p.reference_externe or '-' }}</td>
+<td style="font-size:11px">
+    {% if p.tresorerie_debited %}
+        <span style="color:#2FA85B;font-weight:600">✅ Débité{% if p.tresorerie_type %} ({{ p.tresorerie_type }}){% endif %}</span>
+    {% else %}
+        <form method="post" action="/mg/paiements/{{ p.id }}/debiter" style="display:flex;gap:4px;align-items:center" onsubmit="return confirm('Débiter ce paiement du portefeuille fournisseur ?')">
+            <select name="wallet" required style="font-size:11px;padding:3px;border:1.5px solid #ddd;border-radius:4px">
+                <option value="">— portefeuille —</option>
+                {% for c in caisses_fourn %}<option value="caisse:{{ c.id }}">🧰 {{ c.name }} ({{ '{:,.0f}'.format(c.solde).replace(',', ' ') }})</option>{% endfor %}
+                {% for b in banques_fourn %}<option value="banque:{{ b.id }}">🏦 {{ b.nom }} ({{ '{:,.0f}'.format(b.solde).replace(',', ' ') }})</option>{% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:10px;padding:3px 7px">Débiter</button>
+        </form>
+    {% endif %}
+</td>
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun paiement enregistré</p>{% endif %}
 </div></div>
