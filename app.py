@@ -9052,9 +9052,11 @@ def devis_new():
         # TVA optionnelle
         tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
         tva_rate = float(request.form.get('tva_rate', 18) or 18)
-        tva_amount = round((total_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
-        total_ttc = total_ht + petites_fourn - remise_glob + tva_amount
-        
+        # v160 : la MAIN D'ŒUVRE fait partie de la base HT (taxable) et du TTC
+        base_ht = total_ht + main_oeuvre
+        tva_amount = round((base_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
+        total_ttc = base_ht + petites_fourn - remise_glob + tva_amount
+
         client_id = request.form.get('client_id', '')
         client_id = int(client_id) if client_id else None
         
@@ -9238,8 +9240,10 @@ def devis_edit(did):
         remise_glob = float(request.form.get('remise', 0) or 0)
         tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
         tva_rate = float(request.form.get('tva_rate', 18) or 18)
-        tva_amount = round((total_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
-        total_ttc = total_ht + petites_fourn - remise_glob + tva_amount
+        # v160 : la MAIN D'ŒUVRE fait partie de la base HT (taxable) et du TTC
+        base_ht = total_ht + main_oeuvre
+        tva_amount = round((base_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
+        total_ttc = base_ht + petites_fourn - remise_glob + tva_amount
         
         conn = _gdb()
         # Re-link to client if client_id provided (user changed client selection)
@@ -20353,35 +20357,43 @@ def recouvrement_dashboard():
         where_sql += " AND (fr.reference LIKE ? OR fr.client_name LIKE ? OR fri.invoice_number LIKE ?)"
         params.extend([f"%{search}%"] * 3)
     
+    # v160 : LEFT JOIN (et non INNER) pour que TOUTE facture du compteur s'affiche,
+    # même si sa remontée a été supprimée.
     items = [dict(r) for r in conn.execute(f"""
         SELECT fri.*, fr.reference as fr_ref, fr.client_name,
                u.full_name as emitted_by_name,
                cs.name as caisse_name,
                ucv.full_name as cashier_name
         FROM field_report_invoices fri
-        JOIN field_reports fr ON fr.id = fri.field_report_id
+        LEFT JOIN field_reports fr ON fr.id = fri.field_report_id
         LEFT JOIN users u ON u.id = fri.emitted_by
         LEFT JOIN caisses cs ON cs.id = fri.target_caisse_id
         LEFT JOIN users ucv ON ucv.id = fri.payment_validated_by
         WHERE {where_sql}
         ORDER BY {order_by} LIMIT 100""", params).fetchall()]
-    
+
     caisses = [dict(r) for r in conn.execute(
         "SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
-    
+
     counts = {
         'nouvelles': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='facture_editee'").fetchone()[0],
         'en_attente': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status IN ('en_recouvrement','caisse_choisie')").fetchone()[0],
         'recouvrees': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
     }
-    
+    # v160 : solde (somme des montants) par catégorie — affiché en face de chaque onglet
+    totals = {
+        'nouvelles': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status='facture_editee'").fetchone()[0],
+        'en_attente': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status IN ('en_recouvrement','caisse_choisie')").fetchone()[0],
+        'recouvrees': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
+    }
+
     conn.close()
-    
+
     return render_template('recouvrement_dashboard.html', page='recouvrement',
         items=items, caisses=caisses,
         recovery_methods=RECOVERY_METHODS,
         payment_types=PAYMENT_TYPES,
-        tab=tab, counts=counts, search=search)
+        tab=tab, counts=counts, totals=totals, search=search)
 
 
 @app.route('/recouvrement/<int:fri_id>/envoyer', methods=['POST'])
@@ -20532,26 +20544,32 @@ def caissiere_paiements():
         where_sql += " AND (fr.reference LIKE ? OR fr.client_name LIKE ? OR fri.invoice_number LIKE ?)"
         params.extend([f"%{search}%"] * 3)
     
+    # v160 : LEFT JOIN pour afficher toute facture du compteur (même remontée supprimée)
     items = [dict(r) for r in conn.execute(f"""
         SELECT fri.*, fr.reference as fr_ref, fr.client_name,
                u.full_name as recovery_agent_name,
                cs.name as caisse_name
         FROM field_report_invoices fri
-        JOIN field_reports fr ON fr.id = fri.field_report_id
+        LEFT JOIN field_reports fr ON fr.id = fri.field_report_id
         LEFT JOIN users u ON u.id = fri.recovery_agent_id
         LEFT JOIN caisses cs ON cs.id = fri.target_caisse_id
         WHERE {where_sql}
         ORDER BY {order_by} LIMIT 100""", params).fetchall()]
-    
+
     counts = {
         'en_attente': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='caisse_choisie'").fetchone()[0],
         'recus': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
     }
-    
+    # v160 : solde (somme des montants) par catégorie
+    totals = {
+        'en_attente': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status='caisse_choisie'").fetchone()[0],
+        'recus': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
+    }
+
     conn.close()
-    
+
     return render_template('caissiere_paiements.html', page='caissiere_paiements',
-        items=items, tab=tab, counts=counts, search=search,
+        items=items, tab=tab, counts=counts, totals=totals, search=search,
         payment_types=PAYMENT_TYPES)
 
 
@@ -31797,6 +31815,47 @@ def mg_prestataire_add():
     conn.commit(); conn.close()
     flash(f"✅ Prestataire « {nom} » créé", "success")
     return redirect(f'/mg/prestataires/{pid}')
+
+
+@app.route('/mg/prestataires/<int:pid>/edit', methods=['POST'])
+@permission_required('admin')
+def mg_prestataire_edit(pid):
+    """v160 : modifier un prestataire — réservé à l'admin."""
+    nom = (request.form.get('nom', '') or '').strip()
+    if not nom:
+        flash("Le nom est obligatoire", "error"); return redirect(f'/mg/prestataires/{pid}')
+    conn = _gdb()
+    if not conn.execute("SELECT id FROM prestataires WHERE id=?", (pid,)).fetchone():
+        conn.close(); flash("Prestataire introuvable", "error"); return redirect('/mg/prestataires')
+    conn.execute("""UPDATE prestataires SET nom=?, contact=?, tel=?, email=?, adresse=?, metier=?, notes=? WHERE id=?""",
+        (nom, request.form.get('contact', ''), request.form.get('tel', ''), request.form.get('email', ''),
+         request.form.get('adresse', ''), request.form.get('metier', ''), request.form.get('notes', ''), pid))
+    conn.commit(); conn.close()
+    flash("✅ Prestataire modifié", "success")
+    return redirect(f'/mg/prestataires/{pid}')
+
+
+@app.route('/mg/prestataires/<int:pid>/delete', methods=['POST'])
+@permission_required('admin')
+def mg_prestataire_delete(pid):
+    """v160 : supprimer un prestataire — réservé à l'admin.
+    Suppression définitive si aucun mouvement, sinon désactivation (conserve l'historique)."""
+    conn = _gdb()
+    row = conn.execute("SELECT nom FROM prestataires WHERE id=?", (pid,)).fetchone()
+    if not row:
+        conn.close(); flash("Prestataire introuvable", "error"); return redirect('/mg/prestataires')
+    nb_fac = conn.execute("SELECT COUNT(*) FROM prestataire_factures WHERE prestataire_id=?", (pid,)).fetchone()[0]
+    nb_pay = conn.execute("SELECT COUNT(*) FROM prestataire_paiements WHERE prestataire_id=?", (pid,)).fetchone()[0]
+    if nb_fac == 0 and nb_pay == 0:
+        conn.execute("DELETE FROM prestataires WHERE id=?", (pid,))
+        conn.commit(); conn.close()
+        flash(f"🗑️ Prestataire « {row['nom']} » supprimé", "success")
+        return redirect('/mg/prestataires')
+    else:
+        conn.execute("UPDATE prestataires SET is_active=0 WHERE id=?", (pid,))
+        conn.commit(); conn.close()
+        flash(f"🗑️ Prestataire « {row['nom']} » désactivé (historique factures/paiements conservé)", "success")
+        return redirect('/mg/prestataires')
 
 
 @app.route('/mg/prestataires/<int:pid>')

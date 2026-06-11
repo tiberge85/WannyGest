@@ -2806,9 +2806,16 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     # =========================================================
     # Totaux lignes (conditionnelles : on n'affiche que les lignes non nulles)
     totaux_rows = [
-        ['', Paragraph("<b>Total HT</b>", s_right),
+        ['', Paragraph("<b>Total HT (pièces)</b>", s_right),
          Paragraph(f"<b>{fmt(total_ht)}XOF</b>", s_right)],
     ]
+    # v160 : main d'œuvre + remise affichées pour que le détail réconcilie le TTC
+    if main_oeuvre > 0:
+        totaux_rows.append(['', Paragraph("Main d'œuvre", s_right),
+                            Paragraph(f"{fmt(main_oeuvre)}XOF", s_right)])
+    if remise and remise > 0:
+        totaux_rows.append(['', Paragraph("Remise", s_right),
+                            Paragraph(f"-{fmt(remise)}XOF", s_right)])
     if petites_fourn > 0:
         totaux_rows.append(['', Paragraph("petites fournitures", s_right),
                             Paragraph(f"{fmt(petites_fourn)}XOF", s_right)])
@@ -2846,8 +2853,9 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
     # =========================================================
     # BARRE RÉCAPITULATIVE ORANGE
     # =========================================================
-    total_pieces = total_ht - main_oeuvre
-    total_brut = total_ht
+    # v160 : total_ht stocké = pièces uniquement. Pièces = total_ht ; brut = pièces + main d'œuvre.
+    total_pieces = total_ht
+    total_brut = total_ht + main_oeuvre
     total_net = total_brut - remise
     
     summary_hdrs = ['TOTAL PIÈCES', "MAIN D'ŒUVRE", 'TOTAL BRUT', 'REMISE', 'TOTAL NET', 'PETITES FOURN.', 'TOTAL TTC']

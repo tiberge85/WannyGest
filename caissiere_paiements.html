@@ -32,9 +32,11 @@
 <div class="tabs">
     <a href="?tab=en_attente" class="tab {% if tab == 'en_attente' %}active{% endif %}">
         ⏳ Paiements en attente <span class="tab-badge">{{ counts.en_attente }}</span>
+        <span style="display:block;font-size:11px;font-weight:700;color:#e65100;margin-top:2px">{{ '{:,.0f}'.format(totals.en_attente or 0).replace(',', ' ') }} F</span>
     </a>
     <a href="?tab=recus" class="tab {% if tab == 'recus' %}active{% endif %}">
         ✅ Paiements reçus <span class="tab-badge">{{ counts.recus }}</span>
+        <span style="display:block;font-size:11px;font-weight:700;color:#2FA85B;margin-top:2px">{{ '{:,.0f}'.format(totals.recus or 0).replace(',', ' ') }} F</span>
     </a>
 </div>
 

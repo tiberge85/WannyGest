@@ -6,8 +6,39 @@
             {% if p.contact %}👤 {{ p.contact }} · {% endif %}{% if p.tel %}📞 {{ p.tel }}{% endif %}{% if p.email %} · ✉️ {{ p.email }}{% endif %}{% if p.adresse %} · {{ p.adresse }}{% endif %}
         </p>
     </div>
-    <a href="/mg/prestataires" class="btn btn-outline btn-sm">← Tous les prestataires</a>
+    <div style="display:flex;gap:6px">
+        {% if current_user and current_user.role == 'admin' %}
+        <button type="button" class="btn btn-sm" style="background:#f29f2f;color:#fff" onclick="document.getElementById('editPrestaModal').style.display='flex'">✏️ Modifier</button>
+        <form method="post" action="/mg/prestataires/{{ p.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer/désactiver ce prestataire ?')">
+            <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030">🗑️ Supprimer</button>
+        </form>
+        {% endif %}
+        <a href="/mg/prestataires" class="btn btn-outline btn-sm">← Tous les prestataires</a>
+    </div>
 </div>
+
+{% if current_user and current_user.role == 'admin' %}
+<div id="editPrestaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:18px;max-width:520px;width:92%;max-height:90vh;overflow:auto">
+        <h3 style="margin:0 0 12px;color:#f29f2f">✏️ Modifier le prestataire</h3>
+        <form method="post" action="/mg/prestataires/{{ p.id }}/edit">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div><label style="font-size:10px;color:#666;display:block">Nom *</label><input type="text" name="nom" value="{{ p.nom }}" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Métier</label><input type="text" name="metier" value="{{ p.metier or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Contact</label><input type="text" name="contact" value="{{ p.contact or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Téléphone</label><input type="text" name="tel" value="{{ p.tel or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Email</label><input type="email" name="email" value="{{ p.email or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Adresse</label><input type="text" name="adresse" value="{{ p.adresse or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+            </div>
+            <textarea name="notes" rows="2" placeholder="Notes" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:10px">{{ p.notes or '' }}</textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('editPrestaModal').style.display='none'">Annuler</button>
+                <button type="submit" class="btn" style="background:#f29f2f;color:#fff">Enregistrer</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
