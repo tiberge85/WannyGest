@@ -128,6 +128,7 @@
         
         {# v142 : Affichage de l'exécution si déjà faite #}
         {% if report.executed_at %}
+        {% set can_edit_notes = current_user and (current_user.role == 'admin' or current_user.id == report.executed_by) %}
         <div class="card" style="margin-bottom:14px;border:2px solid #2e7d32;background:#e8f5e9">
             <div class="card-body">
                 <h3 style="margin:0 0 8px;color:#1b5e20;font-size:13px">✅ Remontée exécutée</h3>
@@ -137,18 +138,44 @@
                     <br>📝 <strong>Notes :</strong> {{ report.execution_notes }}
                     {% endif %}
                 </div>
+                {% if can_edit_notes %}
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:11px;color:#1b5e20;font-weight:600">✏️ Corriger / supprimer les notes</summary>
+                    <form method="post" action="/field-reports/{{ report.id }}/notes/edit" style="margin-top:6px">
+                        <textarea name="execution_notes" rows="2" style="width:100%;padding:7px;border:1.5px solid #2e7d32;border-radius:6px;font-size:12px" placeholder="Notes d'exécution (laisser vide pour supprimer)">{{ report.execution_notes or '' }}</textarea>
+                        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
+                            <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff">💾 Enregistrer</button>
+                        </div>
+                    </form>
+                </details>
+                {% endif %}
             </div>
         </div>
         {% endif %}
 
         {# v160 : commentaire de clôture du technicien (intervention liée) — visible sans ouvrir la fiche d'intervention #}
         {% if linked_intervention and linked_intervention.rapport %}
+        {% set can_edit_rapport = current_user and (current_user.role == 'admin' or current_user.id in [linked_intervention.technician_id, linked_intervention.end_work_by, linked_intervention.created_by]) %}
         <div class="card" style="margin-bottom:14px;border:2px solid #1565c0;background:#e8f1fb">
             <div class="card-body">
                 <h3 style="margin:0 0 8px;color:#0d47a1;font-size:13px">🔧 Commentaire des tâches réalisées (technicien)</h3>
                 <div style="font-size:12px;color:#0d47a1;white-space:pre-wrap">{{ linked_intervention.rapport }}</div>
                 {% if linked_intervention.material_used %}<div style="font-size:11px;color:#555;margin-top:6px">🧰 <strong>Matériel :</strong> {{ linked_intervention.material_used }}</div>{% endif %}
                 {% if linked_intervention.reference %}<div style="font-size:11px;color:#888;margin-top:4px">Intervention {{ linked_intervention.reference }}</div>{% endif %}
+                {% if can_edit_rapport %}
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer;font-size:11px;color:#1565c0;font-weight:600">✏️ Corriger / supprimer ce commentaire</summary>
+                    <form method="post" action="/interventions/{{ linked_intervention.id }}/rapport/edit" style="margin-top:6px">
+                        <textarea name="rapport" rows="3" style="width:100%;padding:7px;border:1.5px solid #1565c0;border-radius:6px;font-size:12px">{{ linked_intervention.rapport }}</textarea>
+                        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
+                            <button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff">💾 Enregistrer</button>
+                        </div>
+                    </form>
+                    <form method="post" action="/interventions/{{ linked_intervention.id }}/rapport/delete" onsubmit="return confirm('Supprimer ce commentaire ?')" style="text-align:right">
+                        <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030">🗑️ Supprimer le commentaire</button>
+                    </form>
+                </details>
+                {% endif %}
             </div>
         </div>
         {% endif %}

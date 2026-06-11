@@ -14976,6 +14976,70 @@ def intervention_rapport(iid):
     return redirect('/interventions/tech')
 
 
+def _peut_modifier_commentaire_intervention(user, inter):
+    """v160 : l'auteur (technicien assigné ou qui a clôturé) ou un admin peut éditer le commentaire."""
+    if not user:
+        return False
+    if user.get('role') == 'admin':
+        return True
+    return user.get('id') in (inter.get('technician_id'), inter.get('end_work_by'), inter.get('created_by'))
+
+
+@app.route('/interventions/<int:iid>/rapport/edit', methods=['POST'])
+@login_required
+def intervention_rapport_edit(iid):
+    """v160 : corriger le commentaire de clôture d'une intervention (auteur ou admin)."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    inter = conn.execute("SELECT technician_id, end_work_by, created_by FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter:
+        conn.close(); flash("Intervention introuvable", "error"); return redirect(request.referrer or '/interventions')
+    if not _peut_modifier_commentaire_intervention(user, dict(inter)):
+        conn.close(); flash("⛔ Seul l'auteur du commentaire ou un admin peut le modifier.", "error"); return redirect(request.referrer or '/interventions')
+    new = (request.form.get('rapport', '') or '').strip()
+    conn.execute("UPDATE interventions SET rapport=? WHERE id=?", (new, iid))
+    conn.commit(); conn.close()
+    flash("✅ Commentaire modifié", "success")
+    return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
+
+@app.route('/interventions/<int:iid>/rapport/delete', methods=['POST'])
+@login_required
+def intervention_rapport_delete(iid):
+    """v160 : supprimer le commentaire de clôture (auteur ou admin)."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    inter = conn.execute("SELECT technician_id, end_work_by, created_by FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter:
+        conn.close(); flash("Intervention introuvable", "error"); return redirect(request.referrer or '/interventions')
+    if not _peut_modifier_commentaire_intervention(user, dict(inter)):
+        conn.close(); flash("⛔ Seul l'auteur du commentaire ou un admin peut le supprimer.", "error"); return redirect(request.referrer or '/interventions')
+    conn.execute("UPDATE interventions SET rapport='' WHERE id=?", (iid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Commentaire supprimé", "success")
+    return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
+
+@app.route('/field-reports/<int:rid>/notes/edit', methods=['POST'])
+@login_required
+def field_report_notes_edit(rid):
+    """v160 : corriger/supprimer les notes d'exécution d'une remontée (auteur ou admin)."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    fr = conn.execute("SELECT executed_by FROM field_reports WHERE id=?", (rid,)).fetchone()
+    if not fr:
+        conn.close(); flash("Remontée introuvable", "error"); return redirect(request.referrer or '/field-reports')
+    is_admin = user and user.get('role') == 'admin'
+    is_author = user and user.get('id') == (dict(fr).get('executed_by'))
+    if not (is_admin or is_author):
+        conn.close(); flash("⛔ Seul l'auteur ou un admin peut modifier ces notes.", "error"); return redirect(request.referrer or f'/field-reports/{rid}')
+    notes = (request.form.get('execution_notes', '') or '').strip()
+    conn.execute("UPDATE field_reports SET execution_notes=? WHERE id=?", (notes, rid))
+    conn.commit(); conn.close()
+    flash("✅ Notes mises à jour", "success")
+    return redirect(request.referrer or f'/field-reports/{rid}')
+
+
 # ======================== NOTIFICATIONS ========================
 
 # v139 : ============== CLÔTURE JOURNALIÈRE ==============
