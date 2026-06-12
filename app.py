@@ -2539,6 +2539,18 @@ try:
 except Exception as _e: print(f"[v161-Permissions] Err : {_e}", flush=True)
 
 
+# v161 : suivi véhicules — date limite de recharge internet + anti-doublon facture
+try:
+    from models import get_db as _gdb_v161v
+    _v161v = _gdb_v161v()
+    for _col in ["recharge_due TEXT", "facture_generated_for TEXT"]:
+        try: _v161v.execute(f"ALTER TABLE tracking_vehicles ADD COLUMN {_col}")
+        except: pass
+    _v161v.commit(); _v161v.close()
+    print("[v161-Vehicules] Colonnes recharge_due/facture_generated_for OK", flush=True)
+except Exception as _e: print(f"[v161-Vehicules] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -15549,6 +15561,23 @@ def rh_closures_dashboard():
         })
 
 
+@app.route('/rh/closures/user/<int:uid>')
+@login_required
+def rh_closure_user(uid):
+    """v161 : résout le lien des notifications de clôture (/rh/closures/user/<uid>)
+    vers le détail de la DERNIÈRE clôture de l'utilisateur (corrige le 404)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'dg', 'directeur', 'rh', 'directrice_rh'):
+        flash("⛔ Accès réservé aux responsables et RH", "error"); return redirect('/dashboard')
+    conn = _gdb()
+    row = conn.execute("SELECT id FROM daily_closures WHERE user_id=? ORDER BY date_closure DESC, id DESC LIMIT 1", (uid,)).fetchone()
+    conn.close()
+    if row:
+        return redirect(f"/rh/closures/{row['id']}")
+    flash("Aucune clôture trouvée pour cet utilisateur.", "error")
+    return redirect('/rh/closures')
+
+
 @app.route('/rh/closures/<int:closure_id>')
 @login_required
 def rh_closure_detail(closure_id):
@@ -20128,6 +20157,9 @@ def decisions_facturation():
     """v143 / v144 / v145 : Page décisions facturation avec onglets et filtres.
     Onglets : nouvelles (en attente) / avec facture (facturable=1) / sans facture (facturable=0).
     Filtres : recherche client/ref, période."""
+    # v161 : synchroniser les véhicules (statut + factures recharge) avant d'afficher
+    try: _sync_vehicles_recharge()
+    except: pass
     # Onglet actif
     tab = request.args.get('tab', 'nouvelles').strip()
     if tab not in ('nouvelles', 'avec_facture', 'sans_facture'):
@@ -20147,8 +20179,8 @@ def decisions_facturation():
     if tab == 'nouvelles':
         where_clauses.append("fr.statut IN ('executee','traitee')")
         where_clauses.append("fr.facturable IS NULL")
-        # v159 : remontées liées à une intervention OU rapports d'heures envoyés par la RH
-        where_clauses.append("(fr.linked_intervention_id IS NOT NULL OR fr.type_info='rapport_heures')")
+        # v159/v161 : interventions OU rapports d'heures OU recharges véhicule (puce internet)
+        where_clauses.append("(fr.linked_intervention_id IS NOT NULL OR fr.type_info IN ('rapport_heures','recharge_vehicule'))")
         order_by = "COALESCE(fr.executed_at, fr.updated_at) DESC"
     elif tab == 'avec_facture':
         where_clauses.append("fr.facturable=1")
@@ -22319,15 +22351,50 @@ def tracking_dashboard():
     return render_template('tracking_dashboard.html', page='tracking', vehicles=vehicles,
         actifs=actifs, en_mouvement=en_mouvement, alerts_new=alerts_new, recent_alerts=recent_alerts)
 
+def _sync_vehicles_recharge():
+    """v161 : statut ACTIF/INACTIF selon la date limite de recharge internet.
+    INACTIF dès que l'échéance est passée → crée une facture « à décider » (une fois par échéance)."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = _gdb()
+    try:
+        for v in conn.execute("SELECT id, immatriculation, proprietaire, recharge_due, status, facture_generated_for FROM tracking_vehicles").fetchall():
+            v = dict(v)
+            due = (v.get('recharge_due') or '')[:10]
+            if not due:
+                continue
+            is_inactif = due < today
+            new_status = 'inactif' if is_inactif else 'actif'
+            if v.get('status') != 'maintenance' and v.get('status') != new_status:
+                conn.execute("UPDATE tracking_vehicles SET status=? WHERE id=?", (new_status, v['id']))
+            # facture à décider quand le véhicule devient inactif (1 seule fois par échéance)
+            if is_inactif and (v.get('facture_generated_for') or '') != due:
+                ref = f"VEH-{v['id']}-{due.replace('-', '')}"
+                if not conn.execute("SELECT id FROM field_reports WHERE reference=?", (ref,)).fetchone():
+                    conn.execute("""INSERT INTO field_reports
+                        (reference, client_name, type_info, description, date_constat, statut, executed_at, facturable, created_at, updated_at)
+                        VALUES (?,?, 'recharge_vehicule', ?, ?, 'executee', datetime('now'), NULL, datetime('now'), datetime('now'))""",
+                        (ref, v.get('proprietaire') or v.get('immatriculation') or 'Véhicule',
+                         f"Recharge internet à facturer — véhicule {v.get('immatriculation','')} (échéance {due})", today))
+                conn.execute("UPDATE tracking_vehicles SET facture_generated_for=? WHERE id=?", (due, v['id']))
+        conn.commit()
+    except Exception as _e: print(f"[v161-vehsync] {_e}", flush=True)
+    finally:
+        conn.close()
+
+
 @app.route('/tracking/vehicules')
 @permission_required('tracking')
 def tracking_vehicules():
+    _sync_vehicles_recharge()  # v161 : maj statut + factures à l'ouverture de la page
     conn = _gdb()
-    vehicles = [dict(r) for r in conn.execute("""SELECT v.*, u.full_name as tech_name 
+    vehicles = [dict(r) for r in conn.execute("""SELECT v.*, u.full_name as tech_name
         FROM tracking_vehicles v LEFT JOIN users u ON v.created_by=u.id
         ORDER BY v.created_at DESC""").fetchall()]
+    nb_actifs = sum(1 for v in vehicles if (v.get('status') or '') == 'actif')
+    nb_inactifs = sum(1 for v in vehicles if (v.get('status') or '') == 'inactif')
     conn.close()
-    return render_template('tracking_vehicules.html', page='tracking_vehicules', vehicles=vehicles)
+    return render_template('tracking_vehicules.html', page='tracking_vehicules', vehicles=vehicles,
+                          nb_total=len(vehicles), nb_actifs=nb_actifs, nb_inactifs=nb_inactifs)
 
 @app.route('/tracking/vehicules/add', methods=['POST'])
 @permission_required('tracking')
@@ -22335,8 +22402,8 @@ def tracking_vehicule_add():
     conn = _gdb()
     conn.execute("""INSERT INTO tracking_vehicles (immatriculation, marque, modele, type, couleur, annee,
         proprietaire, tel_proprietaire, gps_device_id, gps_brand, gps_model, gps_sim, gps_imei,
-        installation_date, installation_tech, notes, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        installation_date, installation_tech, notes, recharge_due, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (request.form.get('immatriculation',''), request.form.get('marque',''),
          request.form.get('modele',''), request.form.get('type','voiture'),
          request.form.get('couleur',''), request.form.get('annee',''),
@@ -22345,7 +22412,7 @@ def tracking_vehicule_add():
          request.form.get('gps_model',''), request.form.get('gps_sim',''),
          request.form.get('gps_imei',''), request.form.get('installation_date',''),
          request.form.get('installation_tech',''), request.form.get('notes',''),
-         session['user_id']))
+         request.form.get('recharge_due',''), session['user_id']))
     conn.commit(); conn.close()
     flash("Véhicule ajouté","success"); return redirect('/tracking/vehicules')
 
@@ -22362,10 +22429,13 @@ def tracking_vehicule_edit(vid):
                      'installation_tech','status','notes']:
             val = request.form.get(col, '')
             conn.execute(f"UPDATE tracking_vehicles SET {col}=? WHERE id=?", (val, vid))
+        # v161 : recharge_due modifiable aussi
+        try: conn.execute("UPDATE tracking_vehicles SET recharge_due=? WHERE id=?", (request.form.get('recharge_due', ''), vid))
+        except: pass
         conn.commit(); conn.close()
         flash("Véhicule modifié","success"); return redirect('/tracking/vehicules')
     conn.close()
-    return render_template('tracking_vehicule_view.html', page='tracking_vehicules', vehicle=dict(v))
+    return render_template('tracking_vehicule_edit.html', page='tracking_vehicules', vehicle=dict(v))
 
 @app.route('/tracking/vehicules/delete/<int:vid>')
 @permission_required('tracking')

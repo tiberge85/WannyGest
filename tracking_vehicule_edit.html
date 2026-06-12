@@ -31,6 +31,11 @@
         <div class="form-group"><label>Technicien</label><input type="text" name="installation_tech" value="{{ vehicle.installation_tech or '' }}"></div>
         <div class="form-group"><label>Statut</label><select name="status">{% for s in ['actif','inactif','maintenance'] %}<option {% if vehicle.status==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
     </div>
+    <div class="form-group" style="background:#fff8e1;padding:8px;border-radius:7px;border:1.5px solid #f29f2f">
+        <label style="color:#b8561f;font-weight:700">📶 Recharge internet avant le (date limite)</label>
+        <input type="date" name="recharge_due" value="{{ vehicle.recharge_due or '' }}">
+        <small style="color:#888;font-size:10px">Passé ce délai → INACTIF + facture dans « facturation à décider ».</small>
+    </div>
     <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">{{ vehicle.notes or '' }}</textarea></div>
     <div style="display:flex;gap:8px;margin-top:12px"><a href="/tracking/vehicules" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-primary" style="flex:1">💾 Sauvegarder</button></div>
 </form></div></div>

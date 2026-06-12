@@ -1,10 +1,17 @@
 {% extends "base.html" %}{% block title %}WannyGest - Véhicules{% endblock %}{% block content %}
-<div class="page-header"><h1>🚗 Véhicules suivis</h1>
-<button class="btn btn-primary btn-sm" onclick="document.getElementById('addV').classList.add('active')">+ Ajouter un véhicule</button></div>
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h1 style="margin:0">🚗 Véhicules suivis</h1>
+        <span style="background:#1A7A6D;color:#fff;border-radius:14px;padding:3px 12px;font-weight:800;font-size:13px">{{ nb_total or 0 }}</span>
+        <span style="background:#e6f4ea;color:#2FA85B;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:700">✅ {{ nb_actifs or 0 }} actifs</span>
+        <span style="background:#fde8e8;color:#c53030;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:700">⛔ {{ nb_inactifs or 0 }} inactifs</span>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('addV').classList.add('active')">+ Ajouter un véhicule</button>
+</div>
 
 {% if vehicles %}
 <div class="card"><div class="card-body" style="padding:0"><div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un véhicule..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
-<thead><tr><th>Immat.</th><th>Véhicule</th><th>Propriétaire</th><th>Balise GPS</th><th>SIM / IMEI</th><th>Installation</th><th>Statut</th><th>Dernière pos.</th><th>Actions</th></tr></thead>
+<thead><tr><th>Immat.</th><th>Véhicule</th><th>Propriétaire</th><th>Balise GPS</th><th>SIM / IMEI</th><th>Installation</th><th>Recharge avant</th><th>Statut</th><th>Dernière pos.</th><th>Actions</th></tr></thead>
 <tbody>{% for v in vehicles %}<tr>
 <td><strong style="font-size:13px">{{ v.immatriculation }}</strong></td>
 <td style="font-size:11px">{{ v.marque }} {{ v.modele }}<br><span style="color:#888">{{ v.type }} {{ v.couleur }} {{ v.annee }}</span></td>
@@ -12,6 +19,7 @@
 <td style="font-size:10px"><strong>{{ v.gps_brand or '' }} {{ v.gps_model or '' }}</strong><br>ID: {{ v.gps_device_id or '-' }}</td>
 <td style="font-size:10px">SIM: {{ v.gps_sim or '-' }}<br>IMEI: {{ v.gps_imei or '-' }}</td>
 <td style="font-size:10px">{{ v.installation_date or '-' }}<br>{{ v.installation_tech or '' }}</td>
+<td style="font-size:11px;font-weight:700;{% if v.status=='inactif' %}color:#c53030{% else %}color:#2FA85B{% endif %}">{{ v.recharge_due or '-' }}</td>
 <td><span class="badge-status {% if v.status=='actif' %}sent{% elif v.status=='inactif' %}{% else %}pending{% endif %}">{{ v.status }}</span></td>
 <td style="font-size:10px">{% if v.last_update %}{{ v.last_update[:16] }}<br><span style="color:#e8672a">{{ '%.0f'|format(v.last_speed or 0) }} km/h</span>{% else %}-{% endif %}</td>
 <td style="white-space:nowrap">
@@ -55,6 +63,11 @@
     <div class="rg" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="form-group"><label>Date d'installation</label><input type="date" name="installation_date"></div>
         <div class="form-group"><label>Technicien installateur</label><input type="text" name="installation_tech"></div>
+    </div>
+    <div class="form-group" style="background:#fff8e1;padding:8px;border-radius:7px;border:1.5px solid #f29f2f">
+        <label style="color:#b8561f;font-weight:700">📶 Recharge internet avant le (date limite)</label>
+        <input type="date" name="recharge_due">
+        <small style="color:#888;font-size:10px">Passé ce délai, le véhicule devient INACTIF et une facture est créée dans « facturation à décider ».</small>
     </div>
     <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:12px"></textarea></div>
     
