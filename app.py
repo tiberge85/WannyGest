@@ -16441,15 +16441,31 @@ def tech_my_interventions():
                 WHERE {w} {user_filter_sql}""", tuple(params)).fetchone()[0]
         except: counts[k] = 0
     
+    # v161 : pourcentage de réalisation AUTOMATIQUE = (interventions réalisées + tâches terminées) / total
+    real_done = real_total = realise_pct = 0
+    try:
+        uid_p = user['id']
+        it_total = conn.execute("SELECT COUNT(*) FROM interventions WHERE technician_id=? OR created_by=?", (uid_p, uid_p)).fetchone()[0] or 0
+        it_done = conn.execute("SELECT COUNT(*) FROM interventions WHERE (technician_id=? OR created_by=?) AND status IN ('livre','termine','terminee')", (uid_p, uid_p)).fetchone()[0] or 0
+        try:
+            tk_total = conn.execute("SELECT COUNT(*) FROM tasks WHERE assigned_to=?", (uid_p,)).fetchone()[0] or 0
+            tk_done = conn.execute("SELECT COUNT(*) FROM tasks WHERE assigned_to=? AND status='termine'", (uid_p,)).fetchone()[0] or 0
+        except: tk_total = tk_done = 0
+        real_total = it_total + tk_total
+        real_done = it_done + tk_done
+        realise_pct = round(real_done / real_total * 100) if real_total else 0
+    except Exception as _e: print(f"[v161-pct] {_e}", flush=True)
+
     conn.close()
-    
+
     # Le coordinateur peut envoyer aux clients (admin et resp_projet aussi)
     can_send_to_client = user['role'] in ('admin', 'dg', 'resp_projet', 'coordinateur')
-    
+
     return render_template('extra_pages.html', page='tech_my_interventions',
                           interventions=interventions, filter_status=filter_status,
                           counts=counts, is_admin_or_coord=is_admin_or_coord,
-                          can_send_to_client=can_send_to_client, current_user=user)
+                          can_send_to_client=can_send_to_client, current_user=user,
+                          realise_pct=realise_pct, real_done=real_done, real_total=real_total)
 
 
 @app.route('/interventions/<int:iid>/reporter', methods=['POST'])
