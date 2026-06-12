@@ -7527,6 +7527,7 @@ def fichiers_email(job_id):
 
     if request.method == 'POST':
         to_email = request.form.get('to_email', '').strip()
+        cc_email = (request.form.get('cc_email', '') or '').strip()  # v161 : destinataires en copie
         subject = request.form.get('subject', '').strip()
         body = request.form.get('body', '').strip()
         smtp_host = request.form.get('smtp_host', '').strip()
@@ -7561,6 +7562,10 @@ def fichiers_email(job_id):
             msg = MIMEMultipart()
             msg['From'] = smtp_user
             msg['To'] = to_email
+            # v161 : destinataires en copie (CC) — séparés par , ou ;
+            cc_list = [e.strip() for e in cc_email.replace(';', ',').split(',') if e.strip()] if cc_email else []
+            if cc_list:
+                msg['Cc'] = ', '.join(cc_list)
             msg['Subject'] = subject
             msg.attach(MIMEText(body, 'plain', 'utf-8'))
             
@@ -10892,6 +10897,7 @@ def rh_paie_email(pid):
     
     if request.method == 'POST':
         to_email = request.form.get('to_email','').strip()
+        cc_email = (request.form.get('cc_email','') or '').strip()  # v161 : copie (Cc)
         smtp_host = request.form.get('smtp_host','').strip()
         smtp_port = int(request.form.get('smtp_port', 587) or 587)
         smtp_user = request.form.get('smtp_user','').strip()
@@ -10923,6 +10929,9 @@ def rh_paie_email(pid):
             msg = MIMEMultipart()
             msg['From'] = smtp_user
             msg['To'] = to_email
+            cc_list = [e.strip() for e in cc_email.replace(';', ',').split(',') if e.strip()] if cc_email else []
+            if cc_list:
+                msg['Cc'] = ', '.join(cc_list)
             msg['Subject'] = f"Bulletin de paie — {p['period']} — {p['employee_name']}"
             
             body = f"""Bonjour {p['employee_name']},
@@ -18278,8 +18287,16 @@ def rh_budget_import_excel():
     try:
         from openpyxl import load_workbook
         wb = load_workbook(f, data_only=True)
-        # Prendre la 1ère feuille (ou "Budget Mensuel" si présente)
-        ws = wb['Budget Mensuel'] if 'Budget Mensuel' in wb.sheetnames else wb.active
+        # v161 : choisir la feuille du budget mensuel (ex. "Budget Mensuel Détaillé"),
+        # sinon toute feuille "mensuel", sinon la feuille active.
+        ws = None
+        for _sn in wb.sheetnames:
+            if 'budget mensuel' in _sn.lower(): ws = wb[_sn]; break
+        if ws is None:
+            for _sn in wb.sheetnames:
+                if 'mensuel' in _sn.lower(): ws = wb[_sn]; break
+        if ws is None:
+            ws = wb.active
         
         # Détecter les lignes par nom dans colonne A
         # Mapping flexible (avec ou sans accents) entre noms Excel et clés BDD
@@ -18301,50 +18318,70 @@ def rh_budget_import_excel():
             'declares cnps': 'employes_declares_cnps',
         }
         
-        # Scanner toutes les lignes
+        # v161 : détecter la ligne d'en-tête et associer chaque COLONNE à son MOIS réel.
+        # Le fichier peut être un SEMESTRE (colonnes Réf. Mai | Juin | … | Décembre) :
+        # on ne suppose donc plus que les colonnes sont Janvier→Décembre dans l'ordre.
+        MOIS_NOMS = {'janvier':1,'fevrier':2,'février':2,'mars':3,'avril':4,'mai':5,'juin':6,
+                     'juillet':7,'aout':8,'août':8,'septembre':9,'octobre':10,'novembre':11,
+                     'decembre':12,'décembre':12}
+        all_rows = list(ws.iter_rows(min_row=1, values_only=False))
+        def _entete_mois(row):
+            mp = {}
+            for ci, cell in enumerate(row):
+                if ci == 0 or cell.value is None: continue
+                txt = str(cell.value).strip().lower()
+                if 'total' in txt or 'annuel' in txt or 'semestre' in txt: continue
+                for nom, num in MOIS_NOMS.items():
+                    if nom in txt: mp[ci] = num; break
+            return mp
+        col_month = {}
+        for row in all_rows:
+            mp = _entete_mois(row)
+            if len(mp) >= 3:   # ligne d'en-tête des mois trouvée
+                col_month = mp; break
+        if not col_month:      # fallback : colonnes fixes Janvier→Décembre
+            col_month = {ci: ci for ci in range(1, 13)}
+
         imported_data = {m: {} for m in range(1, 13)}
         rows_found = []
-        for row in ws.iter_rows(min_row=1, values_only=False):
+        for row in all_rows:
             cell_a = row[0]
             if not cell_a.value: continue
             label_raw = str(cell_a.value).strip().lower()
-            # Ignorer les lignes de légende, titres, descriptions
-            if label_raw.startswith('•') or label_raw.startswith('-') or label_raw.startswith('📖'):
+            # Ignorer légendes, titres de section (▌), totaux, écarts
+            if label_raw[:1] in ('•', '-', '📖', '▌', '→', '%'):
                 continue
-            if 'modèle' in label_raw or 'remplissez' in label_raw or label_raw == 'rubrique':
+            if 'modèle' in label_raw or 'remplissez' in label_raw or label_raw in ('rubrique', 'rubriques'):
                 continue
-            # Trouver la clé BDD correspondante
+            # v161 : normaliser (retirer "Dont:", puces) puis matcher par DÉBUT de libellé
+            # pour ne PAS capter les lignes qui ne font que MENTIONNER une rubrique
+            # (ex. "Marge de sécurité (3% de la masse salariale)" ≠ masse salariale).
+            norm = label_raw
+            for _p in ('dont:', 'dont :', 'dont'):
+                if norm.startswith(_p): norm = norm[len(_p):]
+            norm = norm.lstrip(' :►▸•-→').strip()
             db_key = None
             for label_match, key in LABEL_MAP.items():
-                if label_match == label_raw or (len(label_raw) < 60 and (label_match in label_raw or label_raw in label_match)):
+                if norm == label_match or norm.startswith(label_match):
                     db_key = key
                     break
             if not db_key: continue
-            
-            # Extraire les 12 valeurs des mois
-            row_values = []
-            for col_idx in range(1, 13):  # colonnes 2 à 13 (Jan-Déc)
-                try:
-                    val = row[col_idx].value
-                    if val is None: row_values.append(0)
-                    elif isinstance(val, (int, float)): row_values.append(float(val))
-                    else:
-                        # Tenter parsing string
-                        try: row_values.append(float(str(val).replace(' ', '').replace(',', '.')))
-                        except: row_values.append(0)
-                except: row_values.append(0)
-            
-            # Ne pas écraser avec des 0 — ne mettre à jour QUE si on a au moins une valeur non nulle
-            if not any(v for v in row_values):
-                continue
-            
-            for m_idx, v in enumerate(row_values):
-                # v161 : ne créer une entrée de mois QUE pour les valeurs NON NULLES.
-                # Avant, les mois vides (ex. janvier→avril si le fichier commence en mai)
-                # recevaient une entrée à 0 et étaient insérés comme s'ils avaient des données.
+
+            got = False
+            for ci, mois in col_month.items():
+                try: val = row[ci].value
+                except: continue
+                if val is None: continue
+                if isinstance(val, (int, float)): v = float(val)
+                else:
+                    try: v = float(str(val).replace(' ', '').replace(' ', '').replace(',', '.'))
+                    except: continue
+                # v161 : n'enregistrer que les valeurs non nulles (mois sans données ignorés)
                 if v != 0:
-                    imported_data[m_idx+1][db_key] = v
-            rows_found.append(f"{label_raw} → {db_key}")
+                    imported_data[mois][db_key] = v
+                    got = True
+            if got:
+                rows_found.append(f"{label_raw} → {db_key} (mois {sorted(set(col_month.values()))})")
         
         if not rows_found:
             flash("⚠️ Aucune rubrique reconnue dans le fichier. Vérifiez que les libellés correspondent au modèle.", "error")

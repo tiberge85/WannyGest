@@ -14,6 +14,10 @@
                 <input type="email" name="to_email" required value="{{ default_email }}" placeholder="rh@client.ci">
             </div>
             <div class="form-group">
+                <label>En copie (Cc) <span style="font-size:10px;color:#888">— séparez plusieurs adresses par une virgule</span></label>
+                <input type="text" name="cc_email" value="" placeholder="copie1@exemple.ci, copie2@exemple.ci">
+            </div>
+            <div class="form-group">
                 <label>Objet *</label>
                 <input type="text" name="subject" required value="Rapport de pointage — {{ job.client_name }} — {{ job.period }}">
             </div>
