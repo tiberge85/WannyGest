@@ -2514,6 +2514,9 @@ try:
         date_versement TEXT, notes TEXT,
         statut TEXT DEFAULT 'verse',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    for _col in ["banque_id INTEGER", "banque_name TEXT"]:
+        try: _v160rv.execute(f"ALTER TABLE recouvrement_versements ADD COLUMN {_col}")
+        except: pass
     _v160rv.commit(); _v160rv.close()
     print("[v160-Versements] Table recouvrement_versements OK", flush=True)
 except Exception as _e: print(f"[v160-Versements] Err : {_e}", flush=True)
@@ -8828,58 +8831,37 @@ def visite_convert_to_devis(vid):
         else:
             remise_glob = float(request.form.get('remise', 0) or 0)
         
-        # TVA optionnelle
+        # TVA optionnelle — base HT = pièces + main d'œuvre (cohérent avec /devis/new)
         tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
         tva_rate = float(request.form.get('tva_rate', 18) or 18)
-        tva_amount = round((total_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
+        tva_amount = round((total_ht + main_oeuvre - remise_glob) * tva_rate / 100, 0) if tva_active else 0
         total_ttc = total_ht + main_oeuvre + petites_fourn - remise_glob + tva_amount
-        
+
         client_id = visit.get('client_id')
         cur_u = get_user_by_id(session['user_id'])
         redacteur_name = (cur_u['full_name'] if cur_u else '') or 'Utilisateur'
-        
-        # Créer le devis avec doc_type='proforma'
+
+        # v160 : appel create_devis avec la BONNE signature positionnelle (corrige
+        # "table devis has no column named date") ; même schéma que /devis/new.
         objet = f"Suite à la visite du {visit.get('visit_date','')} chez {visit.get('client_name','')}"
         try:
             did, ref = create_devis(
-                doc_type='proforma',
-                client_id=client_id,
-                client_name=visit.get('client_name', ''),
-                objet=objet,
-                date=datetime.now().strftime('%Y-%m-%d'),
-                validite='30',
-                items=items,
-                main_oeuvre=main_oeuvre,
-                remise_global=remise_glob,
-                petites_fournitures=petites_fourn,
-                total_ttc=total_ttc,
-                redacteur_name=redacteur_name,
-                created_by=session['user_id'],
-                status='brouillon'
+                client_id, visit.get('client_name', ''),
+                visit.get('client_code', '') or '', redacteur_name,
+                objet, json.dumps(items), total_ht, petites_fourn, total_ttc,
+                main_oeuvre, remise_glob, '', session['user_id'], 'proforma'
             )
-        except TypeError:
-            # Signature différente — fallback minimal
-            from models import get_db as _gdb_d
-            conn = _gdb_d()
-            ref = f"PRO-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-            try:
-                cur = conn.execute("""INSERT INTO devis 
-                    (reference, doc_type, client_id, client_name, objet, date, validite,
-                     items_json, main_oeuvre, remise_global, total_ttc, status, 
-                     created_by, created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
-                    (ref, 'proforma', client_id, visit.get('client_name', ''), objet,
-                     datetime.now().strftime('%Y-%m-%d'), '30',
-                     json.dumps(items), main_oeuvre, remise_glob, total_ttc,
-                     'brouillon', session['user_id']))
-                did = cur.lastrowid
-                conn.commit()
-            except Exception as e:
-                conn.close()
-                flash(f"Erreur création proforma : {e}", "error")
-                return redirect(f'/visites/{vid}/convert-to-devis')
-            conn.close()
-        
+        except Exception as e:
+            flash(f"Erreur création proforma : {e}", "error")
+            return redirect(f'/visites/{vid}/convert-to-devis')
+        # Compléter TVA + rédacteur
+        try:
+            _cz = _gdb()
+            _cz.execute("UPDATE devis SET tva_active=?, tva_rate=?, tva_amount=?, redacteur=? WHERE id=?",
+                        (tva_active, tva_rate, tva_amount, redacteur_name, did))
+            _cz.commit(); _cz.close()
+        except: pass
+
         # Marquer la visite comme transformée
         try:
             update_visit_proforma(vid, ref, total_ttc, session['user_id'])
@@ -20533,29 +20515,26 @@ def recouvrement_versements():
     versements = [dict(r) for r in rows]
     total = sum(v['montant'] or 0 for v in versements)
     caisses = [dict(r) for r in conn.execute("SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
+    banques = [dict(r) for r in conn.execute("SELECT id, nom, banque FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
     conn.close()
     return render_template('recouvrement_versements.html', page='recouvrement_versements',
-        versements=versements, total=total, caisses=caisses)
+        versements=versements, total=total, caisses=caisses, banques=banques)
 
 
-@app.route('/recouvrement/versements/add', methods=['POST'])
-@permission_required_any('recouvrement_edit', 'caissiere_validate', 'admin')
-def recouvrement_versement_add():
-    """v160 : enregistrer une remise/versement (montant, mode, caisse, bordereau)."""
-    user = get_user_by_id(session['user_id'])
-    try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
-    except: montant = 0
-    if montant <= 0:
-        flash("Montant invalide", "error"); return redirect('/recouvrement/versements')
-    cid_raw = request.form.get('caisse_id', '') or ''
-    cid = int(cid_raw) if cid_raw.isdigit() else None
-    conn = _gdb()
-    caisse_name = None
-    if cid:
-        cr = conn.execute("SELECT name FROM caisses WHERE id=?", (cid,)).fetchone()
-        caisse_name = cr['name'] if cr else None
-    # Bordereau (fichier optionnel)
-    bordereau_file = ''
+def _resoudre_destination_versement(conn, dest):
+    """v160 : "caisse:ID" / "banque:ID" → (caisse_id, caisse_name, banque_id, banque_name)."""
+    kind, _, wid_raw = (dest or '').partition(':')
+    wid = int(wid_raw) if wid_raw.isdigit() else None
+    if kind == 'caisse' and wid:
+        r = conn.execute("SELECT name FROM caisses WHERE id=?", (wid,)).fetchone()
+        if r: return wid, r['name'], None, None
+    elif kind == 'banque' and wid:
+        r = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (wid,)).fetchone()
+        if r: return None, None, wid, (r['nom'] + (f" ({r['banque']})" if r['banque'] else ''))
+    return None, None, None, None
+
+
+def _save_bordereau_file():
     f = request.files.get('bordereau_file')
     if f and f.filename:
         ext = os.path.splitext(f.filename)[1].lower()
@@ -20564,17 +20543,32 @@ def recouvrement_versement_add():
             fdir = os.path.join(app.config['UPLOAD_FOLDER'], 'versements')
             os.makedirs(fdir, exist_ok=True)
             f.save(os.path.join(fdir, fname))
-            bordereau_file = fname
+            return fname
+    return None
+
+
+@app.route('/recouvrement/versements/add', methods=['POST'])
+@permission_required_any('recouvrement_edit', 'caissiere_validate', 'admin')
+def recouvrement_versement_add():
+    """v160 : enregistrer une remise/versement (montant, mode, caisse OU banque, bordereau)."""
+    user = get_user_by_id(session['user_id'])
+    try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
+    except: montant = 0
+    if montant <= 0:
+        flash("Montant invalide", "error"); return redirect('/recouvrement/versements')
+    conn = _gdb()
+    caisse_id, caisse_name, banque_id, banque_name = _resoudre_destination_versement(conn, request.form.get('destination', ''))
+    bordereau_file = _save_bordereau_file() or ''
     conn.execute("""INSERT INTO recouvrement_versements
-        (agent_id, agent_name, montant, mode, caisse_id, caisse_name, bordereau_number, bordereau_file, date_versement, notes, statut, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?, 'verse', datetime('now'))""",
+        (agent_id, agent_name, montant, mode, caisse_id, caisse_name, banque_id, banque_name,
+         bordereau_number, bordereau_file, date_versement, notes, statut, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'verse', datetime('now'))""",
         (session['user_id'], user['full_name'] if user else '?', montant,
-         request.form.get('mode', 'especes'), cid, caisse_name,
+         request.form.get('mode', 'especes'), caisse_id, caisse_name, banque_id, banque_name,
          request.form.get('bordereau_number', ''), bordereau_file,
          request.form.get('date_versement', datetime.now().strftime('%Y-%m-%d')),
          request.form.get('notes', '')))
     conn.commit(); conn.close()
-    # Notifier caissière + comptabilité
     try:
         notify_roles(['caissiere', 'comptable', 'comptabilite', 'admin'],
             "💰 Nouvelle remise/versement recouvrement",
@@ -20582,6 +20576,36 @@ def recouvrement_versement_add():
             link='/recouvrement/versements', type='recouvrement', module='recouvrement', icon='💰')
     except: pass
     flash(f"✅ Remise/versement de {montant:,.0f} XOF enregistré", "success")
+    return redirect('/recouvrement/versements')
+
+
+@app.route('/recouvrement/versements/<int:vid>/edit', methods=['POST'])
+@permission_required_any('recouvrement_edit', 'admin')
+def recouvrement_versement_edit(vid):
+    """v160 : modifier un versement (auteur ou admin)."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    v = conn.execute("SELECT agent_id, bordereau_file FROM recouvrement_versements WHERE id=?", (vid,)).fetchone()
+    if not v:
+        conn.close(); flash("Versement introuvable", "error"); return redirect('/recouvrement/versements')
+    is_admin = user and user['role'] == 'admin'
+    if not (is_admin or (user and user['id'] == v['agent_id'])):
+        conn.close(); flash("⛔ Seul l'auteur ou un admin peut modifier ce versement.", "error"); return redirect('/recouvrement/versements')
+    try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
+    except: montant = 0
+    if montant <= 0:
+        conn.close(); flash("Montant invalide", "error"); return redirect('/recouvrement/versements')
+    caisse_id, caisse_name, banque_id, banque_name = _resoudre_destination_versement(conn, request.form.get('destination', ''))
+    new_file = _save_bordereau_file()
+    bordereau_file = new_file if new_file else (v['bordereau_file'] or '')
+    conn.execute("""UPDATE recouvrement_versements SET montant=?, mode=?, caisse_id=?, caisse_name=?,
+        banque_id=?, banque_name=?, bordereau_number=?, bordereau_file=?, date_versement=?, notes=? WHERE id=?""",
+        (montant, request.form.get('mode', 'especes'), caisse_id, caisse_name, banque_id, banque_name,
+         request.form.get('bordereau_number', ''), bordereau_file,
+         request.form.get('date_versement', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('notes', ''), vid))
+    conn.commit(); conn.close()
+    flash("✅ Versement modifié", "success")
     return redirect('/recouvrement/versements')
 
 
