@@ -1,0 +1,90 @@
+{% extends "base.html" %}{% block title %}WannyGest - Permissions{% endblock %}{% block content %}
+<div class="page-header" style="flex-wrap:wrap;gap:10px">
+    <div>
+        <h1>🙋 {% if is_rh %}Suivi des demandes de permission{% else %}Mes demandes de permission{% endif %}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">{% if is_rh %}Validez ou refusez les demandes (avec motif){% else %}Demandez une permission — la RH valide{% endif %}</p>
+    </div>
+</div>
+
+{# Formulaire de demande — accessible à tous #}
+<div class="card" style="border-left:4px solid #5e35b1;margin-bottom:16px">
+    <h3 style="margin:0 0 10px;color:#5e35b1;font-size:15px">➕ Nouvelle demande de permission</h3>
+    <form method="post" action="/permissions/add">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px">
+            <div><label style="font-size:10px;color:#666;display:block">Type</label>
+                <select name="type" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+                    <option value="permission">Permission (absence courte)</option>
+                    <option value="sortie">Sortie / course</option>
+                    <option value="conge">Congé</option>
+                    <option value="autre">Autre</option>
+                </select>
+            </div>
+            <div><label style="font-size:10px;color:#666;display:block">Du</label><input type="date" name="date_debut" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+            <div><label style="font-size:10px;color:#666;display:block">Au</label><input type="date" name="date_fin" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+            <div><label style="font-size:10px;color:#666;display:block">Heure début</label><input type="time" name="heure_debut" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+            <div><label style="font-size:10px;color:#666;display:block">Heure fin</label><input type="time" name="heure_fin" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+        </div>
+        <textarea name="motif" rows="2" required placeholder="Motif de la demande (obligatoire)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:8px"></textarea>
+        <div style="display:flex;justify-content:flex-end"><button type="submit" class="btn" style="background:#5e35b1;color:#fff;font-weight:700">📨 Envoyer la demande</button></div>
+    </form>
+</div>
+
+{% if is_rh %}
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+    <a href="?tab=en_attente" class="btn btn-sm {% if tab=='en_attente' %}btn-primary{% else %}btn-outline{% endif %}">⏳ En attente {{ counts.en_attente or 0 }}</a>
+    <a href="?tab=approuvee" class="btn btn-sm {% if tab=='approuvee' %}btn-primary{% else %}btn-outline{% endif %}">✅ Approuvées {{ counts.approuvee or 0 }}</a>
+    <a href="?tab=refusee" class="btn btn-sm {% if tab=='refusee' %}btn-primary{% else %}btn-outline{% endif %}">❌ Refusées {{ counts.refusee or 0 }}</a>
+    <a href="?tab=all" class="btn btn-sm {% if tab=='all' %}btn-primary{% else %}btn-outline{% endif %}">📋 Toutes</a>
+</div>
+{% endif %}
+
+<div class="card" style="padding:0;overflow-x:auto">
+    {% if demandes %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#5e35b1;color:#fff">
+            {% if is_rh %}<th style="padding:9px 12px;text-align:left">Employé</th>{% endif %}
+            <th style="padding:9px 12px;text-align:left">Type</th>
+            <th style="padding:9px 12px;text-align:left">Période</th>
+            <th style="padding:9px 12px;text-align:left">Motif</th>
+            <th style="padding:9px 12px;text-align:center">Statut</th>
+            <th style="padding:9px 12px;text-align:left">Décision RH</th>
+            {% if is_rh %}<th style="padding:9px 12px">Action</th>{% endif %}
+        </tr></thead>
+        <tbody>
+        {% for d in demandes %}
+        <tr style="border-bottom:1px solid #eee;vertical-align:top">
+            {% if is_rh %}<td style="padding:8px 12px"><strong>{{ d.user_name or '-' }}</strong><div style="font-size:10px;color:#888">{{ d.created_at[:16] if d.created_at else '' }}</div></td>{% endif %}
+            <td style="padding:8px 12px">{{ d.type or 'permission' }}</td>
+            <td style="padding:8px 12px;font-size:12px">
+                {% if d.date_debut %}{{ d.date_debut }}{% if d.date_fin and d.date_fin != d.date_debut %} → {{ d.date_fin }}{% endif %}{% endif %}
+                {% if d.heure_debut %}<div style="color:#888">{{ d.heure_debut }}{% if d.heure_fin %}–{{ d.heure_fin }}{% endif %}</div>{% endif %}
+            </td>
+            <td style="padding:8px 12px;font-size:12px;max-width:240px">{{ d.motif or '-' }}</td>
+            <td style="padding:8px 12px;text-align:center">
+                {% if d.status=='approuvee' %}<span style="color:#2FA85B;font-weight:700">✅ Approuvée</span>
+                {% elif d.status=='refusee' %}<span style="color:#c53030;font-weight:700">❌ Refusée</span>
+                {% else %}<span style="color:#e65100;font-weight:700">⏳ En attente</span>{% endif %}
+            </td>
+            <td style="padding:8px 12px;font-size:12px">{% if d.rh_motif %}{{ d.rh_motif }}{% endif %}{% if d.decided_by_name %}<div style="font-size:10px;color:#888">— {{ d.decided_by_name }}{% if d.decided_at %} · {{ d.decided_at[:16] }}{% endif %}</div>{% endif %}</td>
+            {% if is_rh %}
+            <td style="padding:8px 12px;white-space:nowrap">
+                {% if d.status=='en_attente' %}
+                <form method="post" action="/permissions/{{ d.id }}/decision" style="display:flex;flex-direction:column;gap:4px">
+                    <input type="text" name="rh_motif" placeholder="Motif (oblig. si refus)" style="padding:4px 6px;border:1.5px solid #ddd;border-radius:4px;font-size:11px">
+                    <div style="display:flex;gap:4px">
+                        <button type="submit" name="action" value="approuvee" class="btn btn-sm" style="background:#2FA85B;color:#fff;font-size:11px;padding:3px 8px">✅ Valider</button>
+                        <button type="submit" name="action" value="refusee" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:11px;padding:3px 8px">❌ Refuser</button>
+                    </div>
+                </form>
+                {% else %}<span style="color:#888;font-size:11px">—</span>{% endif %}
+            </td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:40px;color:#888"><div style="font-size:40px">🙋</div><p style="margin:8px 0 0">Aucune demande de permission.</p></div>
+    {% endif %}
+</div>
+{% endblock %}

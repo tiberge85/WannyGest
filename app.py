@@ -2522,6 +2522,23 @@ try:
 except Exception as _e: print(f"[v160-Versements] Err : {_e}", flush=True)
 
 
+# v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
+try:
+    from models import get_db as _gdb_v161p
+    _v161p = _gdb_v161p()
+    _v161p.execute("""CREATE TABLE IF NOT EXISTS permission_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL, user_name TEXT,
+        type TEXT DEFAULT 'permission',
+        date_debut TEXT, date_fin TEXT, heure_debut TEXT, heure_fin TEXT,
+        motif TEXT, status TEXT DEFAULT 'en_attente',
+        rh_motif TEXT, decided_by INTEGER, decided_by_name TEXT, decided_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    _v161p.commit(); _v161p.close()
+    print("[v161-Permissions] Table permission_requests OK", flush=True)
+except Exception as _e: print(f"[v161-Permissions] Err : {_e}", flush=True)
+
+
 # v145 : Types de paiement
 PAYMENT_TYPES = {
     'especes':       '💵 Espèces',
@@ -10124,6 +10141,90 @@ def rh_absences_delete(aid):
     conn.commit(); conn.close()
     flash("Absence supprimée", "success")
     return redirect(url_for('rh_absences'))
+
+
+# ============= v161 : DEMANDES DE PERMISSION (ouvert à tous, validation RH) =============
+_RH_ROLES = ('admin', 'dg', 'directeur', 'rh', 'directrice_rh')
+
+@app.route('/permissions')
+@login_required
+def permissions_page():
+    """v161 : module de demande de permission accessible à TOUS. La RH valide/refuse avec motif."""
+    user = get_user_by_id(session['user_id'])
+    is_rh = user and user['role'] in _RH_ROLES
+    conn = _gdb()
+    counts = {}
+    if is_rh:
+        tab = request.args.get('tab', 'en_attente')
+        if tab == 'all':
+            rows = conn.execute("SELECT * FROM permission_requests ORDER BY created_at DESC LIMIT 300").fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM permission_requests WHERE status=? ORDER BY created_at DESC LIMIT 300", (tab,)).fetchall()
+        for s in ('en_attente', 'approuvee', 'refusee'):
+            counts[s] = conn.execute("SELECT COUNT(*) FROM permission_requests WHERE status=?", (s,)).fetchone()[0]
+    else:
+        tab = 'mes'
+        rows = conn.execute("SELECT * FROM permission_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 100", (session['user_id'],)).fetchall()
+    demandes = [dict(r) for r in rows]
+    conn.close()
+    return render_template('permissions.html', page='permissions',
+        demandes=demandes, is_rh=is_rh, tab=tab, counts=counts, current_user=user)
+
+
+@app.route('/permissions/add', methods=['POST'])
+@login_required
+def permission_add():
+    """v161 : tout utilisateur connecté peut faire une demande de permission."""
+    user = get_user_by_id(session['user_id'])
+    motif = (request.form.get('motif', '') or '').strip()
+    if not motif:
+        flash("Le motif de la demande est obligatoire.", "error"); return redirect('/permissions')
+    conn = _gdb()
+    conn.execute("""INSERT INTO permission_requests
+        (user_id, user_name, type, date_debut, date_fin, heure_debut, heure_fin, motif, status, created_at)
+        VALUES (?,?,?,?,?,?,?,?, 'en_attente', datetime('now'))""",
+        (session['user_id'], user['full_name'] if user else '?', request.form.get('type', 'permission'),
+         request.form.get('date_debut', ''), request.form.get('date_fin', ''),
+         request.form.get('heure_debut', ''), request.form.get('heure_fin', ''), motif))
+    conn.commit(); conn.close()
+    try:
+        notify_roles(list(_RH_ROLES), "🙋 Nouvelle demande de permission",
+            f"{user['full_name'] if user else 'Un employé'} a soumis une demande de permission à valider.",
+            link='/permissions', type='rh', module='rh', icon='🙋', priority='high')
+    except: pass
+    flash("✅ Demande de permission envoyée — en attente de validation RH", "success")
+    return redirect('/permissions')
+
+
+@app.route('/permissions/<int:pid>/decision', methods=['POST'])
+@login_required
+def permission_decision(pid):
+    """v161 : la RH valide ou refuse une demande de permission (motif obligatoire si refus)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in _RH_ROLES:
+        flash("⛔ Seule la RH (ou la direction) peut valider une demande.", "error"); return redirect('/permissions')
+    action = request.form.get('action', '')
+    if action not in ('approuvee', 'refusee'):
+        flash("Action invalide", "error"); return redirect('/permissions')
+    rh_motif = (request.form.get('rh_motif', '') or '').strip()
+    if action == 'refusee' and not rh_motif:
+        flash("⚠️ Le motif est obligatoire en cas de refus.", "error"); return redirect('/permissions')
+    conn = _gdb()
+    row = conn.execute("SELECT user_id FROM permission_requests WHERE id=?", (pid,)).fetchone()
+    if not row:
+        conn.close(); flash("Demande introuvable", "error"); return redirect('/permissions')
+    target = row['user_id']
+    conn.execute("""UPDATE permission_requests SET status=?, rh_motif=?, decided_by=?, decided_by_name=?,
+        decided_at=datetime('now') WHERE id=?""",
+        (action, rh_motif, session['user_id'], user['full_name'], pid))
+    conn.commit(); conn.close()
+    try:
+        lbl = 'approuvée' if action == 'approuvee' else 'refusée'
+        notify_user(target, f"{'✅' if action=='approuvee' else '❌'} Demande de permission {lbl}",
+            rh_motif or f"Votre demande de permission a été {lbl}.", link='/permissions', type='rh', module='rh')
+    except: pass
+    flash(f"Demande {'approuvée' if action=='approuvee' else 'refusée'}", "success")
+    return redirect('/permissions')
 
 @app.route('/rh/paie')
 @permission_required_any('fichiers', 'comptabilite', 'comptabilite_view', 'comptabilite_edit', 'compta_pro', 'admin')
