@@ -12,6 +12,7 @@
     <!-- Client re-sélectionnable avec auto-remplissage -->
     <div class="form-group">
         <label>Client enregistré <span style="font-size:10px;color:#888">(changer pour auto-remplir un autre)</span></label>
+        <input type="text" id="clientSearch" placeholder="🔍 Rechercher par code client ou nom…" oninput="filterClientSelect()" style="width:100%;margin-bottom:6px;padding:7px;border:1.5px solid #1A7A6D;border-radius:6px;font-size:13px">
         <select name="client_id" id="clientSel" onchange="fillClient()">
             <option value="">— Conserver la saisie actuelle —</option>
             {% for c in clients|sort(attribute='name') %}
@@ -150,8 +151,21 @@
     }
     var form = document.querySelector('form');
     if (form) form.addEventListener('input', recalc);
+    window._recalcDevis = recalc;
     recalc();
 })();
+// v161 : recherche client par code/nom (édition)
+function filterClientSelect(){
+    var inp = document.getElementById('clientSearch'); if(!inp) return;
+    var q = (inp.value || '').trim().toLowerCase(); if(!q) return;
+    var sel = document.getElementById('clientSel');
+    for(var i=0;i<sel.options.length;i++){
+        var o = sel.options[i];
+        var code = (o.getAttribute('data-code')||'').toLowerCase();
+        var name = (o.getAttribute('data-name')||'').toLowerCase();
+        if((code && (code===q || code.indexOf(q)===0)) || (name && name.indexOf(q)>=0)){ sel.value=o.value; if(window.fillClient)fillClient(); break; }
+    }
+}
 </script>
 
 <!-- v74 : Signature électronique du devis -->
@@ -241,7 +255,8 @@ function addItem(){itemCount++;document.getElementById('items').insertAdjacentHT
     <div style="flex:0 0 60px"><input type="number" name="item_${itemCount}_qty" value="1" min="1"></div>
     <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" id="prix_${itemCount}" step="1" value="0"></div>
     <div style="flex:0 0 80px"><input type="number" name="item_${itemCount}_remise" value="0"></div>
-    <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px">×</button></div>`);}
+    <button type="button" onclick="this.closest('.item-row').remove(); if(window._recalcDevis)window._recalcDevis();" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px">×</button></div>`);
+    if(window._recalcDevis)window._recalcDevis();}
 function fillFromStock(){var s=document.getElementById('stockSelect');if(!s||!s.value)return;var o=s.options[s.selectedIndex];
     var d=document.getElementById('desig_'+itemCount);if(d&&d.value){addItem();d=document.getElementById('desig_'+itemCount);}
     if(d){d.value=s.value;var det=document.getElementById('detail_'+itemCount);if(det&&o.dataset.ref)det.value=o.dataset.ref;

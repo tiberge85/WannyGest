@@ -15405,6 +15405,16 @@ def rh_closures_dashboard():
     explanations_count = conn.execute(
         "SELECT COUNT(*) FROM closure_explanations WHERE status='envoyee'").fetchone()[0]
     
+    # v161 : charger les justifications de chaque clôture pour affichage direct
+    just_by_closure = {}
+    try:
+        for j in conn.execute("""SELECT cj.* FROM closure_justifications cj
+            JOIN daily_closures dc ON dc.id = cj.closure_id
+            WHERE dc.date_closure=? ORDER BY cj.id""", (date_filter,)).fetchall():
+            j = dict(j)
+            just_by_closure.setdefault(j['closure_id'], []).append(j)
+    except Exception as _e: print(f"[v161-just] {_e}", flush=True)
+
     # Construire la liste enrichie pour affichage
     users_view = []
     for u in all_users:
@@ -15416,6 +15426,7 @@ def rh_closures_dashboard():
             'closure_time': c['closure_time'] if c else None,
             'pending_count': c['pending_count'] if c else None,
             'justified_count': c['justified_count'] if c else None,
+            'justifications': just_by_closure.get(c['id'], []) if c else [],
         })
     
     # Trier : non clôturé > partielle > exception > clôturé
@@ -15426,6 +15437,7 @@ def rh_closures_dashboard():
     
     return render_template('rh_closures_dashboard.html', page='rh_closures',
         users_view=users_view, date_filter=date_filter,
+        motifs=CLOSURE_JUSTIFICATION_MOTIFS,
         stats={
             'total': len(all_users),
             'cloturees': cloturees,
@@ -18197,8 +18209,10 @@ def rh_budget_import_excel():
                 continue
             
             for m_idx, v in enumerate(row_values):
-                # Ne pas écraser une valeur déjà importée par un 0
-                if db_key not in imported_data[m_idx+1] or v != 0:
+                # v161 : ne créer une entrée de mois QUE pour les valeurs NON NULLES.
+                # Avant, les mois vides (ex. janvier→avril si le fichier commence en mai)
+                # recevaient une entrée à 0 et étaient insérés comme s'ils avaient des données.
+                if v != 0:
                     imported_data[m_idx+1][db_key] = v
             rows_found.append(f"{label_raw} → {db_key}")
         

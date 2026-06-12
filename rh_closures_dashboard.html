@@ -95,6 +95,21 @@
             <span style="font-size:10px;color:#888;font-style:italic">Pas de demande de clôture</span>
             {% endif %}
         </div>
+        {# v161 : justifications visibles directement #}
+        {% if u.justifications %}
+        <details style="flex-basis:100%;margin-top:8px;background:#f8faf9;border-radius:8px;padding:8px 10px">
+            <summary style="cursor:pointer;font-size:12px;color:#5e35b1;font-weight:700">📝 {{ u.justifications|length }} justification(s) de {{ u.full_name }}</summary>
+            <div style="margin-top:6px">
+                {% for j in u.justifications %}
+                <div style="border-bottom:1px solid #eee;padding:5px 0;font-size:12px">
+                    <strong>{{ j.task_label or j.task_type }}</strong>
+                    <span style="background:#ede7f6;color:#5e35b1;padding:1px 7px;border-radius:8px;font-size:10px;margin-left:6px">{{ motifs.get(j.motif, j.motif) }}</span>
+                    {% if j.motif_detail %}<div style="color:#666;font-size:11px;margin-top:2px">{{ j.motif_detail }}</div>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </details>
+        {% endif %}
     </div>
     {% endfor %}
 </div>

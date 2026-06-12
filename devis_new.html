@@ -17,6 +17,7 @@
     <!-- Sélection client enregistré avec auto-remplissage complet -->
     <div class="form-group">
         <label>Client enregistré <span style="font-size:10px;color:#888">(sélectionnez pour auto-remplir)</span></label>
+        <input type="text" id="clientSearch" placeholder="🔍 Rechercher par code client ou nom…" oninput="filterClientSelect()" style="width:100%;margin-bottom:6px;padding:7px;border:1.5px solid #1A7A6D;border-radius:6px;font-size:13px">
         <select name="client_id" id="clientSel" onchange="fillClient()">
             <option value="">— Saisir manuellement —</option>
             {% for c in clients|sort(attribute='name') %}
@@ -165,9 +166,24 @@ function addItem() {
         <div style="flex:0 0 60px"><input type="number" name="item_${itemCount}_qty" value="1" min="1"></div>
         <div style="flex:0 0 100px"><input type="number" name="item_${itemCount}_prix" id="prix_${itemCount}" step="1" value="0"></div>
         <div style="flex:0 0 80px"><input type="number" name="item_${itemCount}_remise" value="0"></div>
-        <button type="button" onclick="this.parentElement.remove()" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px;padding:4px">×</button>
+        <button type="button" onclick="this.closest('.item-row').remove(); if(window._recalcDevis)window._recalcDevis();" style="background:none;border:none;color:#c53030;cursor:pointer;font-size:18px;padding:4px">×</button>
     </div>`;
     document.getElementById('items').insertAdjacentHTML('beforeend', html);
+    if (window._recalcDevis) window._recalcDevis(); // v161 : maj cumul à l'ajout d'une ligne
+}
+// v161 : recherche client par code/nom — sélectionne le client correspondant
+function filterClientSelect(){
+    var q = (document.getElementById('clientSearch').value || '').trim().toLowerCase();
+    if(!q) return;
+    var sel = document.getElementById('clientSel');
+    for(var i=0;i<sel.options.length;i++){
+        var o = sel.options[i];
+        var code = (o.getAttribute('data-code')||'').toLowerCase();
+        var name = (o.getAttribute('data-name')||'').toLowerCase();
+        if((code && (code===q || code.indexOf(q)===0)) || (name && name.indexOf(q)>=0)){
+            sel.value = o.value; fillClient(); break;
+        }
+    }
 }
 function fillFromStock() {
     var sel = document.getElementById('stockSelect');
@@ -189,6 +205,7 @@ function fillFromStock() {
         if (prix && price) prix.value = price;
     }
     sel.value = '';
+    if (window._recalcDevis) window._recalcDevis(); // v161 : maj cumul après ajout depuis stock
 }
 
 // ==== Auto-remplissage complet quand un client est sélectionné ====
