@@ -9306,7 +9306,13 @@ def devis_edit(did):
         total_ht = sum(it['qty'] * it['prix'] - it['remise'] for it in items)
         main_oeuvre = float(request.form.get('main_oeuvre', 0) or 0)
         petites_fourn = float(request.form.get('petites_fournitures', 0) or 0)
-        remise_glob = float(request.form.get('remise', 0) or 0)
+        # v161 : remise en % (prioritaire) OU montant fixe — harmonisé avec /devis/new
+        remise_pct_raw = (request.form.get('remise_pct', '') or '').strip()
+        if remise_pct_raw:
+            try: remise_glob = round((total_ht + main_oeuvre + petites_fourn) * float(remise_pct_raw.replace(',', '.')) / 100, 0)
+            except: remise_glob = float(request.form.get('remise', 0) or 0)
+        else:
+            remise_glob = float(request.form.get('remise', 0) or 0)
         tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
         tva_rate = float(request.form.get('tva_rate', 18) or 18)
         # v160 : la MAIN D'ŒUVRE fait partie de la base HT (taxable) et du TTC
