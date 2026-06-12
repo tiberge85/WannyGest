@@ -74,6 +74,13 @@
             <span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:10px;margin-left:8px;font-weight:700">⚠️ CONTRÔLE QUALITÉ REJETÉ</span>
         {% endif %}
     </div>
+    {# v161 : retour à l'étape précédente — admin / gestionnaire de projet / DG #}
+    {% if current_user and current_user.role in ('admin','dg','directeur','gestionnaire_projet') and project.status not in ('valide','cloture') %}
+    <form method="post" action="/projects/{{ project.id }}/rollback" style="margin-top:10px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap" onsubmit="return confirm('Revenir à l\'étape précédente du roadmap ?')">
+        <input type="text" name="comment" placeholder="Raison du retour (optionnel)" style="padding:6px 8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;max-width:240px">
+        <button type="submit" class="btn btn-sm" style="background:#fff3e0;color:#b8561f;border:1px solid #f29f2f">↩️ Revenir à l'étape précédente</button>
+    </form>
+    {% endif %}
 </div></div>
 
 <div style="display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start">

@@ -8774,6 +8774,45 @@ def visite_detail(vid):
         return redirect(url_for('visites_page'))
     return render_template('visite_detail.html', page='visites', visit=visit)
 
+@app.route('/visites/<int:vid>/edit', methods=['POST'])
+@permission_required('visites')
+def visite_edit(vid):
+    """v161 : modifier un rapport de visite."""
+    visit = get_visit_by_id(vid)
+    if not visit:
+        flash("Rapport introuvable", "error"); return redirect('/visites')
+    conn = _gdb()
+    conn.execute("""UPDATE visit_reports SET client_name=?, site_name=?, site_address=?,
+        contact_name=?, contact_tel=?, visit_date=?, needs=?, observations=?, equipment=? WHERE id=?""",
+        (request.form.get('client_name', visit.get('client_name', '')),
+         request.form.get('site_name', ''), request.form.get('site_address', ''),
+         request.form.get('contact_name', ''), request.form.get('contact_tel', ''),
+         request.form.get('visit_date', ''), request.form.get('needs', ''),
+         request.form.get('observations', ''), request.form.get('equipment', ''), vid))
+    conn.commit(); conn.close()
+    flash("✅ Rapport de visite modifié", "success")
+    return redirect(request.referrer or '/visites')
+
+
+@app.route('/visites/<int:vid>/delete', methods=['POST'])
+@permission_required('visites')
+def visite_delete(vid):
+    """v161 : supprimer un rapport de visite (admin, ou auteur si pas encore en proforma)."""
+    user = get_user_by_id(session['user_id'])
+    visit = get_visit_by_id(vid)
+    if not visit:
+        flash("Rapport introuvable", "error"); return redirect('/visites')
+    is_admin = user and user['role'] in ('admin', 'dg', 'directeur')
+    is_author = user and user.get('id') == visit.get('created_by')
+    if not (is_admin or is_author):
+        flash("⛔ Seul l'auteur ou la direction peut supprimer ce rapport.", "error"); return redirect('/visites')
+    conn = _gdb()
+    conn.execute("DELETE FROM visit_reports WHERE id=?", (vid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Rapport de visite supprimé", "success")
+    return redirect('/visites')
+
+
 @app.route('/visites/proforma/<int:vid>', methods=['POST'])
 @permission_required('proforma')
 def visites_proforma(vid):
@@ -23425,6 +23464,31 @@ def project_detail(pid):
         available_techs=available_techs, mg_equips=mg_equips,
         full_view=full_view, user_role=user_role,
         source_report=source_report)
+
+
+@app.route('/projects/<int:pid>/rollback', methods=['POST'])
+@project_access_required
+def project_rollback(pid):
+    """v161 : revenir à l'étape PRÉCÉDENTE du roadmap — réservé admin / gestionnaire / DG."""
+    user = get_user_by_id(session.get('user_id', 0))
+    if not user or user['role'] not in ('admin', 'dg', 'directeur', 'gestionnaire_projet'):
+        flash("⛔ Réservé à l'admin, au gestionnaire de projet et au DG.", "error")
+        return redirect(f'/projects/{pid}')
+    comment = (request.form.get('comment', '') or '').strip()
+    conn = _gdb()
+    p = conn.execute("SELECT current_step FROM wf_projects WHERE id=?", (pid,)).fetchone()
+    if not p:
+        conn.close(); flash("Projet introuvable", "error"); return redirect('/projects')
+    cur_step = p['current_step'] or 0
+    conn.close()
+    candidates = [s for s in PROJECT_STEPS if s['num'] < cur_step]
+    if not candidates:
+        flash("Impossible de revenir : projet déjà à la première étape.", "error")
+        return redirect(f'/projects/{pid}')
+    prev_key = max(candidates, key=lambda s: s['num'])['key']
+    ok, msg = _project_advance(pid, prev_key, f"↩️ Retour à l'étape précédente — {comment}")
+    flash("✅ Projet revenu à l'étape précédente" if ok else f"Erreur : {msg}", "success" if ok else "error")
+    return redirect(f'/projects/{pid}')
 
 
 @app.route('/projects/<int:pid>/advance', methods=['POST'])
