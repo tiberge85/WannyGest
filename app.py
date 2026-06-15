@@ -9371,7 +9371,22 @@ def devis_edit(did):
         conn.commit(); conn.close()
         flash("Devis modifié" + (f" (TVA {tva_rate:.0f}% = {tva_amount:,.0f} F)" if tva_active else ""), "success"); return redirect(url_for('devis_page'))
     
-    items = json.loads(devis.get('items_json', '[]')) if isinstance(devis.get('items_json'), str) else []
+    # v161 : parsing robuste — certains anciens devis ont un items_json non-JSON
+    # (repr Python avec quotes simples) qui faisait planter json.loads → 500.
+    _raw = devis.get('items_json')
+    items = []
+    if isinstance(_raw, list):
+        items = _raw
+    elif isinstance(_raw, str) and _raw.strip():
+        try:
+            items = json.loads(_raw)
+        except Exception:
+            try:
+                import ast; items = ast.literal_eval(_raw)
+            except Exception:
+                items = []
+    if not isinstance(items, list):
+        items = []
     clients = get_all_clients()
     from models import db_get_all
     stock_items = db_get_all('stock_items', order='name ASC')
@@ -22389,30 +22404,33 @@ def tracking_dashboard():
         actifs=actifs, en_mouvement=en_mouvement, alerts_new=alerts_new, recent_alerts=recent_alerts)
 
 def _sync_vehicles_recharge():
-    """v161 : statut ACTIF/INACTIF selon la date limite de recharge internet.
-    INACTIF dès que l'échéance est passée → crée une facture « à décider » (une fois par échéance)."""
-    today = datetime.now().strftime('%Y-%m-%d')
+    """v161 : (1) statut ACTIF/INACTIF des véhicules selon la date limite de recharge ;
+    (2) À PARTIR DU 20 DE CHAQUE MOIS, place TOUS les véhicules suivis dans
+    « facturation à décider » (recharge internet) — le montant est saisi lors de la décision.
+    Idempotent : 1 facture par véhicule et par mois (réf VEHREC-<id>-<AAAAMM>)."""
+    now = datetime.now()
+    today = now.strftime('%Y-%m-%d')
+    periode = now.strftime('%Y%m')
+    gen_mensuel = now.day >= 20   # billing recharge à partir du 20 du mois
     conn = _gdb()
     try:
-        for v in conn.execute("SELECT id, immatriculation, proprietaire, recharge_due, status, facture_generated_for FROM tracking_vehicles").fetchall():
+        for v in conn.execute("SELECT id, immatriculation, proprietaire, recharge_due, status FROM tracking_vehicles").fetchall():
             v = dict(v)
+            # (1) statut selon la date limite de recharge (si renseignée)
             due = (v.get('recharge_due') or '')[:10]
-            if not due:
-                continue
-            is_inactif = due < today
-            new_status = 'inactif' if is_inactif else 'actif'
-            if v.get('status') != 'maintenance' and v.get('status') != new_status:
-                conn.execute("UPDATE tracking_vehicles SET status=? WHERE id=?", (new_status, v['id']))
-            # facture à décider quand le véhicule devient inactif (1 seule fois par échéance)
-            if is_inactif and (v.get('facture_generated_for') or '') != due:
-                ref = f"VEH-{v['id']}-{due.replace('-', '')}"
+            if due and v.get('status') != 'maintenance':
+                new_status = 'inactif' if due < today else 'actif'
+                if v.get('status') != new_status:
+                    conn.execute("UPDATE tracking_vehicles SET status=? WHERE id=?", (new_status, v['id']))
+            # (2) facture mensuelle de recharge à partir du 20 (1 par véhicule et par mois)
+            if gen_mensuel:
+                ref = f"VEHREC-{v['id']}-{periode}"
                 if not conn.execute("SELECT id FROM field_reports WHERE reference=?", (ref,)).fetchone():
                     conn.execute("""INSERT INTO field_reports
                         (reference, client_name, type_info, description, date_constat, statut, executed_at, facturable, created_at, updated_at)
                         VALUES (?,?, 'recharge_vehicule', ?, ?, 'executee', datetime('now'), NULL, datetime('now'), datetime('now'))""",
                         (ref, v.get('proprietaire') or v.get('immatriculation') or 'Véhicule',
-                         f"Recharge internet à facturer — véhicule {v.get('immatriculation','')} (échéance {due})", today))
-                conn.execute("UPDATE tracking_vehicles SET facture_generated_for=? WHERE id=?", (due, v['id']))
+                         f"Recharge internet {now.strftime('%m/%Y')} — véhicule {v.get('immatriculation','')} (montant à saisir)", today))
         conn.commit()
     except Exception as _e: print(f"[v161-vehsync] {_e}", flush=True)
     finally:

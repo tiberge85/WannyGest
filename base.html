@@ -587,7 +587,9 @@
             {% endif %}
             
             {# v116 : Section MOYENS GÉNÉRAUX — permission 'section_mg' OU sous-perms #}
-            {% if 'section_mg' in permissions or 'moyens_generaux' in permissions or 'comptabilite' in permissions or 'mg_view' in permissions or 'admin' in permissions %}
+            {# v161 : visible aussi pour qui a 'fournisseurs'/'achats' (ex. commercial) #}
+            {% set mg_core = ('section_mg' in permissions or 'moyens_generaux' in permissions or 'comptabilite' in permissions or 'mg_view' in permissions or 'admin' in permissions) %}
+            {% if mg_core or 'fournisseurs' in permissions or 'achats' in permissions %}
             <!-- Moyens Généraux (UNIFIÉ v59) -->
             <div class="nav-section" id="sec-moyens" {% if user_role in ('moyens_generaux', 'mg', 'magasinier') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-moyens')">
@@ -600,20 +602,30 @@
                 <div class="nav-section-items">
                     {# v160 : Tableau de bord MG + Solde Caisse/Banque retirés du menu MG
                        (les soldes restent accessibles via "Gérer" dans Fournisseurs & Paiements) #}
+                    {% if mg_core %}
                     <a href="/mg/demandes" class="{% if page in ('mg_demandes',) %}active{% endif %}">
                         📋 Demandes internes
                         {% if mg_pending_count and mg_pending_count > 0 %}
                             <span style="background:#c53030;color:#fff;padding:1px 5px;border-radius:8px;font-size:9px;margin-left:2px">{{ mg_pending_count }}</span>
                         {% endif %}
                     </a>
-                    {% if 'fournisseurs' in permissions or 'admin' in permissions or 'mg_view' in permissions %}
+                    {% endif %}
+                    {% if 'fournisseurs' in permissions or 'admin' in permissions or 'mg_view' in permissions or 'achats' in permissions %}
                     <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail') %}active{% endif %}">🏭 Fournisseurs &amp; Paiements</a>
                     {% endif %}
+                    {% if mg_core or 'fournisseurs' in permissions %}
                     <a href="/mg/fournisseurs-dashboard" class="{% if page == 'mg_fournisseurs' %}active{% endif %}">💰 Suivi financier fournisseurs</a>
+                    {% endif %}
+                    {% if mg_core or 'achats' in permissions %}
                     <a href="/achats?tab=commandes" class="{% if page == 'commandes' %}active{% endif %}">🚚 Bons de commande</a>
+                    {% endif %}
+                    {% if mg_core or 'achats' in permissions %}
                     <a href="/mg/receptions" class="{% if page == 'mg_receptions' %}active{% endif %}">📦 Réceptions</a>
+                    {% endif %}
+                    {% if mg_core %}
                     <a href="/mg/paiements" class="{% if page == 'mg_paiements' %}active{% endif %}">💵 Paiements fournisseurs</a>
                     <a href="/mg/equipements" class="{% if page == 'mg_equipements' %}active{% endif %}">🖥️ Équipements</a>
+                    {% endif %}
                     {% if 'stock_view' in permissions or 'admin' in permissions %}
                     <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.1)">
                         <div style="font-size:10px;color:#888;padding:4px 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700">📦 Gestion de Stock</div>
