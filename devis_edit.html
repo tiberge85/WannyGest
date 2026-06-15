@@ -54,7 +54,7 @@
         <strong>📋 Stock :</strong>
         <select id="stockSelect" onchange="fillFromStock()" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin-left:6px">
             <option value="">— Choisir —</option>
-            {% for s in stock_items %}<option value="{{ s.name }}" data-price="{{ s.unit_price or 0 }}" data-ref="{{ s.reference or '' }}">{{ s.name }} — {{ '{:,.0f}'.format(s.unit_price or 0) }} F</option>{% endfor %}
+            {% for s in stock_items %}<option value="{{ s.name }}" data-price="{{ s.unit_price|float }}" data-ref="{{ s.reference or '' }}">{{ s.name }} — {{ '{:,.0f}'.format(s.unit_price|float) }} F</option>{% endfor %}
         </select>
     </div>{% endif %}
     <div id="items">
@@ -104,7 +104,7 @@
         </div>
         {% if devis.tva_amount and devis.tva_active %}
         <div class="form-group" style="flex:1;font-size:11px;color:#2e7d32;font-weight:700">
-            ✅ TVA actuelle : {{ '{:,.0f}'.format(devis.tva_amount) }} F
+            ✅ TVA actuelle : {{ '{:,.0f}'.format(devis.tva_amount|float) }} F
         </div>
         {% else %}
         <div class="form-group" style="flex:1;font-size:11px;color:#888">

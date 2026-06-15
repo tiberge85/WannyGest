@@ -198,7 +198,7 @@ function editFour(id,name,contact,tel,email,city,sector){
 <td>{{ s.category or '-' }}</td>
 <td style="text-align:center;font-weight:700;{% if (s.quantity or 0) <= 0 %}color:#c53030{% elif (s.quantity or 0) <= 5 %}color:#e8672a{% else %}color:#2e7d32{% endif %}">{{ s.quantity or 0 }}</td>
 <td style="font-size:11px">{{ s.notes or 'pcs' }}</td>
-<td style="text-align:right">{{ '{:,.0f}'.format(s.unit_price or 0) }}</td>
+<td style="text-align:right">{{ '{:,.0f}'.format(s.unit_price|float) }}</td>
 <td style="text-align:right;font-weight:600">{{ '{:,.0f}'.format((s.quantity or 0) * (s.unit_price or 0)) }}</td>
 <td style="font-size:11px">{{ s.location or '-' }}</td>
 <td style="display:flex;gap:3px;flex-wrap:wrap">

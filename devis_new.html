@@ -60,7 +60,7 @@
         <strong>📋 Sélection rapide depuis le stock :</strong>
         <select id="stockSelect" onchange="fillFromStock()" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin-left:6px">
             <option value="">— Choisir un article du stock —</option>
-            {% for s in stock_items %}<option value="{{ s.name }}" data-price="{{ s.unit_price or 0 }}" data-ref="{{ s.reference or '' }}">{{ s.name }} {% if s.reference %}({{ s.reference }}){% endif %} — {{ '{:,.0f}'.format(s.unit_price or 0) }} F</option>{% endfor %}
+            {% for s in stock_items %}<option value="{{ s.name }}" data-price="{{ s.unit_price|float }}" data-ref="{{ s.reference or '' }}">{{ s.name }} {% if s.reference %}({{ s.reference }}){% endif %} — {{ '{:,.0f}'.format(s.unit_price|float) }} F</option>{% endfor %}
         </select>
     </div>
     {% endif %}
