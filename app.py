@@ -1606,8 +1606,9 @@ try:
         except: pass
     
     # 2. bank_account_id sur payslips
+    # v162 : caisse_id (la paie peut être décaissée d'une CAISSE et plus seulement d'une banque)
     for col in ['bank_account_id INTEGER', 'compta_paid_at TEXT', 'compta_paid_by INTEGER',
-                'compta_paid_by_name TEXT', 'compta_reference TEXT']:
+                'compta_paid_by_name TEXT', 'compta_reference TEXT', 'caisse_id INTEGER']:
         try: _v117.execute(f"ALTER TABLE payslips ADD COLUMN {col}")
         except: pass
     
@@ -6454,7 +6455,7 @@ def clients_merge():
 def admin_page():
     users = get_all_users()
     stats = get_dashboard_stats()
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
     conn = _gdb()
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
@@ -6631,6 +6632,7 @@ def admin_permissions():
     for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique',
                  'resp_projet', 'gestionnaire_projet', 'coordinateur',  # v89
                  'agent_recouvreur', 'caissiere',  # v160
+                 'responsable_technique',  # v162
                  'concierge', 'proprietaire', 'secretaire']:
         perms = [p for p in ALL_PERMISSIONS if request.form.get(f'{role}_{p}')]
         update_role_permissions(role, perms)
@@ -10784,32 +10786,56 @@ def compta_validation_paie():
     banks = [dict(r) for r in conn.execute(
         "SELECT id, nom, banque, type_compte, numero_compte FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom"
     ).fetchall()]
+    # v162 : caisses disponibles (la comptable peut décaisser d'une caisse, ex. « caisse salaire »)
+    caisses = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name"
+    ).fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='compta_paie',
-        pending=pending, validated=validated, banks=banks)
+        pending=pending, validated=validated, banks=banks, caisses=caisses)
 
 @app.route('/comptabilite/validation-paie/bulk-validate', methods=['POST'])
 @permission_required('comptabilite')
 def compta_bulk_validate():
-    """v117 : Validate pending payslips + attach bank account + generate accounting entries.
-    Chaque bulletin doit être rattaché à un compte bancaire pour générer les mouvements."""
-    try: bank_id = int(request.form.get('bank_account_id', 0) or 0)
-    except: bank_id = 0
-    if not bank_id:
-        flash("⚠️ Vous devez choisir un compte bancaire de paiement avant de valider les bulletins", "error")
+    """v117 / v162 : Validate pending payslips + attach bank account OU caisse + generate accounting entries.
+    La comptable choisit un compte bancaire OU une caisse (ex. « caisse salaire ») à débiter."""
+    # v162 : compte de paiement encodé "banque:<id>" ou "caisse:<id>" (rétro-compat bank_account_id)
+    sel = (request.form.get('compte_paiement', '') or '').strip()
+    if not sel and request.form.get('bank_account_id'):
+        sel = f"banque:{request.form.get('bank_account_id')}"
+    src_type, src_id = '', 0
+    if ':' in sel:
+        src_type, _sid = sel.split(':', 1)
+        try: src_id = int(_sid)
+        except: src_id = 0
+    if src_type not in ('banque', 'caisse') or not src_id:
+        flash("⚠️ Vous devez choisir un compte bancaire OU une caisse de paiement avant de valider les bulletins", "error")
         return redirect('/comptabilite/validation-paie')
-    
+
     user = get_user_by_id(session['user_id'])
     conn = _gdb()
-    bank = conn.execute("SELECT nom, banque, type_compte, numero_compte, compta_compte_numero FROM tresorerie_comptes_bancaires WHERE id=?", (bank_id,)).fetchone()
-    if not bank:
-        conn.close()
-        flash("⚠️ Compte bancaire introuvable", "error")
-        return redirect('/comptabilite/validation-paie')
-    bank = dict(bank)
-    bank_label = f"{bank['nom']}" + (f" ({bank['banque']})" if bank['banque'] else "")
-    compta_bank_account = bank.get('compta_compte_numero') or '521'  # par défaut 521 si non défini
-    
+
+    if src_type == 'banque':
+        bank = conn.execute("SELECT nom, banque, type_compte, numero_compte, compta_compte_numero FROM tresorerie_comptes_bancaires WHERE id=?", (src_id,)).fetchone()
+        if not bank:
+            conn.close()
+            flash("⚠️ Compte bancaire introuvable", "error")
+            return redirect('/comptabilite/validation-paie')
+        bank = dict(bank)
+        src_label = f"{bank['nom']}" + (f" ({bank['banque']})" if bank['banque'] else "")
+        compta_bank_account = bank.get('compta_compte_numero') or '521'  # 521 banque par défaut
+        bank_id, caisse_id = src_id, None
+    else:  # caisse
+        caisse = conn.execute("SELECT name FROM caisses WHERE id=?", (src_id,)).fetchone()
+        if not caisse:
+            conn.close()
+            flash("⚠️ Caisse introuvable", "error")
+            return redirect('/comptabilite/validation-paie')
+        caisse = dict(caisse)
+        src_label = f"Caisse {caisse['name']}"
+        compta_bank_account = '571'  # 571 caisse (SYSCOHADA)
+        bank_id, caisse_id = None, src_id
+
     pending = conn.execute("""SELECT p.id, p.net_salary, p.period, p.employee_id, 
         e.first_name||' '||e.last_name AS employee_name
         FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id 
@@ -10825,48 +10851,59 @@ def compta_bulk_validate():
         if net <= 0:
             continue
         ref_compta = f"PAIE-{p['id']}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        # 1. Marquer le bulletin comme validé + lié au compte
-        conn.execute("""UPDATE payslips SET 
-            status='valide_compta', 
-            bank_account_id=?, 
-            compta_paid_at=?, 
+        mvt_libelle = f"Paie {p.get('period','')} — {p.get('employee_name','?')}"
+        # 1. Marquer le bulletin comme validé + lié au compte/caisse
+        conn.execute("""UPDATE payslips SET
+            status='valide_compta',
+            bank_account_id=?,
+            caisse_id=?,
+            compta_paid_at=?,
             compta_paid_by=?,
             compta_paid_by_name=?,
             compta_reference=?
             WHERE id=?""",
-            (bank_id, now_iso, session['user_id'], user['full_name'] if user else '?', ref_compta, p['id']))
-        
-        # 2. Écriture comptable partie double : 661 (Rémunérations) DÉBIT / 521 (Banque) CRÉDIT
+            (bank_id, caisse_id, now_iso, session['user_id'], user['full_name'] if user else '?', ref_compta, p['id']))
+
+        # 2. Écriture comptable partie double : 661 (Rémunérations) DÉBIT / 521 banque ou 571 caisse CRÉDIT
         try:
             auto_ecriture(conn, now_date,
-                f"Paie {p.get('period','')} — {p.get('employee_name','?')} (Banque {bank_label})",
+                f"Paie {p.get('period','')} — {p.get('employee_name','?')} ({src_label})",
                 '661', compta_bank_account, net, ref_compta)
         except Exception as _e:
             print(f"[v117-Paie] Erreur écriture comptable : {_e}", flush=True)
-        
-        # 3. Mouvement bancaire (sortie)
+
+        # 3. Mouvement de trésorerie (sortie) — banque OU caisse
         try:
-            conn.execute("""INSERT INTO tresorerie_mouvements 
-                (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
-                VALUES ('banque','sortie','paie',?,?,?,?,?,'virement',?,?)""",
-                (bank_id, ref_compta, now_date, net,
-                 f"Paie {p.get('period','')} — {p.get('employee_name','?')}",
-                 session['user_id'], now_iso))
+            if src_type == 'banque':
+                conn.execute("""INSERT INTO tresorerie_mouvements
+                    (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
+                    VALUES ('banque','sortie','paie',?,?,?,?,?,'virement',?,?)""",
+                    (bank_id, ref_compta, now_date, net, mvt_libelle, session['user_id'], now_iso))
+            else:
+                # v162 : sortie de caisse — caisse_operations (alimente le détail/solde caisse) + journal trésorerie
+                conn.execute("""INSERT INTO caisse_operations
+                    (caisse_id, type, amount, description, reference, category, created_by, created_at)
+                    VALUES (?, 'sortie', ?, ?, ?, 'salaire', ?, ?)""",
+                    (caisse_id, net, mvt_libelle, ref_compta, session['user_id'], now_iso))
+                conn.execute("""INSERT INTO tresorerie_mouvements
+                    (type, sens, source, caisse_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
+                    VALUES ('caisse','sortie','paie',?,?,?,?,?,'espece',?,?)""",
+                    (caisse_id, ref_compta, now_date, net, mvt_libelle, session['user_id'], now_iso))
         except Exception as _e:
-            print(f"[v117-Paie] Erreur mvt bancaire : {_e}", flush=True)
-        
+            print(f"[v162-Paie] Erreur mvt trésorerie : {_e}", flush=True)
+
         # 4. Injection dans la table depenses (suivi unifié)
         try:
             existing = conn.execute("SELECT id FROM depenses WHERE source_type='paie' AND source_id=?", (p['id'],)).fetchone()
             if not existing:
-                conn.execute("""INSERT INTO depenses 
+                conn.execute("""INSERT INTO depenses
                     (reference, date, category, amount, description, beneficiaire,
-                     source_type, source_id, source_reference, bank_id,
+                     source_type, source_id, source_reference, bank_id, caisse_id,
                      status, created_by, created_by_name)
-                    VALUES (?,?,?,?,?,?,'paie',?,?,?,'comptabilisee',?,?)""",
+                    VALUES (?,?,?,?,?,?,'paie',?,?,?,?,'comptabilisee',?,?)""",
                     (f"DEP-PAIE-{p['id']}", now_date, 'salaire', net,
-                     f"Bulletin de paie {p.get('period','')} via {bank_label}",
-                     p.get('employee_name',''), p['id'], ref_compta, bank_id,
+                     f"Bulletin de paie {p.get('period','')} via {src_label}",
+                     p.get('employee_name',''), p['id'], ref_compta, bank_id, caisse_id,
                      session['user_id'], user['full_name'] if user else '?'))
         except Exception as _e:
             print(f"[v117-Paie] Erreur dépense : {_e}", flush=True)
@@ -10879,12 +10916,12 @@ def compta_bulk_validate():
         for ru in rh_users:
             conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
                 (ru['id'], 'bulletin', f"✅ {count} bulletin(s) validé(s)",
-                 f"La comptabilité a validé {count} bulletin(s) ({total_paid:,.0f} F) via {bank_label}. Prêts à envoyer aux employés.",
+                 f"La comptabilité a validé {count} bulletin(s) ({total_paid:,.0f} F) via {src_label}. Prêts à envoyer aux employés.",
                  '/rh/paie'))
         conn.commit(); conn.close()
         log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie',
-                    f"{count} bulletins validés via compte {bank_label} — {total_paid:,.0f} F", request.remote_addr)
-        flash(f"✅ {count} bulletin(s) validé(s) — {total_paid:,.0f} F décaissés du compte {bank_label} (écritures 661/{compta_bank_account} créées)", "success")
+                    f"{count} bulletins validés via {src_label} — {total_paid:,.0f} F", request.remote_addr)
+        flash(f"✅ {count} bulletin(s) validé(s) — {total_paid:,.0f} F décaissés de {src_label} (écritures 661/{compta_bank_account} créées)", "success")
     else:
         conn.close()
         flash("Aucun bulletin à valider", "error")
@@ -34547,6 +34584,35 @@ def tresorerie_mouvement_delete(mid):
     finally:
         conn.close()
     return redirect(request.referrer or '/tresorerie/caisse')
+
+
+@app.route('/tresorerie/banque/<int:bid>/historique')
+@permission_required_any('tresorerie', 'admin')
+def tresorerie_banque_historique(bid):
+    """v162 : Historique complet d'UN compte bancaire (comme le détail d'une caisse).
+    Liste tous les mouvements du compte avec solde courant calculé."""
+    conn = _gdb()
+    compte = conn.execute("SELECT * FROM tresorerie_comptes_bancaires WHERE id=?", (bid,)).fetchone()
+    if not compte:
+        conn.close()
+        flash("Compte bancaire introuvable", "error")
+        return redirect('/tresorerie/banque')
+    compte = dict(compte)
+    mouvements = [dict(r) for r in conn.execute(
+        "SELECT * FROM tresorerie_mouvements WHERE banque_id=? ORDER BY date DESC, id DESC", (bid,)).fetchall()]
+    conn.close()
+    solde_init = float(compte.get('solde_initial') or 0)
+    total_in = sum(float(m['montant'] or 0) for m in mouvements if m['sens'] == 'entree')
+    total_out = sum(float(m['montant'] or 0) for m in mouvements if m['sens'] == 'sortie')
+    solde = solde_init + total_in - total_out
+    # Solde courant (du plus récent au plus ancien) : on part du solde final et on remonte
+    running = solde
+    for m in mouvements:
+        m['solde_apres'] = running
+        running -= (float(m['montant'] or 0) if m['sens'] == 'entree' else -float(m['montant'] or 0))
+    return render_template('compte_historique.html', kind='banque', compte=compte,
+        titre=compte.get('nom') or 'Compte', mouvements=mouvements,
+        solde=solde, solde_init=solde_init, total_in=total_in, total_out=total_out)
 
 
 @app.route('/tresorerie/banque', methods=['GET', 'POST'])

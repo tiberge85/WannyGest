@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Historique {{ titre }}{% endblock %}
+{% block content %}
+<style>
+.hist-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.hist-box{background:#fff;border-radius:10px;padding:12px 14px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.hist-box .lbl{font-size:11px;color:#888}
+.hist-box .val{font-size:18px;font-weight:800;margin-top:2px}
+table.hist{width:100%;font-size:12px;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden}
+table.hist th{background:#1976d2;color:#fff;padding:8px;text-align:left;font-weight:700;font-size:11px}
+table.hist td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
+.num{font-family:monospace;text-align:right;font-weight:600;white-space:nowrap}
+.in{color:#2e7d32}.out{color:#c53030}
+</style>
+
+<div class="page-header">
+    <div>
+        <h1>📜 Historique — {% if kind == 'banque' %}🏦{% else %}💰{% endif %} {{ titre }}</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">
+            {% if kind == 'banque' %}{{ compte.banque or '' }}{% if compte.numero_compte %} · N° {{ compte.numero_compte }}{% endif %}{% endif %}
+            {{ mouvements|length }} mouvement(s)
+        </p>
+    </div>
+    <a href="{% if kind == 'banque' %}/tresorerie/banque{% else %}/comptabilite/caisses{% endif %}" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+
+<div class="hist-sum">
+    <div class="hist-box"><div class="lbl">Solde initial</div><div class="val">{{ '{:,.0f}'.format(solde_init).replace(',', ' ') }} F</div></div>
+    <div class="hist-box"><div class="lbl">Total entrées</div><div class="val in">+{{ '{:,.0f}'.format(total_in).replace(',', ' ') }} F</div></div>
+    <div class="hist-box"><div class="lbl">Total sorties</div><div class="val out">-{{ '{:,.0f}'.format(total_out).replace(',', ' ') }} F</div></div>
+    <div class="hist-box" style="border-left:4px solid {% if solde >= 0 %}#1976d2{% else %}#c53030{% endif %}"><div class="lbl">Solde actuel</div><div class="val" style="color:{% if solde >= 0 %}#1976d2{% else %}#c53030{% endif %}">{{ '{:,.0f}'.format(solde).replace(',', ' ') }} F</div></div>
+</div>
+
+{% if mouvements %}
+<div class="table-wrap"><table class="hist">
+<thead><tr><th>Date</th><th>Sens</th><th>Libellé</th><th>Source</th><th>Mode</th><th>Référence</th><th style="text-align:right">Montant</th><th style="text-align:right">Solde après</th></tr></thead>
+<tbody>
+{% for m in mouvements %}
+<tr>
+    <td>{{ m.date }}</td>
+    <td>{% if m.sens == 'entree' %}<span class="in">▲ Entrée</span>{% else %}<span class="out">▼ Sortie</span>{% endif %}</td>
+    <td>{{ m.libelle or '—' }}</td>
+    <td style="font-size:11px;color:#777">{{ m.source or '—' }}</td>
+    <td style="font-size:11px;color:#777">{{ m.mode_paiement or '—' }}</td>
+    <td style="font-family:monospace;font-size:10px;color:#999">{{ m.reference or '' }}</td>
+    <td class="num {% if m.sens == 'entree' %}in{% else %}out{% endif %}">{% if m.sens == 'entree' %}+{% else %}-{% endif %}{{ '{:,.0f}'.format(m.montant or 0).replace(',', ' ') }}</td>
+    <td class="num">{{ '{:,.0f}'.format(m.solde_apres or 0).replace(',', ' ') }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table></div>
+{% else %}
+<div style="background:#fff;padding:30px;border-radius:10px;text-align:center;color:#888">
+    <div style="font-size:40px;margin-bottom:10px">📭</div>
+    <p style="font-size:13px">Aucun mouvement sur ce compte</p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -569,26 +569,31 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
 {% if pending %}
 {# v117 : Sélecteur de compte bancaire OBLIGATOIRE pour valider en lot #}
 <div class="card" style="margin-bottom:14px;border-left:4px solid #1976d2">
-<div class="card-header"><h3>🏦 Validation groupée — Choisir le compte bancaire de paiement</h3></div>
+<div class="card-header"><h3>🏦 Validation groupée — Choisir le compte/caisse à débiter</h3></div>
 <div class="card-body">
     <div style="background:#e3f2fd;padding:10px 14px;border-radius:6px;font-size:12px;color:#0d47a1;margin-bottom:12px">
         💡 La validation des bulletins génère automatiquement :
         <ul style="margin:4px 0;padding-left:20px">
-            <li>Une écriture comptable partie double <strong>661 (Salaires) DÉBIT / 521 (Banque) CRÉDIT</strong> pour chaque bulletin</li>
-            <li>Un mouvement bancaire de sortie sur le compte choisi</li>
+            <li>Une écriture comptable partie double <strong>661 (Salaires) DÉBIT / 521 banque ou 571 caisse CRÉDIT</strong> pour chaque bulletin</li>
+            <li>Un mouvement de sortie sur le <strong>compte bancaire OU la caisse</strong> choisi(e)</li>
             <li>Une entrée dans le suivi des dépenses</li>
         </ul>
     </div>
-    <form method="post" action="/comptabilite/validation-paie/bulk-validate" 
-        onsubmit="return confirm('Valider TOUS les bulletins en attente sur ce compte ?\n\n— Écritures comptables 661/521 créées\n— Mouvements bancaires de sortie\n— Suivi dépenses mis à jour');">
+    <form method="post" action="/comptabilite/validation-paie/bulk-validate"
+        onsubmit="return confirm('Valider TOUS les bulletins en attente sur ce compte/caisse ?\n\n— Écritures comptables créées\n— Mouvement de sortie (banque ou caisse)\n— Suivi dépenses mis à jour');">
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;align-items:end">
             <div>
-                <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">🏦 Compte bancaire de paiement *</label>
-                <select name="bank_account_id" required style="width:100%;padding:8px;border:1.5px solid #1976d2;border-radius:6px;font-weight:600">
-                    <option value="">— Choisir un compte —</option>
-                    {% for b in banks %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {% if b.type_compte == 'epargne' %}💰 Épargne{% elif b.type_compte == 'devise' %}🌍 Devise{% elif b.type_compte == 'placement' %}📈 Placement{% else %}💳 Courant{% endif %}{% if b.numero_compte %} · {{ b.numero_compte }}{% endif %}</option>{% endfor %}
+                <label style="font-size:11px;color:#666;display:block;margin-bottom:4px">🏦 Compte bancaire OU 💰 caisse à débiter *</label>
+                <select name="compte_paiement" required style="width:100%;padding:8px;border:1.5px solid #1976d2;border-radius:6px;font-weight:600">
+                    <option value="">— Choisir un compte ou une caisse —</option>
+                    {% if banks %}<optgroup label="🏦 Comptes bancaires">
+                    {% for b in banks %}<option value="banque:{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {% if b.type_compte == 'epargne' %}💰 Épargne{% elif b.type_compte == 'devise' %}🌍 Devise{% elif b.type_compte == 'placement' %}📈 Placement{% else %}💳 Courant{% endif %}{% if b.numero_compte %} · {{ b.numero_compte }}{% endif %}</option>{% endfor %}
+                    </optgroup>{% endif %}
+                    {% if caisses %}<optgroup label="💰 Caisses">
+                    {% for ca in caisses %}<option value="caisse:{{ ca.id }}">💰 {{ ca.name }}</option>{% endfor %}
+                    </optgroup>{% endif %}
                 </select>
-                {% if not banks %}<div style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucun compte bancaire actif. <a href="/tresorerie/banque" style="color:#1976d2;font-weight:700">Créez-en un d'abord →</a></div>{% endif %}
+                {% if not banks and not caisses %}<div style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucun compte bancaire ni caisse actif. <a href="/tresorerie/banque" style="color:#1976d2;font-weight:700">Créez un compte →</a> ou <a href="/comptabilite/caisses" style="color:#1976d2;font-weight:700">une caisse →</a></div>{% endif %}
             </div>
             <button type="submit" class="btn" style="background:#2e7d32;color:#fff;padding:10px;font-weight:700;font-size:13px">✅ Valider {{ pending|length }} bulletin(s)</button>
         </div>
@@ -1231,7 +1236,7 @@ function toggleDetail() {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
         <div style="font-size:14px;font-weight:700;color:#1a3a5c">{{ ca.name }}{% if not ca.is_active %} <span style="font-size:9px;color:#888;font-weight:400">(désactivée)</span>{% endif %}</div>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
-            <a href="/comptabilite/caisses/{{ ca.id }}" class="btn btn-outline btn-sm" style="font-size:10px;padding:3px 7px" title="Détails">👁️</a>
+            <a href="/comptabilite/caisses/{{ ca.id }}" class="btn btn-sm" style="background:#ede7f6;color:#5e35b1;font-size:10px;padding:3px 7px;text-decoration:none" title="Voir tout l'historique de la caisse">📜 Historique</a>
             {# v120 : Bouton modifier — admin uniquement #}
             {% if can_edit_caisse %}
                 <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 7px" 
@@ -5155,8 +5160,11 @@ table.tr-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0}
             <div style="font-size:9px;color:#aaa">Solde initial : {{ "{:,.0f}".format(c.solde_initial or 0).replace(',', ' ') }}</div>
         </div>
     </div>
+    <div style="margin-top:10px">
+        <a href="/tresorerie/banque/{{ c.id }}/historique" class="btn btn-sm" style="background:#ede7f6;color:#5e35b1;font-size:10px;padding:3px 7px;text-decoration:none" title="Voir tout l'historique du compte">📜 Historique</a>
+    </div>
     {% if can_edit %}
-    <div style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap">
+    <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
         {% if c.is_active %}
             <button class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:3px 7px"
                 onclick="openCreditModal({{ c.id }}, '{{ c.nom|e }}')" title="Créditer (entrée)">💵 Créditer</button>
