@@ -46,6 +46,12 @@
     <a href="?tab=sans_facture{% if search %}&q={{ search }}{% endif %}" class="tab {% if tab == 'sans_facture' %}active{% endif %}">
         ❌ Décidées sans facture <span class="tab-badge">{{ counts.sans_facture }}</span>
     </a>
+    <a href="?tab=tracking{% if search %}&q={{ search }}{% endif %}" class="tab {% if tab == 'tracking' %}active{% endif %}">
+        🚗 Facture tracking <span class="tab-badge">{{ counts.tracking }}</span>
+    </a>
+    <a href="?tab=pointage{% if search %}&q={{ search }}{% endif %}" class="tab {% if tab == 'pointage' %}active{% endif %}">
+        ⏱️ Facture pointage <span class="tab-badge">{{ counts.pointage }}</span>
+    </a>
 </div>
 
 <form method="get" class="filter-bar">
@@ -61,7 +67,7 @@
 
 {% if items %}
     {% for it in items %}
-    <div class="dec-card {% if tab == 'nouvelles' %}tab-nouvelles{% elif tab == 'avec_facture' %}tab-avec{% else %}tab-sans{% endif %}">
+    <div class="dec-card {% if tab in ['nouvelles','tracking','pointage'] %}tab-nouvelles{% elif tab == 'avec_facture' %}tab-avec{% else %}tab-sans{% endif %}">
         <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
             <div style="flex:1;min-width:240px">
                 <strong style="color:#1A7A6D;font-size:13px">🛠️ {{ it.reference }} — {{ it.client_name }}</strong>
@@ -106,7 +112,7 @@
         </div>
         {% endif %}
         
-        {% if tab == 'nouvelles' %}
+        {% if tab in ['nouvelles','tracking','pointage'] %}
         <form method="post" action="/field-reports/{{ it.id }}/decide-facturation" style="margin-top:8px;padding-top:8px;border-top:1px dashed #ccc">
             <div class="form-row-radio">
                 <label class="yes">

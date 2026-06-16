@@ -3,7 +3,7 @@
 
 <div class="card" style="max-width:760px;margin-bottom:18px"><div class="card-body">
     <h3 style="margin-top:0;color:#1A7A6D">Envoyer un rapport en facturation</h3>
-    <p style="font-size:12px;color:#666">Saisissez le <strong>montant à facturer</strong>. Après envoi, le rapport part en « Facturation à décider » : le DG <strong>valide simplement</strong> (sans ressaisir le montant), puis la comptabilité édite la facture.</p>
+    <p style="font-size:12px;color:#666">Le <strong>montant à facturer</strong> n'est à saisir que <strong>la 1<sup>ère</sup> fois</strong> pour un client : les mois suivants il est réutilisé automatiquement (laissez le champ vide). Après envoi, le rapport part en « Facturation à décider » : le DG <strong>valide simplement</strong>, puis la comptabilité édite la facture.</p>
     <form method="post" action="/rapports-heures/envoyer">
         <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -26,8 +26,8 @@
                 <input type="text" name="periode" placeholder="Ex : Juin 2026" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:8px">
             </div>
             <div class="form-group">
-                <label>💰 Montant à facturer (FCFA) *</label>
-                <input type="number" name="montant" step="1" min="1" required placeholder="Ex : 350000" style="width:100%;padding:9px;border:2px solid #1A7A6D;border-radius:8px;font-weight:700">
+                <label>💰 Montant à facturer (FCFA) <span style="font-weight:400;color:#888;font-size:11px">— 1<sup>ère</sup> fois seulement</span></label>
+                <input type="number" name="montant" step="1" min="0" placeholder="Vide = montant déjà mémorisé" style="width:100%;padding:9px;border:2px solid #1A7A6D;border-radius:8px;font-weight:700">
             </div>
         </div>
         <div class="form-group">

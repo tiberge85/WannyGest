@@ -20214,7 +20214,7 @@ def decisions_facturation():
     except: pass
     # Onglet actif
     tab = request.args.get('tab', 'nouvelles').strip()
-    if tab not in ('nouvelles', 'avec_facture', 'sans_facture'):
+    if tab not in ('nouvelles', 'avec_facture', 'sans_facture', 'tracking', 'pointage'):
         tab = 'nouvelles'
     
     # Filtres
@@ -20233,6 +20233,18 @@ def decisions_facturation():
         where_clauses.append("fr.facturable IS NULL")
         # v159/v161 : interventions OU rapports d'heures OU recharges véhicule (puce internet)
         where_clauses.append("(fr.linked_intervention_id IS NOT NULL OR fr.type_info IN ('rapport_heures','recharge_vehicule'))")
+        order_by = "COALESCE(fr.executed_at, fr.updated_at) DESC"
+    elif tab == 'tracking':
+        # v162 : nouvelles décisions de facture « tracking » (recharge internet véhicule)
+        where_clauses.append("fr.statut IN ('executee','traitee')")
+        where_clauses.append("fr.facturable IS NULL")
+        where_clauses.append("fr.type_info='recharge_vehicule'")
+        order_by = "COALESCE(fr.executed_at, fr.updated_at) DESC"
+    elif tab == 'pointage':
+        # v162 : nouvelles décisions de facture « pointage » (rapports d'heures RH)
+        where_clauses.append("fr.statut IN ('executee','traitee')")
+        where_clauses.append("fr.facturable IS NULL")
+        where_clauses.append("fr.type_info='rapport_heures'")
         order_by = "COALESCE(fr.executed_at, fr.updated_at) DESC"
     elif tab == 'avec_facture':
         where_clauses.append("fr.facturable=1")
@@ -20274,10 +20286,19 @@ def decisions_facturation():
     counts = {
         'nouvelles': conn.execute(
             "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
-            "AND facturable IS NULL AND (linked_intervention_id IS NOT NULL OR type_info='rapport_heures')"
+            "AND facturable IS NULL AND (linked_intervention_id IS NOT NULL OR type_info IN ('rapport_heures','recharge_vehicule'))"
         ).fetchone()[0],
         'avec_facture': conn.execute("SELECT COUNT(*) FROM field_reports WHERE facturable=1").fetchone()[0],
         'sans_facture': conn.execute("SELECT COUNT(*) FROM field_reports WHERE facturable=0").fetchone()[0],
+        # v162 : compteurs dédiés des nouvelles décisions par origine
+        'tracking': conn.execute(
+            "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
+            "AND facturable IS NULL AND type_info='recharge_vehicule'"
+        ).fetchone()[0],
+        'pointage': conn.execute(
+            "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
+            "AND facturable IS NULL AND type_info='rapport_heures'"
+        ).fetchone()[0],
     }
     
     conn.close()
@@ -35576,8 +35597,12 @@ def rapports_heures_envoyer():
     if not client_name:
         flash("Le client est obligatoire.", "error")
         return redirect('/rapports-heures')
+    # v162 : la RH ne saisit le montant qu'UNE seule fois par client + type.
+    # Les mois suivants, on réutilise automatiquement le montant mémorisé.
     if montant <= 0:
-        flash("Le montant à facturer doit être supérieur à 0 FCFA.", "error")
+        montant = _get_rapport_montant(client_name, type_label)
+    if montant <= 0:
+        flash("Aucun montant mémorisé pour ce client : saisissez le montant à facturer (1ère fois seulement).", "error")
         return redirect('/rapports-heures')
 
     if client_id:
