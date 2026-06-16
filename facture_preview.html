@@ -301,11 +301,11 @@
         </div>
     </div>
 
-    <!-- FOOTER -->
+    <!-- FOOTER (aligné sur la facture standard du système) -->
     <div class="inv-footer">
-        <strong>RAMYA TECHNOLOGIE & INNOVATION</strong> · Siège social : Abidjan Cocody ABATTA (derrière OLA ENERGY)<br>
-        RCCM : CI-ABJ-2017-A-25092 · NCC : 1746141.B<br>
-        Tél : +225 07 47 68 20 27 / +225 05 66 75 06 69 · Email : dg@ramyaci.tech · Web : www.ramyatechnologie.com
+        <strong>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY</strong> / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B<br>
+        Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 · Cel : +225 27 22 20 44 98 / 07 09 50 02 43 / 07 47 68 20 27<br>
+        Email : dg@ramyaci.tech - admin@ramyaci.tech · Web : www.ramyatechnologie.com
     </div>
 
 </div>
@@ -314,10 +314,41 @@
 <!-- ACTIONS (cachées à l'impression)                 -->
 <!-- ================================================ -->
 
+<!-- v162 : Éditer & transmettre — émission de la facture (page unique, plus de formulaire dans la liste) -->
+{% if f.status == 'a_facturer' and ('facture_edit' in permissions or 'admin' in permissions) %}
+<div class="modifier-block" style="border-color:#2e7d32;background:#f1f8f3">
+    <h3 style="margin:0 0 6px;color:#1b5e20;font-size:14px">🧾 Éditer et transmettre la facture</h3>
+    <p style="font-size:11px;color:#666;margin:0 0 10px">
+        Vérifiez le montant ci-dessous (bloc « Modifier ») puis éditez : la facture passe en « éditée » et l'agent recouvreur est notifié.
+    </p>
+    <form method="post" action="/recouvrement/facture/{{ f.id }}/edit"
+        onsubmit="return confirm('Éditer et transmettre cette facture à l\'agent recouvreur ?');">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;align-items:end">
+            <div>
+                <label style="font-size:10px;color:#666">N° facture (auto si vide)</label>
+                <input type="text" name="invoice_number" value="{{ f.invoice_number or '' }}" placeholder="FAC-2026-XXX"
+                    style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-family:monospace">
+            </div>
+            <div style="background:#fff8e1;padding:7px 10px;border-radius:6px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:11px">
+                <label style="cursor:pointer;font-weight:600">
+                    <input type="checkbox" name="tva_apply" value="1" {% if f.tva_apply is none or f.tva_apply %}checked{% endif %} style="vertical-align:middle"> Appliquer la TVA
+                </label>
+                <span>Taux : <input type="number" name="tva_rate" title="Taux de TVA (%)" value="{{ f.tva_rate if f.tva_rate is not none else 18 }}" min="0" max="100" step="0.1" style="width:55px;padding:3px;border:1.5px solid #ddd;border-radius:4px"> %</span>
+            </div>
+        </div>
+        <textarea name="notes" rows="2" required minlength="5" placeholder="📝 Commentaire obligatoire (référence devis, conditions, observations...)"
+            style="width:100%;padding:6px;border:2px solid #2e7d32;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-weight:700">🧾 Éditer &amp; transmettre au recouvrement</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
 <!-- Modifier la facture (toujours disponible avant validation paiement) -->
 {% if f.status in ('a_facturer','facture_editee') and ('facture_edit' in permissions or 'admin' in permissions) %}
 <div class="modifier-block">
-    <h3 style="margin:0 0 10px;color:#b8561f;font-size:14px">✏️ Modifier la facture</h3>
+    <h3 style="margin:0 0 10px;color:#b8561f;font-size:14px">✏️ Modifier {% if f.status == 'a_facturer' %}le montant{% else %}la facture{% endif %}</h3>
     <p style="font-size:11px;color:#666;margin:0 0 10px">
         Vous pouvez modifier le montant et le numéro tant que la facture n'a pas été payée.
     </p>
