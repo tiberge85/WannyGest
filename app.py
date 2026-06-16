@@ -14428,6 +14428,102 @@ def ordres_virement_new():
     return redirect('/ordres-virement')
 
 
+@app.route('/ordres-virement/<int:oid>/edit', methods=['POST'])
+@login_required
+def ordres_virement_edit(oid):
+    """v162 : Modifier un ordre de virement encore EN ATTENTE (avant validation DG).
+    Le type de virement reste inchangé ; on peut corriger montant, date, motif et comptes source/destination."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh'):
+        flash("⚠️ Accès réservé", "error")
+        return redirect('/ordres-virement')
+
+    conn = _gdb()
+    o = conn.execute("SELECT * FROM ordres_virement WHERE id=?", (oid,)).fetchone()
+    if not o:
+        conn.close()
+        flash("Ordre introuvable", "error")
+        return redirect('/ordres-virement')
+    o = dict(o)
+    if o['status'] != 'en_attente':
+        conn.close()
+        flash(f"⚠️ Seul un ordre en attente peut être modifié (statut actuel : {o['status']})", "error")
+        return redirect('/ordres-virement')
+
+    type_virement = o['type_virement']
+    try: amount = float(request.form.get('amount', 0) or 0)
+    except: amount = 0
+    if amount <= 0:
+        conn.close()
+        flash("⚠️ Montant invalide", "error")
+        return redirect('/ordres-virement')
+    date = request.form.get('date', o['date']) or o['date']
+    description = (request.form.get('description','') or '').strip()
+
+    src_caisse_id = src_caisse_name = src_bank_id = src_bank_name = None
+    dst_caisse_id = dst_caisse_name = dst_bank_id = dst_bank_name = None
+    try:
+        if type_virement == 'caisse_to_caisse':
+            src_caisse_id = int(request.form.get('source_caisse_id', 0) or 0)
+            dst_caisse_id = int(request.form.get('dest_caisse_id', 0) or 0)
+            if not src_caisse_id or not dst_caisse_id:
+                conn.close(); flash("⚠️ Caisse source et destination requises", "error"); return redirect('/ordres-virement')
+            if src_caisse_id == dst_caisse_id:
+                conn.close(); flash("⚠️ Source et destination identiques", "error"); return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT name FROM caisses WHERE id=?", (src_caisse_id,)).fetchone()
+            r2 = conn.execute("SELECT name FROM caisses WHERE id=?", (dst_caisse_id,)).fetchone()
+            src_caisse_name = r1['name'] if r1 else f"Caisse #{src_caisse_id}"
+            dst_caisse_name = r2['name'] if r2 else f"Caisse #{dst_caisse_id}"
+        elif type_virement == 'banque_to_banque':
+            src_bank_id = int(request.form.get('source_bank_id', 0) or 0)
+            dst_bank_id = int(request.form.get('dest_bank_id', 0) or 0)
+            if not src_bank_id or not dst_bank_id:
+                conn.close(); flash("⚠️ Banque source et destination requises", "error"); return redirect('/ordres-virement')
+            if src_bank_id == dst_bank_id:
+                conn.close(); flash("⚠️ Source et destination identiques", "error"); return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (src_bank_id,)).fetchone()
+            r2 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (dst_bank_id,)).fetchone()
+            src_bank_name = (r1['nom'] + (f" ({r1['banque']})" if r1['banque'] else "")) if r1 else f"Compte #{src_bank_id}"
+            dst_bank_name = (r2['nom'] + (f" ({r2['banque']})" if r2['banque'] else "")) if r2 else f"Compte #{dst_bank_id}"
+        elif type_virement == 'caisse_to_banque':
+            src_caisse_id = int(request.form.get('source_caisse_id', 0) or 0)
+            dst_bank_id = int(request.form.get('dest_bank_id', 0) or 0)
+            if not src_caisse_id or not dst_bank_id:
+                conn.close(); flash("⚠️ Caisse source et banque destination requises", "error"); return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT name FROM caisses WHERE id=?", (src_caisse_id,)).fetchone()
+            r2 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (dst_bank_id,)).fetchone()
+            src_caisse_name = r1['name'] if r1 else f"Caisse #{src_caisse_id}"
+            dst_bank_name = (r2['nom'] + (f" ({r2['banque']})" if r2['banque'] else "")) if r2 else f"Compte #{dst_bank_id}"
+        elif type_virement == 'banque_to_caisse':
+            src_bank_id = int(request.form.get('source_bank_id', 0) or 0)
+            dst_caisse_id = int(request.form.get('dest_caisse_id', 0) or 0)
+            if not src_bank_id or not dst_caisse_id:
+                conn.close(); flash("⚠️ Banque source et caisse destination requises", "error"); return redirect('/ordres-virement')
+            r1 = conn.execute("SELECT nom, banque FROM tresorerie_comptes_bancaires WHERE id=?", (src_bank_id,)).fetchone()
+            r2 = conn.execute("SELECT name FROM caisses WHERE id=?", (dst_caisse_id,)).fetchone()
+            src_bank_name = (r1['nom'] + (f" ({r1['banque']})" if r1['banque'] else "")) if r1 else f"Compte #{src_bank_id}"
+            dst_caisse_name = r2['name'] if r2 else f"Caisse #{dst_caisse_id}"
+
+        conn.execute("""UPDATE ordres_virement SET
+            amount=?, date=?, description=?,
+            source_caisse_id=?, source_caisse_name=?, source_bank_id=?, source_bank_name=?,
+            dest_caisse_id=?, dest_caisse_name=?, dest_bank_id=?, dest_bank_name=?
+            WHERE id=? AND status='en_attente'""",
+            (amount, date, description,
+             src_caisse_id, src_caisse_name, src_bank_id, src_bank_name,
+             dst_caisse_id, dst_caisse_name, dst_bank_id, dst_bank_name, oid))
+        conn.commit()
+        conn.close()
+        log_activity(session['user_id'], user['full_name'], 'Virement',
+            f"Ordre {o['reference']} modifié — {amount:,.0f} F", request.remote_addr)
+        flash(f"✅ Ordre {o['reference']} modifié", "success")
+    except Exception as e:
+        try: conn.close()
+        except: pass
+        flash(f"❌ Erreur : {e}", "error")
+    return redirect('/ordres-virement')
+
+
 @app.route('/ordres-virement/<int:oid>/valider', methods=['POST','GET'])
 @login_required
 def ordres_virement_valider(oid):
@@ -14615,8 +14711,19 @@ def compta_caisse_detail(cid):
     if not caisse: flash("Caisse non trouvée","error"); conn.close(); return redirect('/comptabilite/caisses')
     caisse = dict(caisse)
     period = request.args.get('period', datetime.now().strftime('%Y-%m'))
+    # v162 : inclure aussi les transferts inter-caisses ENTRANTS (dest_caisse_id) et sortants
+    # (avant : seules les lignes caisse_id=cid apparaissaient → un virement reçu n'était pas visible)
     operations = [dict(r) for r in conn.execute(
-        "SELECT * FROM caisse_operations WHERE caisse_id=? AND strftime('%Y-%m',created_at)=? ORDER BY created_at DESC", (cid, period)).fetchall()]
+        """SELECT * FROM caisse_operations
+           WHERE (caisse_id=? OR (type='transfert' AND (source_caisse_id=? OR dest_caisse_id=?)))
+             AND strftime('%Y-%m',created_at)=? ORDER BY created_at DESC""",
+        (cid, cid, cid, period)).fetchall()]
+    # Sens d'affichage par opération (entrée/sortie pour ce compte précis)
+    for o in operations:
+        if o.get('type') == 'transfert':
+            o['dir'] = 'in' if o.get('dest_caisse_id') == cid else 'out'
+        else:
+            o['dir'] = 'in' if o.get('type') == 'entree' else 'out'
     all_ops = [dict(r) for r in conn.execute("SELECT * FROM caisse_operations WHERE caisse_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
     entrees = sum(o['amount'] for o in all_ops if o['type']=='entree')
     sorties = sum(o['amount'] for o in all_ops if o['type']=='sortie')

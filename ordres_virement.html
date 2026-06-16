@@ -82,6 +82,10 @@
         {% endif %}
     </td>
     <td style="padding:8px;white-space:nowrap">
+        {% if o.status == 'en_attente' %}
+        <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 6px" title="Modifier l'ordre (avant validation)"
+            onclick="openEditOV({{ o.id }})">✏️</button>
+        {% endif %}
         {% if o.status == 'en_attente' and is_dg %}
         <form method="post" action="/ordres-virement/{{ o.id }}/valider" style="display:inline"
             onsubmit="return confirm('Valider cet ordre de virement ?\n\nCela exécutera immédiatement les opérations comptables.');">
@@ -90,7 +94,7 @@
         <button type="button" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 6px" title="Refuser"
             onclick="openRefus({{ o.id }}, '{{ o.reference }}')">❌</button>
         {% elif o.status == 'en_attente' %}
-        <span style="font-size:10px;color:#888">En attente</span>
+        <span style="font-size:10px;color:#888">En attente validation DG</span>
         {% else %}
         <span style="font-size:10px;color:#888">{% if o.validated_by_name %}{{ o.validated_by_name[:15] }}{% endif %}</span>
         {% endif %}
@@ -180,6 +184,62 @@
 </form>
 </div></div>
 
+<!-- Modal modification (ordre en attente) -->
+<div class="modal-bg" id="editM"><div class="modal" style="max-width:620px;max-height:90vh;overflow-y:auto">
+<h3>✏️ Modifier l'ordre <span id="editRef" style="font-family:monospace"></span></h3>
+<form method="post" id="editForm">
+    <div style="background:#fff3e0;padding:8px 12px;border-radius:6px;font-size:11px;color:#b8561f;margin-bottom:12px">
+        💡 Modification possible tant que l'ordre n'est <strong>pas validé</strong>. Le <strong>type</strong> de virement n'est pas modifiable (refusez puis recréez pour changer de type).
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Date *</label><input type="date" name="date" id="e_date" required></div>
+        <div class="form-group"><label>Type</label><input type="text" id="e_typeLabel" title="Type de virement (non modifiable)" disabled style="background:#f4f4f4"></div>
+    </div>
+    <div id="e_srcCaisse" style="display:none">
+        <div class="form-group"><label>Caisse source *</label>
+            <select name="source_caisse_id" id="e_source_caisse_id" title="Caisse source">
+                <option value="">— Choisir une caisse —</option>
+                {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div id="e_srcBank" style="display:none">
+        <div class="form-group"><label>Banque source *</label>
+            <select name="source_bank_id" id="e_source_bank_id" title="Banque source">
+                <option value="">— Choisir un compte —</option>
+                {% for b in banques %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div id="e_dstCaisse" style="display:none">
+        <div class="form-group"><label>Caisse destination *</label>
+            <select name="dest_caisse_id" id="e_dest_caisse_id" title="Caisse destination">
+                <option value="">— Choisir une caisse —</option>
+                {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div id="e_dstBank" style="display:none">
+        <div class="form-group"><label>Banque destination *</label>
+            <select name="dest_bank_id" id="e_dest_bank_id" title="Banque destination">
+                <option value="">— Choisir un compte —</option>
+                {% for b in banques %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
+    <div class="form-group"><label>Montant (F CFA) *</label>
+        <input type="number" name="amount" id="e_amount" step="1" min="0" required style="width:100%;font-weight:700;font-size:14px">
+    </div>
+    <div class="form-group"><label>Description / Motif</label>
+        <textarea name="description" id="e_description" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer les modifications</button>
+    </div>
+</form>
+</div></div>
+
 <!-- Modal refus -->
 <div class="modal-bg" id="refusM"><div class="modal" style="max-width:450px">
 <h3 style="color:#c53030">❌ Refuser l'ordre <span id="refusRef"></span></h3>
@@ -214,6 +274,44 @@ function openRefus(id, ref) {
     document.getElementById('refusForm').action = '/ordres-virement/' + id + '/refuser';
     document.getElementById('refusRef').textContent = ref;
     document.getElementById('refusM').classList.add('active');
+}
+
+// v162 : modification d'un ordre en attente
+var OV_DATA = {{ ordres|tojson }};
+var OV_TYPE_LABELS = {
+    'caisse_to_caisse': '💵 Caisse → Caisse',
+    'banque_to_banque': '🏦 Banque → Banque',
+    'caisse_to_banque': '💵 Caisse → 🏦 Banque',
+    'banque_to_caisse': '🏦 Banque → 💵 Caisse'
+};
+function openEditOV(id) {
+    var o = (OV_DATA || []).filter(function(x){ return x.id === id; })[0];
+    if (!o) return;
+    var t = o.type_virement;
+    document.getElementById('editForm').action = '/ordres-virement/' + id + '/edit';
+    document.getElementById('editRef').textContent = o.reference || '';
+    document.getElementById('e_typeLabel').value = OV_TYPE_LABELS[t] || t;
+    document.getElementById('e_date').value = (o.date || '').substring(0,10);
+    document.getElementById('e_amount').value = Math.round(o.amount || 0);
+    document.getElementById('e_description').value = o.description || '';
+    // Visibilité + valeurs des comptes selon le type
+    var showSrcCaisse = (t === 'caisse_to_caisse' || t === 'caisse_to_banque');
+    var showSrcBank   = (t === 'banque_to_banque' || t === 'banque_to_caisse');
+    var showDstCaisse = (t === 'caisse_to_caisse' || t === 'banque_to_caisse');
+    var showDstBank   = (t === 'banque_to_banque' || t === 'caisse_to_banque');
+    document.getElementById('e_srcCaisse').style.display = showSrcCaisse ? 'block' : 'none';
+    document.getElementById('e_srcBank').style.display   = showSrcBank ? 'block' : 'none';
+    document.getElementById('e_dstCaisse').style.display = showDstCaisse ? 'block' : 'none';
+    document.getElementById('e_dstBank').style.display   = showDstBank ? 'block' : 'none';
+    document.getElementById('e_source_caisse_id').value = o.source_caisse_id || '';
+    document.getElementById('e_source_bank_id').value   = o.source_bank_id || '';
+    document.getElementById('e_dest_caisse_id').value   = o.dest_caisse_id || '';
+    document.getElementById('e_dest_bank_id').value     = o.dest_bank_id || '';
+    document.getElementById('e_source_caisse_id').required = showSrcCaisse;
+    document.getElementById('e_source_bank_id').required   = showSrcBank;
+    document.getElementById('e_dest_caisse_id').required   = showDstCaisse;
+    document.getElementById('e_dest_bank_id').required     = showDstBank;
+    document.getElementById('editM').classList.add('active');
 }
 </script>
 {% endblock %}
