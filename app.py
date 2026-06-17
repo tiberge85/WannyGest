@@ -21577,9 +21577,12 @@ def caissiere_valider(fri_id):
 
 # v145 : Servir les fichiers preuves (chèque scanné, reçu, bordereau)
 @app.route('/uploads/fri_proofs/<int:fri_id>/<path:filename>')
+# v162 : alias — les chemins sont stockés en BDD avec le préfixe « data/ » (data/uploads/fri_proofs/...),
+# donc les liens des pièces jointes pointaient vers /data/uploads/... (aucune route → illisible).
+@app.route('/data/uploads/fri_proofs/<int:fri_id>/<path:filename>')
 @login_required
 def serve_fri_proof(fri_id, filename):
-    """v145 : Servir les fichiers preuves de paiement."""
+    """v145 : Servir les fichiers preuves de paiement (pièces jointes des factures)."""
     import os
     from flask import send_from_directory
     directory = os.path.join(os.path.dirname(__file__), 'data', 'uploads', 'fri_proofs', str(fri_id))
