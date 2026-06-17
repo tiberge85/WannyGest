@@ -2582,6 +2582,23 @@ try:
 except Exception as _e: print(f"[v162b-Perms] Err : {_e}", flush=True)
 
 
+# v162c : la secrétaire doit pouvoir consulter ET éditer les devis (sinon « accès non autorisé »
+# en cliquant sur Modifier). Visibles/cochées dans la matrice → ajustables ensuite.
+try:
+    from models import get_db as _v162c_db
+    _v162c = _v162c_db()
+    _v162c_flag = _v162c.execute("SELECT value FROM app_settings WHERE key='v162_secretaire_devis'").fetchone()
+    if not _v162c_flag:
+        for _p in ['section_crm', 'proforma', 'proforma_edit']:
+            try: _v162c.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('secretaire', ?)", (_p,))
+            except: pass
+        _v162c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v162_secretaire_devis','1',datetime('now'))")
+        _v162c.commit()
+        print("[v162c-Perms] Secrétaire : accès consultation + édition des devis", flush=True)
+    _v162c.close()
+except Exception as _e: print(f"[v162c-Perms] Err : {_e}", flush=True)
+
+
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
 try:
     from models import get_db as _gdb_v161p
