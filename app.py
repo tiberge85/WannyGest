@@ -6455,7 +6455,9 @@ def clients_merge():
 def admin_page():
     users = get_all_users()
     stats = get_dashboard_stats()
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
+    # v162 : inclure TOUTES les colonnes de la matrice (sinon leurs cases s'affichent toujours
+    # décochées même si la permission est bien enregistrée — ex. agent_recouvreur, caissiere)
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
     conn = _gdb()
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
