@@ -32980,6 +32980,33 @@ def mg_prestataire_facture_add(pid):
     return redirect(f'/mg/prestataires/{pid}')
 
 
+@app.route('/mg/prestataires/<int:pid>/facture/<int:fid>/edit', methods=['POST'])
+@permission_required_any('prestataires_payer', 'mg_gestion', 'admin')
+def mg_prestataire_facture_edit(pid, fid):
+    """v162 : modifier une facture prestataire AVANT toute validation (aucun paiement enregistré)."""
+    conn = _gdb()
+    fa = conn.execute("SELECT * FROM prestataire_factures WHERE id=? AND prestataire_id=?", (fid, pid)).fetchone()
+    if not fa:
+        conn.close(); flash("Facture introuvable", "error"); return redirect(f'/mg/prestataires/{pid}')
+    paye = conn.execute("SELECT COALESCE(SUM(montant),0) FROM prestataire_paiements WHERE facture_id=?", (fid,)).fetchone()[0] or 0
+    if paye > 0:
+        conn.close()
+        flash("⛔ Cette facture a déjà un paiement — modification impossible.", "error")
+        return redirect(f'/mg/prestataires/{pid}')
+    try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
+    except: montant = 0
+    if montant <= 0:
+        conn.close(); flash("Montant invalide", "error"); return redirect(f'/mg/prestataires/{pid}')
+    conn.execute("""UPDATE prestataire_factures
+        SET reference=?, montant=?, date=?, date_echeance=?, description=? WHERE id=?""",
+        (request.form.get('reference', ''), montant,
+         (request.form.get('date', '') or fa['date']),
+         request.form.get('date_echeance', ''), request.form.get('description', ''), fid))
+    conn.commit(); conn.close()
+    flash(f"✅ Facture prestataire modifiée ({montant:,.0f} XOF)", "success")
+    return redirect(f'/mg/prestataires/{pid}')
+
+
 def _prestataire_maj_statut_facture(conn, facture_id):
     """v160 : recalcule le statut d'une facture prestataire (impayee/partielle/payee)."""
     if not facture_id:

@@ -129,7 +129,7 @@
         <h3 style="margin:0;padding:10px 12px;background:#1a3a5c;color:#fff;font-size:13px">📄 Factures du prestataire</h3>
         {% if factures %}
         <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead><tr style="background:#f1f5f9"><th style="padding:7px;text-align:left">Réf.</th><th style="padding:7px;text-align:right">Montant</th><th style="padding:7px;text-align:right">Payé</th><th style="padding:7px;text-align:right">Reste</th><th style="padding:7px;text-align:center">Statut</th></tr></thead>
+            <thead><tr style="background:#f1f5f9"><th style="padding:7px;text-align:left">Réf.</th><th style="padding:7px;text-align:right">Montant</th><th style="padding:7px;text-align:right">Payé</th><th style="padding:7px;text-align:right">Reste</th><th style="padding:7px;text-align:center">Statut</th><th style="padding:7px;text-align:center">Actions</th></tr></thead>
             <tbody>
             {% for fa in factures %}
             <tr style="border-bottom:1px solid #eee">
@@ -138,6 +138,12 @@
                 <td style="padding:7px;text-align:right;color:#2FA85B">{{ '{:,.0f}'.format(fa.paye or 0).replace(',', ' ') }}</td>
                 <td style="padding:7px;text-align:right;font-weight:700;color:{% if fa.reste > 0 %}#c53030{% else %}#2FA85B{% endif %}">{{ '{:,.0f}'.format(fa.reste).replace(',', ' ') }}</td>
                 <td style="padding:7px;text-align:center;font-size:10px">{% if fa.statut == 'payee' %}<span style="color:#2FA85B">✅ Payée</span>{% elif fa.statut == 'partielle' %}<span style="color:#e65100">⚖️ Partielle</span>{% else %}<span style="color:#c53030">⏳ Impayée</span>{% endif %}</td>
+                <td style="padding:7px;text-align:center;white-space:nowrap">
+                    <button type="button" class="btn btn-sm" style="background:#ede7f6;color:#5e35b1;font-size:10px;padding:2px 6px" title="Voir le motif de la facture" onclick="showFacMotif({{ fa.id }})">📝</button>
+                    {% if can_pay and (fa.paye or 0) == 0 %}
+                    <button type="button" class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:10px;padding:2px 6px" title="Modifier (avant tout paiement)" onclick="openFacEdit({{ fa.id }})">✏️</button>
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
             </tbody>
@@ -163,4 +169,59 @@
         {% else %}<p style="padding:14px;color:#888;font-size:12px">Aucun paiement.</p>{% endif %}
     </div>
 </div>
+
+<!-- Modal motif facture -->
+<div id="facMotifModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:18px;max-width:480px;width:92%">
+        <h3 style="margin:0 0 8px;color:#5e35b1">📝 Motif de la facture <span id="facMotifRef" style="font-family:monospace"></span></h3>
+        <div id="facMotifMeta" style="font-size:12px;color:#666;margin-bottom:10px"></div>
+        <div id="facMotifText" style="background:#f8faf9;border-left:3px solid #5e35b1;padding:12px;border-radius:6px;font-size:13px;white-space:pre-wrap;min-height:44px"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-primary" onclick="document.getElementById('facMotifModal').style.display='none'">Fermer</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal édition facture (avant paiement) -->
+<div id="facEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:18px;max-width:520px;width:92%;max-height:90vh;overflow:auto">
+        <h3 style="margin:0 0 12px;color:#b8561f">✏️ Modifier la facture prestataire</h3>
+        <form method="post" id="facEditForm">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <div><label style="font-size:10px;color:#666;display:block">Référence</label><input type="text" name="reference" id="fe_ref" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Montant (XOF) *</label><input type="number" name="montant" id="fe_montant" step="1" min="1" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Date</label><input type="date" name="date" id="fe_date" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+                <div><label style="font-size:10px;color:#666;display:block">Échéance</label><input type="date" name="date_echeance" id="fe_echeance" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
+            </div>
+            <textarea name="description" id="fe_desc" rows="2" placeholder="Motif / description de la prestation" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:10px"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('facEditModal').style.display='none'">Annuler</button>
+                <button type="submit" class="btn" style="background:#b8561f;color:#fff">💾 Enregistrer</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+var FAC_DATA = {{ factures|tojson }};
+var PRESTA_ID = {{ p.id }};
+function _findFac(id){ return (FAC_DATA||[]).filter(function(f){return f.id===id;})[0]; }
+function showFacMotif(id){
+    var f=_findFac(id); if(!f) return;
+    document.getElementById('facMotifRef').textContent = f.reference || ('FAC-'+f.id);
+    document.getElementById('facMotifMeta').textContent = (f.date||'') + ' · ' + Math.round(f.montant||0).toLocaleString('fr-FR') + ' F';
+    document.getElementById('facMotifText').textContent = (f.description && f.description.trim()) ? f.description : '— Aucun motif renseigné —';
+    document.getElementById('facMotifModal').style.display='flex';
+}
+function openFacEdit(id){
+    var f=_findFac(id); if(!f) return;
+    document.getElementById('facEditForm').action = '/mg/prestataires/'+PRESTA_ID+'/facture/'+id+'/edit';
+    document.getElementById('fe_ref').value = f.reference || '';
+    document.getElementById('fe_montant').value = Math.round(f.montant||0);
+    document.getElementById('fe_date').value = (f.date||'').substring(0,10);
+    document.getElementById('fe_echeance').value = (f.date_echeance||'').substring(0,10);
+    document.getElementById('fe_desc').value = f.description || '';
+    document.getElementById('facEditModal').style.display='flex';
+}
+</script>
 {% endblock %}
