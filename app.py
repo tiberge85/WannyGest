@@ -2665,7 +2665,9 @@ def _save_proof_file(fri_id, file_storage, kind='proof'):
     try:
         import os
         from werkzeug.utils import secure_filename
-        upload_dir = os.path.join(os.path.dirname(__file__), 'data', 'uploads', 'fri_proofs', str(fri_id))
+        # v162 : stocker dans le dossier PERSISTANT (app.config['UPLOAD_FOLDER']) et non dans
+        # data/uploads (dossier de l'app, éphémère sur Render → fichiers perdus à chaque redéploiement).
+        upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'fri_proofs', str(fri_id))
         os.makedirs(upload_dir, exist_ok=True)
         # Nom fichier sécurisé + timestamp pour éviter collisions
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -2674,8 +2676,8 @@ def _save_proof_file(fri_id, file_storage, kind='proof'):
         fname = f"{kind}_{ts}_{original}"
         full_path = os.path.join(upload_dir, fname)
         file_storage.save(full_path)
-        # Chemin relatif pour stockage en BDD
-        return f"data/uploads/fri_proofs/{fri_id}/{fname}"
+        # Chemin relatif pour stockage en BDD → résolu par la route /uploads/fri_proofs/<id>/<file>
+        return f"uploads/fri_proofs/{fri_id}/{fname}"
     except Exception as _e:
         print(f"[v145] save proof err : {_e}", flush=True)
         return None
@@ -21570,15 +21572,19 @@ def caissiere_valider(fri_id):
 @app.route('/data/uploads/fri_proofs/<int:fri_id>/<path:filename>')
 @login_required
 def serve_fri_proof(fri_id, filename):
-    """v145 : Servir les fichiers preuves de paiement (pièces jointes des factures)."""
+    """v145 / v162 : Servir les fichiers preuves de paiement (pièces jointes des factures).
+    Cherche dans le dossier persistant, puis dans l'ancien emplacement (compat) si présent."""
     import os
     from flask import send_from_directory
-    directory = os.path.join(os.path.dirname(__file__), 'data', 'uploads', 'fri_proofs', str(fri_id))
-    try:
-        return send_from_directory(directory, filename)
-    except Exception as e:
-        flash(f"Fichier introuvable : {e}", "error")
-        return redirect('/recouvrement')
+    candidates = [
+        os.path.join(app.config['UPLOAD_FOLDER'], 'fri_proofs', str(fri_id)),               # persistant (v162)
+        os.path.join(os.path.dirname(__file__), 'data', 'uploads', 'fri_proofs', str(fri_id)),  # ancien (legacy)
+    ]
+    for directory in candidates:
+        if os.path.isfile(os.path.join(directory, filename)):
+            return send_from_directory(directory, filename)
+    flash("Fichier introuvable : la pièce jointe n'est plus disponible sur le serveur (à ré-importer).", "error")
+    return redirect(request.referrer or '/recouvrement')
 
 
 # v147 : Tableau de bord centralisé des transferts caisse en attente de validation DG/RH
