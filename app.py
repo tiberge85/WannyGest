@@ -2558,6 +2558,30 @@ try:
 except Exception as _e: print(f"[v162-Perms] Err : {_e}", flush=True)
 
 
+# v162b : liste affinée des accès AGENT RECOUVREUR (correction).
+# L'utilisateur ne veut QUE : Factures, Suivi Créances (TB/Paramètres/Mode d'emploi),
+# Dettes fournisseurs, Prestataires, Factures à éditer. On retire devis/conversion/programme technique.
+try:
+    from models import get_db as _v162b_db
+    _v162b = _v162b_db()
+    _v162b_flag = _v162b.execute("SELECT value FROM app_settings WHERE key='v162_agent_recouvreur_access_v2'").fetchone()
+    if not _v162b_flag:
+        # Accès voulus (apparaîtront cochés dans la matrice)
+        for _p in ['section_compta', 'comptabilite', 'creances_view', 'creances_edit',
+                   'prestataires_view', 'facture_edit']:
+            try: _v162b.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('agent_recouvreur', ?)", (_p,))
+            except: pass
+        # Retirer ce qui avait été accordé en trop (devis / conversion / programme du jour technique)
+        for _p in ['proforma', 'convertir_devis', 'section_tech', 'section_crm']:
+            try: _v162b.execute("DELETE FROM permissions WHERE role='agent_recouvreur' AND permission=?", (_p,))
+            except: pass
+        _v162b.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v162_agent_recouvreur_access_v2','1',datetime('now'))")
+        _v162b.commit()
+        print("[v162b-Perms] Accès agent_recouvreur affinés (Factures/Créances/Dettes/Prestataires/Facture à éditer)", flush=True)
+    _v162b.close()
+except Exception as _e: print(f"[v162b-Perms] Err : {_e}", flush=True)
+
+
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
 try:
     from models import get_db as _gdb_v161p
