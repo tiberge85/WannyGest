@@ -82,6 +82,8 @@
         {% endif %}
     </td>
     <td style="padding:8px;white-space:nowrap">
+        <button type="button" class="btn btn-sm" style="background:#ede7f6;color:#5e35b1;font-size:10px;padding:3px 6px" title="Voir le motif de l'ordre"
+            onclick="showOVMotif({{ o.id }})">📝</button>
         {% if o.status == 'en_attente' %}
         <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 6px" title="Modifier l'ordre (avant validation)"
             onclick="openEditOV({{ o.id }})">✏️</button>
@@ -240,6 +242,17 @@
 </form>
 </div></div>
 
+<!-- Modal motif (prévisualisation) -->
+<div class="modal-bg" id="motifM"><div class="modal" style="max-width:480px">
+<h3>📝 Motif de l'ordre <span id="motifRef" style="font-family:monospace"></span></h3>
+<div id="motifMeta" style="font-size:12px;color:#666;margin-bottom:10px"></div>
+<div id="motifText" style="background:#f8faf9;border-left:3px solid #5e35b1;padding:12px;border-radius:6px;font-size:13px;white-space:pre-wrap;min-height:48px"></div>
+<div id="motifRefus" style="margin-top:10px"></div>
+<div style="display:flex;justify-content:flex-end;margin-top:14px">
+    <button type="button" class="btn btn-primary" onclick="document.getElementById('motifM').classList.remove('active')">Fermer</button>
+</div>
+</div></div>
+
 <!-- Modal refus -->
 <div class="modal-bg" id="refusM"><div class="modal" style="max-width:450px">
 <h3 style="color:#c53030">❌ Refuser l'ordre <span id="refusRef"></span></h3>
@@ -274,6 +287,22 @@ function openRefus(id, ref) {
     document.getElementById('refusForm').action = '/ordres-virement/' + id + '/refuser';
     document.getElementById('refusRef').textContent = ref;
     document.getElementById('refusM').classList.add('active');
+}
+
+// v162 : prévisualiser le motif d'un ordre de virement
+function showOVMotif(id) {
+    var o = (OV_DATA || []).filter(function(x){ return x.id === id; })[0];
+    if (!o) return;
+    document.getElementById('motifRef').textContent = o.reference || '';
+    var fromTo = (o.source_caisse_name || o.source_bank_name || '?') + ' → ' + (o.dest_caisse_name || o.dest_bank_name || '?');
+    var amount = Math.round(o.amount || 0).toLocaleString('fr-FR');
+    document.getElementById('motifMeta').textContent = fromTo + ' · ' + amount + ' F · ' + (o.date || '');
+    document.getElementById('motifText').textContent = (o.description && o.description.trim()) ? o.description : '— Aucun motif renseigné —';
+    var refus = document.getElementById('motifRefus');
+    if (o.status === 'refuse' && o.refus_motif) {
+        refus.innerHTML = '<div style="background:#ffebee;color:#c53030;padding:8px 10px;border-radius:6px;font-size:12px"><b>❌ Motif du refus :</b> ' + o.refus_motif + '</div>';
+    } else { refus.innerHTML = ''; }
+    document.getElementById('motifM').classList.add('active');
 }
 
 // v162 : modification d'un ordre en attente
