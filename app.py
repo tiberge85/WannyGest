@@ -2956,7 +2956,7 @@ def get_user_pending_tasks(user_id, user_role=None):
                 rows = conn.execute("""SELECT fri.id, fri.amount, fr.reference as fr_ref, fr.client_name
                     FROM field_report_invoices fri
                     JOIN field_reports fr ON fr.id = fri.field_report_id
-                    WHERE fri.status='a_facturer'
+                    WHERE fri.status='a_facturer' AND fri.emitted_at IS NULL
                           AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= ?)
                     ORDER BY fri.created_at LIMIT 30""", (today_dt,)).fetchall()
                 for r in rows:
@@ -3130,21 +3130,9 @@ def get_user_pending_tasks(user_id, user_role=None):
                     })
             except: pass
         
-        # v142 : Comptabilité — factures à éditer
-        if user_role in ('comptable', 'comptabilite', 'admin'):
-            try:
-                rows = conn.execute("""SELECT fri.id, fri.amount, fr.client_name FROM field_report_invoices fri
-                    JOIN field_reports fr ON fr.id = fri.field_report_id
-                    WHERE fri.status='a_facturer'
-                    ORDER BY fri.created_at LIMIT 30""").fetchall()
-                for r in rows:
-                    result['validations'].append({
-                        'id': r['id'], 'task_type': 'facture_a_editer',
-                        'label': f"🧾 Facture à éditer : {r['client_name']} ({r['amount']:,.0f} XOF)",
-                        'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
-                        'priority': 'high',
-                    })
-            except: pass
+        # v162 : (ancien bloc « factures à éditer » retiré — il faisait doublon avec le bloc ci-dessus,
+        # ignorait la date de report (deadline_edit) et incluait à tort l'admin, ce qui ramenait
+        # à la clôture des factures déjà éditées/reportées et empêchait la comptable de clôturer.)
     finally:
         conn.close()
     
