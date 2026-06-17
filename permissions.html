@@ -36,11 +36,15 @@
     <a href="?tab=refusee" class="btn btn-sm {% if tab=='refusee' %}btn-primary{% else %}btn-outline{% endif %}">❌ Refusées {{ counts.refusee or 0 }}</a>
     <a href="?tab=all" class="btn btn-sm {% if tab=='all' %}btn-primary{% else %}btn-outline{% endif %}">📋 Toutes</a>
 </div>
+<div style="margin-bottom:12px">
+    <input type="text" id="permReqSearch" onkeyup="filterPermReq()" placeholder="🔍 Rechercher (employé, type, motif...)"
+        style="width:100%;max-width:380px;padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px">
+</div>
 {% endif %}
 
 <div class="card" style="padding:0;overflow-x:auto">
     {% if demandes %}
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <table id="permReqTable" style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:#5e35b1;color:#fff">
             {% if is_rh %}<th style="padding:9px 12px;text-align:left">Employé</th>{% endif %}
             <th style="padding:9px 12px;text-align:left">Type</th>
@@ -87,4 +91,15 @@
     <div style="text-align:center;padding:40px;color:#888"><div style="font-size:40px">🙋</div><p style="margin:8px 0 0">Aucune demande de permission.</p></div>
     {% endif %}
 </div>
+
+<script>
+function filterPermReq() {
+    var q = (document.getElementById('permReqSearch').value || '').trim().toLowerCase();
+    var table = document.getElementById('permReqTable');
+    if (!table) return;
+    table.querySelectorAll('tbody tr').forEach(function(r) {
+        r.style.display = (!q || r.textContent.toLowerCase().indexOf(q) >= 0) ? '' : 'none';
+    });
+}
+</script>
 {% endblock %}

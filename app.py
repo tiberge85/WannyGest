@@ -6628,14 +6628,22 @@ def admin_delete_user(uid):
 @app.route('/admin/permissions', methods=['POST'])
 @permission_required('admin')
 def admin_permissions():
-    # v89 : Ajout des rôles coordinateur, gestionnaire_projet
-    for role in ['dg', 'rh', 'technicien', 'commercial', 'comptable', 'moyens_generaux', 'informatique',
-                 'resp_projet', 'gestionnaire_projet', 'coordinateur',  # v89
-                 'agent_recouvreur', 'caissiere',  # v160
-                 'responsable_technique',  # v162
-                 'concierge', 'proprietaire', 'secretaire']:
-        perms = [p for p in ALL_PERMISSIONS if request.form.get(f'{role}_{p}')]
-        update_role_permissions(role, perms)
+    # v162 : FIX — ne plus écraser les permissions ABSENTES de la matrice (pharma_*, pos_vente,
+    # field_report_execute, ...). On ne touche QU'AUX permissions réellement affichées (PERM_CATEGORIES)
+    # et on PRÉSERVE le reste. On ne traite que les rôles présents en colonnes de la matrice.
+    matrix_perms = set()
+    for _cat, _perms in PERM_CATEGORIES.items():
+        for _p, _l in _perms:
+            matrix_perms.add(_p)
+    # Rôles affichés en colonnes dans admin.html (doit rester synchronisé avec le template)
+    matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable',
+                    'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique',
+                    'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']
+    for role in matrix_roles:
+        existing = set(get_role_permissions(role))
+        preserved = {p for p in existing if p not in matrix_perms}          # hors-matrice : conservées
+        checked = {p for p in matrix_perms if request.form.get(f'{role}_{p}')}  # cochées dans la matrice
+        update_role_permissions(role, sorted(preserved | checked))
     # Admin always has all
     update_role_permissions('admin', ALL_PERMISSIONS)
     flash("Permissions mises à jour", "success")
@@ -9127,6 +9135,14 @@ def devis_page():
 @permission_required('proforma_edit')
 def devis_new():
     if request.method == 'POST':
+      try:
+        # v162 : parseurs robustes (espaces, virgules, valeurs vides) — évite les 500 « non numérique »
+        def _num(v, default=0.0):
+            try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.') or default)
+            except: return default
+        def _int(v, default=1):
+            try: return int(round(_num(v, default)))
+            except: return default
         items = []
         i = 1
         while request.form.get(f'item_{i}_designation'):
@@ -9134,36 +9150,33 @@ def devis_new():
                 'num': i,
                 'designation': request.form.get(f'item_{i}_designation', ''),
                 'detail': request.form.get(f'item_{i}_detail', ''),
-                'qty': int(request.form.get(f'item_{i}_qty', 1) or 1),
-                'prix': float(request.form.get(f'item_{i}_prix', 0) or 0),
-                'remise': float(request.form.get(f'item_{i}_remise', 0) or 0),
+                'qty': _int(request.form.get(f'item_{i}_qty', 1), 1),
+                'prix': _num(request.form.get(f'item_{i}_prix', 0), 0),
+                'remise': _num(request.form.get(f'item_{i}_remise', 0), 0),
             })
             i += 1
         
         total_ht = sum(it['qty'] * it['prix'] - it['remise'] for it in items)
-        main_oeuvre = float(request.form.get('main_oeuvre', 0) or 0)
-        petites_fourn = float(request.form.get('petites_fournitures', 0) or 0)
+        main_oeuvre = _num(request.form.get('main_oeuvre', 0), 0)
+        petites_fourn = _num(request.form.get('petites_fournitures', 0), 0)
         # v155 : Remise globale — accepte pourcentage OU montant fixe
         remise_pct_raw = (request.form.get('remise_pct', '') or '').strip()
         if remise_pct_raw:
-            try:
-                pct = float(remise_pct_raw.replace(',', '.'))
-                # Base de la remise = total_ht + main_oeuvre + petites_fourn
-                base_remise = total_ht + main_oeuvre + petites_fourn
-                remise_glob = round(base_remise * pct / 100, 0)
-            except: remise_glob = float(request.form.get('remise', 0) or 0)
+            pct = _num(remise_pct_raw, 0)
+            base_remise = total_ht + main_oeuvre + petites_fourn
+            remise_glob = round(base_remise * pct / 100, 0) if pct else _num(request.form.get('remise', 0), 0)
         else:
-            remise_glob = float(request.form.get('remise', 0) or 0)
+            remise_glob = _num(request.form.get('remise', 0), 0)
         # TVA optionnelle
         tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
-        tva_rate = float(request.form.get('tva_rate', 18) or 18)
+        tva_rate = _num(request.form.get('tva_rate', 18), 18)
         # v160 : la MAIN D'ŒUVRE fait partie de la base HT (taxable) et du TTC
         base_ht = total_ht + main_oeuvre
         tva_amount = round((base_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
         total_ttc = base_ht + petites_fourn - remise_glob + tva_amount
 
         client_id = request.form.get('client_id', '')
-        client_id = int(client_id) if client_id else None
+        client_id = _int(client_id, 0) if client_id else None
         
         # Rédacteur = utilisateur connecté + horodatage
         cur_u = get_user_by_id(session['user_id'])
@@ -9194,7 +9207,13 @@ def devis_new():
                     'Devis', f"{ref} créé pour {request.form.get('client_name', '')}" + (f" (TVA {tva_rate:.0f}%)" if tva_active else ""), request.remote_addr)
         flash(f"Devis {ref} créé — {total_ttc:,.0f} FCFA TTC" + (f" (dont {tva_amount:,.0f} F TVA)" if tva_active else ""), "success")
         return redirect(url_for('devis_page'))
-    
+      except Exception as _e:
+        import traceback as _tb
+        print("[v162-DEVIS-NEW] Erreur création devis :", _e, flush=True)
+        _tb.print_exc()
+        flash(f"⚠️ Impossible de créer le devis : {_e}. Vérifiez les montants saisis.", "error")
+        return redirect('/devis/new')
+
     clients = get_all_clients()
     try:
         from models import db_get_all
@@ -23548,6 +23567,26 @@ def installations_delete(iid):
     conn.execute("DELETE FROM installations WHERE id=?", (iid,))
     conn.commit(); conn.close()
     flash("Installation supprimée", "success")
+    return redirect('/installations')
+
+@app.route('/installations/<int:iid>/edit-gps', methods=['POST'])
+@permission_required_any('clients', 'centre_technique', 'admin')
+def installations_edit_gps(iid):
+    """v162 : Renseigner / corriger la position GPS (+ zone) d'un site existant
+    pour le rendre localisable sur la carte."""
+    def _f(v):
+        try: return float(str(v).replace(',', '.'))
+        except: return None
+    lat = _f(request.form.get('latitude'))
+    lng = _f(request.form.get('longitude'))
+    zone = (request.form.get('zone', '') or '').strip()
+    conn = _gdb()
+    if zone:
+        conn.execute("UPDATE installations SET latitude=?, longitude=?, zone=? WHERE id=?", (lat, lng, zone, iid))
+    else:
+        conn.execute("UPDATE installations SET latitude=?, longitude=? WHERE id=?", (lat, lng, iid))
+    conn.commit(); conn.close()
+    flash("📍 Position du site mise à jour", "success")
     return redirect('/installations')
 
 

@@ -306,7 +306,9 @@ document.addEventListener('DOMContentLoaded', function() {
     <tbody>
     {% for inst in installations %}
     <tr>
-        <td><strong>{{ inst.site_name }}</strong>{% if inst.equipment_type %}<br><span style="font-size:10px;color:#888">{{ inst.equipment_type }}</span>{% endif %}</td>
+        <td><strong>{{ inst.site_name }}</strong>
+            {% if not inst.latitude or not inst.longitude %}<br><span style="font-size:9px;color:#b8561f;background:#fff3e0;padding:1px 5px;border-radius:6px" title="Position GPS non renseignée — peut manquer sur la carte">📍 sans GPS</span>{% endif %}
+            {% if inst.equipment_type %}<br><span style="font-size:10px;color:#888">{{ inst.equipment_type }}</span>{% endif %}</td>
         <td>{{ inst.client_name or '-' }}</td>
         <td>{% if inst.zone %}<span style="background:#f0f4f8;padding:2px 8px;border-radius:10px;font-size:11px">📍 {{ inst.zone }}</span>{% else %}-{% endif %}</td>
         <td style="font-size:11px">{{ inst.address or '-' }}</td>
@@ -319,6 +321,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </td>
         <td style="white-space:nowrap">
             <button class="btn btn-sm" style="background:#e3f2fd;color:#1565c0" onclick="focusInstall({{ inst.id }})" title="Localiser sur la carte">🗺️</button>
+            <button class="btn btn-sm" style="background:#fff3e0;color:#b8561f" onclick="openGps({{ inst.id }}, '{{ inst.site_name|replace("'","") }}', {{ inst.latitude or 'null' }}, {{ inst.longitude or 'null' }}, '{{ (inst.zone or '')|replace("'","") }}')" title="Renseigner / corriger la position GPS">📍</button>
             <button class="btn btn-outline btn-sm" onclick="openInt({{ inst.id }}, '{{ inst.site_name|replace("'","") }}')" title="Ajouter intervention">🛠️</button>
             <a href="/installations/{{ inst.id }}/delete" class="btn btn-sm" style="color:#c53030" onclick="return confirm('Supprimer cette installation et toutes ses interventions ?')">🗑️</a>
         </td>
@@ -373,6 +376,24 @@ document.addEventListener('DOMContentLoaded', function() {
 </form>
 </div></div>
 
+<!-- Modal position GPS (site existant) -->
+<div class="modal-bg" id="gpsM"><div class="modal" style="max-width:460px"><h3>📍 Position du site — <span id="gpsSite"></span></h3>
+<form method="post" id="gpsForm">
+    <p style="font-size:12px;color:#666;margin:0 0 10px">Renseignez la position pour rendre ce site visible sur la carte.</p>
+    <button type="button" class="btn btn-sm" style="background:#2e7d32;color:#fff;margin-bottom:10px" onclick="gpsUsePosition()">📍 Utiliser ma position actuelle</button>
+    <div class="form-row">
+        <div class="form-group"><label>Latitude</label><input type="number" step="0.000001" name="latitude" id="gLat" placeholder="5.345678"></div>
+        <div class="form-group"><label>Longitude</label><input type="number" step="0.000001" name="longitude" id="gLng" placeholder="-4.012345"></div>
+    </div>
+    <div class="form-group"><label>Zone (à défaut de GPS, ex : Cocody, Bouaké...)</label><input type="text" name="zone" id="gZone" placeholder="Zone reconnue pour géocodage approximatif"></div>
+    <div id="gpsStatus" style="font-size:11px;color:#666;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('gpsM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer la position</button>
+    </div>
+</form>
+</div></div>
+
 <!-- Modal ajout intervention -->
 <div class="modal-bg" id="intM"><div class="modal" style="max-width:520px"><h3>🛠️ Nouvelle intervention</h3>
 <form method="post" id="intForm">
@@ -411,6 +432,28 @@ function useMyPosition() {
         if (st) st.innerHTML = '✅ Position capturée (précision ±' + Math.round(pos.coords.accuracy) + ' m). Le site sera localisable sur la carte.';
     }, function(err) {
         if (st) st.textContent = '⚠️ Impossible d\'obtenir la position : ' + err.message + '. Saisissez la latitude/longitude manuellement.';
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+}
+
+function openGps(id, name, lat, lng, zone) {
+    document.getElementById('gpsForm').action = '/installations/' + id + '/edit-gps';
+    document.getElementById('gpsSite').textContent = name;
+    document.getElementById('gLat').value = (lat !== null && lat !== undefined) ? lat : '';
+    document.getElementById('gLng').value = (lng !== null && lng !== undefined) ? lng : '';
+    document.getElementById('gZone').value = zone || '';
+    document.getElementById('gpsStatus').textContent = '';
+    document.getElementById('gpsM').classList.add('active');
+}
+function gpsUsePosition() {
+    var st = document.getElementById('gpsStatus');
+    if (!navigator.geolocation) { st.textContent = '⚠️ Géolocalisation non supportée.'; return; }
+    st.textContent = '⏳ Localisation en cours...';
+    navigator.geolocation.getCurrentPosition(function(pos) {
+        document.getElementById('gLat').value = pos.coords.latitude.toFixed(6);
+        document.getElementById('gLng').value = pos.coords.longitude.toFixed(6);
+        st.innerHTML = '✅ Position capturée (±' + Math.round(pos.coords.accuracy) + ' m).';
+    }, function(err) {
+        st.textContent = '⚠️ ' + err.message + ' — saisissez la position manuellement.';
     }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
 }
 

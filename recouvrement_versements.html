@@ -41,7 +41,7 @@
             <div><label style="font-size:10px;color:#666;display:block">N° bordereau</label><input type="text" name="bordereau_number" placeholder="N° bordereau" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
             <div><label style="font-size:10px;color:#666;display:block">Bordereau (scan/photo)</label><input type="file" name="bordereau_file" accept="image/*,.pdf" style="width:100%;padding:5px;border:1.5px solid #ddd;border-radius:5px;font-size:11px"></div>
         </div>
-        <input type="text" name="notes" placeholder="Notes (optionnel)" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:8px">
+        <input type="text" name="notes" placeholder="Motif de l'opération (ex : versement recette, remise de chèque client X...)" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:8px">
         <div style="display:flex;justify-content:flex-end"><button type="submit" class="btn" style="background:#1565c0;color:#fff;font-weight:700">💾 Enregistrer le versement</button></div>
     </form>
     <p style="font-size:11px;color:#888;margin:8px 0 0">ℹ️ Ce registre trace vos remises/versements (justificatif). Le crédit comptable en caisse reste effectué lors de la validation par la caissière.</p>
@@ -57,6 +57,7 @@
             <th style="padding:9px 12px;text-align:left">Mode</th>
             <th style="padding:9px 12px;text-align:left">Destination</th>
             <th style="padding:9px 12px;text-align:left">N° bordereau</th>
+            <th style="padding:9px 12px;text-align:left">Motif de l'opération</th>
             <th style="padding:9px 12px;text-align:right">Montant</th>
             <th style="padding:9px 12px;text-align:center">Justif.</th>
             <th style="padding:9px 12px"></th>
@@ -69,6 +70,7 @@
             <td style="padding:8px 12px">{{ v.mode or '-' }}</td>
             <td style="padding:8px 12px">{% if v.banque_name %}🏦 {{ v.banque_name }}{% elif v.caisse_name %}🧰 {{ v.caisse_name }}{% else %}-{% endif %}</td>
             <td style="padding:8px 12px;font-family:monospace">{{ v.bordereau_number or '-' }}</td>
+            <td style="padding:8px 12px;font-size:12px;max-width:220px">{% if v.notes %}{{ v.notes }}{% elif v.mode == 'cheque' %}Remise de chèque{% else %}Versement{% endif %}</td>
             <td style="padding:8px 12px;text-align:right;font-weight:700;color:#1565c0">{{ '{:,.0f}'.format(v.montant or 0).replace(',', ' ') }} F</td>
             <td style="padding:8px 12px;text-align:center">{% if v.bordereau_file %}<a href="/uploads/versements/{{ v.bordereau_file }}" target="_blank">📎</a>{% else %}-{% endif %}</td>
             <td style="padding:8px 12px;text-align:right;white-space:nowrap">
