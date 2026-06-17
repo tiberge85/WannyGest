@@ -1152,12 +1152,17 @@ def create_devis(client_id, client_name, client_code, contact_commercial,
                  objet, items_json, total_ht, petites_fournitures, total_ttc,
                  main_oeuvre, remise, notes, created_by, doc_type='devis'):
     conn = get_db()
-    # Auto-generate reference
+    # Auto-generate reference — v162 : garantir l'unicité même après des suppressions
+    # (avant : basé sur COUNT(*), ce qui pouvait recréer une référence déjà utilisée → UNIQUE failed)
     year = datetime.now().strftime('%y')
-    count = conn.execute("SELECT COUNT(*) FROM devis WHERE doc_type=?", (doc_type,)).fetchone()[0] + 1
     prefix = 'DEV' if doc_type == 'devis' else 'PRO'
-    reference = f"{prefix}-{count:06d}-{year}"
-    
+    count = conn.execute("SELECT COUNT(*) FROM devis WHERE doc_type=?", (doc_type,)).fetchone()[0] + 1
+    while True:
+        reference = f"{prefix}-{count:06d}-{year}"
+        if not conn.execute("SELECT 1 FROM devis WHERE reference=?", (reference,)).fetchone():
+            break
+        count += 1
+
     conn.execute("""INSERT INTO devis (reference, doc_type, client_id, client_name, client_code,
         contact_commercial, objet, items_json, total_ht, petites_fournitures, total_ttc,
         main_oeuvre, remise, notes, created_by)
