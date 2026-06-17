@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Mises à pied{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h1>🚫 Liste de contrôle des mises à pied</h1>
+        <p style="color:#666;font-size:12px;margin:4px 0 0">Suivi des suspensions disciplinaires du personnel.</p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Nouvelle mise à pied</button>
+        <a href="/rh" class="btn btn-outline btn-sm">← RH</a>
+    </div>
+</div>
+
+<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    {% for t, l in [('en_cours','⏳ En cours'),('terminee','✅ Terminées / levées'),('toutes','📋 Toutes')] %}
+    <a href="/rh/mise-a-pied?tab={{ t }}{% if search %}&q={{ search }}{% endif %}"
+       class="btn btn-sm {% if tab==t %}btn-primary{% else %}btn-outline{% endif %}">
+        {{ l }} <span style="background:rgba(0,0,0,0.08);padding:1px 7px;border-radius:10px;font-size:11px">{{ counts[t] }}</span>
+    </a>
+    {% endfor %}
+</div>
+
+<form method="get" style="background:#fff;padding:10px;border-radius:8px;margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="q" value="{{ search }}" placeholder="🔍 Employé ou motif..." style="flex:1;min-width:200px;padding:7px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+    {% if search %}<a href="/rh/mise-a-pied?tab={{ tab }}" class="btn btn-sm btn-outline">✖ Effacer</a>{% endif %}
+</form>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if items %}
+<div class="table-wrap"><table>
+    <thead><tr>
+        <th>Employé</th><th>Début</th><th>Fin</th><th>Durée</th><th>Motif</th><th>État</th><th>Décidée par</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+    {% for m in items %}
+    <tr>
+        <td><strong>{{ m.employee_name or '—' }}</strong></td>
+        <td style="font-size:12px">{{ m.date_debut or '—' }}</td>
+        <td style="font-size:12px">{{ m.date_fin or '—' }}</td>
+        <td style="font-size:12px">{% if m.duree_jours %}{{ m.duree_jours }} j{% else %}—{% endif %}</td>
+        <td style="font-size:12px;max-width:280px">{{ m.motif or '—' }}{% if m.notes %}<br><span style="color:#888;font-size:11px">📝 {{ m.notes }}</span>{% endif %}</td>
+        <td>
+            {% if m.statut == 'levee' %}<span style="background:#e3f2fd;color:#1565c0;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700">↩️ Levée</span>
+            {% elif m.actif %}<span style="background:#fde8e8;color:#c53030;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700">🚫 En cours</span>
+            {% else %}<span style="background:#e8f5e9;color:#2e7d32;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700">✅ Terminée</span>{% endif %}
+        </td>
+        <td style="font-size:11px;color:#666">{{ m.decided_by_name or '—' }}<br><span style="color:#999">{{ (m.created_at or '')[:10] }}</span></td>
+        <td style="white-space:nowrap">
+            {% if m.actif %}
+            <form method="post" action="/rh/mise-a-pied/{{ m.id }}/lever" style="display:inline" onsubmit="return confirm('Lever / clôturer cette mise à pied ?')">
+                <button type="submit" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px" title="Lever / clôturer">↩️ Lever</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/rh/mise-a-pied/{{ m.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer définitivement cette mise à pied ?')">
+                <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px" title="Supprimer">🗑️</button>
+            </form>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}
+<div style="text-align:center;color:#999;padding:40px">
+    <div style="font-size:40px;margin-bottom:10px">🚫</div>
+    Aucune mise à pied dans cette catégorie.
+</div>
+{% endif %}
+</div></div>
+
+<!-- Modal nouvelle mise à pied -->
+<div class="modal-bg" id="addM"><div class="modal" style="max-width:560px">
+<h3>🚫 Nouvelle mise à pied</h3>
+<form method="post" action="/rh/mise-a-pied/add">
+    <div class="form-group"><label>Employé *</label>
+        <select name="employee_id" required>
+            <option value="">— Choisir un employé —</option>
+            {% for e in employees %}<option value="{{ e.id }}">{{ e.first_name }} {{ e.last_name }}{% if e.position %} — {{ e.position }}{% endif %}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Date de début *</label><input type="date" name="date_debut" value="{{ today }}" required></div>
+        <div class="form-group"><label>Date de fin (optionnel)</label><input type="date" name="date_fin"></div>
+    </div>
+    <div class="form-group"><label>Motif *</label><textarea name="motif" rows="2" required minlength="3" placeholder="Raison de la mise à pied..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div class="form-group"><label>Notes (optionnel)</label><textarea name="notes" rows="2" placeholder="Observations, références..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('addM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">✅ Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+{% endblock %}

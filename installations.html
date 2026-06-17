@@ -147,14 +147,28 @@ document.addEventListener('DOMContentLoaded', function() {
             interventions: {{ int_count.get(inst.id, 0) if int_count else 0 }},
             lat: {{ inst.latitude or 'null' }},
             lng: {{ inst.longitude or 'null' }},
-            install_date: {{ (inst.install_date or '')|tojson }}
+            install_date: {{ (inst.install_date or '')|tojson }},
+            installed_by: {{ (inst.installed_by_name or '')|tojson }},
+            notes: {{ (inst.notes or '')|tojson }}
         }{% if not loop.last %},{% endif %}
     {% endfor %}
     ];
+
+    // v162 : interventions par site (qui a installé / matériel / date) pour le détail au clic
+    var interventionsByInstall = {};
+    {% for it in interventions %}
+        (interventionsByInstall[{{ it.installation_id }}] = interventionsByInstall[{{ it.installation_id }}] || []).push({
+            date: {{ (it.intervention_date or '')|tojson }},
+            type: {{ (it.type or '')|tojson }},
+            technician: {{ (it.technician or '')|tojson }},
+            description: {{ (it.description or '')|tojson }}
+        });
+    {% endfor %}
     
     var bounds = [];
     var ungeocodedCount = 0;
-    
+    window.installMarkers = {};  // v162 : registre des marqueurs par id (pour « localiser »)
+
     installations.forEach(function(inst) {
         var coords = null;
         var isApprox = false;
@@ -195,21 +209,41 @@ document.addEventListener('DOMContentLoaded', function() {
             dashArray: isApprox ? '4,4' : null
         }).addTo(map);
         
+        // v162 : détail des interventions (qui a installé / matériel / date)
+        var ints = interventionsByInstall[inst.id] || [];
+        var intsHtml = '';
+        if (ints.length) {
+            intsHtml = '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #eee">' +
+                '<b>🛠️ Détail des interventions :</b>';
+            ints.slice(0, 6).forEach(function(it) {
+                intsHtml += '<div style="margin-top:4px;padding:4px 6px;background:#f8faf9;border-radius:5px;font-size:11px">' +
+                    '<b>' + (it.type || 'intervention') + '</b>' + (it.date ? ' · ' + it.date : '') +
+                    (it.technician ? '<br>👷 ' + it.technician : '') +
+                    (it.description ? '<br>📦 ' + it.description : '') +
+                    '</div>';
+            });
+            if (ints.length > 6) intsHtml += '<div style="font-size:10px;color:#888;margin-top:3px">+ ' + (ints.length - 6) + ' autre(s)</div>';
+            intsHtml += '</div>';
+        }
+
         // Popup
         var popupHtml =
-            '<div style="font-size:12px;min-width:180px">' +
+            '<div style="font-size:12px;min-width:200px;max-width:280px">' +
                 '<strong style="color:#1A7A6D;font-size:13px">🏗️ ' + inst.name + '</strong>' +
                 '<div style="margin:6px 0;padding-top:6px;border-top:1px solid #eee">' +
                     '👤 <b>Client :</b> ' + (inst.client || '-') + '<br>' +
                     '📍 <b>Zone :</b> ' + (inst.zone || '-') + (isApprox ? ' <em>(approx.)</em>' : '') + '<br>' +
                     (inst.address ? '📌 ' + inst.address + '<br>' : '') +
-                    '🔧 <b>Équipements :</b> ' + inst.equipment_count + (inst.equipment_type ? ' (' + inst.equipment_type + ')' : '') + '<br>' +
+                    '🔧 <b>Matériel installé :</b> ' + inst.equipment_count + (inst.equipment_type ? ' (' + inst.equipment_type + ')' : '') + '<br>' +
+                    (inst.install_date ? '📅 <b>Date installation :</b> ' + inst.install_date + '<br>' : '') +
+                    (inst.installed_by ? '🧑‍🔧 <b>Enregistré par :</b> ' + inst.installed_by + '<br>' : '') +
                     '🛠️ <b>Interventions :</b> <span style="color:' + color + ';font-weight:700">' + inst.interventions + '</span>' +
-                    (inst.install_date ? '<br>📅 Installé le ' + inst.install_date : '') +
                 '</div>' +
+                intsHtml +
             '</div>';
         marker.bindPopup(popupHtml);
         marker.bindTooltip(inst.name, {permanent: false, direction: 'top'});
+        window.installMarkers[inst.id] = { marker: marker, coords: coords };
         bounds.push(coords);
     });
     
@@ -220,7 +254,30 @@ document.addEventListener('DOMContentLoaded', function() {
             map.fitBounds(bounds, {padding: [40, 40], maxZoom: 13});
         }
     }
-    
+
+    // v162 : centrer la carte sur un site donné (clic « Localiser » dans la liste)
+    window.installMap = map;
+    window.focusInstall = function(id) {
+        var m = window.installMarkers && window.installMarkers[id];
+        var mapEl = document.getElementById('mapInstall');
+        if (mapEl) mapEl.scrollIntoView({behavior: 'smooth', block: 'center'});
+        if (!m) {
+            alert("Ce site n'a pas de position sur la carte (ni coordonnées GPS, ni zone reconnue). Ajoutez sa latitude/longitude.");
+            return;
+        }
+        setTimeout(function() {
+            map.invalidateSize();
+            map.setView(m.coords, 16);
+            m.marker.openPopup();
+        }, 250);
+    };
+
+    // v162 : centrage automatique si on arrive avec ?focus=<id>
+    try {
+        var _focus = parseInt(new URLSearchParams(window.location.search).get('focus'));
+        if (_focus) setTimeout(function(){ window.focusInstall(_focus); }, 400);
+    } catch (e) {}
+
     if (ungeocodedCount > 0) {
         var info = L.control({position: 'topright'});
         info.onAdd = function() {
@@ -261,6 +318,7 @@ document.addEventListener('DOMContentLoaded', function() {
             {% else %}<span style="color:#999">0</span>{% endif %}
         </td>
         <td style="white-space:nowrap">
+            <button class="btn btn-sm" style="background:#e3f2fd;color:#1565c0" onclick="focusInstall({{ inst.id }})" title="Localiser sur la carte">🗺️</button>
             <button class="btn btn-outline btn-sm" onclick="openInt({{ inst.id }}, '{{ inst.site_name|replace("'","") }}')" title="Ajouter intervention">🛠️</button>
             <a href="/installations/{{ inst.id }}/delete" class="btn btn-sm" style="color:#c53030" onclick="return confirm('Supprimer cette installation et toutes ses interventions ?')">🗑️</a>
         </td>
@@ -292,9 +350,16 @@ document.addEventListener('DOMContentLoaded', function() {
         <div class="form-group"><label>Date d'installation</label><input type="date" name="install_date"></div>
     </div>
     <div class="form-group"><label>Adresse</label><input type="text" name="address" placeholder="Adresse complète"></div>
-    <div class="form-row">
-        <div class="form-group"><label>Latitude (optionnel)</label><input type="number" step="0.000001" name="latitude" placeholder="5.345678"></div>
-        <div class="form-group"><label>Longitude (optionnel)</label><input type="number" step="0.000001" name="longitude" placeholder="-4.012345"></div>
+    <div style="background:#e8f5e9;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+            <label style="margin:0;font-weight:600;color:#1b5e20;font-size:13px">📍 Position GPS du site (pour la carte)</label>
+            <button type="button" class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="useMyPosition()">📍 Utiliser ma position actuelle</button>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+            <div class="form-group"><label>Latitude</label><input type="number" step="0.000001" name="latitude" id="inLat" placeholder="5.345678"></div>
+            <div class="form-group"><label>Longitude</label><input type="number" step="0.000001" name="longitude" id="inLng" placeholder="-4.012345"></div>
+        </div>
+        <div id="geoStatus" style="font-size:11px;color:#666"></div>
     </div>
     <div class="form-row">
         <div class="form-group"><label>Nombre d'équipements</label><input type="number" name="equipment_count" min="0" value="1"></div>
@@ -336,6 +401,19 @@ document.addEventListener('DOMContentLoaded', function() {
 </div></div>
 
 <script>
+function useMyPosition() {
+    var st = document.getElementById('geoStatus');
+    if (!navigator.geolocation) { if (st) st.textContent = '⚠️ Géolocalisation non supportée par ce navigateur.'; return; }
+    if (st) st.textContent = '⏳ Localisation en cours...';
+    navigator.geolocation.getCurrentPosition(function(pos) {
+        document.getElementById('inLat').value = pos.coords.latitude.toFixed(6);
+        document.getElementById('inLng').value = pos.coords.longitude.toFixed(6);
+        if (st) st.innerHTML = '✅ Position capturée (précision ±' + Math.round(pos.coords.accuracy) + ' m). Le site sera localisable sur la carte.';
+    }, function(err) {
+        if (st) st.textContent = '⚠️ Impossible d\'obtenir la position : ' + err.message + '. Saisissez la latitude/longitude manuellement.';
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+}
+
 function openInt(id, name) {
     document.getElementById('intForm').action = '/installations/' + id + '/intervention/add';
     document.getElementById('intSite').textContent = name;

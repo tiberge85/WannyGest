@@ -10177,6 +10177,111 @@ def rh_absences_delete(aid):
     return redirect(url_for('rh_absences'))
 
 
+# ============= v162 : MISES À PIED (liste de contrôle disciplinaire RH) =============
+def _ensure_mises_a_pied_table(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS mises_a_pied (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER,
+        employee_name TEXT,
+        date_debut TEXT,
+        date_fin TEXT,
+        duree_jours INTEGER,
+        motif TEXT,
+        statut TEXT DEFAULT 'en_cours',
+        decided_by INTEGER,
+        decided_by_name TEXT,
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+
+@app.route('/rh/mise-a-pied')
+@permission_required('fichiers')
+def rh_mises_a_pied():
+    """v162 : Liste de contrôle des mises à pied (suspensions disciplinaires)."""
+    tab = request.args.get('tab', 'en_cours').strip()
+    if tab not in ('en_cours', 'terminee', 'toutes'):
+        tab = 'en_cours'
+    search = request.args.get('q', '').strip()
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = _gdb()
+    _ensure_mises_a_pied_table(conn); conn.commit()
+
+    where, params = [], []
+    if tab == 'en_cours':
+        where.append("statut='en_cours' AND (date_fin IS NULL OR date_fin >= ?)"); params.append(today)
+    elif tab == 'terminee':
+        where.append("(statut IN ('terminee','levee') OR (date_fin IS NOT NULL AND date_fin < ?))"); params.append(today)
+    if search:
+        where.append("(employee_name LIKE ? OR motif LIKE ?)"); params += [f"%{search}%", f"%{search}%"]
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    items = [dict(r) for r in conn.execute(
+        f"SELECT * FROM mises_a_pied{where_sql} ORDER BY date_debut DESC, id DESC LIMIT 300", params).fetchall()]
+    for r in items:
+        r['actif'] = (r.get('statut') == 'en_cours' and (not r.get('date_fin') or r['date_fin'] >= today))
+
+    counts = {
+        'en_cours': conn.execute("SELECT COUNT(*) FROM mises_a_pied WHERE statut='en_cours' AND (date_fin IS NULL OR date_fin >= ?)", (today,)).fetchone()[0],
+        'terminee': conn.execute("SELECT COUNT(*) FROM mises_a_pied WHERE statut IN ('terminee','levee') OR (date_fin IS NOT NULL AND date_fin < ?)", (today,)).fetchone()[0],
+        'toutes': conn.execute("SELECT COUNT(*) FROM mises_a_pied").fetchone()[0],
+    }
+    employees = get_all_employees(status=None)
+    conn.close()
+    return render_template('rh_mises_a_pied.html', page='mises_a_pied',
+        items=items, tab=tab, counts=counts, search=search, employees=employees, today=today)
+
+@app.route('/rh/mise-a-pied/add', methods=['POST'])
+@permission_required('fichiers')
+def rh_mises_a_pied_add():
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb(); _ensure_mises_a_pied_table(conn)
+    emp_id = int(request.form.get('employee_id', 0) or 0)
+    motif = (request.form.get('motif', '') or '').strip()
+    if not emp_id or not motif:
+        conn.close()
+        flash("⚠️ Employé et motif sont obligatoires", "error")
+        return redirect('/rh/mise-a-pied')
+    e = conn.execute("SELECT first_name||' '||last_name as n FROM employees WHERE id=?", (emp_id,)).fetchone()
+    emp_name = e['n'] if e else ''
+    date_debut = (request.form.get('date_debut', '') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+    date_fin = (request.form.get('date_fin', '') or '').strip() or None
+    notes = (request.form.get('notes', '') or '').strip()
+    duree = None
+    if date_fin:
+        try:
+            d1 = datetime.strptime(date_debut, '%Y-%m-%d'); d2 = datetime.strptime(date_fin, '%Y-%m-%d')
+            duree = (d2 - d1).days + 1
+        except: duree = None
+    conn.execute("""INSERT INTO mises_a_pied
+        (employee_id, employee_name, date_debut, date_fin, duree_jours, motif, statut, decided_by, decided_by_name, notes)
+        VALUES (?,?,?,?,?,?, 'en_cours', ?,?,?)""",
+        (emp_id, emp_name, date_debut, date_fin, duree, motif, session['user_id'], user['full_name'] if user else '?', notes))
+    conn.commit(); conn.close()
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'RH',
+        f"Mise à pied de {emp_name} ({date_debut}{(' → ' + date_fin) if date_fin else ''})", request.remote_addr)
+    flash(f"✅ Mise à pied enregistrée pour {emp_name}", "success")
+    return redirect('/rh/mise-a-pied')
+
+@app.route('/rh/mise-a-pied/<int:mid>/lever', methods=['POST'])
+@permission_required('fichiers')
+def rh_mises_a_pied_lever(mid):
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb(); _ensure_mises_a_pied_table(conn)
+    conn.execute("UPDATE mises_a_pied SET statut='levee', date_fin=COALESCE(date_fin, ?) WHERE id=?",
+        (datetime.now().strftime('%Y-%m-%d'), mid))
+    conn.commit(); conn.close()
+    flash("✅ Mise à pied levée / clôturée", "success")
+    return redirect('/rh/mise-a-pied')
+
+@app.route('/rh/mise-a-pied/<int:mid>/delete', methods=['POST'])
+@permission_required('fichiers')
+def rh_mises_a_pied_delete(mid):
+    conn = _gdb(); _ensure_mises_a_pied_table(conn)
+    conn.execute("DELETE FROM mises_a_pied WHERE id=?", (mid,))
+    conn.commit(); conn.close()
+    flash("Mise à pied supprimée", "success")
+    return redirect('/rh/mise-a-pied')
+
+
 # ============= v161 : DEMANDES DE PERMISSION (ouvert à tous, validation RH) =============
 _RH_ROLES = ('admin', 'dg', 'directeur', 'rh', 'directrice_rh')
 
@@ -23341,10 +23446,11 @@ def installations_page():
     d_start, d_end, libelle = _cartographie_period_filter(periode)
     
     conn = _gdb()
-    # Toutes les installations
+    # Toutes les installations (+ v162 : nom de l'utilisateur qui a enregistré le site)
     installations = [dict(r) for r in conn.execute(
-        "SELECT i.*, cl.name as client_name_ref FROM installations i "
+        "SELECT i.*, cl.name as client_name_ref, u.full_name as installed_by_name FROM installations i "
         "LEFT JOIN clients cl ON i.client_id = cl.id "
+        "LEFT JOIN users u ON u.id = i.created_by "
         "ORDER BY i.created_at DESC").fetchall()]
     
     # Interventions filtrées par période

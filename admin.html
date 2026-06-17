@@ -104,20 +104,25 @@
         <span style="font-size:11px;color:#888">Cochez pour accorder · Admin a tous les droits</span>
     </div>
     <div class="card-body">
+        <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="permSearch" onkeyup="filterPerms()" placeholder="🔍 Filtrer les permissions (nom ou clé)..."
+                style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px">
+            <span id="permSearchCount" style="font-size:11px;color:#888"></span>
+        </div>
         <form method="post" action="/admin/permissions">
             <div class="table-wrap">
-                <table>
+                <table id="permTable">
                     <thead><tr><th style="min-width:240px;background:#1a3a5c;color:#fff">Permission</th>
                     {% for role in ['admin','dg','rh','technicien','responsable_technique','commercial','comptable','moyens_generaux','agent_recouvreur','caissiere','informatique','gestionnaire_projet','proprietaire','concierge','secretaire'] %}
                     <th style="font-size:10px;text-align:center;writing-mode:vertical-lr;transform:rotate(180deg);height:80px;background:#1a3a5c;color:#fff">{{ role }}</th>
                     {% endfor %}</tr></thead>
                     <tbody>
                     {% for category, perms in perm_categories.items() %}
-                        <tr style="background:#f0f7f7;font-weight:700">
+                        <tr class="perm-cat" style="background:#f0f7f7;font-weight:700">
                             <td colspan="16" style="padding:8px 10px;font-size:13px;color:#1a7a6d;border-top:2px solid #1a7a6d">{{ category }}</td>
                         </tr>
                         {% for perm, label in perms %}
-                        <tr style="{% if '_edit' in perm or 'Modification' in label or 'Valider' in label %}background:#fef9e7{% endif %}">
+                        <tr class="perm-row" data-perm="{{ (perm ~ ' ' ~ label)|lower }}" style="{% if '_edit' in perm or 'Modification' in label or 'Valider' in label %}background:#fef9e7{% endif %}">
                             <td style="font-size:12px;padding:6px 10px">
                                 {% if 'Modification' in label or 'Valider' in label %}<span style="color:#e8672a">✏️</span>
                                 {% elif 'lecture' in label|lower or 'Consultation' in label %}<span style="color:#1a7a6d">👁️</span>
@@ -142,6 +147,32 @@
     </div>
 </div>
 
+
+<script>
+function filterPerms() {
+    var q = (document.getElementById('permSearch').value || '').trim().toLowerCase();
+    var rows = document.querySelectorAll('#permTable tr.perm-row');
+    var shown = 0;
+    rows.forEach(function(r) {
+        var hay = r.getAttribute('data-perm') || '';
+        var match = !q || hay.indexOf(q) >= 0;
+        r.style.display = match ? '' : 'none';
+        if (match) shown++;
+    });
+    // Masquer les en-têtes de catégorie qui n'ont plus de permission visible
+    document.querySelectorAll('#permTable tr.perm-cat').forEach(function(cat) {
+        if (!q) { cat.style.display = ''; return; }
+        var anyVisible = false, n = cat.nextElementSibling;
+        while (n && !n.classList.contains('perm-cat')) {
+            if (n.classList.contains('perm-row') && n.style.display !== 'none') { anyVisible = true; break; }
+            n = n.nextElementSibling;
+        }
+        cat.style.display = anyVisible ? '' : 'none';
+    });
+    var c = document.getElementById('permSearchCount');
+    if (c) c.textContent = q ? (shown + ' permission(s) trouvée(s)') : '';
+}
+</script>
 
 <!-- Réinitialisation -->
 <div class="card" style="border:2px solid #feb2b2">
