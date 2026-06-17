@@ -2515,12 +2515,47 @@ try:
         date_versement TEXT, notes TEXT,
         statut TEXT DEFAULT 'verse',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
-    for _col in ["banque_id INTEGER", "banque_name TEXT"]:
+    for _col in ["banque_id INTEGER", "banque_name TEXT",
+                 "type_operation TEXT DEFAULT 'versement'",  # v162 : versement | remise (chèque)
+                 "date_disponibilite TEXT"]:                  # v162 : dispo du crédit (remise = J+3 ouvrés)
         try: _v160rv.execute(f"ALTER TABLE recouvrement_versements ADD COLUMN {_col}")
         except: pass
     _v160rv.commit(); _v160rv.close()
     print("[v160-Versements] Table recouvrement_versements OK", flush=True)
 except Exception as _e: print(f"[v160-Versements] Err : {_e}", flush=True)
+
+
+# v162 : accès élargis pour agent_recouvreur et caissière (modules demandés).
+# Une seule fois (flag) — l'admin peut ensuite ajuster dans la matrice des permissions.
+try:
+    from models import get_db as _v162p_db
+    _v162p = _v162p_db()
+    _v162p_flag = _v162p.execute("SELECT value FROM app_settings WHERE key='v162_recouvreur_caissiere_perms'").fetchone()
+    if not _v162p_flag:
+        _v162_grants = {
+            # Programme du jour (section_tech), Clients, Devis (+conversion), Factures/Dettes/Validation paie/
+            # Suivi tiers (comptabilite), Créances (creances_view/edit), Prestataires, Facture à éditer
+            'agent_recouvreur': ['section_crm', 'clients', 'proforma', 'convertir_devis',
+                                 'section_compta', 'comptabilite', 'creances_view', 'creances_edit',
+                                 'facture_edit', 'prestataires_view', 'section_tech'],
+            # En plus : Validation paie + Demandes MG + Roadmap + Trésorerie
+            'caissiere': ['section_crm', 'clients', 'proforma',
+                          'section_compta', 'comptabilite', 'creances_view', 'creances_edit',
+                          'facture_edit', 'prestataires_view', 'mg_compta_validate',
+                          'section_tech', 'roadmap_view', 'section_tresorerie', 'tresorerie'],
+        }
+        _n = 0
+        for _role, _perms in _v162_grants.items():
+            for _p in _perms:
+                try:
+                    _v162p.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?,?)", (_role, _p))
+                    _n += 1
+                except: pass
+        _v162p.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v162_recouvreur_caissiere_perms','1',datetime('now'))")
+        _v162p.commit()
+        print(f"[v162-Perms] Accès agent_recouvreur + caissière ajoutés ({_n})", flush=True)
+    _v162p.close()
+except Exception as _e: print(f"[v162-Perms] Err : {_e}", flush=True)
 
 
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
@@ -21064,6 +21099,14 @@ def recouvrement_versements():
     else:
         rows = conn.execute("SELECT * FROM recouvrement_versements WHERE agent_id=? ORDER BY date_versement DESC, id DESC LIMIT 200", (session['user_id'],)).fetchall()
     versements = [dict(r) for r in rows]
+    # v162 : statut effectif d'une remise de chèque (en attente jusqu'à J+3 ouvrés, puis disponible)
+    _today = datetime.now().strftime('%Y-%m-%d')
+    for v in versements:
+        v['est_remise'] = (v.get('type_operation') == 'remise')
+        if v['est_remise'] and v.get('statut') != 'annule':
+            v['dispo'] = bool(v.get('date_disponibilite')) and (v['date_disponibilite'][:10] <= _today)
+        else:
+            v['dispo'] = True
     total = sum(v['montant'] or 0 for v in versements)
     caisses = [dict(r) for r in conn.execute("SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
     banques = [dict(r) for r in conn.execute("SELECT id, nom, banque FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
@@ -21098,10 +21141,26 @@ def _save_bordereau_file():
     return None
 
 
+def _add_business_days(date_str, n):
+    """v162 : ajoute n jours OUVRÉS (lun-ven) à une date 'YYYY-MM-DD'."""
+    try:
+        d = datetime.strptime((date_str or '')[:10], '%Y-%m-%d')
+    except Exception:
+        d = datetime.now()
+    added = 0
+    while added < n:
+        d += timedelta(days=1)
+        if d.weekday() < 5:  # 0=lundi ... 4=vendredi
+            added += 1
+    return d.strftime('%Y-%m-%d')
+
+
 @app.route('/recouvrement/versements/add', methods=['POST'])
 @permission_required_any('recouvrement_edit', 'caissiere_validate', 'admin')
 def recouvrement_versement_add():
-    """v160 : enregistrer une remise/versement (montant, mode, caisse OU banque, bordereau)."""
+    """v160 / v162 : enregistrer une remise OU un versement.
+    v162 : une remise de chèque n'est créditée qu'après 3 jours ouvrés → statut « en attente »
+    jusqu'à la date de disponibilité ; un versement (espèces/virement) est disponible immédiatement."""
     user = get_user_by_id(session['user_id'])
     try: montant = float((request.form.get('montant', '') or '0').replace(',', '.'))
     except: montant = 0
@@ -21110,23 +21169,38 @@ def recouvrement_versement_add():
     conn = _gdb()
     caisse_id, caisse_name, banque_id, banque_name = _resoudre_destination_versement(conn, request.form.get('destination', ''))
     bordereau_file = _save_bordereau_file() or ''
+    date_versement = request.form.get('date_versement', '') or datetime.now().strftime('%Y-%m-%d')
+    # v162 : type d'opération (versement immédiat ou remise de chèque différée à J+3 ouvrés)
+    type_op = (request.form.get('type_operation', 'versement') or 'versement').strip()
+    if type_op == 'remise':
+        date_dispo = _add_business_days(date_versement, 3)
+        statut = 'en_attente'
+    else:
+        date_dispo = date_versement
+        statut = 'verse'
     conn.execute("""INSERT INTO recouvrement_versements
         (agent_id, agent_name, montant, mode, caisse_id, caisse_name, banque_id, banque_name,
-         bordereau_number, bordereau_file, date_versement, notes, statut, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'verse', datetime('now'))""",
+         bordereau_number, bordereau_file, date_versement, notes, type_operation,
+         date_disponibilite, statut, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))""",
         (session['user_id'], user['full_name'] if user else '?', montant,
          request.form.get('mode', 'especes'), caisse_id, caisse_name, banque_id, banque_name,
          request.form.get('bordereau_number', ''), bordereau_file,
-         request.form.get('date_versement', datetime.now().strftime('%Y-%m-%d')),
-         request.form.get('notes', '')))
+         date_versement, request.form.get('notes', ''), type_op, date_dispo, statut))
     conn.commit(); conn.close()
+    _libelle = "Remise de chèque" if type_op == 'remise' else "Versement"
     try:
         notify_roles(['caissiere', 'comptable', 'comptabilite', 'admin'],
-            "💰 Nouvelle remise/versement recouvrement",
-            f"{(user['full_name'] if user else 'Agent')} a enregistré un versement de {montant:,.0f} XOF" + (f" — bordereau {request.form.get('bordereau_number','')}" if request.form.get('bordereau_number') else ''),
+            f"💰 Nouvelle {_libelle.lower()} (recouvrement)",
+            f"{(user['full_name'] if user else 'Agent')} a enregistré une {_libelle.lower()} de {montant:,.0f} XOF"
+            + (f" — disponible le {date_dispo} (3 j. ouvrés)" if type_op == 'remise' else '')
+            + (f" — bordereau {request.form.get('bordereau_number','')}" if request.form.get('bordereau_number') else ''),
             link='/recouvrement/versements', type='recouvrement', module='recouvrement', icon='💰')
     except: pass
-    flash(f"✅ Remise/versement de {montant:,.0f} XOF enregistré", "success")
+    if type_op == 'remise':
+        flash(f"✅ Remise de chèque de {montant:,.0f} XOF enregistrée — ⏳ en attente, créditée le {date_dispo} (3 jours ouvrés).", "success")
+    else:
+        flash(f"✅ Versement de {montant:,.0f} XOF enregistré.", "success")
     return redirect('/recouvrement/versements')
 
 

@@ -24,9 +24,15 @@
     <h3 style="margin:0 0 10px;color:#1565c0;font-size:15px">➕ Enregistrer une remise / versement</h3>
     <form method="post" action="/recouvrement/versements/add" enctype="multipart/form-data">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px">
+            <div><label style="font-size:10px;color:#666;display:block">Type d'opération *</label>
+                <select name="type_operation" id="typeOp" onchange="onTypeOp()" style="width:100%;padding:7px;border:1.5px solid #1565c0;border-radius:5px;font-weight:600">
+                    <option value="versement">💵 Versement (immédiat)</option>
+                    <option value="remise">🧾 Remise de chèque (créditée à J+3 ouvrés)</option>
+                </select>
+            </div>
             <div><label style="font-size:10px;color:#666;display:block">Montant (XOF) *</label><input type="number" name="montant" step="1" min="1" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px"></div>
             <div><label style="font-size:10px;color:#666;display:block">Mode</label>
-                <select name="mode" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
+                <select name="mode" id="modeSel" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px">
                     <option value="especes">Espèces</option><option value="cheque">Chèque</option><option value="virement">Virement</option><option value="mobile_money">Mobile Money</option>
                 </select>
             </div>
@@ -54,8 +60,10 @@
         <thead><tr style="background:#1565c0;color:#fff">
             <th style="padding:9px 12px;text-align:left">Date</th>
             <th style="padding:9px 12px;text-align:left">Agent</th>
+            <th style="padding:9px 12px;text-align:left">Type</th>
             <th style="padding:9px 12px;text-align:left">Mode</th>
             <th style="padding:9px 12px;text-align:left">Destination</th>
+            <th style="padding:9px 12px;text-align:left">Statut</th>
             <th style="padding:9px 12px;text-align:left">N° bordereau</th>
             <th style="padding:9px 12px;text-align:left">Motif de l'opération</th>
             <th style="padding:9px 12px;text-align:right">Montant</th>
@@ -67,8 +75,14 @@
         <tr style="border-bottom:1px solid #eee;{% if loop.index0 % 2 == 1 %}background:#fafafa{% endif %}">
             <td style="padding:8px 12px;white-space:nowrap">{{ v.date_versement or (v.created_at[:10] if v.created_at else '-') }}</td>
             <td style="padding:8px 12px">{{ v.agent_name or '-' }}</td>
+            <td style="padding:8px 12px">{% if v.est_remise %}🧾 Remise{% else %}💵 Versement{% endif %}</td>
             <td style="padding:8px 12px">{{ v.mode or '-' }}</td>
             <td style="padding:8px 12px">{% if v.banque_name %}🏦 {{ v.banque_name }}{% elif v.caisse_name %}🧰 {{ v.caisse_name }}{% else %}-{% endif %}</td>
+            <td style="padding:8px 12px;font-size:11px">
+                {% if v.est_remise and not v.dispo %}<span style="background:#fff3cd;color:#856404;padding:3px 8px;border-radius:6px;font-weight:700">⏳ En attente</span><div style="color:#888;margin-top:2px">Dispo le {{ v.date_disponibilite or '?' }}</div>
+                {% elif v.est_remise %}<span style="background:#d4edda;color:#155724;padding:3px 8px;border-radius:6px;font-weight:700">✅ Disponible</span>
+                {% else %}<span style="background:#e3f2fd;color:#1565c0;padding:3px 8px;border-radius:6px;font-weight:700">✅ Versé</span>{% endif %}
+            </td>
             <td style="padding:8px 12px;font-family:monospace">{{ v.bordereau_number or '-' }}</td>
             <td style="padding:8px 12px;font-size:12px;max-width:220px">{% if v.notes %}{{ v.notes }}{% elif v.mode == 'cheque' %}Remise de chèque{% else %}Versement{% endif %}</td>
             <td style="padding:8px 12px;text-align:right;font-weight:700;color:#1565c0">{{ '{:,.0f}'.format(v.montant or 0).replace(',', ' ') }} F</td>
@@ -118,4 +132,12 @@
     <div style="text-align:center;padding:40px;color:#888"><div style="font-size:40px">💰</div><p style="margin:8px 0 0">Aucune remise/versement enregistré.</p></div>
     {% endif %}
 </div>
+
+<script>
+function onTypeOp() {
+    var t = document.getElementById('typeOp');
+    var m = document.getElementById('modeSel');
+    if (t && m && t.value === 'remise') { m.value = 'cheque'; }
+}
+</script>
 {% endblock %}
