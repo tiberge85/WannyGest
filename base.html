@@ -495,7 +495,9 @@
             {# v106 : les rôles avec uniquement 'caisse_sortie' ne voient PAS la section complète, #}
             {# juste un lien direct en bas de sidebar (rendu plus bas dans 'OUTILS RAPIDES'). #}
             {# ═══════════════════════════════════════════════════════════════ #}
-            {% set has_full_tresorerie = 'section_tresorerie' in permissions or 'tresorerie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+            {# v162 : la Trésorerie ne dépend plus de 'comptabilite' (sinon visible chez l'agent recouvreur).
+               Elle dépend de 'tresorerie'/'section_tresorerie' — comptable/dg/caissière les ont déjà. #}
+            {% set has_full_tresorerie = 'section_tresorerie' in permissions or 'tresorerie' in permissions or 'admin' in permissions %}
             {% if has_full_tresorerie %}
             <div class="nav-section" id="sec-tresorerie">
                 <div class="nav-section-title" onclick="toggleSection('sec-tresorerie')">💵 TRÉSORERIE <span class="arrow">▼</span></div>
@@ -728,7 +730,7 @@
             {% set has_full_info = is_full_manager or user_role == 'informatique' %}
             {% set has_full_mg = is_full_manager or user_role in ('moyens_generaux', 'mg', 'magasinier') %}
             {% set has_full_concierge = is_full_manager or user_role == 'concierge' %}
-            {% set has_full_tresorerie = 'tresorerie' in permissions or 'comptabilite' in permissions or 'admin' in permissions %}
+            {% set has_full_tresorerie = 'section_tresorerie' in permissions or 'tresorerie' in permissions or 'admin' in permissions %}
             
             {# Outils transverses à mettre dans OUTILS RAPIDES (perm OK mais section non complète) #}
             {% set or_caisse_sortie = 'caisse_sortie' in permissions and not has_full_tresorerie %}
