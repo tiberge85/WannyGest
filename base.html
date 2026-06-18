@@ -221,6 +221,30 @@
             <div class="name">{{ current_user.full_name }}</div>
             <div class="role">{{ current_user.role }}</div>
         </div>
+        {# v162 : recherche d'un onglet dans tout le menu #}
+        <div style="padding:8px 10px 4px">
+            <input type="text" id="menuSearch" onkeyup="filterMenu()" placeholder="🔍 Rechercher un menu..."
+                style="width:100%;padding:7px 10px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;font-size:12px;background:rgba(255,255,255,0.12);color:#fff;outline:none">
+        </div>
+        <script>
+        function filterMenu(){
+            var q=(document.getElementById('menuSearch').value||'').trim().toLowerCase();
+            var nav=document.querySelector('.sidebar-nav'); if(!nav) return;
+            nav.querySelectorAll('a').forEach(function(a){
+                var t=(a.textContent||'').toLowerCase();
+                a.style.display=(!q||t.indexOf(q)>=0)?'':'none';
+            });
+            nav.querySelectorAll('.nav-section').forEach(function(sec){
+                var vis=false;
+                sec.querySelectorAll('.nav-section-items a').forEach(function(a){ if(a.style.display!=='none') vis=true; });
+                if(!q){ sec.style.display=''; }
+                else {
+                    sec.style.display = vis ? '' : 'none';
+                    if(vis){ var it=sec.querySelector('.nav-section-items'); if(it) it.style.display='block'; }
+                }
+            });
+        }
+        </script>
         <div class="sidebar-nav">
             {% if user_role != 'concierge' %}
             <a href="/dashboard" class="{% if page == 'dashboard' %}active{% endif %}">📊 Tableau de bord</a>
@@ -747,8 +771,14 @@
             {% set or_traitement = 'traitement' in permissions and not has_full_rh %}
             {% set or_tracking = 'tracking' in permissions and not has_full_tech %}
             {% set or_concierge = 'concierge' in permissions and not has_full_concierge %}
-            
-            {% set has_outils_rapides = or_caisse_sortie or or_livraison or or_cq or or_visites or or_clients or or_proforma or or_interventions or or_stock or or_mg_demande or or_field_report or or_traitement or or_tracking or or_concierge %}
+            {# v162 : accès compta en Outils rapides pour les rôles non-comptables (ex. agent recouvreur, caissière) #}
+            {% set or_factures = 'comptabilite' in permissions and not has_full_compta %}
+            {% set or_creances = ('creances_view' in permissions or 'comptabilite' in permissions) and not has_full_compta %}
+            {% set or_dettes = 'comptabilite' in permissions and not has_full_compta %}
+            {% set or_facture_edit = 'facture_edit' in permissions and not has_full_compta %}
+            {% set or_prestataires = 'prestataires_view' in permissions and not has_full_compta and not has_full_mg %}
+
+            {% set has_outils_rapides = or_caisse_sortie or or_livraison or or_cq or or_visites or or_clients or or_proforma or or_interventions or or_stock or or_mg_demande or or_field_report or or_traitement or or_tracking or or_concierge or or_factures or or_creances or or_dettes or or_facture_edit or or_prestataires %}
             
             {% if has_outils_rapides %}
             <div class="nav-section" id="sec-outils-rapides">
@@ -767,6 +797,11 @@
                     {% if or_traitement %}<a href="/traitement" class="{% if page == 'traitement' %}active{% endif %}">⏱️ Calcul d'heures</a>{% endif %}
                     {% if or_tracking %}<a href="/tracking" class="{% if page == 'tracking' %}active{% endif %}">📍 Tracking GPS</a>{% endif %}
                     {% if or_concierge %}<a href="/concierge" class="{% if page == 'concierge' %}active{% endif %}">🔑 Concierge</a>{% endif %}
+                    {% if or_factures %}<a href="/comptabilite?tab=all" class="{% if page == 'comptabilite' %}active{% endif %}">🧾 Factures</a>{% endif %}
+                    {% if or_creances %}<a href="/comptabilite/creances" class="{% if page == 'creances' %}active{% endif %}">📋 Suivi Créances</a>{% endif %}
+                    {% if or_dettes %}<a href="/comptabilite/dettes" class="{% if page == 'dettes' %}active{% endif %}">📤 Dettes fournisseurs</a>{% endif %}
+                    {% if or_facture_edit %}<a href="/recouvrement/factures-a-editer" class="{% if page == 'factures_a_editer' %}active{% endif %}">🧾 Factures à éditer</a>{% endif %}
+                    {% if or_prestataires %}<a href="/mg/prestataires" class="{% if page == 'mg_prestataires' %}active{% endif %}">🤝 Prestataires</a>{% endif %}
                 </div>
             </div>
             {% endif %}
