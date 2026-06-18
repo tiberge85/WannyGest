@@ -2599,6 +2599,25 @@ try:
 except Exception as _e: print(f"[v162c-Perms] Err : {_e}", flush=True)
 
 
+# v162d : RÉ-APPLICATION des accès agent_recouvreur (Factures, Créances TB/Paramètres/Mode d'emploi,
+# Dettes fournisseurs, Prestataires, Factures à éditer). Nécessaire car un enregistrement de la matrice
+# des permissions ANTÉRIEUR au correctif d'affichage (cases qui apparaissaient décochées) a pu les retirer.
+# Le correctif d'affichage est maintenant en place → elles s'afficheront cochées et resteront en place.
+try:
+    from models import get_db as _v162d_db
+    _v162d = _v162d_db()
+    if not _v162d.execute("SELECT value FROM app_settings WHERE key='v162_agent_recouvreur_access_v3'").fetchone():
+        for _p in ['section_compta', 'comptabilite', 'creances_view', 'creances_edit',
+                   'prestataires_view', 'facture_edit']:
+            try: _v162d.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('agent_recouvreur', ?)", (_p,))
+            except: pass
+        _v162d.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v162_agent_recouvreur_access_v3','1',datetime('now'))")
+        _v162d.commit()
+        print("[v162d-Perms] Accès agent_recouvreur ré-appliqués (Factures/Créances/Dettes/Prestataires/Facture à éditer)", flush=True)
+    _v162d.close()
+except Exception as _e: print(f"[v162d-Perms] Err : {_e}", flush=True)
+
+
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
 try:
     from models import get_db as _gdb_v161p
