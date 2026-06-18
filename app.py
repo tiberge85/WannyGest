@@ -7824,7 +7824,8 @@ def comptabilite_page():
     _groups = _OD_fac()
     for it in sorted(_unified, key=lambda x: (x['ym'] or ''), reverse=True):
         _groups.setdefault(it['ym'] or '', []).append(it)
-    factures_groupees = [{'ym': k, 'label': _fac_mlabel(k), 'items': v,
+    # clé 'rows' (et non 'items' : en Jinja, g.items renvoie la méthode dict.items → erreur)
+    factures_groupees = [{'ym': k, 'label': _fac_mlabel(k), 'rows': v,
                           'total': sum((i['amount'] or 0) for i in v)} for k, v in _groups.items()]
 
     return render_template('comptabilite.html', page='comptabilite', tab=tab,

@@ -67,8 +67,13 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
     <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ inv_stats.payee }}</div><div class="stat-label">Payées</div></div></div>
 </div>
 <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+    {% set _fc = {'a_envoyer': inv_stats.a_envoyer or 0, 'envoyee': inv_stats.envoyee or 0,
+                  'en_attente_paiement': inv_stats.en_attente_paiement or 0, 'payee': inv_stats.payee or 0,
+                  'all': (inv_stats.a_envoyer or 0) + (inv_stats.envoyee or 0) + (inv_stats.en_attente_paiement or 0) + (inv_stats.payee or 0)} %}
     {% for t, label in [('a_envoyer','📤 À envoyer'),('envoyee','📧 Envoyées'),('en_attente_paiement','⏳ Attente'),('payee','✅ Payées'),('all','📋 Toutes')] %}
-    <a href="/comptabilite?tab={{ t }}" class="btn {% if tab == t %}btn-primary{% else %}btn-outline{% endif %}">{{ label }}</a>
+    <a href="/comptabilite?tab={{ t }}" class="btn {% if tab == t %}btn-primary{% else %}btn-outline{% endif %}">{{ label }}
+        <span style="display:inline-block;min-width:18px;padding:1px 6px;border-radius:10px;font-size:11px;font-weight:800;margin-left:4px;{% if tab == t %}background:rgba(255,255,255,0.35);color:#fff{% else %}background:#1A7A6D;color:#fff{% endif %}">{{ _fc[t] }}</span>
+    </a>
     {% endfor %}
 </div>
 <div class="card"><div class="card-header"><h3>Factures</h3><div style="display:flex;gap:6px">
@@ -85,13 +90,13 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
     {% for g in factures_groupees %}
     <details class="fac-month" open data-month="{{ g.label|lower }}" style="margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         <summary style="cursor:pointer;padding:10px 14px;font-weight:700;color:#1a3a5c;background:#f4f9f8;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <span>📁 {{ g.label }} <span class="fac-month-count" style="font-size:11px;color:#888;font-weight:600">({{ g.items|length }})</span></span>
+            <span>📁 {{ g.label }} <span class="fac-month-count" style="font-size:11px;color:#888;font-weight:600">({{ g.rows|length }})</span></span>
             <span style="font-size:12px;color:#1A7A6D;font-weight:700">{{ '{:,.0f}'.format(g.total).replace(',', ' ') }} FCFA</span>
         </summary>
         <div class="table-wrap"><table>
             <thead><tr><th>Date</th><th>Client</th><th>Réf</th><th>Montant</th><th>Statut</th><th>Actions</th></tr></thead>
             <tbody>
-            {% for it in g.items %}
+            {% for it in g.rows %}
             <tr class="fac-row" data-fac="{{ (it.client_name ~ ' ' ~ it.reference ~ ' ' ~ (it.amount|int|string) ~ ' ' ~ it.status)|lower }}">
                 <td>{{ it.date or '-' }}</td>
                 <td><strong>{{ it.client_name }}</strong>{% if it.kind == 'fri' %} <span style="background:#ede7f6;color:#5e35b1;font-size:9px;padding:1px 5px;border-radius:6px">🔧 Terrain</span>{% endif %}</td>
