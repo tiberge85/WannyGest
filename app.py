@@ -8363,7 +8363,23 @@ def invoice_pdf(fid):
 @app.route('/comptabilite/facture/<int:fid>/preview')
 @permission_required('comptabilite')
 def invoice_preview(fid):
-    """Prévisualise le PDF de la facture dans le navigateur (sans téléchargement)."""
+    """v162 : prévisualisation au MODÈLE FACTURE (HTML imprimable), et non au modèle devis."""
+    conn = _gdb()
+    inv = conn.execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
+    conn.close()
+    if not inv:
+        flash("Facture introuvable", "error")
+        return redirect(url_for('comptabilite_page'))
+    inv = dict(inv)
+    inv['items'] = json.loads(inv.get('items_json', '[]') or '[]')
+    return render_template('invoice_view.html', page='comptabilite',
+                           inv=inv, inv_items=inv['items'], print_mode=True)
+
+
+@app.route('/comptabilite/facture/<int:fid>/pdf-devis-layout')
+@permission_required('comptabilite')
+def invoice_pdf_devis_layout(fid):
+    """(Ancien) PDF de la facture au format partagé devis — conservé pour compat."""
     conn = _gdb()
     inv_row = conn.execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
     if not inv_row:
@@ -8372,7 +8388,6 @@ def invoice_preview(fid):
         return redirect(url_for('comptabilite_page'))
     data = _build_invoice_pdf_data(inv_row, conn)
     conn.close()
-    
     from rapport_core import generate_devis_pdf
     export_dir = os.path.join(BASE_DIR, 'exports')
     os.makedirs(export_dir, exist_ok=True)
@@ -8380,7 +8395,6 @@ def invoice_preview(fid):
     logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"]
                    if os.path.exists(os.path.join(BASE_DIR, n))), None)
     generate_devis_pdf(data, output, logo_path=logo_r, doc_params=get_doc_params())
-    # Inline display
     from flask import Response
     with open(output, 'rb') as f:
         pdf_bytes = f.read()

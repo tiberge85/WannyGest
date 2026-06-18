@@ -12,9 +12,25 @@
 }
 .inv-container{max-width:800px;margin:0 auto}
 </style>
+{% if print_mode %}
+<style>
+/* v162 : aperçu propre au modèle facture (on masque l'interface à l'écran) */
+@media screen{
+    .sidebar,.mobile-toggle,.mobile-overlay,.chat-fab,.notif-toast,#championBanner,[style*="ticker"],.page-header{display:none!important}
+    .main{margin-left:0!important;padding:16px!important}
+    body{background:#eef2f5!important}
+}
+.fac-print-bar{position:fixed;top:12px;right:16px;z-index:9999;display:flex;gap:8px}
+@media print{.fac-print-bar{display:none!important}}
+</style>
+<div class="fac-print-bar no-print">
+    <button type="button" class="btn btn-sm" style="background:#1a7a6d;color:#fff" onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button>
+    <a href="/comptabilite?tab=all" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+{% endif %}
 <div class="page-header no-print"><h1>💰 {{ inv.reference }}</h1>
 <div style="display:flex;gap:6px;flex-wrap:wrap">
-<a href="/comptabilite/facture/{{ inv.id }}/preview" target="_blank" class="btn btn-sm" style="background:#fff3e0;color:#e8672a;border:1.5px solid #e8672a">🔍 Prévisualiser PDF</a>
+<a href="/comptabilite/facture/{{ inv.id }}/preview" target="_blank" class="btn btn-sm" style="background:#fff3e0;color:#e8672a;border:1.5px solid #e8672a">🔍 Prévisualiser / Imprimer</a>
 <a href="/comptabilite/facture/{{ inv.id }}/pdf" class="btn btn-sm" style="background:#1a7a6d;color:#fff">📄 Télécharger PDF</a>
 <a href="/comptabilite/facture/edit/{{ inv.id }}" class="btn btn-primary btn-sm">✏️ Modifier</a>
 <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ Imprimer</button>
