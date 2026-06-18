@@ -21629,11 +21629,15 @@ def caissiere_paiements():
         'recus': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
     }
 
+    # v162 : caisses disponibles → la caissière peut orienter un paiement vers une caisse
+    # quand l'agent recouvreur n'en a pas choisi (target_caisse_id NULL).
+    caisses = [dict(r) for r in conn.execute(
+        "SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
     conn.close()
 
     return render_template('caissiere_paiements.html', page='caissiere_paiements',
         items=items, tab=tab, counts=counts, totals=totals, search=search,
-        payment_types=PAYMENT_TYPES)
+        payment_types=PAYMENT_TYPES, caisses=caisses)
 
 
 @app.route('/caissiere/paiement/<int:fri_id>/valider', methods=['POST'])
@@ -21646,7 +21650,9 @@ def caissiere_valider(fri_id):
     amount_str = (request.form.get('amount_received','') or '').replace(',','.').strip()
     bordereau_number = (request.form.get('bordereau_number','') or '').strip()
     cashier_notes = (request.form.get('cashier_notes','') or '').strip()
-    
+    # v162 : la caissière peut orienter le paiement vers une caisse (si l'agent n'en a pas choisi)
+    caisse_id_str = (request.form.get('caisse_id','') or '').strip()
+
     try: amount_received = float(amount_str or 0)
     except: amount_received = 0
     
@@ -21671,7 +21677,13 @@ def caissiere_valider(fri_id):
             flash("Paiement introuvable", "error")
             return redirect('/caissiere/paiements')
         conn.close()
-        
+
+        # v162 : caisse à créditer — choix caissière sinon caisse choisie par l'agent
+        effective_caisse_id = int(caisse_id_str) if caisse_id_str.isdigit() else (fri['target_caisse_id'] or None)
+        if not effective_caisse_id:
+            flash("⚠️ Aucune caisse sélectionnée — choisissez la caisse à créditer.", "error")
+            return redirect('/caissiere/paiements')
+
         # v145 : Upload bordereau
         bordereau_path = None
         try:
@@ -21686,25 +21698,26 @@ def caissiere_valider(fri_id):
             SET payment_amount_received=?, payment_received_at=datetime('now'),
                 payment_validated_by=?, payment_validated_at=datetime('now'),
                 bordereau_number=?, bordereau_file=?, cashier_notes=?,
+                target_caisse_id=?,
                 status='paye', updated_at=datetime('now')
             WHERE id=?""",
             (amount_received, user['id'], bordereau_number or None,
-             bordereau_path, cashier_notes, fri_id))
-        
-        # 2. Créer une opération d'entrée dans la caisse cible
+             bordereau_path, cashier_notes, effective_caisse_id, fri_id))
+
+        # 2. Créer une opération d'entrée dans la caisse cible (choisie par l'agent OU par la caissière)
         ref = f"PAY-{fri['invoice_number'] or 'FRI'+str(fri_id)}"
         try:
             conn.execute("""INSERT INTO caisse_operations
                 (caisse_id, type, amount, description, reference, created_by, created_at)
                 VALUES (?,'entree',?,?,?,?,datetime('now'))""",
-                (fri['target_caisse_id'], amount_received,
+                (effective_caisse_id, amount_received,
                  f"Paiement facture {fri['invoice_number'] or fri['fr_ref']} — {fri['client_name']}",
                  ref, user['id']))
             try:
                 _sync_caisse_op_to_journal(conn, 'entree', datetime.now().strftime('%Y-%m-%d'),
-                    amount_received, 
+                    amount_received,
                     f"Paiement facture {fri['invoice_number'] or fri['fr_ref']} ({fri['client_name']})",
-                    ref, user['id'], caisse_id=fri['target_caisse_id'])
+                    ref, user['id'], caisse_id=effective_caisse_id)
             except Exception as _e: print(f"[v145] sync journal err : {_e}", flush=True)
         except Exception as _e: print(f"[v145] caisse op err : {_e}", flush=True)
         

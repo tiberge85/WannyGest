@@ -58,8 +58,9 @@
                     · Envoyée par <strong>{{ it.recovery_agent_name or '?' }}</strong>
                     {% if it.recovery_sent_at %} · {{ it.recovery_sent_at[:16] }}{% endif %}
                 </div>
-                <div style="font-size:11px;color:#0d4a18;margin-top:5px;background:#fff;padding:5px 8px;border-radius:5px;display:inline-block">
-                    💵 Caisse cible : <strong>{{ it.caisse_name or '?' }}</strong>
+                <div style="font-size:11px;margin-top:5px;background:#fff;padding:5px 8px;border-radius:5px;display:inline-block;color:{% if it.caisse_name %}#0d4a18{% else %}#c53030{% endif %}">
+                    {% if it.caisse_name %}💵 Caisse cible : <strong>{{ it.caisse_name }}</strong>
+                    {% else %}⚠️ <strong>Aucune caisse choisie par l'agent</strong> — sélectionnez-la ci-dessous{% endif %}
                 </div>
                 {% if it.payment_type %}
                 <div style="font-size:11px;color:#0d4a18;margin-top:5px">
@@ -91,6 +92,13 @@
             class="bord-section">
             <h4>✅ Valider le paiement + Joindre le bordereau de versement</h4>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:8px">
+                <div>
+                    <label style="font-size:10px;color:#666;display:block">💵 Caisse à créditer *{% if not it.target_caisse_id %} <span style="color:#c53030">(non choisie par l'agent)</span>{% endif %}</label>
+                    <select name="caisse_id" required title="Caisse à créditer" style="width:100%;padding:8px;border:1.5px solid {% if not it.target_caisse_id %}#c53030{% else %}#2e7d32{% endif %};border-radius:5px;font-size:12px;font-weight:700">
+                        <option value="">— Choisir une caisse —</option>
+                        {% for c in caisses %}<option value="{{ c.id }}" {% if c.id == it.target_caisse_id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
                 <div>
                     <label style="font-size:10px;color:#666;display:block">💰 Montant effectivement reçu (XOF) *</label>
                     <input type="number" name="amount_received" required step="1" min="0" 
