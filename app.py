@@ -2618,6 +2618,28 @@ try:
 except Exception as _e: print(f"[v162d-Perms] Err : {_e}", flush=True)
 
 
+# v162e : FUSION des rôles comptable / comptabilite (identiques). On aligne les deux sur l'UNION
+# de leurs permissions actuelles (une seule fois). Ensuite la matrice (colonne « comptable »)
+# pilote les deux et les garde synchronisés.
+try:
+    from models import get_db as _v162e_db
+    _v162e = _v162e_db()
+    if not _v162e.execute("SELECT value FROM app_settings WHERE key='v162_merge_comptable'").fetchone():
+        _a = set(r['permission'] for r in _v162e.execute("SELECT permission FROM permissions WHERE role='comptable'").fetchall())
+        _b = set(r['permission'] for r in _v162e.execute("SELECT permission FROM permissions WHERE role='comptabilite'").fetchall())
+        _union = sorted(_a | _b)
+        for _role in ('comptable', 'comptabilite'):
+            _v162e.execute("DELETE FROM permissions WHERE role=?", (_role,))
+            for _p in _union:
+                try: _v162e.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (_role, _p))
+                except: pass
+        _v162e.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v162_merge_comptable','1',datetime('now'))")
+        _v162e.commit()
+        print(f"[v162e-Perms] comptable/comptabilite fusionnés ({len(_union)} permissions)", flush=True)
+    _v162e.close()
+except Exception as _e: print(f"[v162e-Perms] Err : {_e}", flush=True)
+
+
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
 try:
     from models import get_db as _gdb_v161p
@@ -6542,7 +6564,9 @@ def admin_page():
     stats = get_dashboard_stats()
     # v162 : inclure TOUTES les colonnes de la matrice (sinon leurs cases s'affichent toujours
     # décochées même si la permission est bien enregistrée — ex. agent_recouvreur, caissiere)
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'comptabilite', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
+    # v162 : comptable et comptabilite = même rôle → la colonne « comptable » montre l'union des deux
+    role_perms['comptable'] = sorted(set(role_perms.get('comptable', [])) | set(get_role_permissions('comptabilite')))
     conn = _gdb()
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
@@ -6723,7 +6747,7 @@ def admin_permissions():
         for _p, _l in _perms:
             matrix_perms.add(_p)
     # Rôles affichés en colonnes dans admin.html (doit rester synchronisé avec le template)
-    matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'comptabilite',
+    matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable',
                     'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique',
                     'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']
     for role in matrix_roles:
@@ -6731,6 +6755,9 @@ def admin_permissions():
         preserved = {p for p in existing if p not in matrix_perms}          # hors-matrice : conservées
         checked = {p for p in matrix_perms if request.form.get(f'{role}_{p}')}  # cochées dans la matrice
         update_role_permissions(role, sorted(preserved | checked))
+    # v162 : comptable et comptabilite sont le même rôle → on synchronise comptabilite sur comptable
+    try: update_role_permissions('comptabilite', get_role_permissions('comptable'))
+    except Exception: pass
     # Admin always has all
     update_role_permissions('admin', ALL_PERMISSIONS)
     flash("Permissions mises à jour", "success")
@@ -8018,6 +8045,27 @@ def comptabilite_status(inv_id, status):
                     'Facture', f"Facture #{inv_id} → {status}", request.remote_addr)
         flash(f"Statut mis à jour : {status}", "success")
     return redirect(url_for('comptabilite_page'))
+
+
+@app.route('/comptabilite/facture/<int:fid>/delete', methods=['POST'])
+@login_required
+def comptabilite_facture_delete(fid):
+    """v162 : suppression d'une facture — réservée au DG, aux Moyens Généraux et à l'admin."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'dg', 'directeur', 'moyens_generaux', 'mg', 'magasinier'):
+        flash("⚠️ Seuls le DG, les Moyens Généraux ou l'admin peuvent supprimer une facture.", "error")
+        return redirect('/comptabilite?tab=all')
+    conn = _gdb()
+    inv = conn.execute("SELECT reference FROM invoices WHERE id=?", (fid,)).fetchone()
+    if not inv:
+        conn.close(); flash("Facture introuvable", "error"); return redirect('/comptabilite?tab=all')
+    ref = inv['reference'] or f"#{fid}"
+    conn.execute("DELETE FROM invoices WHERE id=?", (fid,))
+    conn.commit(); conn.close()
+    log_activity(session['user_id'], user['full_name'], 'Facture',
+                 f"Facture {ref} supprimée", request.remote_addr)
+    flash(f"🗑️ Facture {ref} supprimée", "success")
+    return redirect('/comptabilite?tab=all')
 
 @app.route('/comptabilite/facture/new', methods=['GET', 'POST'])
 @permission_required('comptabilite_edit')
