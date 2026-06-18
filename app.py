@@ -8077,6 +8077,32 @@ def comptabilite_facture_delete(fid):
     flash(f"🗑️ Facture {ref} supprimée", "success")
     return redirect('/comptabilite?tab=all')
 
+
+@app.route('/comptabilite/factures/delete-bulk', methods=['POST'])
+@login_required
+def comptabilite_factures_delete_bulk():
+    """v162 : suppression de PLUSIEURS factures à la fois — DG, Moyens Généraux et admin."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'dg', 'directeur', 'moyens_generaux', 'mg', 'magasinier'):
+        flash("⚠️ Seuls le DG, les Moyens Généraux ou l'admin peuvent supprimer des factures.", "error")
+        return redirect('/comptabilite?tab=all')
+    ids = []
+    for v in request.form.getlist('ids'):
+        try: ids.append(int(v))
+        except: pass
+    if not ids:
+        flash("Aucune facture sélectionnée.", "error")
+        return redirect('/comptabilite?tab=all')
+    conn = _gdb()
+    placeholders = ','.join('?' * len(ids))
+    conn.execute(f"DELETE FROM invoices WHERE id IN ({placeholders})", ids)
+    conn.commit(); conn.close()
+    log_activity(session['user_id'], user['full_name'], 'Facture',
+                 f"{len(ids)} facture(s) supprimée(s) (sélection multiple)", request.remote_addr)
+    flash(f"🗑️ {len(ids)} facture(s) supprimée(s)", "success")
+    return redirect('/comptabilite?tab=all')
+
+
 @app.route('/comptabilite/facture/new', methods=['GET', 'POST'])
 @permission_required('comptabilite_edit')
 def invoice_new():

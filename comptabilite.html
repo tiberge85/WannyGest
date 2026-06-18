@@ -80,12 +80,17 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
 {% if can_edit('comptabilite') %}<a href="/comptabilite/facture/new" class="btn btn-primary btn-sm">+ Nouvelle facture</a>{% endif %}
 <a href="/comptabilite/rapport-caisse" class="btn btn-sm" style="background:#B8860B;color:#fff">📋 Rapport caisse</a>
 </div></div><div class="card-body">
-    <div style="margin-bottom:12px">
+    {% set can_del_fac = current_user and current_user.role in ('admin','dg','directeur','moyens_generaux','mg','magasinier') %}
+    <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <input type="text" id="facSearch" onkeyup="filterFactures()" placeholder="🔍 Rechercher une facture (client, référence, montant...)"
-            style="width:100%;max-width:440px;padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px">
-        <span id="facSearchCount" style="font-size:11px;color:#888;margin-left:8px"></span>
-        {% if tab == 'all' %}<div style="font-size:11px;color:#888;margin-top:4px">📁 Rangées par mois. Inclut aussi les factures éditées « terrain » (recouvrement).</div>{% endif %}
+            style="flex:1;min-width:240px;max-width:440px;padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px">
+        <span id="facSearchCount" style="font-size:11px;color:#888"></span>
+        {% if can_del_fac %}
+        <button type="button" onclick="toggleAllFac()" class="btn btn-outline btn-sm">☑️ Tout cocher/décocher</button>
+        <button type="button" id="facBulkBtn" onclick="bulkDeleteFactures()" class="btn btn-sm" style="background:#c53030;color:#fff;opacity:0.5" disabled>🗑️ Supprimer la sélection (0)</button>
+        {% endif %}
     </div>
+    {% if tab == 'all' %}<div style="font-size:11px;color:#888;margin:-6px 0 10px">📁 Rangées par mois. Inclut aussi les factures éditées « terrain » (recouvrement).</div>{% endif %}
     {% if factures_groupees %}
     {% for g in factures_groupees %}
     <details class="fac-month" open data-month="{{ g.label|lower }}" style="margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
@@ -94,10 +99,11 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
             <span style="font-size:12px;color:#1A7A6D;font-weight:700">{{ '{:,.0f}'.format(g.total).replace(',', ' ') }} FCFA</span>
         </summary>
         <div class="table-wrap"><table>
-            <thead><tr><th>Date</th><th>Client</th><th>Réf</th><th>Montant</th><th>Statut</th><th>Actions</th></tr></thead>
+            <thead><tr>{% if can_del_fac %}<th style="width:26px"></th>{% endif %}<th>Date</th><th>Client</th><th>Réf</th><th>Montant</th><th>Statut</th><th>Actions</th></tr></thead>
             <tbody>
             {% for it in g.rows %}
             <tr class="fac-row" data-fac="{{ (it.client_name ~ ' ' ~ it.reference ~ ' ' ~ (it.amount|int|string) ~ ' ' ~ it.status)|lower }}">
+                {% if can_del_fac %}<td>{% if it.kind == 'invoice' %}<input type="checkbox" class="fac-check" title="Sélectionner cette facture" value="{{ it.id }}" onchange="updateFacSelCount()">{% endif %}</td>{% endif %}
                 <td>{{ it.date or '-' }}</td>
                 <td><strong>{{ it.client_name }}</strong>{% if it.kind == 'fri' %} <span style="background:#ede7f6;color:#5e35b1;font-size:9px;padding:1px 5px;border-radius:6px">🔧 Terrain</span>{% endif %}</td>
                 <td>{{ it.reference }}</td>
@@ -153,6 +159,31 @@ function filterFactures(){
     });
     var c=document.getElementById('facSearchCount');
     if(c) c.textContent=q?(shown+' facture(s) trouvée(s)'):'';
+}
+
+// v162 : sélection multiple + suppression groupée des factures
+function updateFacSelCount(){
+    var n=document.querySelectorAll('.fac-check:checked').length;
+    var b=document.getElementById('facBulkBtn');
+    if(b){ b.textContent='🗑️ Supprimer la sélection ('+n+')'; b.disabled=(n===0); b.style.opacity=n?'1':'0.5'; }
+}
+function toggleAllFac(){
+    var all=document.querySelectorAll('.fac-check');
+    var anyUnchecked=false;
+    all.forEach(function(c){ if(!c.checked && c.closest('tr').style.display!=='none') anyUnchecked=true; });
+    all.forEach(function(c){ if(c.closest('tr').style.display!=='none') c.checked=anyUnchecked; });
+    updateFacSelCount();
+}
+function bulkDeleteFactures(){
+    var checked=Array.prototype.slice.call(document.querySelectorAll('.fac-check:checked'));
+    if(!checked.length){ alert('Aucune facture sélectionnée.'); return; }
+    if(!confirm('🗑️ Supprimer définitivement '+checked.length+' facture(s) ? Cette action est irréversible.')) return;
+    var form=document.createElement('form');
+    form.method='POST'; form.action='/comptabilite/factures/delete-bulk';
+    checked.forEach(function(cb){
+        var i=document.createElement('input'); i.type='hidden'; i.name='ids'; i.value=cb.value; form.appendChild(i);
+    });
+    document.body.appendChild(form); form.submit();
 }
 </script>
 
