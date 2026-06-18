@@ -973,6 +973,20 @@
             <span class="chat-fab-badge" id="chatBadge" style="{% if not unread_messages %}display:none{% endif %}">{{ unread_messages or 0 }}</span>
         </a>
     </div>
+    {# v162 : bouton « retour en haut » visible quand on a défilé vers le bas #}
+    <button id="backToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Remonter en haut de la page" aria-label="Remonter en haut"
+        style="position:fixed;bottom:92px;right:26px;z-index:998;width:46px;height:46px;border-radius:50%;border:none;background:#1A7A6D;color:#fff;font-size:22px;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,0.28);cursor:pointer;display:none">↑</button>
+    <script>
+    (function(){
+        var btn=document.getElementById('backToTop');
+        if(!btn) return;
+        function toggle(){ btn.style.display=(window.pageYOffset||document.documentElement.scrollTop)>300?'flex':'none'; }
+        btn.style.alignItems='center'; btn.style.justifyContent='center';
+        window.addEventListener('scroll',toggle,{passive:true});
+        window.addEventListener('resize',toggle,{passive:true});
+        toggle();
+    })();
+    </script>
     <div class="notif-toast" id="notifToast"><span class="nt-close" onclick="this.parentElement.style.display='none'">✕</span>
         <div class="nt-title" id="ntTitle"></div><div class="nt-msg" id="ntMsg"></div>
     </div>

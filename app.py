@@ -7769,8 +7769,48 @@ def comptabilite_page():
         'ecritures_count': ecritures_count, 'paie_pending': paie_pending,
     }
     
+    # v162 : factures regroupées par MOIS (dossiers mensuels) + factures éditées « terrain » (FRI)
+    # dans l'onglet « Toutes », pour que toutes les factures éditées se retrouvent dans Factures.
+    from collections import OrderedDict as _OD_fac
+    _MOIS_FAC = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet',
+                 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+    def _fac_mlabel(ym):
+        try:
+            y, m = ym.split('-'); return f"{_MOIS_FAC[int(m)]} {y}"
+        except Exception:
+            return ym or 'Sans date'
+    _unified = []
+    for inv in invoices:
+        _d = (inv.get('created_at') or '')
+        _unified.append({'kind': 'invoice', 'id': inv.get('id'), 'date': _d[:10], 'ym': _d[:7],
+                         'client_name': inv.get('client_name') or '-', 'reference': inv.get('reference') or '-',
+                         'amount': inv.get('amount') or 0, 'status': inv.get('status') or ''})
+    if tab == 'all':
+        try:
+            _cf = _gdb()
+            _fri = _cf.execute("""SELECT fri.id, fri.invoice_number, fri.amount, fri.emitted_at, fri.status,
+                    fr.client_name, fr.reference AS fr_ref
+                FROM field_report_invoices fri JOIN field_reports fr ON fr.id = fri.field_report_id
+                WHERE fri.status IN ('facture_editee','en_recouvrement','caisse_choisie','paye')
+                ORDER BY fri.emitted_at DESC""").fetchall()
+            _cf.close()
+            for f in _fri:
+                _d = (f['emitted_at'] or '')
+                _unified.append({'kind': 'fri', 'id': f['id'], 'date': _d[:10], 'ym': _d[:7],
+                                 'client_name': f['client_name'] or '-',
+                                 'reference': f['invoice_number'] or f['fr_ref'] or ('FRI-' + str(f['id'])),
+                                 'amount': f['amount'] or 0, 'status': f['status'] or ''})
+        except Exception:
+            pass
+    _groups = _OD_fac()
+    for it in sorted(_unified, key=lambda x: (x['ym'] or ''), reverse=True):
+        _groups.setdefault(it['ym'] or '', []).append(it)
+    factures_groupees = [{'ym': k, 'label': _fac_mlabel(k), 'items': v,
+                          'total': sum((i['amount'] or 0) for i in v)} for k, v in _groups.items()]
+
     return render_template('comptabilite.html', page='comptabilite', tab=tab,
-                          invoices=invoices, inv_stats=inv_stats, chart=chart_data, recent_devis=recent_devis)
+                          invoices=invoices, factures_groupees=factures_groupees,
+                          inv_stats=inv_stats, chart=chart_data, recent_devis=recent_devis)
 
 
 @app.route('/comptabilite/factures')

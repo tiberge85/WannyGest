@@ -75,31 +75,76 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
 {% if can_edit('comptabilite') %}<a href="/comptabilite/facture/new" class="btn btn-primary btn-sm">+ Nouvelle facture</a>{% endif %}
 <a href="/comptabilite/rapport-caisse" class="btn btn-sm" style="background:#B8860B;color:#fff">📋 Rapport caisse</a>
 </div></div><div class="card-body">
-    {% if invoices %}
-    <div class="table-wrap"><table>
-        <thead><tr><th>Date</th><th>Client</th><th>Réf</th><th>Montant</th><th>Statut</th><th>Actions</th></tr></thead>
-        <tbody>{% for inv in invoices %}<tr>
-            <td>{{ inv.created_at[:10] }}</td>
-            <td><strong>{{ inv.client_name }}</strong></td>
-            <td>{{ inv.reference or '-' }}</td>
-            <td>{{ '{:,.0f}'.format(inv.amount) }} FCFA</td>
-            <td>{% if inv.status == 'a_envoyer' %}<span class="badge-status pending">📤 À envoyer</span>
-                {% elif inv.status == 'envoyee' %}<span class="badge-status" style="background:#e3f2fd;color:#1A7A6D">📧 Envoyée</span>
-                {% elif inv.status == 'en_attente_paiement' %}<span class="badge-status pending">⏳ Attente paiement</span>
-                {% elif inv.status == 'payee' %}<span class="badge-status sent">✅ Payée</span>{% endif %}</td>
-            <td style="display:flex;gap:4px;flex-wrap:wrap">
-                <a href="/comptabilite/facture/view/{{ inv.id }}" class="btn btn-outline btn-sm" title="Voir">👁️</a>
-                <a href="/comptabilite/facture/{{ inv.id }}/preview" target="_blank" class="btn btn-outline btn-sm" style="background:#fff3e0;color:#e8672a;border-color:#e8672a" title="Prévisualiser le PDF">🔍</a>
-                <a href="/comptabilite/facture/{{ inv.id }}/pdf" class="btn btn-outline btn-sm" style="background:#e3f2fd;color:#1a7a6d;border-color:#1a7a6d" title="Télécharger PDF">📄</a>
-                {% if can_edit('comptabilite') %}<a href="/comptabilite/facture/edit/{{ inv.id }}" class="btn btn-outline btn-sm" title="Modifier">✏️</a>{% endif %}
-                {% if inv.status == 'a_envoyer' %}<a href="/comptabilite/status/{{ inv.id }}/envoyee" class="btn btn-primary btn-sm">📧 Envoyée</a>{% endif %}
-                {% if inv.status == 'envoyee' %}<a href="/comptabilite/status/{{ inv.id }}/en_attente_paiement" class="btn btn-sm" style="background:#f57f17;color:#fff">⏳ Attente</a>{% endif %}
-                {% if inv.status == 'en_attente_paiement' %}<a href="/comptabilite/status/{{ inv.id }}/payee" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅ Payée</a>{% endif %}
-            </td>
-        </tr>{% endfor %}</tbody>
-    </table></div>
+    <div style="margin-bottom:12px">
+        <input type="text" id="facSearch" onkeyup="filterFactures()" placeholder="🔍 Rechercher une facture (client, référence, montant...)"
+            style="width:100%;max-width:440px;padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px">
+        <span id="facSearchCount" style="font-size:11px;color:#888;margin-left:8px"></span>
+        {% if tab == 'all' %}<div style="font-size:11px;color:#888;margin-top:4px">📁 Rangées par mois. Inclut aussi les factures éditées « terrain » (recouvrement).</div>{% endif %}
+    </div>
+    {% if factures_groupees %}
+    {% for g in factures_groupees %}
+    <details class="fac-month" open data-month="{{ g.label|lower }}" style="margin-bottom:10px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+        <summary style="cursor:pointer;padding:10px 14px;font-weight:700;color:#1a3a5c;background:#f4f9f8;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <span>📁 {{ g.label }} <span class="fac-month-count" style="font-size:11px;color:#888;font-weight:600">({{ g.items|length }})</span></span>
+            <span style="font-size:12px;color:#1A7A6D;font-weight:700">{{ '{:,.0f}'.format(g.total).replace(',', ' ') }} FCFA</span>
+        </summary>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Date</th><th>Client</th><th>Réf</th><th>Montant</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for it in g.items %}
+            <tr class="fac-row" data-fac="{{ (it.client_name ~ ' ' ~ it.reference ~ ' ' ~ (it.amount|int|string) ~ ' ' ~ it.status)|lower }}">
+                <td>{{ it.date or '-' }}</td>
+                <td><strong>{{ it.client_name }}</strong>{% if it.kind == 'fri' %} <span style="background:#ede7f6;color:#5e35b1;font-size:9px;padding:1px 5px;border-radius:6px">🔧 Terrain</span>{% endif %}</td>
+                <td>{{ it.reference }}</td>
+                <td>{{ '{:,.0f}'.format(it.amount or 0).replace(',', ' ') }} FCFA</td>
+                <td>{% if it.status in ('a_envoyer',) %}<span class="badge-status pending">📤 À envoyer</span>
+                    {% elif it.status in ('envoyee',) %}<span class="badge-status" style="background:#e3f2fd;color:#1A7A6D">📧 Envoyée</span>
+                    {% elif it.status in ('en_attente_paiement',) %}<span class="badge-status pending">⏳ Attente paiement</span>
+                    {% elif it.status in ('payee','paye') %}<span class="badge-status sent">✅ Payée</span>
+                    {% elif it.status == 'facture_editee' %}<span class="badge-status" style="background:#d4edda;color:#155724">🧾 Éditée</span>
+                    {% elif it.status == 'en_recouvrement' %}<span class="badge-status" style="background:#cce5ff;color:#004085">📤 En recouvrement</span>
+                    {% elif it.status == 'caisse_choisie' %}<span class="badge-status" style="background:#d6f5d6;color:#0d4a18">💵 Encaissement</span>
+                    {% else %}<span class="badge-status">{{ it.status }}</span>{% endif %}</td>
+                <td style="display:flex;gap:4px;flex-wrap:wrap">
+                    {% if it.kind == 'invoice' %}
+                    <a href="/comptabilite/facture/view/{{ it.id }}" class="btn btn-outline btn-sm" title="Voir">👁️</a>
+                    <a href="/comptabilite/facture/{{ it.id }}/preview" target="_blank" class="btn btn-outline btn-sm" style="background:#fff3e0;color:#e8672a;border-color:#e8672a" title="Prévisualiser le PDF">🔍</a>
+                    <a href="/comptabilite/facture/{{ it.id }}/pdf" class="btn btn-outline btn-sm" style="background:#e3f2fd;color:#1a7a6d;border-color:#1a7a6d" title="Télécharger PDF">📄</a>
+                    {% if can_edit('comptabilite') %}<a href="/comptabilite/facture/edit/{{ it.id }}" class="btn btn-outline btn-sm" title="Modifier">✏️</a>{% endif %}
+                    {% if it.status == 'a_envoyer' %}<a href="/comptabilite/status/{{ it.id }}/envoyee" class="btn btn-primary btn-sm">📧 Envoyée</a>{% endif %}
+                    {% if it.status == 'envoyee' %}<a href="/comptabilite/status/{{ it.id }}/en_attente_paiement" class="btn btn-sm" style="background:#f57f17;color:#fff">⏳ Attente</a>{% endif %}
+                    {% if it.status == 'en_attente_paiement' %}<a href="/comptabilite/status/{{ it.id }}/payee" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅ Payée</a>{% endif %}
+                    {% else %}
+                    <a href="/recouvrement/facture/{{ it.id }}/preview" target="_blank" class="btn btn-outline btn-sm" title="Voir la facture terrain">👁️</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+    </details>
+    {% endfor %}
     {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune facture dans cette catégorie</p>{% endif %}
 </div></div>
+
+<script>
+function filterFactures(){
+    var q=(document.getElementById('facSearch').value||'').trim().toLowerCase();
+    var shown=0;
+    document.querySelectorAll('.fac-month').forEach(function(folder){
+        var anyVisible=false;
+        folder.querySelectorAll('tr.fac-row').forEach(function(r){
+            var match=!q || (r.getAttribute('data-fac')||'').indexOf(q)>=0;
+            r.style.display=match?'':'none';
+            if(match){ anyVisible=true; shown++; }
+        });
+        folder.style.display=anyVisible?'':'none';
+        if(q && anyVisible){ folder.setAttribute('open','open'); }
+    });
+    var c=document.getElementById('facSearchCount');
+    if(c) c.textContent=q?(shown+' facture(s) trouvée(s)'):'';
+}
+</script>
 
 <!-- Recent Devis from CRM -->
 {% if recent_devis %}

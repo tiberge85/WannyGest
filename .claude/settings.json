@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk 'NR>=2880 && NR<=3155 && /^def |^    def |result = |result\\\\[/' app.py)",
+      "Bash(awk 'NR<2951 && /^def /{ln=NR; name=$0} END{}' app.py)",
+      "Bash(awk -F: '$1<2951')",
+      "Bash(awk -F: '$1<3133')",
+      "Bash(python3 -c ' *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
