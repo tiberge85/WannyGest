@@ -4,8 +4,11 @@
     .no-print,.sidebar,.mobile-toggle,.mobile-overlay,.chat-fab,.notif-toast,#championBanner,[style*="ticker"]{display:none!important}
     body{display:block!important;background:#fff!important}
     .main{margin-left:0!important;padding:0!important;width:100%!important}
-    .card{box-shadow:none!important;border:none!important}
+    .card{box-shadow:none!important;border:none!important;padding:12mm 14mm!important}
     .inv-container{max-width:100%!important}
+    table,tr{page-break-inside:avoid;break-inside:avoid}
+    /* @page sans marge → supprime l'entête/pied du navigateur (titre, date, URL, « Page X sur Y ») */
+    @page{margin:0}
 }
 .inv-container{max-width:800px;margin:0 auto}
 </style>

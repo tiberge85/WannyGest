@@ -8,8 +8,12 @@
     .chat-fab, .notif-toast, [style*="ticker"], .modifier-block, .actions-block { display:none !important }
     body { display:block !important; background:#fff !important; margin:0 !important; padding:0 !important }
     .main { margin-left:0 !important; padding:0 !important; width:100% !important }
-    .invoice-doc { box-shadow:none !important; max-width:100% !important; margin:0 !important; border:none !important; padding:20px !important }
-    @page { margin:1cm }
+    .invoice-doc { box-shadow:none !important; max-width:100% !important; margin:0 !important; border:none !important; padding:12mm 14mm !important; font-size:11px }
+    /* le pied de page ne doit jamais être coupé ni rester seul sur une autre page */
+    .inv-footer { page-break-inside:avoid; break-inside:avoid }
+    table, tr, .inv-parties { page-break-inside:avoid; break-inside:avoid }
+    /* @page sans marge → supprime l'entête/pied du navigateur (titre, date, URL, « Page X sur Y ») */
+    @page { margin:0 }
 }
 
 .invoice-doc {

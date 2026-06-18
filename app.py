@@ -20911,7 +20911,7 @@ def field_report_decide_facturation(rid):
 # ============= COMPTABILITÉ : Éditer la facture =============
 
 @app.route('/recouvrement/factures-a-editer')
-@permission_required_any('facture_edit', 'admin')
+@permission_required_any('facture_edit', 'comptabilite', 'admin')
 def factures_a_editer():
     """v142 / v145 : Page comptabilité avec onglets.
     - tab=a_editer : factures à éditer (status='a_facturer')
@@ -20955,7 +20955,7 @@ def factures_a_editer():
 
 
 @app.route('/recouvrement/facture/<int:fri_id>/preview')
-@permission_required_any('facture_edit', 'recouvrement_view', 'admin')
+@permission_required_any('facture_edit', 'recouvrement_view', 'comptabilite', 'admin')
 def facture_preview(fri_id):
     """v145 : Prévisualisation HTML d'une facture (PDF-like)."""
     conn = _gdb()
