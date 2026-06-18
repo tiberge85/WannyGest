@@ -4963,6 +4963,16 @@ def _inject_csrf_token():
     return {'csrf_token': _ensure_csrf_token}
 
 
+@app.context_processor
+def _inject_doc_params():
+    """v162 : rend les paramètres de documents (entête/pied) disponibles dans TOUS les templates
+    → personnalisables depuis Admin → Paramètres documents."""
+    try:
+        return {'doc_params': get_doc_params()}
+    except Exception:
+        return {'doc_params': dict(DEFAULT_DOC_PARAMS)}
+
+
 @app.after_request
 def _set_csrf_cookie(response):
     """Pose le token CSRF dans un cookie lisible par JS (pour double-submit)."""
@@ -8301,7 +8311,7 @@ def invoice_pdf(fid):
     output = os.path.join(export_dir, f"{data['reference']}.pdf")
     logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"]
                    if os.path.exists(os.path.join(BASE_DIR, n))), None)
-    generate_devis_pdf(data, output, logo_path=logo_r)
+    generate_devis_pdf(data, output, logo_path=logo_r, doc_params=get_doc_params())
     return send_file(output, as_attachment=True,
                      download_name=f"{data['reference']}.pdf")
 
@@ -8325,7 +8335,7 @@ def invoice_preview(fid):
     output = os.path.join(export_dir, f"{data['reference']}_preview.pdf")
     logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"]
                    if os.path.exists(os.path.join(BASE_DIR, n))), None)
-    generate_devis_pdf(data, output, logo_path=logo_r)
+    generate_devis_pdf(data, output, logo_path=logo_r, doc_params=get_doc_params())
     # Inline display
     from flask import Response
     with open(output, 'rb') as f:
@@ -9428,7 +9438,7 @@ def devis_pdf(did):
                 devis['redacteur_date'] = dt.strftime('%d/%m/%Y à %H:%M')
             except: devis['redacteur_date'] = ca[:16]
     logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"] if os.path.exists(os.path.join(BASE_DIR, n))), None)
-    generate_devis_pdf(devis, output, logo_path=logo_r)
+    generate_devis_pdf(devis, output, logo_path=logo_r, doc_params=get_doc_params())
     
     return send_file(output, as_attachment=True, download_name=f"{devis['reference']}.pdf")
 
@@ -9661,7 +9671,7 @@ def devis_preview(did):
     output = os.path.join(export_dir, f"preview_{devis['reference']}.pdf")
     devis['date'] = devis.get('created_at', '')[:10]
     logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"] if os.path.exists(os.path.join(BASE_DIR, n))), None)
-    generate_devis_pdf(devis, output, logo_path=logo_r)
+    generate_devis_pdf(devis, output, logo_path=logo_r, doc_params=get_doc_params())
     return send_file(output, as_attachment=False, download_name=f"{devis['reference']}.pdf")
 
 

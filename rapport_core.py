@@ -2572,8 +2572,9 @@ def fmt(amount):
     return f"{amount:,.0f}".replace(',', ' ')
 
 
-def generate_devis_pdf(devis_data, output_path, logo_path=None):
-    """Génère un PDF de devis/proforma/facture au format RAMYA exact (cf. modèle)."""
+def generate_devis_pdf(devis_data, output_path, logo_path=None, doc_params=None):
+    """Génère un PDF de devis/proforma/facture au format RAMYA exact (cf. modèle).
+    v162 : doc_params (entête/pied personnalisables via Admin → Paramètres documents)."""
     
     # ==== COULEURS exactes du modèle ====
     RAMYA_ORANGE = HexColor('#F29F2F')    # Header table + barre résumé
@@ -2990,11 +2991,19 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None):
         canv.setFont('Helvetica-Bold', 7)
         canv.setFillColor(RAMYA_TEAL)
         w, _ = A4
-        lines = [
-            "Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B",
-            "Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 / Cel : + 225 2722204498 / 07 09 50 02 43 / 07 47 68 20 27",
-            "Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com",
-        ]
+        if doc_params:
+            lines = []
+            if doc_params.get('footer_text'): lines.append(doc_params['footer_text'])
+            lines.append(f"{doc_params.get('company_name','')} · {doc_params.get('company_address','')} / N°RCCM : {doc_params.get('company_rccm','')} / NCC : {doc_params.get('company_ncc','')}")
+            if doc_params.get('bank_for_payment'): lines.append(f"Compte bancaire : {doc_params['bank_for_payment']}")
+            lines.append(f"Tél : {doc_params.get('company_phone','')} · Email : {doc_params.get('company_email','')} · {doc_params.get('company_website','')}")
+            if doc_params.get('footer_legal'): lines.append(doc_params['footer_legal'])
+        else:
+            lines = [
+                "Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B",
+                "Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 / Cel : + 225 2722204498 / 07 09 50 02 43 / 07 47 68 20 27",
+                "Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com",
+            ]
         y = 15*mm
         for ln in lines:
             canv.drawCentredString(w/2, y, ln); y -= 3.5*mm

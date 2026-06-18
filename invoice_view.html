@@ -22,7 +22,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #1A7A6D">
         <div style="display:flex;align-items:center;gap:12px">
             <img src="/static/logo_ramya.png" alt="RAMYA" style="height:50px" onerror="this.style.display='none'">
-            <div><strong style="font-size:14px;color:#1A7A6D">RAMYA TECHNOLOGIE & INNOVATION</strong><br><span style="font-size:10px;color:#888">Abidjan Cocody ABATTA · N°RCCM : CI-ABJ-2017-A-25092</span></div>
+            <div><strong style="font-size:14px;color:#1A7A6D">{{ doc_params.company_name }}</strong><br><span style="font-size:10px;color:#888">{{ doc_params.company_address }} · N°RCCM : {{ doc_params.company_rccm }}</span></div>
         </div>
         <div style="text-align:right"><h2 style="margin:0;font-size:18px;color:#1A7A6D">FACTURE</h2>
         <div style="font-size:13px;font-weight:700">{{ inv.reference }}</div>
@@ -91,9 +91,11 @@
     
     <!-- Pied de page officiel -->
     <div style="margin-top:30px;padding-top:12px;border-top:2px solid #1A7A6D;font-size:9px;color:#1A7A6D;text-align:center;line-height:1.6">
-        <div><strong>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY</strong> / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B</div>
-        <div>Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 / Cel : + 225 2722204498 / 07 09 50 02 43 / 07 47 68 20 27</div>
-        <div>Email: dg@ramyaci.tech - admin@ramyaci.tech - www.ramyatechnologie.com</div>
+        {% if doc_params.footer_text %}<div><strong>{{ doc_params.footer_text }}</strong></div>{% endif %}
+        <div><strong>{{ doc_params.company_name }}</strong> · {{ doc_params.company_address }} / N°RCCM : {{ doc_params.company_rccm }} / NCC : {{ doc_params.company_ncc }}</div>
+        {% if doc_params.bank_for_payment %}<div>Compte bancaire : {{ doc_params.bank_for_payment }}</div>{% endif %}
+        <div>Tél : {{ doc_params.company_phone }} · Email : {{ doc_params.company_email }} · {{ doc_params.company_website }}</div>
+        {% if doc_params.footer_legal %}<div style="color:#999">{{ doc_params.footer_legal }}</div>{% endif %}
     </div>
 </div></div></div>
 {% if not inv.signature_data %}

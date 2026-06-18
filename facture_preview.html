@@ -157,8 +157,8 @@
         <div class="inv-logo-block">
             <img src="/static/logo_ramya.png" alt="RAMYA" onerror="this.style.display='none'">
             <div>
-                <div class="inv-company-name">RAMYA TECHNOLOGIE<br>& INNOVATION</div>
-                <div class="inv-company-tag">Solutions IT · Sécurité · CCTV · Réseaux</div>
+                <div class="inv-company-name">{{ doc_params.company_name }}</div>
+                <div class="inv-company-tag">{{ doc_params.header_text or 'Solutions IT · Sécurité · CCTV · Réseaux' }}</div>
             </div>
         </div>
         <div class="inv-title-block">
@@ -184,14 +184,13 @@
     <div class="inv-parties">
         <div class="inv-party">
             <div class="inv-party-title">📤 Émetteur</div>
-            <strong>RAMYA TECHNOLOGIE & INNOVATION</strong><br>
-            Abidjan Cocody ABATTA<br>
-            <small>(Derrière la station OLA ENERGY)</small><br>
-            RCCM : <strong>CI-ABJ-2017-A-25092</strong><br>
-            NCC : <strong>1746141.B</strong><br>
-            Tél : +225 07 47 68 20 27<br>
-            Email : dg@ramyaci.tech<br>
-            Web : www.ramyatechnologie.com
+            <strong>{{ doc_params.company_name }}</strong><br>
+            {{ doc_params.company_address }}<br>
+            RCCM : <strong>{{ doc_params.company_rccm }}</strong><br>
+            NCC : <strong>{{ doc_params.company_ncc }}</strong><br>
+            Tél : {{ doc_params.company_phone }}<br>
+            Email : {{ doc_params.company_email }}<br>
+            Web : {{ doc_params.company_website }}
         </div>
         <div class="inv-party">
             <div class="inv-party-title">📥 Facturé à</div>
@@ -301,11 +300,12 @@
         </div>
     </div>
 
-    <!-- FOOTER (aligné sur la facture standard du système) -->
+    <!-- FOOTER (personnalisable : Admin → Paramètres documents) -->
     <div class="inv-footer">
-        <strong>Siège social ABIDJAN Cocody ABATTA derrière la station OLA ENERGY</strong> / N°RCCM : CI-ABJ-2017-A-25092 / NCC : 1746141.B<br>
-        Compte bancaire : Orabank N° : 033201001901 / Bdu N° : 20401160186 · Cel : +225 27 22 20 44 98 / 07 09 50 02 43 / 07 47 68 20 27<br>
-        Email : dg@ramyaci.tech - admin@ramyaci.tech · Web : www.ramyatechnologie.com
+        {% if doc_params.footer_text %}<strong>{{ doc_params.footer_text }}</strong><br>{% endif %}
+        {{ doc_params.company_name }} · {{ doc_params.company_address }} · RCCM : {{ doc_params.company_rccm }} / NCC : {{ doc_params.company_ncc }}<br>
+        {% if doc_params.bank_for_payment %}Compte : {{ doc_params.bank_for_payment }} · {% endif %}Tél : {{ doc_params.company_phone }} · Email : {{ doc_params.company_email }} · {{ doc_params.company_website }}<br>
+        {% if doc_params.footer_legal %}<span style="color:#999">{{ doc_params.footer_legal }}</span>{% endif %}
     </div>
 
 </div>
