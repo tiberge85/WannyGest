@@ -120,7 +120,7 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
                     {% if it.kind == 'invoice' %}
                     <a href="/comptabilite/facture/view/{{ it.id }}" class="btn btn-outline btn-sm" title="Voir">👁️</a>
                     <a href="/comptabilite/facture/{{ it.id }}/preview" target="_blank" class="btn btn-outline btn-sm" style="background:#fff3e0;color:#e8672a;border-color:#e8672a" title="Prévisualiser le PDF">🔍</a>
-                    <a href="/comptabilite/facture/{{ it.id }}/pdf" class="btn btn-outline btn-sm" style="background:#e3f2fd;color:#1a7a6d;border-color:#1a7a6d" title="Télécharger PDF">📄</a>
+                    <a href="/comptabilite/facture/{{ it.id }}/preview" target="_blank" class="btn btn-outline btn-sm" style="background:#e3f2fd;color:#1a7a6d;border-color:#1a7a6d" title="Imprimer / Enregistrer en PDF (modèle facture)">📄</a>
                     {% if can_edit('comptabilite') %}<a href="/comptabilite/facture/edit/{{ it.id }}" class="btn btn-outline btn-sm" title="Modifier">✏️</a>{% endif %}
                     {% if it.status == 'a_envoyer' %}<a href="/comptabilite/status/{{ it.id }}/envoyee" class="btn btn-primary btn-sm">📧 Envoyée</a>{% endif %}
                     {% if it.status == 'envoyee' %}<a href="/comptabilite/status/{{ it.id }}/en_attente_paiement" class="btn btn-sm" style="background:#f57f17;color:#fff">⏳ Attente</a>{% endif %}

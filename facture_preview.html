@@ -27,7 +27,7 @@
     body { display:block !important; background:#fff !important; margin:0 !important; padding:0 !important }
     .main { margin-left:0 !important; padding:0 !important; width:100% !important }
     /* v162 : tout compresser pour tenir sur UNE seule page A4 */
-    .invoice-doc { box-shadow:none !important; max-width:100% !important; margin:0 !important; border:none !important; padding:7mm 11mm !important; font-size:10px !important }
+    .invoice-doc { box-shadow:none !important; max-width:100% !important; margin:0 !important; border:none !important; padding:7mm 11mm 26mm !important; font-size:10px !important }
     .inv-header { padding-bottom:6px !important; margin-bottom:8px !important; border-bottom-width:2px !important }
     .inv-logo-block img { height:42px !important }
     .inv-company-name { font-size:14px !important }
@@ -44,9 +44,12 @@
     .inv-total-line.ttc { font-size:14px !important; padding-top:5px !important; margin-top:3px !important }
     .inv-signatures { margin-top:12px !important; padding-top:10px !important; gap:18px !important }
     .sig-line { height:32px !important }
-    .inv-footer { margin-top:10px !important; padding-top:7px !important; font-size:9px !important }
+    /* v162 : le pied de page RESTE en bas de page (position fixe) et ne se colle plus au corps */
+    .inv-footer { position:fixed !important; left:0; right:0; bottom:0; margin:0 !important;
+        padding:4mm 11mm !important; background:#fff !important; border-top:2px solid #1A7A6D !important;
+        font-size:9px !important; text-align:center }
     /* rien ne doit déborder ni être coupé */
-    .invoice-doc, .inv-header, .inv-parties, .inv-table, .inv-totals, .inv-signatures, .inv-footer { page-break-inside:avoid; break-inside:avoid }
+    .invoice-doc, .inv-header, .inv-parties, .inv-table, .inv-totals, .inv-signatures { page-break-inside:avoid; break-inside:avoid }
     /* @page sans marge → supprime l'entête/pied du navigateur (titre, date, URL, « Page X sur Y ») */
     @page { margin:0 }
 }
