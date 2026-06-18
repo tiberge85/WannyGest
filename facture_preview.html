@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% block title %}WannyGest — Facture {{ f.invoice_number or f.id }}{% endblock %}
 {% block content %}
+{% if clean %}
+<style>
+/* v162 : aperçu propre au modèle facture (facture classique) — on masque l'interface à l'écran */
+@media screen{
+    .sidebar,.mobile-toggle,.mobile-overlay,.chat-fab,.notif-toast,#championBanner,[style*="ticker"],.page-header,.modifier-block,.actions-block{display:none!important}
+    .main{margin-left:0!important;padding:16px!important}
+    body{background:#eef2f5!important}
+}
+.fac-print-bar{position:fixed;top:12px;right:16px;z-index:9999;display:flex;gap:8px}
+@media print{.fac-print-bar{display:none!important}}
+</style>
+<div class="fac-print-bar no-print">
+    <button type="button" class="btn btn-sm" style="background:#1a7a6d;color:#fff" onclick="window.print()">🖨️ Imprimer / Enregistrer en PDF</button>
+    <a href="/comptabilite?tab=all" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+{% endif %}
 
 <style>
 @media print {
@@ -205,7 +221,7 @@
             {% endif %}
             {% if f.site_address %}{{ f.site_address }}<br>{% endif %}
             <br>
-            <small style="color:#888">Réf. remontée : <strong>{{ f.fr_ref }}</strong></small>
+            {% if f.fr_ref %}<small style="color:#888">Réf. remontée : <strong>{{ f.fr_ref }}</strong></small>{% endif %}
         </div>
     </div>
 
@@ -220,16 +236,32 @@
             </tr>
         </thead>
         <tbody>
-            <tr>
-                <td>
-                    <strong>{{ f.type_info }}</strong>
-                    {% if f.description %}<br><span style="color:#666;font-size:11px">{{ f.description }}</span>{% endif %}
-                    {% if f.execution_notes %}<br><em style="color:#0d4a18;font-size:11px">📋 Travaux réalisés : {{ f.execution_notes }}</em>{% endif %}
-                </td>
-                <td class="right">1</td>
-                <td class="right">{{ '{:,.0f}'.format(f.amount) }}</td>
-                <td class="right"><strong>{{ '{:,.0f}'.format(f.amount) }}</strong></td>
-            </tr>
+            {% if f.lignes %}
+                {% for it in f.lignes %}
+                {% set _q = (it.qty if it.qty is not none else (it.quantity if it.quantity is not none else 1))|float %}
+                {% set _pu = (it.prix if it.prix is not none else (it.price if it.price is not none else 0))|float %}
+                <tr>
+                    <td>
+                        <strong>{{ it.designation or it.name or f.type_info }}</strong>
+                        {% if it.detail %}<br><span style="color:#666;font-size:11px">{{ it.detail }}</span>{% endif %}
+                    </td>
+                    <td class="right">{{ _q|int }}</td>
+                    <td class="right">{{ '{:,.0f}'.format(_pu) }}</td>
+                    <td class="right"><strong>{{ '{:,.0f}'.format(it.total|float if it.total else (_pu * _q)) }}</strong></td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td>
+                        <strong>{{ f.type_info }}</strong>
+                        {% if f.description %}<br><span style="color:#666;font-size:11px">{{ f.description }}</span>{% endif %}
+                        {% if f.execution_notes %}<br><em style="color:#0d4a18;font-size:11px">📋 Travaux réalisés : {{ f.execution_notes }}</em>{% endif %}
+                    </td>
+                    <td class="right">1</td>
+                    <td class="right">{{ '{:,.0f}'.format(f.amount) }}</td>
+                    <td class="right"><strong>{{ '{:,.0f}'.format(f.amount) }}</strong></td>
+                </tr>
+            {% endif %}
         </tbody>
     </table>
 

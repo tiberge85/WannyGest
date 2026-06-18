@@ -8363,17 +8363,45 @@ def invoice_pdf(fid):
 @app.route('/comptabilite/facture/<int:fid>/preview')
 @permission_required('comptabilite')
 def invoice_preview(fid):
-    """v162 : prévisualisation au MODÈLE FACTURE (HTML imprimable), et non au modèle devis."""
+    """v162 : prévisualisation au MÊME MODÈLE FACTURE que les factures terrain (facture_preview.html)."""
     conn = _gdb()
-    inv = conn.execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
+    inv_row = conn.execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
     conn.close()
-    if not inv:
+    if not inv_row:
         flash("Facture introuvable", "error")
         return redirect(url_for('comptabilite_page'))
-    inv = dict(inv)
-    inv['items'] = json.loads(inv.get('items_json', '[]') or '[]')
-    return render_template('invoice_view.html', page='comptabilite',
-                           inv=inv, inv_items=inv['items'], print_mode=True)
+    inv = dict(inv_row)
+    def _f(v):
+        try: return float(v) if v not in (None, '') else 0.0
+        except: return 0.0
+    try: items = json.loads(inv.get('items_json', '[]') or '[]')
+    except: items = []
+    # Mapping facture classique → structure attendue par le modèle facture
+    f = {
+        'id': inv.get('id'),
+        'invoice_number': inv.get('reference') or '',
+        'status': inv.get('status') or '',
+        'emitted_at': inv.get('created_at') or '',
+        'emitted_by_name': inv.get('redacteur') or '',
+        'client_name': inv.get('client_name') or '',
+        'site_name': '', 'site_address': '', 'site_code': '', 'fr_ref': '',
+        'type_info': inv.get('objet') or inv.get('description') or 'Prestation',
+        'description': inv.get('description') or '',
+        'execution_notes': '',
+        'amount': _f(inv.get('total_ttc')) or _f(inv.get('amount')),
+        'tva_apply': 1 if (inv.get('tva_active') or _f(inv.get('tva')) > 0) else 0,
+        'tva_rate': _f(inv.get('tva_rate')) or 18,
+        'decision_motif': inv.get('notes') or '',
+        'decided_by_name': inv.get('signed_by') or inv.get('redacteur') or '',
+        'facturation_decided_at': inv.get('signed_at') or inv.get('created_at') or '',
+        'lignes': items,  # clé 'lignes' (et non 'items' : en Jinja f.items = méthode dict.items)
+        # champs « terrain » neutralisés (le modèle les ignore s'ils sont vides)
+        'payment_type': '', 'cheque_number': '', 'recu_number': '',
+        'bordereau_number': '', 'proof_files': None, 'bordereau_file': None,
+        'decision_motif_show': False,
+    }
+    return render_template('facture_preview.html', page='comptabilite',
+        f=f, events=[], payment_types=PAYMENT_TYPES, clean=True)
 
 
 @app.route('/comptabilite/facture/<int:fid>/pdf-devis-layout')
