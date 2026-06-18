@@ -9,6 +9,8 @@
     .main{margin-left:0!important;padding:16px!important}
     body{background:#eef2f5!important}
 }
+/* v162 : éléments NON nécessaires sur une facture → retirés (écran + impression) pour tenir sur 1 page */
+.inv-status-badge,.inv-conditions,.inv-signatures{display:none!important}
 .fac-print-bar{position:fixed;top:12px;right:16px;z-index:9999;display:flex;gap:8px}
 @media print{.fac-print-bar{display:none!important}}
 </style>
@@ -329,7 +331,7 @@
     {% endif %}
 
     <!-- MENTIONS LÉGALES / CONDITIONS -->
-    <div style="font-size:10px;color:#666;padding:10px;background:#f8f9fa;border-radius:6px;margin-bottom:14px;line-height:1.5">
+    <div class="inv-conditions" style="font-size:10px;color:#666;padding:10px;background:#f8f9fa;border-radius:6px;margin-bottom:14px;line-height:1.5">
         <strong>Conditions :</strong> Paiement à réception. Pénalités de retard appliquées au-delà de 30 jours. 
         Modes acceptés : espèces, chèque, virement bancaire, mobile money. 
         <strong>RIB :</strong> Disponible sur demande.
