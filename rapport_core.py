@@ -2675,15 +2675,19 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None, doc_params=None)
                        textColor=RAMYA_TEAL, leading=13, alignment=TA_CENTER)
     )
     
-    # Services : texte puis puce (■) — tout aligné à droite
-    services_html = (
-        '<b>Caméras de surveillance</b> <font color="#F29F2F"><b>■</b></font><br/>'
-        '<b>Clôture électrique</b> <font color="#F29F2F"><b>■</b></font><br/>'
-        '<b>Kit visiophone alarme anti-intrusion</b> <font color="#F29F2F"><b>■</b></font><br/>'
-        '<b>Domotique, Poignées intelligentes</b> <font color="#F29F2F"><b>■</b></font>'
-    )
-    services = Paragraph(services_html, ParagraphStyle('svc', fontSize=8, leading=11,
-                          textColor=HexColor('#333'), alignment=TA_RIGHT))
+    # Services : texte puis puce (■) — tout aligné à droite.
+    # v162 : sur une FACTURE, on n'affiche PAS la liste marketing (éléments inutiles en haut).
+    if doc_type == 'FACTURE':
+        services = Paragraph('', ParagraphStyle('svc', fontSize=8))
+    else:
+        services_html = (
+            '<b>Caméras de surveillance</b> <font color="#F29F2F"><b>■</b></font><br/>'
+            '<b>Clôture électrique</b> <font color="#F29F2F"><b>■</b></font><br/>'
+            '<b>Kit visiophone alarme anti-intrusion</b> <font color="#F29F2F"><b>■</b></font><br/>'
+            '<b>Domotique, Poignées intelligentes</b> <font color="#F29F2F"><b>■</b></font>'
+        )
+        services = Paragraph(services_html, ParagraphStyle('svc', fontSize=8, leading=11,
+                              textColor=HexColor('#333'), alignment=TA_RIGHT))
     
     header_data = [[logo_el, company_name, services]]
     ht = Table(header_data, colWidths=[28*mm, 65*mm, 87*mm])

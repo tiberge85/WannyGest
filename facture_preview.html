@@ -24,10 +24,27 @@
     .chat-fab, .notif-toast, [style*="ticker"], .modifier-block, .actions-block { display:none !important }
     body { display:block !important; background:#fff !important; margin:0 !important; padding:0 !important }
     .main { margin-left:0 !important; padding:0 !important; width:100% !important }
-    .invoice-doc { box-shadow:none !important; max-width:100% !important; margin:0 !important; border:none !important; padding:12mm 14mm !important; font-size:11px }
-    /* le pied de page ne doit jamais être coupé ni rester seul sur une autre page */
-    .inv-footer { page-break-inside:avoid; break-inside:avoid }
-    table, tr, .inv-parties { page-break-inside:avoid; break-inside:avoid }
+    /* v162 : tout compresser pour tenir sur UNE seule page A4 */
+    .invoice-doc { box-shadow:none !important; max-width:100% !important; margin:0 !important; border:none !important; padding:7mm 11mm !important; font-size:10px !important }
+    .inv-header { padding-bottom:6px !important; margin-bottom:8px !important; border-bottom-width:2px !important }
+    .inv-logo-block img { height:42px !important }
+    .inv-company-name { font-size:14px !important }
+    .inv-title { font-size:22px !important }
+    .inv-num { font-size:11px !important }
+    .inv-meta-row { margin:6px 0 !important; padding:5px 9px !important; font-size:10px !important }
+    .inv-parties { gap:8px !important; margin-bottom:8px !important }
+    .inv-party { padding:7px 9px !important; font-size:10px !important; line-height:1.35 !important }
+    .inv-table { margin-bottom:8px !important; font-size:10px !important }
+    .inv-table th, .inv-table td { padding:4px 8px !important }
+    .inv-totals { margin-bottom:8px !important }
+    .inv-totals-box { padding:8px 10px !important }
+    .inv-total-line { padding:3px 0 !important; font-size:11px !important }
+    .inv-total-line.ttc { font-size:14px !important; padding-top:5px !important; margin-top:3px !important }
+    .inv-signatures { margin-top:12px !important; padding-top:10px !important; gap:18px !important }
+    .sig-line { height:32px !important }
+    .inv-footer { margin-top:10px !important; padding-top:7px !important; font-size:9px !important }
+    /* rien ne doit déborder ni être coupé */
+    .invoice-doc, .inv-header, .inv-parties, .inv-table, .inv-totals, .inv-signatures, .inv-footer { page-break-inside:avoid; break-inside:avoid }
     /* @page sans marge → supprime l'entête/pied du navigateur (titre, date, URL, « Page X sur Y ») */
     @page { margin:0 }
 }
