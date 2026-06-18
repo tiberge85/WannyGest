@@ -2640,6 +2640,24 @@ try:
 except Exception as _e: print(f"[v162e-Perms] Err : {_e}", flush=True)
 
 
+# v162f : la comptable (rôles comptable/comptabilite) n'avait PAS la permission 'comptabilite'
+# (elle utilisait compta_pro), donc la page /comptabilite — où apparaissent les factures terrain —
+# la redirigeait vers le dashboard. On accorde 'comptabilite' (+ edit) pour qu'elle y accède.
+try:
+    from models import get_db as _v162f_db
+    _v162f = _v162f_db()
+    if not _v162f.execute("SELECT value FROM app_settings WHERE key='v162_comptable_comptabilite_perm'").fetchone():
+        for _role in ('comptable', 'comptabilite'):
+            for _p in ('comptabilite', 'comptabilite_edit'):
+                try: _v162f.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (_role, _p))
+                except: pass
+        _v162f.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v162_comptable_comptabilite_perm','1',datetime('now'))")
+        _v162f.commit()
+        print("[v162f-Perms] comptable/comptabilite : permission 'comptabilite' ajoutée (accès Factures + terrain)", flush=True)
+    _v162f.close()
+except Exception as _e: print(f"[v162f-Perms] Err : {_e}", flush=True)
+
+
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
 try:
     from models import get_db as _gdb_v161p
