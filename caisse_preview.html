@@ -90,6 +90,7 @@
                 <canvas class="sig-canvas" id="sigCaisse"></canvas>
                 <div class="sig-actions">
                     <button class="btn btn-outline btn-sm" style="font-size:10px" onclick="clearCanvas('sigCaisse')">Effacer</button>
+                    {% if user_signature %}<button class="btn btn-sm" style="font-size:10px;background:#2e7d32;color:#fff" onclick="useSavedOnCanvas('sigCaisse')">📥 Ma signature</button>{% endif %}
                     <button class="btn btn-green btn-sm" style="font-size:10px" onclick="submitSig('caisse','sigCaisse')">✍️ Signer</button>
                 </div>
                 <div style="margin-top:6px">
@@ -133,6 +134,7 @@
                 <canvas class="sig-canvas" id="sigAuth"></canvas>
                 <div class="sig-actions">
                     <button class="btn btn-outline btn-sm" style="font-size:10px" onclick="clearCanvas('sigAuth')">Effacer</button>
+                    {% if user_signature %}<button type="button" class="btn btn-sm" style="font-size:10px;background:#2e7d32;color:#fff" onclick="useSavedOnCanvas('sigAuth')">📥 Ma signature</button>{% endif %}
                     <button class="btn btn-green btn-sm" style="font-size:10px" onclick="submitSig('autorisation','sigAuth')">✍️ Signer (DG ou RH)</button>
                 </div>
                 {% else %}
@@ -322,6 +324,21 @@ document.querySelectorAll('.sig-canvas').forEach(function(canvas){
 function clearCanvas(id){
     var c = document.getElementById(id);
     c.getContext('2d').clearRect(0,0,c.width,c.height);
+}
+
+// v162 : réutiliser la signature enregistrée de l'utilisateur sur le canvas de signature
+var SAVED_SIG = {% if user_signature %}{{ user_signature|tojson }}{% else %}null{% endif %};
+function useSavedOnCanvas(id){
+    if(!SAVED_SIG){ alert("Aucune signature enregistrée. Allez dans « Ma signature » pour en créer une."); return; }
+    var c = document.getElementById(id); var ctx = c.getContext('2d');
+    var img = new Image();
+    img.onload = function(){
+        ctx.clearRect(0,0,c.width,c.height);
+        var scale = Math.min(c.width/img.width, c.height/img.height);
+        var w = img.width*scale, h = img.height*scale;
+        ctx.drawImage(img, (c.width-w)/2, (c.height-h)/2, w, h);
+    };
+    img.src = SAVED_SIG;
 }
 
 function submitSig(type, canvasId){

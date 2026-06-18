@@ -6542,7 +6542,7 @@ def admin_page():
     stats = get_dashboard_stats()
     # v162 : inclure TOUTES les colonnes de la matrice (sinon leurs cases s'affichent toujours
     # décochées même si la permission est bien enregistrée — ex. agent_recouvreur, caissiere)
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'comptabilite', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
     conn = _gdb()
     try:
         tenders = [dict(r) for r in conn.execute("SELECT * FROM tender_links ORDER BY active DESC, deadline ASC").fetchall()]
@@ -6723,7 +6723,7 @@ def admin_permissions():
         for _p, _l in _perms:
             matrix_perms.add(_p)
     # Rôles affichés en colonnes dans admin.html (doit rester synchronisé avec le template)
-    matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable',
+    matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'comptabilite',
                     'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique',
                     'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']
     for role in matrix_roles:
@@ -29917,9 +29917,16 @@ def caisse_preview(sid):
     from models import get_db
     conn = get_db()
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
+    # v162 : signature enregistrée de l'utilisateur (réutilisable pour signer la sortie)
+    user_signature = None
+    try:
+        _sig = conn.execute("SELECT signature_data FROM user_signatures WHERE user_id=?",
+                            (session['user_id'],)).fetchone()
+        if _sig: user_signature = _sig['signature_data']
+    except Exception: pass
     conn.close()
     if not s: flash("Non trouvé","error"); return redirect(url_for('caisse_sortie'))
-    return render_template('caisse_preview.html', page='caisse_sortie', s=dict(s))
+    return render_template('caisse_preview.html', page='caisse_sortie', s=dict(s), user_signature=user_signature)
 
 @app.route('/caisse-sortie/<int:sid>/signer', methods=['POST'])
 @login_required
