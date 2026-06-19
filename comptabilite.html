@@ -124,7 +124,15 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
                     {% if can_edit('comptabilite') %}<a href="/comptabilite/facture/edit/{{ it.id }}" class="btn btn-outline btn-sm" title="Modifier">✏️</a>{% endif %}
                     {% if it.status == 'a_envoyer' %}<a href="/comptabilite/status/{{ it.id }}/envoyee" class="btn btn-primary btn-sm">📧 Envoyée</a>{% endif %}
                     {% if it.status == 'envoyee' %}<a href="/comptabilite/status/{{ it.id }}/en_attente_paiement" class="btn btn-sm" style="background:#f57f17;color:#fff">⏳ Attente</a>{% endif %}
-                    {% if it.status == 'en_attente_paiement' %}<a href="/comptabilite/status/{{ it.id }}/payee" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅ Payée</a>{% endif %}
+                    {% if it.status in ('a_envoyer','envoyee','en_attente_paiement') %}
+                    <form method="post" action="/comptabilite/facture/{{ it.id }}/encaisser" style="display:inline-flex;gap:3px;align-items:center" onsubmit="return confirm('Marquer la facture payée et créditer la caisse sélectionnée ?');">
+                        <select name="caisse_id" required title="Caisse à créditer" style="padding:4px 6px;border:1.5px solid #2e7d32;border-radius:4px;font-size:11px">
+                            <option value="">💵 Caisse…</option>
+                            {% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Encaisser : marque payée + crédite la caisse">✅ Payée</button>
+                    </form>
+                    {% endif %}
                     {% if current_user and current_user.role in ('admin','dg','directeur','moyens_generaux','mg','magasinier') %}
                     <form method="post" action="/comptabilite/facture/{{ it.id }}/delete" style="display:inline" onsubmit="return confirm('🗑️ Supprimer définitivement la facture {{ it.reference }} ?');">
                         <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030" title="Supprimer la facture (DG / Moyens Généraux / Admin)">🗑️</button>

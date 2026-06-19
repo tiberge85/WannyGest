@@ -7883,9 +7883,18 @@ def comptabilite_page():
     factures_groupees = [{'ym': k, 'label': _fac_mlabel(k), 'rows': v,
                           'total': sum((i['amount'] or 0) for i in v)} for k, v in _groups.items()]
 
+    # v162 : caisses disponibles pour créditer une facture encaissée
+    try:
+        _cz = _gdb()
+        caisses_list = [dict(r) for r in _cz.execute(
+            "SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
+        _cz.close()
+    except Exception:
+        caisses_list = []
     return render_template('comptabilite.html', page='comptabilite', tab=tab,
                           invoices=invoices, factures_groupees=factures_groupees,
-                          inv_stats=inv_stats, chart=chart_data, recent_devis=recent_devis)
+                          inv_stats=inv_stats, chart=chart_data, recent_devis=recent_devis,
+                          caisses=caisses_list)
 
 
 @app.route('/comptabilite/factures')
@@ -8073,6 +8082,48 @@ def comptabilite_status(inv_id, status):
                     'Facture', f"Facture #{inv_id} → {status}", request.remote_addr)
         flash(f"Statut mis à jour : {status}", "success")
     return redirect(url_for('comptabilite_page'))
+
+
+@app.route('/comptabilite/facture/<int:fid>/encaisser', methods=['POST'])
+@permission_required('comptabilite')
+def comptabilite_facture_encaisser(fid):
+    """v162 : marque la facture payée ET crédite la caisse choisie (opération + journal)."""
+    caisse_id_str = (request.form.get('caisse_id', '') or '').strip()
+    if not caisse_id_str.isdigit():
+        flash("⚠️ Choisissez la caisse à créditer pour encaisser la facture.", "error")
+        return redirect('/comptabilite?tab=all')
+    caisse_id = int(caisse_id_str)
+    conn = _gdb()
+    inv = conn.execute("SELECT * FROM invoices WHERE id=?", (fid,)).fetchone()
+    if not inv:
+        conn.close(); flash("Facture introuvable", "error"); return redirect('/comptabilite?tab=all')
+    inv = dict(inv)
+    amount = inv.get('amount') or inv.get('total_ttc') or 0
+    ref = inv.get('reference') or f"FAC{fid}"
+    caisse = conn.execute("SELECT name FROM caisses WHERE id=?", (caisse_id,)).fetchone()
+    caisse_name = caisse['name'] if caisse else f"#{caisse_id}"
+    # 1. Crédit de la caisse (opération d'entrée)
+    try:
+        conn.execute("""INSERT INTO caisse_operations
+            (caisse_id, type, amount, description, reference, created_by, created_at)
+            VALUES (?,'entree',?,?,?,?,datetime('now'))""",
+            (caisse_id, amount, f"Encaissement facture {ref} — {inv.get('client_name','')}",
+             f"PAY-{ref}", session['user_id']))
+        try:
+            _sync_caisse_op_to_journal(conn, 'entree', datetime.now().strftime('%Y-%m-%d'),
+                amount, f"Encaissement facture {ref} ({inv.get('client_name','')})",
+                f"PAY-{ref}", session['user_id'], caisse_id=caisse_id)
+        except Exception as _e: print(f"[v162-encaisser] journal err : {_e}", flush=True)
+    except Exception as _e:
+        conn.close(); flash(f"Erreur crédit caisse : {_e}", "error"); return redirect('/comptabilite?tab=all')
+    conn.commit(); conn.close()
+    # 2. Statut payée
+    update_invoice_status(fid, 'payee', session.get('user_id'))
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Facture',
+        f"Facture {ref} encaissée → {caisse_name} ({amount:,.0f} XOF)", request.remote_addr)
+    flash(f"✅ Facture {ref} payée — {caisse_name} créditée de {amount:,.0f} XOF", "success")
+    return redirect('/comptabilite?tab=all')
 
 
 @app.route('/comptabilite/facture/<int:fid>/delete', methods=['POST'])
