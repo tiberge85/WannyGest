@@ -31894,25 +31894,26 @@ def mg_demandes():
     if statut:
         rows = conn.execute("""
             SELECT d.*, u.username as requester_name,
-                f.name as fournisseur_name,
+                f.nom as fournisseur_name,
                 COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
             FROM achats_demandes d
             LEFT JOIN users u ON d.requested_by = u.id
-            LEFT JOIN achats_fournisseurs f ON d.fournisseur_id = f.id
+            LEFT JOIN suppliers f ON d.fournisseur_id = f.id
             WHERE d.status=? ORDER BY d.created_at DESC""", (statut,)).fetchall()
     else:
         rows = conn.execute("""
             SELECT d.*, u.username as requester_name,
-                f.name as fournisseur_name,
+                f.nom as fournisseur_name,
                 COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
             FROM achats_demandes d
             LEFT JOIN users u ON d.requested_by = u.id
-            LEFT JOIN achats_fournisseurs f ON d.fournisseur_id = f.id
+            LEFT JOIN suppliers f ON d.fournisseur_id = f.id
             ORDER BY d.created_at DESC""").fetchall()
     demandes = [dict(r) for r in rows]
-    # v160 : liste des fournisseurs pour le formulaire de demande
+    # v162 : liste des fournisseurs = table « suppliers » (celle alimentée par la page Fournisseurs)
+    # — avant on lisait achats_fournisseurs (vide) → les nouveaux fournisseurs n'apparaissaient pas.
     fournisseurs = [dict(r) for r in conn.execute(
-        "SELECT id, name FROM achats_fournisseurs WHERE status='actif' OR status IS NULL ORDER BY name").fetchall()]
+        "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
     conn.close()
     return render_template('mg_demandes.html', demandes=demandes, current_statut=statut, fournisseurs=fournisseurs)
 
@@ -32135,6 +32136,12 @@ def mg_demande_preview(did):
         flash("Demande introuvable", "error")
         return redirect('/mg/demandes')
     demande = dict(row)
+    # v162 : nom du fournisseur résolu depuis la table suppliers
+    if demande.get('fournisseur_id'):
+        try:
+            _fr = conn.execute("SELECT nom FROM suppliers WHERE id=?", (demande['fournisseur_id'],)).fetchone()
+            if _fr: demande['fournisseur_name'] = _fr['nom']
+        except Exception: pass
     items = [dict(r) for r in conn.execute(
         "SELECT * FROM achats_demande_items WHERE demande_id=? ORDER BY id", (did,)).fetchall()]
     # Auteur

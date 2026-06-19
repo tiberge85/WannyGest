@@ -27,8 +27,12 @@
     .fac-print-bar { display:none !important }
     html, body { background:#fff !important; margin:0 !important; padding:0 !important; height:auto !important }
     .main { margin:0 !important; padding:0 !important; width:100% !important }
-    /* v162 : compression pour tenir sur UNE seule page A4 (sans position fixe → pas de page blanche) */
-    .invoice-doc { box-shadow:none !important; max-width:100% !important; width:100% !important; margin:0 !important; border:none !important; padding:0 6mm !important; font-size:10px !important }
+    /* v162 : éléments inutiles retirés sur TOUTE facture imprimée → contenu court, 1 page */
+    .inv-status-badge, .inv-conditions, .inv-signatures { display:none !important }
+    /* la facture remplit la page et le pied reste EN BAS (flex, sans position fixe → pas de page blanche) */
+    .invoice-doc { box-shadow:none !important; max-width:100% !important; width:100% !important; margin:0 !important;
+        border:none !important; padding:0 4mm !important; font-size:10px !important;
+        display:flex !important; flex-direction:column !important; min-height:268mm !important; box-sizing:border-box !important }
     .inv-header { padding-bottom:6px !important; margin-bottom:8px !important; border-bottom-width:2px !important }
     .inv-logo-block img { height:40px !important }
     .inv-company-name { font-size:14px !important }
@@ -43,10 +47,9 @@
     .inv-totals-box { padding:8px 10px !important }
     .inv-total-line { padding:3px 0 !important; font-size:11px !important }
     .inv-total-line.ttc { font-size:14px !important; padding-top:5px !important; margin-top:3px !important }
-    .inv-signatures { margin-top:12px !important; padding-top:10px !important; gap:18px !important }
-    .sig-line { height:32px !important }
-    .inv-footer { margin-top:16px !important; padding-top:8px !important; font-size:9px !important }
-    .invoice-doc, .inv-header, .inv-parties, .inv-table, .inv-totals, .inv-signatures, .inv-footer { page-break-inside:avoid; break-inside:avoid }
+    /* pied de page poussé tout en bas de la page (ne se colle plus au corps) */
+    .inv-footer { margin-top:auto !important; padding-top:8px !important; font-size:9px !important }
+    .inv-header, .inv-parties, .inv-table, .inv-totals { page-break-inside:avoid; break-inside:avoid }
     /* petites marges de page (évite l'entête/pied navigateur tout en gardant le contenu visible) */
     @page { size:A4 portrait; margin:8mm }
 }
