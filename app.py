@@ -34162,16 +34162,28 @@ def mg_equipements_statut(eid, statut):
 @app.route('/mg/fournisseurs-dashboard')
 @permission_required_any('mg_view', 'admin')
 def mg_fournisseurs_dashboard():
-    """Tableau de bord financier par fournisseur :
-    total_commandes / total_paye / reste_a_payer."""
-    from models import mg_get_fournisseur_dashboard
-    fournisseurs = mg_get_fournisseur_dashboard()
-    
-    # Totaux globaux
+    """v162 : suivi financier basé sur les DONNÉES RÉELLES (suppliers + supplier_purchases +
+    supplier_payments) — celles saisies dans « Liste des fournisseurs ». Avant, il lisait le
+    système achats (vide) → rien ne s'affichait."""
+    conn = _gdb()
+    rows = conn.execute("""
+        SELECT s.id, s.nom AS name, s.telephone AS tel, s.email,
+            (SELECT COUNT(*) FROM supplier_purchases sp WHERE sp.supplier_id=s.id) AS nb_commandes,
+            COALESCE((SELECT SUM(sp.montant_total) FROM supplier_purchases sp WHERE sp.supplier_id=s.id),0) AS total_commandes,
+            COALESCE((SELECT SUM(pm.montant) FROM supplier_payments pm
+                      JOIN supplier_purchases sp ON pm.purchase_id=sp.id WHERE sp.supplier_id=s.id),0) AS total_paye
+        FROM suppliers s
+        ORDER BY COALESCE(s.is_active,1) DESC, s.nom
+    """).fetchall()
+    conn.close()
+    fournisseurs = []
+    for r in rows:
+        f = dict(r)
+        f['reste_a_payer'] = (f['total_commandes'] or 0) - (f['total_paye'] or 0)
+        fournisseurs.append(f)
     total_global_commandes = sum(f['total_commandes'] or 0 for f in fournisseurs)
     total_global_paye = sum(f['total_paye'] or 0 for f in fournisseurs)
     total_global_reste = total_global_commandes - total_global_paye
-    
     return render_template('mg_fournisseurs_dashboard.html',
                           fournisseurs=fournisseurs,
                           total_commandes=total_global_commandes,

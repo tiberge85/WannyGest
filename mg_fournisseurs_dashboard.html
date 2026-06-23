@@ -30,7 +30,7 @@
 
 <div class="card"><div class="card-body">
 {% if fournisseurs %}<div class="table-wrap"><table>
-<thead><tr><th>Fournisseur</th><th>Téléphone</th><th>Email</th><th style="text-align:right">Nb commandes</th><th style="text-align:right">Total commandes</th><th style="text-align:right">Total payé</th><th style="text-align:right">Reste à payer</th><th>Actions</th></tr></thead>
+<thead><tr><th>Fournisseur</th><th>Téléphone</th><th>Email</th><th style="text-align:right">Nb factures</th><th style="text-align:right">Total achats</th><th style="text-align:right">Total payé</th><th style="text-align:right">Reste à payer</th><th>Actions</th></tr></thead>
 <tbody>{% for f in fournisseurs %}<tr>
 <td><strong>{{ f.name }}</strong></td>
 <td>{{ f.tel or '-' }}</td>
@@ -41,7 +41,7 @@
 <td style="text-align:right;font-weight:700;{% if f.reste_a_payer > 0 %}color:#c53030{% else %}color:#666{% endif %}">
     {% if f.reste_a_payer > 0 %}⚠️ {% endif %}{{ '{:,.0f}'.format(f.reste_a_payer) }} F
 </td>
-<td><a href="/mg/fournisseurs/{{ f.id }}/details" class="btn btn-sm" style="background:#1976d2;color:#fff">📊 Détails</a></td>
+<td><a href="/fournisseurs/{{ f.id }}" class="btn btn-sm" style="background:#1976d2;color:#fff">📊 Détails (achats & paiements)</a></td>
 </tr>{% endfor %}</tbody>
 <tfoot>
 <tr style="background:#f8faf9;font-weight:700">
