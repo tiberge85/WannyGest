@@ -9,8 +9,6 @@
     .main{margin-left:0!important;padding:16px!important}
     body{background:#eef2f5!important}
 }
-/* v162 : éléments NON nécessaires sur une facture → retirés (écran + impression) pour tenir sur 1 page */
-.inv-status-badge,.inv-conditions,.inv-signatures{display:none!important}
 .fac-print-bar{position:fixed;top:12px;right:16px;z-index:9999;display:flex;gap:8px}
 @media print{.fac-print-bar{display:none!important}}
 </style>
@@ -27,31 +25,39 @@
     .fac-print-bar { display:none !important }
     html, body { background:#fff !important; margin:0 !important; padding:0 !important; height:auto !important }
     .main { margin:0 !important; padding:0 !important; width:100% !important }
-    /* v162 : éléments inutiles retirés sur TOUTE facture imprimée → contenu court, 1 page */
-    .inv-status-badge, .inv-conditions, .inv-signatures { display:none !important }
-    /* la facture remplit la page et le pied reste EN BAS (flex, sans position fixe → pas de page blanche) */
+    /* v162 : on GARDE tout le contenu (signatures, conditions…) mais on COMPACTE pour tenir sur 1 page.
+       Le pied de page reste EN BAS (flex, sans position fixe → pas de page blanche). */
     .invoice-doc { box-shadow:none !important; max-width:100% !important; width:100% !important; margin:0 !important;
-        border:none !important; padding:0 4mm !important; font-size:10px !important;
-        display:flex !important; flex-direction:column !important; min-height:268mm !important; box-sizing:border-box !important }
-    .inv-header { padding-bottom:6px !important; margin-bottom:8px !important; border-bottom-width:2px !important }
-    .inv-logo-block img { height:40px !important }
-    .inv-company-name { font-size:14px !important }
-    .inv-title { font-size:22px !important }
-    .inv-num { font-size:11px !important }
-    .inv-meta-row { margin:6px 0 !important; padding:5px 9px !important; font-size:10px !important }
-    .inv-parties { gap:8px !important; margin-bottom:8px !important }
-    .inv-party { padding:7px 9px !important; font-size:10px !important; line-height:1.35 !important }
-    .inv-table { margin-bottom:8px !important; font-size:10px !important }
-    .inv-table th, .inv-table td { padding:4px 8px !important }
-    .inv-totals { margin-bottom:8px !important }
-    .inv-totals-box { padding:8px 10px !important }
-    .inv-total-line { padding:3px 0 !important; font-size:11px !important }
-    .inv-total-line.ttc { font-size:14px !important; padding-top:5px !important; margin-top:3px !important }
-    /* pied de page poussé tout en bas de la page (ne se colle plus au corps) */
-    .inv-footer { margin-top:auto !important; padding-top:8px !important; font-size:9px !important }
-    .inv-header, .inv-parties, .inv-table, .inv-totals { page-break-inside:avoid; break-inside:avoid }
-    /* petites marges de page (évite l'entête/pied navigateur tout en gardant le contenu visible) */
-    @page { size:A4 portrait; margin:8mm }
+        border:none !important; padding:8mm 9mm !important; font-size:9px !important;
+        display:flex !important; flex-direction:column !important; min-height:281mm !important; box-sizing:border-box !important }
+    .inv-header { padding-bottom:4px !important; margin-bottom:6px !important; border-bottom-width:2px !important }
+    .inv-logo-block img { height:34px !important }
+    .inv-company-name { font-size:13px !important }
+    .inv-title { font-size:19px !important }
+    .inv-num { font-size:10px !important }
+    .inv-status-badge { font-size:8px !important; padding:1px 6px !important; margin-top:2px !important }
+    .inv-meta-row { margin:4px 0 !important; padding:4px 8px !important; font-size:9px !important }
+    .inv-parties { gap:6px !important; margin-bottom:6px !important }
+    .inv-party { padding:6px 8px !important; font-size:9px !important; line-height:1.25 !important }
+    .inv-party strong { font-size:10px !important }
+    .inv-party-title { margin-bottom:2px !important }
+    .inv-table { margin-bottom:6px !important; font-size:9px !important }
+    .inv-table th, .inv-table td { padding:3px 7px !important }
+    .inv-totals { margin-bottom:6px !important }
+    .inv-totals-box { min-width:230px !important; padding:6px 9px !important }
+    .inv-total-line { padding:2px 0 !important; font-size:10px !important }
+    .inv-total-line.ttc { font-size:13px !important; padding-top:4px !important; margin-top:2px !important }
+    .inv-conditions { font-size:8px !important; padding:6px 8px !important; margin-bottom:6px !important }
+    .inv-signatures { margin-top:8px !important; padding-top:8px !important; gap:16px !important }
+    .sig-title { font-size:9px !important; margin-bottom:3px !important }
+    .sig-line { height:24px !important; margin:4px 0 2px !important }
+    .sig-name { font-size:9px !important }
+    .sig-role, .sig-date { font-size:8px !important }
+    /* pied de page poussé tout en bas de la page */
+    .inv-footer { margin-top:auto !important; padding-top:6px !important; font-size:8px !important }
+    .inv-header, .inv-parties, .inv-table, .inv-totals, .inv-signatures { page-break-inside:avoid; break-inside:avoid }
+    /* @page sans marge → enlève l'entête/pied du navigateur (titre, date, URL, « Page X sur Y ») */
+    @page { size:A4 portrait; margin:0 }
 }
 
 .invoice-doc {

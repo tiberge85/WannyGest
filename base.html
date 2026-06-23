@@ -637,8 +637,9 @@
                         {% endif %}
                     </a>
                     {% endif %}
+                    {# v162 : « Fournisseurs & Paiements » et « Paiements fournisseurs » fusionnés en une seule entrée #}
                     {% if 'fournisseurs' in permissions or 'admin' in permissions or 'mg_view' in permissions or 'achats' in permissions %}
-                    <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail') %}active{% endif %}">🏭 Fournisseurs &amp; Paiements</a>
+                    <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail','mg_paiements') %}active{% endif %}">🏭 Fournisseurs &amp; Paiements</a>
                     {% endif %}
                     {% if mg_core or 'fournisseurs' in permissions %}
                     <a href="/mg/fournisseurs-dashboard" class="{% if page == 'mg_fournisseurs' %}active{% endif %}">💰 Suivi financier fournisseurs</a>
@@ -650,7 +651,6 @@
                     <a href="/mg/receptions" class="{% if page == 'mg_receptions' %}active{% endif %}">📦 Réceptions</a>
                     {% endif %}
                     {% if mg_core %}
-                    <a href="/mg/paiements" class="{% if page == 'mg_paiements' %}active{% endif %}">💵 Paiements fournisseurs</a>
                     <a href="/mg/equipements" class="{% if page == 'mg_equipements' %}active{% endif %}">🖥️ Équipements</a>
                     {% endif %}
                     {% if 'stock_view' in permissions or 'admin' in permissions %}
