@@ -21091,7 +21091,7 @@ def facture_preview(fri_id):
 
 
 @app.route('/recouvrement/facture/<int:fri_id>/modifier', methods=['POST'])
-@permission_required_any('facture_edit', 'admin', 'dg')
+@permission_required_any('facture_edit', 'recouvrement_view', 'recouvrement_edit', 'comptabilite', 'admin', 'dg')
 def facture_modifier(fri_id):
     """v145 / v146 : Modification d'une facture.
     v146 : Accepte aussi modification AVANT édition (status='a_facturer').
@@ -21226,7 +21226,7 @@ def facture_reporter(fri_id):
 
 
 @app.route('/recouvrement/facture/<int:fri_id>/edit', methods=['POST'])
-@permission_required_any('facture_edit', 'admin')
+@permission_required_any('facture_edit', 'recouvrement_view', 'recouvrement_edit', 'comptabilite', 'admin')
 def edit_invoice_v142(fri_id):
     """v142 / v145 / v147 / v156 : Comptabilité édite la facture.
     v147 : Commentaire obligatoire. v156 : TVA optionnelle (case à cocher tva_apply)."""
@@ -30915,14 +30915,10 @@ def fournisseurs_list():
     conn = _gdb()
     suppliers = []
     try:
-        if is_admin_view:
-            # Admin : voit TOUT (actifs + inactifs/archivés)
-            suppliers = [dict(r) for r in conn.execute(
-                "SELECT * FROM suppliers ORDER BY COALESCE(is_active,1) DESC, nom").fetchall()]
-        else:
-            # Autres rôles : uniquement actifs
-            suppliers = [dict(r) for r in conn.execute(
-                "SELECT * FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+        # v162 : afficher TOUS les fournisseurs (actifs + inactifs) pour ne plus en « perdre »
+        # — les inactifs apparaissent en bas de liste.
+        suppliers = [dict(r) for r in conn.execute(
+            "SELECT * FROM suppliers ORDER BY COALESCE(is_active,1) DESC, nom").fetchall()]
         for s in suppliers:
             summary = get_supplier_summary(s['id'])
             s.update(summary)

@@ -2618,6 +2618,8 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None, doc_params=None)
         doc_type = 'PROFORMA'; prefix = 'PRO'
     else:
         doc_type = 'DEVIS'; prefix = 'DEV'
+    # v162 : sur une FACTURE, entête de tableau TEAL (modèle facture) au lieu de l'orange (devis)
+    header_color = RAMYA_TEAL if doc_type == 'FACTURE' else RAMYA_ORANGE
     
     ref = devis_data.get('reference', '')
     # Date: preserve format if given else format from created_at
@@ -2789,10 +2791,10 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None, doc_params=None)
     col_widths = [10*mm, 82*mm, 14*mm, 26*mm, 20*mm, 28*mm]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), RAMYA_ORANGE),
+        ('BACKGROUND', (0, 0), (-1, 0), header_color),
         ('TEXTCOLOR', (0, 0), (-1, 0), white),
         ('FONTSIZE', (0, 0), (-1, -1), 8.5),
-        ('LINEBELOW', (0, 0), (-1, 0), 1, RAMYA_ORANGE),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, header_color),
         ('LINEABOVE', (0, 1), (-1, -1), 0.25, HexColor('#eeeeee')),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('TOPPADDING', (0, 0), (-1, 0), 4),
@@ -2883,8 +2885,8 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None, doc_params=None)
     bar_widths = [25*mm, 25*mm, 25*mm, 22*mm, 25*mm, 26*mm, 32*mm]
     bar = Table(bar_data, colWidths=bar_widths)
     bar.setStyle(TableStyle([
-        # Ligne 0: header ORANGE
-        ('BACKGROUND', (0, 0), (-1, 0), RAMYA_ORANGE),
+        # Ligne 0: header (TEAL pour facture, ORANGE pour devis)
+        ('BACKGROUND', (0, 0), (-1, 0), header_color),
         ('TEXTCOLOR', (0, 0), (-1, 0), white),
         ('TOPPADDING', (0, 0), (-1, 0), 4),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 4),

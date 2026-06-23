@@ -373,7 +373,7 @@
 <!-- ================================================ -->
 
 <!-- v162 : Éditer & transmettre — émission de la facture (page unique, plus de formulaire dans la liste) -->
-{% if f.status == 'a_facturer' and ('facture_edit' in permissions or 'admin' in permissions) %}
+{% if f.status == 'a_facturer' and ('facture_edit' in permissions or 'recouvrement_view' in permissions or 'comptabilite' in permissions or 'admin' in permissions) %}
 <div class="modifier-block" style="border-color:#2e7d32;background:#f1f8f3">
     <h3 style="margin:0 0 6px;color:#1b5e20;font-size:14px">🧾 Éditer et transmettre la facture</h3>
     <p style="font-size:11px;color:#666;margin:0 0 10px">
@@ -404,7 +404,7 @@
 {% endif %}
 
 <!-- Modifier la facture (toujours disponible avant validation paiement) -->
-{% if f.status in ('a_facturer','facture_editee') and ('facture_edit' in permissions or 'admin' in permissions) %}
+{% if f.status in ('a_facturer','facture_editee') and ('facture_edit' in permissions or 'recouvrement_view' in permissions or 'comptabilite' in permissions or 'admin' in permissions) %}
 <div class="modifier-block">
     <h3 style="margin:0 0 10px;color:#b8561f;font-size:14px">✏️ Modifier {% if f.status == 'a_facturer' %}le montant{% else %}la facture{% endif %}</h3>
     <p style="font-size:11px;color:#666;margin:0 0 10px">

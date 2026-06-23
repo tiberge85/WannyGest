@@ -3404,7 +3404,10 @@ function filterRecent() {
         <a href="/fournisseurs/purchase/{{ p.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px;padding:3px 6px" title="Voir détails">📋</a>
         {% if can_edit %}
         <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 6px"
-            onclick="openEditPurchase({{ p.id }}, '{{ (p.description or '')|e }}', '{{ (p.categorie or '')|e }}', {{ p.montant_total or 0 }}, '{{ p.date or '' }}', '{{ p.date_echeance or '' }}', '{{ (p.departement or '')|e }}', '{{ (p.notes or '')|e }}')" title="Modifier">✏️</button>
+            data-id="{{ p.id }}" data-desc="{{ p.description or '' }}" data-cat="{{ p.categorie or '' }}"
+            data-mt="{{ p.montant_total or 0 }}" data-date="{{ p.date or '' }}" data-ech="{{ p.date_echeance or '' }}"
+            data-dept="{{ p.departement or '' }}" data-notes="{{ p.notes or '' }}"
+            onclick="openEditPurchaseEl(this)" title="Modifier">✏️</button>
         <form method="post" action="/fournisseurs/purchase/{{ p.id }}/delete" style="display:inline" 
             onsubmit="return confirm('Supprimer cet achat ? Les paiements liés doivent être supprimés d\'abord.')">
             <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 6px" title="Supprimer">🗑️</button>
@@ -3451,6 +3454,10 @@ function filterRecent() {
 </div></div>
 
 <script>
+function openEditPurchaseEl(b){
+    var d = b.dataset;
+    openEditPurchase(d.id, d.desc, d.cat, d.mt, d.date, d.ech, d.dept, d.notes);
+}
 function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes) {
     document.getElementById('editPurchaseForm').action = '/fournisseurs/purchase/' + id + '/edit';
     document.getElementById('ep_desc').value = desc;
