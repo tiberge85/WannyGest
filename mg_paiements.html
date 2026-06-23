@@ -62,6 +62,16 @@
         </select></div>
     <div><label style="font-size:11px;color:#888;display:block">Montant (F) *</label>
         <input type="number" name="montant" id="pay_montant" required min="1" step="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+    <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Compte à débiter *</label>
+        <select name="wallet" required title="Compte à débiter" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">— Choisir le compte —</option>
+            {% if caisses_fourn %}<optgroup label="💰 Caisses fournisseur">
+                {% for c in caisses_fourn %}<option value="caisse:{{ c.id }}">{{ c.name }} ({{ '{:,.0f}'.format(c.solde or 0).replace(',', ' ') }} F)</option>{% endfor %}
+            </optgroup>{% endif %}
+            {% if banques_fourn %}<optgroup label="🏦 Comptes bancaires fournisseur">
+                {% for b in banques_fourn %}<option value="banque:{{ b.id }}">{{ b.nom }} ({{ '{:,.0f}'.format(b.solde or 0).replace(',', ' ') }} F)</option>{% endfor %}
+            </optgroup>{% endif %}
+        </select></div>
     <div><label style="font-size:11px;color:#888;display:block">Mode</label>
         <select name="mode_paiement" title="Mode de paiement" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
             <option value="espece">Espèces</option><option value="virement">Virement</option><option value="cheque">Chèque</option><option value="mobile">Mobile money</option></select></div>

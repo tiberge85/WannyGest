@@ -13,7 +13,9 @@
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('rapport_core.py'\\).read\\(\\)\\); print\\('rapport_core OK'\\)\")",
       "Bash(awk 'NR>=2575 && NR<=3010' rapport_core.py)",
       "Bash(python3 -c \"import models; print\\(sorted\\(models.get_role_permissions\\('agent_recouvreur'\\)\\)\\)\")",
-      "Bash(git commit -q -m 'v162 : MG réorg fournisseurs — portefeuilles + nouvel achat → Paiements fournisseurs ; Export CSV + Bilan général PDF au niveau Moyens Généraux *)"
+      "Bash(git commit -q -m 'v162 : MG réorg fournisseurs — portefeuilles + nouvel achat → Paiements fournisseurs ; Export CSV + Bilan général PDF au niveau Moyens Généraux *)",
+      "Bash(xargs -I{} sh -c 'sed -n \"$\\(\\({}-3\\)\\),$\\(\\({}\\)\\)p\" app.py')",
+      "Bash(git commit -q -m 'v162 : paiement fournisseur — compte à débiter obligatoire + accès au Tableau de bord/Bilan MG rétabli *)"
     ]
   }
 }

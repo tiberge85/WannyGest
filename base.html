@@ -627,8 +627,11 @@
                     <span class="arrow">▼</span>
                 </div>
                 <div class="nav-section-items">
-                    {# v160 : Tableau de bord MG + Solde Caisse/Banque retirés du menu MG
-                       (les soldes restent accessibles via "Gérer" dans Fournisseurs & Paiements) #}
+                    {# v162 : Tableau de bord MG ré-affiché (Export CSV + Bilan général PDF y vivent).
+                       Solde Caisse/Banque restent accessibles via "Gérer" dans Paiements fournisseurs. #}
+                    {% if mg_core %}
+                    <a href="/mg/dashboard" class="{% if page == 'mg_dashboard' %}active{% endif %}">📊 Tableau de bord &amp; Bilan</a>
+                    {% endif %}
                     {% if mg_core %}
                     <a href="/mg/demandes" class="{% if page in ('mg_demandes',) %}active{% endif %}">
                         📋 Demandes internes

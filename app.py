@@ -32123,6 +32123,7 @@ def achats_contrat_add():
 # ============================================================
 
 @app.route('/mg')
+@app.route('/mg/dashboard')
 @permission_required_any('mg_view', 'admin')
 def mg_dashboard():
     """Dashboard Moyens Généraux : KPIs et accès aux modules."""
@@ -32180,7 +32181,7 @@ def mg_dashboard():
     nb_stock_faible = len([s for s in stock_alerts if 0 < (s['stock_actuel'] or 0) <= (s['seuil_alerte'] or 2)])
     
     conn.close()
-    return render_template('mg_dashboard.html',
+    return render_template('mg_dashboard.html', page='mg_dashboard',
         nb_demandes_attente=nb_demandes_attente,
         nb_commandes_cours=nb_commandes_cours,
         nb_equipements=nb_equipements,
@@ -33573,6 +33574,7 @@ def mg_paiements():
     return render_template('mg_paiements.html', paiements=paiements, suppliers=suppliers,
                           solde_caisse_fourn=solde_caisse_fourn, solde_banque_fourn=solde_banque_fourn,
                           solde_total_fourn=solde_caisse_fourn + solde_banque_fourn,
+                          caisses_fourn=caisses_fourn, banques_fourn=banques_fourn,
                           purchases=purchases, total_paye=total_paye, nb=len(paiements),
                           today_str=datetime.now().strftime('%Y-%m-%d'))
 
@@ -33581,23 +33583,40 @@ def mg_paiements():
 def mg_paiements_supplier_add():
     pid = int(request.form.get('purchase_id', 0) or 0)
     montant = _num_fr(request.form.get('montant'))
+    wallet = (request.form.get('wallet', '') or '').strip()  # "caisse:ID" ou "banque:ID"
     if not pid or montant <= 0:
         flash("⚠️ Choisissez une facture et un montant valide.", "error")
         return redirect('/mg/paiements')
     conn = _gdb()
-    pr = conn.execute("SELECT supplier_id, contract_id FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
+    pr = conn.execute("""SELECT sp.supplier_id, sp.contract_id, s.nom AS fournisseur_name
+        FROM supplier_purchases sp JOIN suppliers s ON s.id = sp.supplier_id WHERE sp.id=?""", (pid,)).fetchone()
     if not pr:
         conn.close(); flash("Facture introuvable", "error"); return redirect('/mg/paiements')
+    pr = dict(pr)
+    # v162 : débit du portefeuille fournisseur choisi (caisse OU banque)
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    kind, _, wid_raw = wallet.partition(':')
+    wid = int(wid_raw) if wid_raw.isdigit() else 0
+    valid = (kind == 'caisse' and any(c['id'] == wid for c in caisses_fourn)) or \
+            (kind == 'banque' and any(b['id'] == wid for b in banques_fourn))
+    if not valid:
+        conn.close(); flash("⚠️ Choisissez le compte à débiter (caisse OU compte bancaire fournisseur).", "error")
+        return redirect('/mg/paiements')
+    user = get_user_by_id(session['user_id']); user_name = user['full_name'] if user else 'MG'
+    ref = (request.form.get('reference', '') or '').strip() or f"PAY-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
+    libelle = f"Paiement fournisseur {pr['fournisseur_name']}"
+    ok, label = _debit_fournisseur_wallet(conn, kind, wid, montant, libelle, ref, session['user_id'], user_name, pr['supplier_id'])
+    if not ok:
+        conn.close(); flash("⚠️ Compte à débiter introuvable.", "error"); return redirect('/mg/paiements')
     conn.execute("""INSERT INTO supplier_payments (purchase_id, montant, date, mode_paiement, reference, notes, created_by)
         VALUES (?,?,?,?,?,?,?)""",
         (pid, montant, request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
-         request.form.get('mode_paiement', 'espece'), request.form.get('reference', '').strip(),
+         request.form.get('mode_paiement', 'espece'), ref,
          request.form.get('notes', '').strip(), session.get('user_id')))
     conn.commit(); conn.close()
-    user = get_user_by_id(session['user_id'])
-    log_activity(session['user_id'], user['full_name'] if user else '?', 'Fournisseur',
-                 f"Paiement fournisseur {montant:,.0f} F sur facture #{pid}", request.remote_addr)
-    flash(f"✅ Paiement de {montant:,.0f} F enregistré", "success")
+    log_activity(session['user_id'], user_name, 'Fournisseur',
+                 f"Paiement fournisseur {montant:,.0f} F sur facture #{pid} (débit {label})", request.remote_addr)
+    flash(f"✅ Paiement de {montant:,.0f} F enregistré et débité de « {label} »", "success")
     return redirect('/mg/paiements')
 
 @app.route('/mg/paiements/achat-add', methods=['POST'])
