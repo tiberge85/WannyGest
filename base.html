@@ -637,12 +637,17 @@
                         {% endif %}
                     </a>
                     {% endif %}
-                    {# v162 : « Fournisseurs & Paiements » et « Paiements fournisseurs » fusionnés en une seule entrée #}
                     {% if 'fournisseurs' in permissions or 'admin' in permissions or 'mg_view' in permissions or 'achats' in permissions %}
-                    <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail','mg_paiements') %}active{% endif %}">🏭 Fournisseurs &amp; Paiements</a>
+                    <a href="/fournisseurs" class="{% if page in ('fournisseurs_list','fournisseur_detail','purchase_detail') %}active{% endif %}">📋 Liste des fournisseurs</a>
+                    {% endif %}
+                    {% if mg_core %}
+                    <a href="/mg/paiements" class="{% if page == 'mg_paiements' %}active{% endif %}">💵 Paiements fournisseurs</a>
                     {% endif %}
                     {% if mg_core or 'fournisseurs' in permissions %}
                     <a href="/mg/fournisseurs-dashboard" class="{% if page == 'mg_fournisseurs' %}active{% endif %}">💰 Suivi financier fournisseurs</a>
+                    {% endif %}
+                    {% if mg_core or 'achats' in permissions %}
+                    <a href="/mg/contrats" class="{% if page == 'mg_contrats' %}active{% endif %}">📑 Suivi des contrats fournisseurs</a>
                     {% endif %}
                     {% if mg_core or 'achats' in permissions %}
                     <a href="/achats?tab=commandes" class="{% if page == 'commandes' %}active{% endif %}">🚚 Bons de commande</a>

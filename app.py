@@ -2658,6 +2658,35 @@ try:
 except Exception as _e: print(f"[v162f-Perms] Err : {_e}", flush=True)
 
 
+# v162g : MODULE « Suivi des contrats fournisseurs » (Moyens Généraux)
+try:
+    from models import get_db as _v162g_db
+    _v162g = _v162g_db()
+    _v162g.execute("""CREATE TABLE IF NOT EXISTS supplier_contracts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference TEXT,
+        supplier_id INTEGER,
+        objet TEXT,
+        type_contrat TEXT,
+        date_debut TEXT,
+        date_fin TEXT,
+        montant REAL DEFAULT 0,
+        periodicite TEXT,
+        statut TEXT DEFAULT 'actif',
+        prochaine_echeance TEXT,
+        responsable TEXT,
+        conditions TEXT,
+        notes TEXT,
+        created_by INTEGER,
+        created_at TEXT DEFAULT (datetime('now'))
+    )""")
+    _v162g.execute("CREATE INDEX IF NOT EXISTS idx_contracts_supplier ON supplier_contracts(supplier_id)")
+    _v162g.commit()
+    _v162g.close()
+    print("[v162g-Contrats] Table supplier_contracts OK", flush=True)
+except Exception as _e: print(f"[v162g-Contrats] Err : {_e}", flush=True)
+
+
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
 try:
     from models import get_db as _gdb_v161p
@@ -32749,6 +32778,108 @@ def mg_receptions():
     """).fetchall()]
     conn.close()
     return render_template('mg_receptions.html', receptions=receptions, commandes=commandes)
+
+
+# ============================================================
+# v162g : MODULE SUIVI DES CONTRATS FOURNISSEURS
+# ============================================================
+CONTRAT_TYPES = ['Maintenance', 'Location', 'Prestation de service', 'Fourniture',
+                 'Abonnement', 'Assurance', 'Bail', 'Nettoyage', 'Gardiennage', 'Autre']
+CONTRAT_PERIODES = ['Ponctuel', 'Mensuel', 'Trimestriel', 'Semestriel', 'Annuel']
+CONTRAT_STATUTS = ['actif', 'en_cours', 'suspendu', 'expire', 'resilie']
+
+def _num_fr(v):
+    try: return float((str(v) or '0').replace(' ', '').replace(',', '.'))
+    except: return 0.0
+
+@app.route('/mg/contrats')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def mg_contrats():
+    """v162g : suivi des contrats fournisseurs (échéances, montants, alertes d'expiration)."""
+    from datetime import timedelta
+    conn = _gdb()
+    rows = conn.execute("""
+        SELECT ct.*, s.nom AS fournisseur_name
+        FROM supplier_contracts ct
+        LEFT JOIN suppliers s ON s.id = ct.supplier_id
+        ORDER BY (ct.date_fin IS NULL), ct.date_fin, ct.id DESC
+    """).fetchall()
+    today = datetime.now().strftime('%Y-%m-%d')
+    soon = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+    contrats = []
+    for r in rows:
+        c = dict(r)
+        df = c.get('date_fin')
+        c['expire'] = bool(df and df < today and c.get('statut') in ('actif', 'en_cours'))
+        c['expire_bientot'] = bool(df and today <= df <= soon and c.get('statut') in ('actif', 'en_cours'))
+        contrats.append(c)
+    stats = {
+        'total': len(contrats),
+        'actifs': sum(1 for c in contrats if c.get('statut') in ('actif', 'en_cours') and not c['expire']),
+        'expire_bientot': sum(1 for c in contrats if c['expire_bientot']),
+        'expires': sum(1 for c in contrats if c['expire']),
+        'montant_total': sum((c.get('montant') or 0) for c in contrats if c.get('statut') in ('actif', 'en_cours')),
+    }
+    fournisseurs = [dict(r) for r in conn.execute(
+        "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+    conn.close()
+    return render_template('mg_contrats.html', page='mg_contrats',
+        contrats=contrats, stats=stats, fournisseurs=fournisseurs, today=today,
+        types=CONTRAT_TYPES, periodes=CONTRAT_PERIODES, statuts=CONTRAT_STATUTS)
+
+@app.route('/mg/contrats/add', methods=['POST'])
+@permission_required_any('mg_gestion', 'mg_demande', 'achats', 'admin')
+def mg_contrats_add():
+    ref = (request.form.get('reference', '') or '').strip() or f"CTR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    conn = _gdb()
+    conn.execute("""INSERT INTO supplier_contracts
+        (reference, supplier_id, objet, type_contrat, date_debut, date_fin, montant,
+         periodicite, statut, prochaine_echeance, responsable, conditions, notes, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (ref, int(request.form.get('supplier_id', 0) or 0) or None,
+         request.form.get('objet', '').strip(), request.form.get('type_contrat', '').strip(),
+         request.form.get('date_debut', '').strip() or None, request.form.get('date_fin', '').strip() or None,
+         _num_fr(request.form.get('montant')), request.form.get('periodicite', '').strip(),
+         request.form.get('statut', 'actif').strip() or 'actif',
+         request.form.get('prochaine_echeance', '').strip() or None,
+         request.form.get('responsable', '').strip(), request.form.get('conditions', '').strip(),
+         request.form.get('notes', '').strip(), session.get('user_id')))
+    conn.commit(); conn.close()
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Contrats',
+                 f"Contrat fournisseur {ref} créé", request.remote_addr)
+    flash(f"✅ Contrat {ref} ajouté", "success")
+    return redirect('/mg/contrats')
+
+@app.route('/mg/contrats/<int:cid>/edit', methods=['POST'])
+@permission_required_any('mg_gestion', 'mg_demande', 'achats', 'admin')
+def mg_contrats_edit(cid):
+    conn = _gdb()
+    if not conn.execute("SELECT id FROM supplier_contracts WHERE id=?", (cid,)).fetchone():
+        conn.close(); flash("Contrat introuvable", "error"); return redirect('/mg/contrats')
+    conn.execute("""UPDATE supplier_contracts SET
+        reference=?, supplier_id=?, objet=?, type_contrat=?, date_debut=?, date_fin=?, montant=?,
+        periodicite=?, statut=?, prochaine_echeance=?, responsable=?, conditions=?, notes=? WHERE id=?""",
+        (request.form.get('reference', '').strip(), int(request.form.get('supplier_id', 0) or 0) or None,
+         request.form.get('objet', '').strip(), request.form.get('type_contrat', '').strip(),
+         request.form.get('date_debut', '').strip() or None, request.form.get('date_fin', '').strip() or None,
+         _num_fr(request.form.get('montant')), request.form.get('periodicite', '').strip(),
+         request.form.get('statut', 'actif').strip() or 'actif',
+         request.form.get('prochaine_echeance', '').strip() or None,
+         request.form.get('responsable', '').strip(), request.form.get('conditions', '').strip(),
+         request.form.get('notes', '').strip(), cid))
+    conn.commit(); conn.close()
+    flash("✅ Contrat modifié", "success")
+    return redirect('/mg/contrats')
+
+@app.route('/mg/contrats/<int:cid>/delete', methods=['POST'])
+@permission_required_any('mg_gestion', 'achats', 'admin')
+def mg_contrats_delete(cid):
+    conn = _gdb()
+    conn.execute("DELETE FROM supplier_contracts WHERE id=?", (cid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Contrat supprimé", "success")
+    return redirect('/mg/contrats')
 
 
 @app.route('/mg/receptions/add', methods=['POST'])

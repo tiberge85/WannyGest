@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Suivi des contrats fournisseurs{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📑 Suivi des contrats fournisseurs</h1>
+    <button type="button" class="btn btn-primary" onclick="openContrat()">+ Nouveau contrat</button>
+</div>
+
+<!-- STATS -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px">
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Contrats actifs</div>
+        <div style="font-size:26px;font-weight:800;color:#1A7A6D">{{ stats.actifs }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Total contrats</div>
+        <div style="font-size:26px;font-weight:800;color:#1e1e2d">{{ stats.total }}</div></div>
+    <div class="card" style="padding:14px;border-left:4px solid #f29f2f"><div style="font-size:11px;color:#888">Expirent &lt; 30 j</div>
+        <div style="font-size:26px;font-weight:800;color:#b8561f">{{ stats.expire_bientot }}</div></div>
+    <div class="card" style="padding:14px;border-left:4px solid #c53030"><div style="font-size:11px;color:#888">Expirés</div>
+        <div style="font-size:26px;font-weight:800;color:#c53030">{{ stats.expires }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Montant engagé (actifs)</div>
+        <div style="font-size:20px;font-weight:800;color:#2e7d32">{{ '{:,.0f}'.format(stats.montant_total).replace(',', ' ') }} F</div></div>
+</div>
+
+<div class="card"><div class="card-header"><h3>Contrats</h3>
+    <input type="text" id="ctrSearch" onkeyup="filterContrats()" placeholder="🔍 Rechercher (fournisseur, objet, référence...)"
+        style="padding:8px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px;min-width:260px">
+</div>
+<div class="card-body">
+{% if contrats %}
+<div class="table-wrap"><table>
+    <thead><tr>
+        <th>Référence</th><th>Fournisseur</th><th>Objet</th><th>Type</th>
+        <th>Début</th><th>Fin / Échéance</th><th style="text-align:right">Montant</th>
+        <th>Périodicité</th><th>Prochaine échéance</th><th>Statut</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+    {% for c in contrats %}
+    <tr class="ctr-row" data-s="{{ ((c.reference or '') ~ ' ' ~ (c.fournisseur_name or '') ~ ' ' ~ (c.objet or '') ~ ' ' ~ (c.type_contrat or ''))|lower }}"
+        style="{% if c.expire %}background:#fde8e8{% elif c.expire_bientot %}background:#fff8e1{% endif %}">
+        <td style="font-family:monospace;font-size:11px">{{ c.reference }}</td>
+        <td><strong>{{ c.fournisseur_name or '—' }}</strong></td>
+        <td style="max-width:220px">{{ c.objet or '—' }}</td>
+        <td>{{ c.type_contrat or '—' }}</td>
+        <td style="font-size:11px">{{ c.date_debut or '—' }}</td>
+        <td style="font-size:11px">{{ c.date_fin or '—' }}
+            {% if c.expire %}<span style="background:#c53030;color:#fff;padding:1px 5px;border-radius:6px;font-size:9px">EXPIRÉ</span>
+            {% elif c.expire_bientot %}<span style="background:#f29f2f;color:#fff;padding:1px 5px;border-radius:6px;font-size:9px">BIENTÔT</span>{% endif %}</td>
+        <td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(c.montant or 0).replace(',', ' ') }} F</td>
+        <td style="font-size:11px">{{ c.periodicite or '—' }}</td>
+        <td style="font-size:11px">{{ c.prochaine_echeance or '—' }}</td>
+        <td>
+            {% if c.statut == 'actif' %}<span class="badge-status sent">🟢 Actif</span>
+            {% elif c.statut == 'en_cours' %}<span class="badge-status" style="background:#e3f2fd;color:#1565c0">🔵 En cours</span>
+            {% elif c.statut == 'suspendu' %}<span class="badge-status pending">⏸️ Suspendu</span>
+            {% elif c.statut == 'expire' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">🔴 Expiré</span>
+            {% elif c.statut == 'resilie' %}<span class="badge-status" style="background:#eee;color:#666">⚪ Résilié</span>
+            {% else %}<span class="badge-status">{{ c.statut }}</span>{% endif %}
+        </td>
+        <td style="white-space:nowrap">
+            <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 6px"
+                data-id="{{ c.id }}" data-ref="{{ c.reference or '' }}" data-sup="{{ c.supplier_id or '' }}"
+                data-objet="{{ c.objet or '' }}" data-type="{{ c.type_contrat or '' }}"
+                data-deb="{{ c.date_debut or '' }}" data-fin="{{ c.date_fin or '' }}" data-mt="{{ c.montant or 0 }}"
+                data-per="{{ c.periodicite or '' }}" data-statut="{{ c.statut or 'actif' }}"
+                data-ech="{{ c.prochaine_echeance or '' }}" data-resp="{{ c.responsable or '' }}"
+                data-cond="{{ c.conditions or '' }}" data-notes="{{ c.notes or '' }}"
+                onclick="editContrat(this)" title="Modifier">✏️</button>
+            <form method="post" action="/mg/contrats/{{ c.id }}/delete" style="display:inline"
+                onsubmit="return confirm('Supprimer ce contrat ?');">
+                <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 6px" title="Supprimer">🗑️</button>
+            </form>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}
+<div style="text-align:center;padding:34px;color:#888">Aucun contrat enregistré. Cliquez sur « + Nouveau contrat ».</div>
+{% endif %}
+</div></div>
+
+<!-- MODAL CONTRAT (ajout / édition) -->
+<div class="modal-bg" id="contratM"><div class="modal" style="max-width:680px">
+<h3 id="ctrTitle">📑 Nouveau contrat</h3>
+<form method="post" id="contratForm" action="/mg/contrats/add">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888;display:block">Référence (auto si vide)</label>
+            <input name="reference" id="f_ref" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px;font-family:monospace"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Fournisseur</label>
+            <select name="supplier_id" id="f_sup" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">— Choisir —</option>
+                {% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+            </select></div>
+    </div>
+    <div style="margin-bottom:8px"><label style="font-size:11px;color:#888;display:block">Objet du contrat *</label>
+        <input name="objet" id="f_objet" required style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888;display:block">Type</label>
+            <select name="type_contrat" id="f_type" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">—</option>{% for t in types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Périodicité</label>
+            <select name="periodicite" id="f_per" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">—</option>{% for p in periodes %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Montant (F)</label>
+            <input type="number" name="montant" id="f_mt" step="1" min="0" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888;display:block">Date début</label>
+            <input type="date" name="date_debut" id="f_deb" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Date fin / échéance</label>
+            <input type="date" name="date_fin" id="f_fin" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888;display:block">Prochaine échéance</label>
+            <input type="date" name="prochaine_echeance" id="f_ech" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888;display:block">Statut</label>
+            <select name="statut" id="f_statut" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+                {% for s in statuts %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></div>
+        <div><label style="font-size:11px;color:#888;display:block">Responsable / Service</label>
+            <input name="responsable" id="f_resp" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    </div>
+    <div style="margin-bottom:8px"><label style="font-size:11px;color:#888;display:block">Conditions</label>
+        <input name="conditions" id="f_cond" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div style="margin-bottom:10px"><label style="font-size:11px;color:#888;display:block">Notes</label>
+        <textarea name="notes" id="f_notes" rows="2" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('contratM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+<script>
+function filterContrats(){
+    var q=(document.getElementById('ctrSearch').value||'').toLowerCase();
+    document.querySelectorAll('.ctr-row').forEach(function(r){
+        r.style.display = (!q || (r.getAttribute('data-s')||'').indexOf(q)>=0) ? '' : 'none';
+    });
+}
+function openContrat(){
+    document.getElementById('ctrTitle').textContent='📑 Nouveau contrat';
+    var f=document.getElementById('contratForm'); f.action='/mg/contrats/add'; f.reset();
+    document.getElementById('contratM').classList.add('active');
+}
+function editContrat(b){
+    var d=b.dataset;
+    document.getElementById('ctrTitle').textContent='✏️ Modifier le contrat';
+    document.getElementById('contratForm').action='/mg/contrats/'+d.id+'/edit';
+    document.getElementById('f_ref').value=d.ref;
+    document.getElementById('f_sup').value=d.sup;
+    document.getElementById('f_objet').value=d.objet;
+    document.getElementById('f_type').value=d.type;
+    document.getElementById('f_per').value=d.per;
+    document.getElementById('f_mt').value=d.mt;
+    document.getElementById('f_deb').value=d.deb;
+    document.getElementById('f_fin').value=d.fin;
+    document.getElementById('f_ech').value=d.ech;
+    document.getElementById('f_statut').value=d.statut;
+    document.getElementById('f_resp').value=d.resp;
+    document.getElementById('f_cond').value=d.cond;
+    document.getElementById('f_notes').value=d.notes;
+    document.getElementById('contratM').classList.add('active');
+}
+</script>
+{% endblock %}
