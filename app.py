@@ -31772,6 +31772,156 @@ def fournisseurs_recap_pdf():
         return redirect(url_for('fournisseurs_list'))
 
 
+@app.route('/mg/bilan-pdf')
+@permission_required_any('mg_view', 'mg_gestion', 'admin')
+def mg_bilan_pdf():
+    """Bilan général PDF de tout le contenu Moyens Généraux sur une période.
+    Couvre : fournisseurs (achats/paiements), contrats, demandes internes,
+    réceptions et équipements. Params : ?from=YYYY-MM-DD&to=YYYY-MM-DD"""
+    from datetime import datetime as _dt, date as _date
+
+    today_str = _dt.now().strftime('%Y-%m-%d')
+    date_from = (request.args.get('from','') or '').strip()
+    date_to = (request.args.get('to','') or '').strip()
+    if not date_from:
+        date_from = _date.today().replace(day=1).strftime('%Y-%m-%d')
+    if not date_to:
+        date_to = today_str
+
+    conn = _gdb()
+
+    def _scalar(sql, params=()):
+        try:
+            r = conn.execute(sql, params).fetchone()
+            return (r[0] if r and r[0] is not None else 0)
+        except Exception as e:
+            print(f"bilan scalar: {e}"); return 0
+
+    # --- FOURNISSEURS ---
+    nb_fournisseurs = _scalar("SELECT COUNT(*) FROM suppliers WHERE COALESCE(is_active,1)=1")
+    total_achats = _scalar("SELECT COALESCE(SUM(montant_total),0) FROM supplier_purchases WHERE date BETWEEN ? AND ?", (date_from, date_to))
+    total_paye = _scalar("""SELECT COALESCE(SUM(montant),0) FROM supplier_payments WHERE date BETWEEN ? AND ?""", (date_from, date_to))
+    reste_global = float(_scalar("SELECT COALESCE(SUM(montant_total),0) FROM supplier_purchases")) - float(_scalar("SELECT COALESCE(SUM(montant),0) FROM supplier_payments"))
+
+    # Top fournisseurs par achats sur la période
+    try:
+        top_fourn = [dict(r) for r in conn.execute("""
+            SELECT s.nom AS nom, COALESCE(SUM(p.montant_total),0) AS achats
+            FROM supplier_purchases p JOIN suppliers s ON p.supplier_id=s.id
+            WHERE p.date BETWEEN ? AND ?
+            GROUP BY s.id ORDER BY achats DESC LIMIT 8""", (date_from, date_to)).fetchall()]
+    except Exception:
+        top_fourn = []
+
+    # --- CONTRATS ---
+    nb_contrats = _scalar("SELECT COUNT(*) FROM supplier_contracts WHERE deleted_at IS NULL")
+    contrats_valeur = _scalar("SELECT COALESCE(SUM(montant_total),0) FROM supplier_contracts WHERE deleted_at IS NULL")
+    contrats_consomme = _scalar("SELECT COALESCE(SUM(montant_consomme),0) FROM supplier_contracts WHERE deleted_at IS NULL")
+
+    # --- DEMANDES INTERNES ---
+    demandes_periode = _scalar("SELECT COUNT(*) FROM achats_demandes WHERE COALESCE(date_creation, created_at, '') BETWEEN ? AND ?", (date_from, date_to + ' 23:59:59'))
+    demandes_attente = _scalar("SELECT COUNT(*) FROM achats_demandes WHERE status='en_attente'")
+
+    # --- RÉCEPTIONS ---
+    receptions_periode = _scalar("SELECT COUNT(*) FROM mg_receptions WHERE date_reception BETWEEN ? AND ?", (date_from, date_to))
+
+    # --- ÉQUIPEMENTS ---
+    equip_actifs = _scalar("SELECT COUNT(*) FROM mg_equipements WHERE statut='actif'")
+    equip_panne = _scalar("SELECT COUNT(*) FROM mg_equipements WHERE statut IN ('panne','maintenance')")
+
+    conn.close()
+
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        import io
+
+        TEAL = HexColor('#1A7A6D'); NAVY = HexColor('#1a3a5c')
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
+        story = []
+        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>", ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
+        story.append(Paragraph("Bilan général — Moyens Généraux", ParagraphStyle('h2', fontSize=12, textColor=NAVY, alignment=TA_CENTER)))
+        story.append(Paragraph(f"Période : du {date_from} au {date_to}", ParagraphStyle('p', fontSize=10, alignment=TA_CENTER, textColor=HexColor('#666666'))))
+        story.append(Spacer(1, 7*mm))
+
+        def _section(title, rows, accent=TEAL, last_alert=False):
+            story.append(Paragraph(f"<b>{title}</b>", ParagraphStyle('s', fontSize=12, textColor=accent)))
+            story.append(Spacer(1, 2*mm))
+            data = [['Indicateur', 'Valeur']] + rows
+            t = Table(data, colWidths=[110*mm, 65*mm])
+            sty = [
+                ('BACKGROUND',(0,0),(-1,0),accent),
+                ('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+                ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                ('FONTSIZE',(0,0),(-1,-1),10),
+                ('GRID',(0,0),(-1,-1),0.4,HexColor('#cccccc')),
+                ('PADDING',(0,0),(-1,-1),5),
+                ('ALIGN',(1,0),(1,-1),'RIGHT'),
+            ]
+            if last_alert:
+                sty += [('BACKGROUND',(0,-1),(-1,-1),HexColor('#fde8e8')),('TEXTCOLOR',(0,-1),(-1,-1),HexColor('#c53030')),('FONTNAME',(0,-1),(-1,-1),'Helvetica-Bold')]
+            t.setStyle(TableStyle(sty))
+            story.append(t); story.append(Spacer(1, 6*mm))
+
+        _section("🏭 Fournisseurs & Paiements", [
+            ['Fournisseurs actifs', f"{int(nb_fournisseurs)}"],
+            ['Total achats (période)', f"{float(total_achats):,.0f} F CFA"],
+            ['Total paiements (période)', f"{float(total_paye):,.0f} F CFA"],
+            ['Reste à payer global (toutes périodes)', f"{max(0.0, float(reste_global)):,.0f} F CFA"],
+        ], accent=TEAL, last_alert=True)
+
+        if top_fourn:
+            story.append(Paragraph("<b>Top fournisseurs (achats sur la période)</b>", ParagraphStyle('lbl', fontSize=10, textColor=NAVY)))
+            story.append(Spacer(1, 2*mm))
+            tf = [['Fournisseur', 'Achats']] + [[f['nom'], f"{float(f['achats']):,.0f} F"] for f in top_fourn]
+            t = Table(tf, colWidths=[110*mm, 65*mm])
+            t.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(-1,0),NAVY),('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+                ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),9),
+                ('GRID',(0,0),(-1,-1),0.3,HexColor('#cccccc')),('PADDING',(0,0),(-1,-1),4),
+                ('ALIGN',(1,0),(1,-1),'RIGHT'),
+            ]))
+            story.append(t); story.append(Spacer(1, 6*mm))
+
+        _section("📜 Contrats fournisseurs", [
+            ['Contrats actifs (non supprimés)', f"{int(nb_contrats)}"],
+            ['Valeur totale des contrats', f"{float(contrats_valeur):,.0f} F CFA"],
+            ['Montant consommé', f"{float(contrats_consomme):,.0f} F CFA"],
+            ['Reste engagé', f"{max(0.0, float(contrats_valeur) - float(contrats_consomme)):,.0f} F CFA"],
+        ], accent=HexColor('#7b1fa2'))
+
+        _section("📝 Demandes internes", [
+            ['Demandes créées (période)', f"{int(demandes_periode)}"],
+            ['Demandes en attente de validation', f"{int(demandes_attente)}"],
+        ], accent=HexColor('#1565c0'))
+
+        _section("📦 Réceptions & Équipements", [
+            ['Réceptions enregistrées (période)', f"{int(receptions_periode)}"],
+            ['Équipements actifs', f"{int(equip_actifs)}"],
+            ['Équipements en panne / maintenance', f"{int(equip_panne)}"],
+        ], accent=HexColor('#2e7d32'))
+
+        story.append(Spacer(1, 4*mm))
+        story.append(Paragraph(
+            f"<i>Document généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} par WannyGest — RAMYA Technologie &amp; Innovation</i>",
+            ParagraphStyle('foot', fontSize=8, textColor=HexColor('#888888'), alignment=TA_CENTER)))
+
+        doc.build(story)
+        buf.seek(0)
+        filename = f"bilan-moyens-generaux-{date_from}-au-{date_to}.pdf"
+        return Response(buf.getvalue(), mimetype='application/pdf',
+                       headers={'Content-Disposition': f'attachment; filename={filename}'})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        flash(f"Erreur génération du bilan général : {e}", "error")
+        return redirect(url_for('mg_dashboard'))
+
+
 @app.route('/achats')
 @permission_required_any('achats', 'comptabilite')
 def achats_page():
@@ -33405,6 +33555,12 @@ def mg_paiements():
         FROM supplier_purchases sp JOIN suppliers s ON s.id = sp.supplier_id
         ORDER BY s.nom, sp.date DESC
     """).fetchall()]
+    # v162 : portefeuilles fournisseur (déplacés ici depuis la liste des fournisseurs)
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    solde_caisse_fourn = sum(cc['solde'] for cc in caisses_fourn)
+    solde_banque_fourn = sum(bb['solde'] for bb in banques_fourn)
+    suppliers = [dict(r) for r in conn.execute(
+        "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
     conn.close()
     for p in purchases:
         try:
@@ -33414,7 +33570,9 @@ def mg_paiements():
             p['paye'] = 0; p['reste'] = p['montant_total'] or 0
     purchases = [p for p in purchases if (p['reste'] or 0) > 0]
     total_paye = sum((pm.get('montant') or 0) for pm in paiements)
-    return render_template('mg_paiements.html', paiements=paiements,
+    return render_template('mg_paiements.html', paiements=paiements, suppliers=suppliers,
+                          solde_caisse_fourn=solde_caisse_fourn, solde_banque_fourn=solde_banque_fourn,
+                          solde_total_fourn=solde_caisse_fourn + solde_banque_fourn,
                           purchases=purchases, total_paye=total_paye, nb=len(paiements),
                           today_str=datetime.now().strftime('%Y-%m-%d'))
 
@@ -33440,6 +33598,30 @@ def mg_paiements_supplier_add():
     log_activity(session['user_id'], user['full_name'] if user else '?', 'Fournisseur',
                  f"Paiement fournisseur {montant:,.0f} F sur facture #{pid}", request.remote_addr)
     flash(f"✅ Paiement de {montant:,.0f} F enregistré", "success")
+    return redirect('/mg/paiements')
+
+@app.route('/mg/paiements/achat-add', methods=['POST'])
+@permission_required_any('mg_gestion', 'fournisseurs_edit', 'admin')
+def mg_paiements_achat_add():
+    """v162 : créer une facture/achat fournisseur depuis la page Paiements."""
+    sid = int(request.form.get('supplier_id', 0) or 0)
+    montant = _num_fr(request.form.get('montant_total'))
+    desc = request.form.get('description', '').strip()
+    if not sid or montant <= 0 or not desc:
+        flash("⚠️ Fournisseur, description et montant requis.", "error")
+        return redirect('/mg/paiements')
+    conn = _gdb()
+    conn.execute("""INSERT INTO supplier_purchases
+        (supplier_id, description, categorie, montant_total, date, date_echeance, created_by)
+        VALUES (?,?,?,?,?,?,?)""",
+        (sid, desc, request.form.get('categorie', '').strip(), montant,
+         request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('date_echeance', '').strip() or None, session.get('user_id')))
+    conn.commit(); conn.close()
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Fournisseur',
+                 f"Achat fournisseur {montant:,.0f} F ({desc[:30]})", request.remote_addr)
+    flash(f"✅ Achat de {montant:,.0f} F ajouté", "success")
     return redirect('/mg/paiements')
 
 

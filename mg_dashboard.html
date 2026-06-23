@@ -1,8 +1,37 @@
 {% extends "base.html" %}{% block title %}WannyGest - Moyens Généraux{% endblock %}{% block content %}
 <div class="page-header">
-    <h1>📦 Moyens Généraux</h1>
-    <p style="color:#666;font-size:13px">Workflow : Demande → Validation → Devis → Commande → Réception → Paiement → Équipement</p>
+    <div>
+        <h1>📦 Moyens Généraux</h1>
+        <p style="color:#666;font-size:13px">Workflow : Demande → Validation → Devis → Commande → Réception → Paiement → Équipement</p>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/fournisseurs/export.csv" class="btn btn-outline btn-sm">📥 Export CSV fournisseurs</a>
+        <button class="btn btn-sm" style="background:#7b1fa2;color:#fff" onclick="document.getElementById('mgBilanModal').style.display='flex'">📊 Bilan général PDF</button>
+    </div>
 </div>
+
+<!-- Modal Bilan général Moyens Généraux par période -->
+<div id="mgBilanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:480px;width:92%">
+    <h3 style="margin:0 0 12px;color:#7b1fa2">📊 Bilan général Moyens Généraux</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:14px">Génère un PDF récapitulatif de tout le contenu Moyens Généraux sur la période choisie : fournisseurs, achats &amp; paiements, contrats, demandes internes, réceptions et équipements.</p>
+    <form method="get" action="/mg/bilan-pdf" target="_blank">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+            <div>
+                <label style="font-size:11px;color:#888;display:block">Du</label>
+                <input type="date" name="from" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            </div>
+            <div>
+                <label style="font-size:11px;color:#888;display:block">Au</label>
+                <input type="date" name="to" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            </div>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('mgBilanModal').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📊 Générer le bilan</button>
+        </div>
+    </form>
+</div></div>
 
 {% include '_my_projects_widget.html' %}
 

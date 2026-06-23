@@ -3155,28 +3155,8 @@ function filterRecent() {
 <div class="page-header">
     <h1>🏭 Fournisseurs{% if is_admin_view and nb_inactifs %} <span style="font-size:12px;color:#888;font-weight:400">({{ nb_actifs }} actif(s) · {{ nb_inactifs }} archivé(s))</span>{% endif %}</h1>
     <div style="display:flex;gap:6px">
-        <a href="/fournisseurs/export.csv" class="btn btn-outline btn-sm">📥 Export CSV</a>
-        <button class="btn btn-sm" style="background:#7b1fa2;color:#fff" onclick="document.getElementById('recapModal').style.display='flex'">📊 Récap PDF période</button>
+        <a href="/mg/paiements" class="btn btn-outline btn-sm">💵 Paiements fournisseurs</a>
         <button class="btn btn-primary btn-sm" onclick="document.getElementById('newSupModal').style.display='flex'">+ Nouveau fournisseur</button>
-    </div>
-</div>
-
-{# v160 : Solde des portefeuilles fournisseur (caisse + banque) directement ici #}
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px">
-    <div style="background:#eaf4f1;border-left:4px solid #1A7A6D;border-radius:8px;padding:10px">
-        <div style="font-size:10px;text-transform:uppercase;color:#1A7A6D;font-weight:700;letter-spacing:1px">💰 Caisse fournisseur</div>
-        <div style="font-size:18px;font-weight:900;color:#1A7A6D;margin-top:2px">{{ '{:,.0f}'.format(solde_caisse_fourn or 0).replace(',', ' ') }} F</div>
-    </div>
-    <div style="background:#e7f0fa;border-left:4px solid #1565c0;border-radius:8px;padding:10px">
-        <div style="font-size:10px;text-transform:uppercase;color:#1565c0;font-weight:700;letter-spacing:1px">🏦 Banque fournisseur</div>
-        <div style="font-size:18px;font-weight:900;color:#1565c0;margin-top:2px">{{ '{:,.0f}'.format(solde_banque_fourn or 0).replace(',', ' ') }} F</div>
-    </div>
-    <div style="background:#1A7A6D;border-radius:8px;padding:10px;color:#fff;display:flex;align-items:center;justify-content:space-between">
-        <div>
-            <div style="font-size:10px;text-transform:uppercase;opacity:.85;font-weight:700;letter-spacing:1px">Σ Disponible</div>
-            <div style="font-size:20px;font-weight:900;margin-top:2px">{{ '{:,.0f}'.format(solde_total_fourn or 0).replace(',', ' ') }} F</div>
-        </div>
-        <a href="/mg/soldes" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:5px;padding:4px 8px;font-size:11px;text-decoration:none">Gérer</a>
     </div>
 </div>
 
@@ -3185,30 +3165,6 @@ function filterRecent() {
     💡 <strong>Vue admin</strong> : vous voyez aussi les fournisseurs archivés (lignes grisées). Bouton 🔄 pour les réactiver.
 </div>
 {% endif %}
-
-<!-- Modal récap PDF par période -->
-<div id="recapModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
-<div style="background:#fff;border-radius:10px;padding:20px;max-width:480px;width:92%">
-    <h3 style="margin:0 0 12px;color:#7b1fa2">📊 Récapitulatif PDF — Période</h3>
-    <p style="font-size:12px;color:#666;margin-bottom:14px">Génère un PDF complet du suivi paiement fournisseurs avec achats et paiements détaillés sur la période choisie.</p>
-    <form method="get" action="/fournisseurs/recap-pdf" target="_blank">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-            <div>
-                <label style="font-size:11px;color:#888;display:block">Du</label>
-                <input type="date" name="from" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
-            </div>
-            <div>
-                <label style="font-size:11px;color:#888;display:block">Au</label>
-                <input type="date" name="to" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
-            </div>
-        </div>
-        <div style="display:flex;gap:6px;justify-content:flex-end">
-            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('recapModal').style.display='none'">Annuler</button>
-            <button type="submit" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📊 Générer PDF</button>
-        </div>
-    </form>
-    <p style="font-size:10px;color:#aaa;margin-top:10px">💡 Le PDF inclut : synthèse globale, achats et paiements détaillés par fournisseur, reste à payer et statut.</p>
-</div></div>
 
 <div style="font-size:12px;color:#888;margin-bottom:10px">📋 Répertoire des fournisseurs — informations et coordonnées. Le suivi financier (achats / paiements) est dans <strong>« 💰 Suivi financier fournisseurs »</strong>.</div>
 
@@ -3337,32 +3293,9 @@ function filterRecent() {
 </div></div>
 
 {% if can_edit %}
-<div class="card" style="margin-top:14px"><div class="card-body">
-    <h3 style="margin-top:0">+ Nouvel achat</h3>
-    <form method="post" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end">
-        <input type="hidden" name="action" value="add_purchase">
-        <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Description *</label>
-            <input name="description" required placeholder="Caméras IP 4MP x10" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        <div><label style="font-size:11px;color:#888;display:block">Catégorie</label>
-            <input name="categorie" placeholder="Équipement" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        <div><label style="font-size:11px;color:#888;display:block">Montant total (F CFA) *</label>
-            <input type="number" name="montant_total" required min="0" step="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        <div><label style="font-size:11px;color:#888;display:block">Date</label>
-            <input type="date" name="date" value="{{ today_str if today_str else '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        <div><label style="font-size:11px;color:#888;display:block">Date échéance</label>
-            <input type="date" name="date_echeance" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        <div><label style="font-size:11px;color:#888;display:block">Département</label>
-            <input name="departement" placeholder="Technique, Commercial..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
-        {% if sup_contracts %}
-        <div><label style="font-size:11px;color:#888;display:block">Rattacher au contrat</label>
-            <select name="contract_id" title="Rattacher cette facture à un contrat" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
-                <option value="">— Aucun —</option>
-                {% for ct in sup_contracts %}<option value="{{ ct.id }}">{{ ct.reference }} · {{ ct.objet|truncate(24) }}</option>{% endfor %}
-            </select></div>
-        {% endif %}
-        <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
-    </form>
-</div></div>
+<div style="background:#eef4fb;border-left:3px solid #1565c0;border-radius:6px;padding:10px 12px;margin-top:14px;font-size:12px;color:#1565c0">
+    💡 Les nouveaux achats (factures fournisseur) se saisissent désormais dans <a href="/mg/paiements" style="color:#1565c0;font-weight:700">💵 Paiements fournisseurs</a>.
+</div>
 {% endif %}
 
 <!-- Liste achats -->

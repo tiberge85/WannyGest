@@ -6,7 +6,14 @@
       "Bash(awk -F: '$1<2951')",
       "Bash(awk -F: '$1<3133')",
       "Bash(python3 -c ' *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(awk 'NR>=7700 && NR<=7860 && /render_template/' app.py)",
+      "Bash(awk '/def compta_factures/,/return render_template/' app.py)",
+      "Bash(awk '/\\\\.main ?\\\\{/{print NR\": \"$0}' base.html)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('rapport_core.py'\\).read\\(\\)\\); print\\('rapport_core OK'\\)\")",
+      "Bash(awk 'NR>=2575 && NR<=3010' rapport_core.py)",
+      "Bash(python3 -c \"import models; print\\(sorted\\(models.get_role_permissions\\('agent_recouvreur'\\)\\)\\)\")",
+      "Bash(git commit -q -m 'v162 : MG réorg fournisseurs — portefeuilles + nouvel achat → Paiements fournisseurs ; Export CSV + Bilan général PDF au niveau Moyens Généraux *)"
     ]
   }
 }

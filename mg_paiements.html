@@ -6,11 +6,50 @@
     <a href="/mg/fournisseurs-dashboard" class="btn btn-outline btn-sm">💰 Suivi financier</a>
 </div>
 
+<!-- Portefeuilles fournisseur (déplacés depuis la liste des fournisseurs) -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px">
+    <div style="background:#eaf4f1;border-left:4px solid #1A7A6D;border-radius:8px;padding:10px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1A7A6D;font-weight:700;letter-spacing:1px">💰 Caisse fournisseur</div>
+        <div style="font-size:18px;font-weight:900;color:#1A7A6D;margin-top:2px">{{ '{:,.0f}'.format(solde_caisse_fourn or 0).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#e7f0fa;border-left:4px solid #1565c0;border-radius:8px;padding:10px">
+        <div style="font-size:10px;text-transform:uppercase;color:#1565c0;font-weight:700;letter-spacing:1px">🏦 Banque fournisseur</div>
+        <div style="font-size:18px;font-weight:900;color:#1565c0;margin-top:2px">{{ '{:,.0f}'.format(solde_banque_fourn or 0).replace(',', ' ') }} F</div>
+    </div>
+    <div style="background:#1A7A6D;border-radius:8px;padding:10px;color:#fff;display:flex;align-items:center;justify-content:space-between">
+        <div>
+            <div style="font-size:10px;text-transform:uppercase;opacity:.85;font-weight:700;letter-spacing:1px">Σ Disponible</div>
+            <div style="font-size:20px;font-weight:900;margin-top:2px">{{ '{:,.0f}'.format(solde_total_fourn or 0).replace(',', ' ') }} F</div>
+        </div>
+        <a href="/mg/soldes" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.5);border-radius:5px;padding:4px 8px;font-size:11px;text-decoration:none">Gérer</a>
+    </div>
+</div>
+
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px">
     <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Total payé (300 derniers)</div><div style="font-size:22px;font-weight:800;color:#2e7d32">{{ '{:,.0f}'.format(total_paye).replace(',', ' ') }} F</div></div>
     <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Nombre de paiements</div><div style="font-size:22px;font-weight:800;color:#1e1e2d">{{ nb }}</div></div>
     <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Factures à payer</div><div style="font-size:22px;font-weight:800;color:#c53030">{{ purchases|length }}</div></div>
 </div>
+
+<!-- Nouvel achat (facture fournisseur) -->
+<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>+ Nouvel achat (facture fournisseur)</h3></div><div class="card-body">
+<form method="post" action="/mg/paiements/achat-add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:end">
+    <div><label style="font-size:11px;color:#888;display:block">Fournisseur *</label>
+        <select name="supplier_id" required title="Fournisseur" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">— Choisir —</option>{% for f in suppliers %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></div>
+    <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Description *</label>
+        <input name="description" required placeholder="Nature de l'achat..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Catégorie</label>
+        <input name="categorie" placeholder="Équipement..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Montant (F) *</label>
+        <input type="number" name="montant_total" required min="1" step="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Date</label>
+        <input type="date" name="date" value="{{ today_str if today_str else '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Échéance</label>
+        <input type="date" name="date_echeance" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff">+ Ajouter l'achat</button>
+</form>
+</div></div>
 
 <!-- Enregistrer un paiement -->
 <div class="card" style="margin-bottom:16px"><div class="card-header"><h3>+ Enregistrer un paiement</h3></div><div class="card-body">
