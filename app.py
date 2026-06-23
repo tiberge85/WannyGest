@@ -20192,6 +20192,19 @@ FIELD_REPORT_PRIORITIES = {
     'urgent': ('🔴 Urgent', '#c53030'),
 }
 
+# v162 : départements pouvant être notifiés en priorité lors d'une remontée → (libellé, rôles ciblés)
+FIELD_REPORT_DEPARTEMENTS = {
+    'technique':    ('🔧 Technique', ['technicien', 'responsable_technique']),
+    'commercial':   ('💼 Commercial', ['commercial']),
+    'comptabilite': ('🧮 Comptabilité', ['comptable', 'comptabilite']),
+    'recouvrement': ('💰 Recouvrement', ['agent_recouvreur']),
+    'rh':           ('👥 Ressources Humaines', ['rh']),
+    'moyens_generaux': ('🏭 Moyens Généraux', ['moyens_generaux', 'mg', 'magasinier']),
+    'projets':      ('📁 Gestion de projets', ['gestionnaire_projet', 'resp_projet', 'coordinateur']),
+    'direction':    ('🏛️ Direction', ['dg', 'directeur']),
+    'informatique': ('🖥️ Informatique', ['informatique']),
+}
+
 FIELD_REPORT_STATUTS = {
     'recue': ('📥 Reçue', '#1976d2'),
     'en_analyse': ('🔍 En analyse', '#7b1fa2'),
@@ -20555,7 +20568,8 @@ def field_report_new():
             "COALESCE(sector,'') as sector FROM clients ORDER BY name").fetchall()]
         conn.close()
         return render_template('field_report_new.html', page='field_reports',
-            clients=clients, types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES)
+            clients=clients, types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES,
+            departements=FIELD_REPORT_DEPARTEMENTS)
     
     # POST
     client_id = request.form.get('client_id', '').strip()
@@ -20623,6 +20637,8 @@ def field_report_new():
         except Exception as _e:
             print(f"[v140] err création site : {_e}", flush=True)
     
+    # v162 : départements concernés (à notifier en priorité)
+    departements = [d for d in request.form.getlist('departements') if d in FIELD_REPORT_DEPARTEMENTS]
     ref = _gen_field_report_ref()
     try:
         conn = _gdb()
@@ -20631,24 +20647,47 @@ def field_report_new():
         except:
             try: conn.execute("ALTER TABLE field_reports ADD COLUMN site_code TEXT")
             except: pass
-        
+        # v162 : colonne departements
+        try: conn.execute("SELECT departements FROM field_reports LIMIT 1")
+        except:
+            try: conn.execute("ALTER TABLE field_reports ADD COLUMN departements TEXT")
+            except: pass
+
         cur = conn.execute("""INSERT INTO field_reports
             (reference, client_id, client_name, site_name, site_address, site_code, type_info,
              description, priorite, date_constat, auteur_id, auteur_name, statut, traiter_le,
-             created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recue',?,datetime('now'),datetime('now'))""",
+             departements, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'recue',?,?,datetime('now'),datetime('now'))""",
             (ref, int(client_id) if client_id and client_id.isdigit() else None,
              client_name or 'Non spécifié', site_name, site_address, site_code, type_info,
              description, priorite, date_constat,
              session.get('user_id'),
              user['full_name'] if user else 'Anonyme',
-             traiter_le or None))
+             traiter_le or None,
+             ','.join(departements) if departements else None))
         report_id = cur.lastrowid
         conn.commit()
         conn.close()
-        
+
         _field_report_log(report_id, 'Création', f"Type: {FIELD_REPORT_TYPES.get(type_info, type_info)}, Priorité: {priorite}")
         _field_report_notify(report_id, 'created')
+
+        # v162 : notification PRIORITAIRE aux départements concernés
+        if departements:
+            roles = []
+            labels = []
+            for d in departements:
+                lbl, rls = FIELD_REPORT_DEPARTEMENTS[d]
+                labels.append(lbl); roles.extend(rls)
+            roles = list(dict.fromkeys(roles))  # dédup
+            try:
+                notify_roles(roles,
+                    title=f"🔔 Remontée prioritaire — {ref} : {client_name or 'Non spécifié'}",
+                    message=f"Une remontée vous concerne ({', '.join(labels)}) — priorité {priorite}. "
+                            f"{description[:200]}",
+                    link=f'/field-reports/{report_id}',
+                    type='warning', module='field_reports', icon='🔔', priority='high', force=True)
+            except Exception as _e: print(f"[v162] notif dept remontée err : {_e}", flush=True)
         
         # v157 : Si la remontée est de type "nouveau projet"/installation → notifier les commerciaux
         tlow = (type_info or '').lower()
@@ -33349,41 +33388,59 @@ def mg_receptions_add():
 @app.route('/mg/paiements')
 @permission_required_any('mg_view', 'admin')
 def mg_paiements():
+    """v162 (option A) : paiements fournisseurs RÉELS (supplier_payments) liés aux factures
+    (supplier_purchases). Avant, cette page lisait le système achats/mg_paiements (vide)."""
+    from models import get_purchase_status
     conn = _gdb()
-    rows = conn.execute("""
-        SELECT p.*, f.name as fournisseur_name, c.reference as commande_ref
-        FROM mg_paiements p
-        LEFT JOIN achats_fournisseurs f ON p.fournisseur_id = f.id
-        LEFT JOIN achats_commandes c ON p.commande_id = c.id
-        ORDER BY p.date_paiement DESC
-    """).fetchall()
-    paiements = [dict(r) for r in rows]
-    
-    # Liste des commandes pour le formulaire avec reste à payer
-    commandes_data = [dict(r) for r in conn.execute("""
-        SELECT c.id, c.reference, c.total, f.name as fournisseur_name, c.fournisseur_id,
-               COALESCE((SELECT SUM(montant) FROM mg_paiements WHERE commande_id=c.id),0) as paye
-        FROM achats_commandes c
-        LEFT JOIN achats_fournisseurs f ON c.fournisseur_id = f.id
-        WHERE c.status != 'annulee'
-        ORDER BY c.date DESC
+    paiements = [dict(r) for r in conn.execute("""
+        SELECT pm.*, sp.description AS achat_desc, sp.montant_total AS achat_total,
+               s.nom AS fournisseur_name, s.id AS supplier_id
+        FROM supplier_payments pm
+        JOIN supplier_purchases sp ON pm.purchase_id = sp.id
+        JOIN suppliers s ON s.id = sp.supplier_id
+        ORDER BY pm.date DESC, pm.id DESC LIMIT 300
     """).fetchall()]
-    for c in commandes_data:
-        c['reste'] = (c['total'] or 0) - (c['paye'] or 0)
-    
-    fournisseurs = [dict(r) for r in conn.execute(
-        "SELECT * FROM achats_fournisseurs WHERE status='actif' OR status IS NULL ORDER BY name"
-    ).fetchall()]
-    # v160 : soldes des portefeuilles fournisseur (vue avant de payer)
-    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    purchases = [dict(r) for r in conn.execute("""
+        SELECT sp.id, sp.description, sp.montant_total, s.nom AS fournisseur_name, s.id AS supplier_id
+        FROM supplier_purchases sp JOIN suppliers s ON s.id = sp.supplier_id
+        ORDER BY s.nom, sp.date DESC
+    """).fetchall()]
     conn.close()
-    solde_caisses = sum(c['solde'] for c in caisses_fourn)
-    solde_banques = sum(b['solde'] for b in banques_fourn)
+    for p in purchases:
+        try:
+            _, paid, reste, _ = get_purchase_status(p['id'])
+            p['paye'] = paid; p['reste'] = reste
+        except Exception:
+            p['paye'] = 0; p['reste'] = p['montant_total'] or 0
+    purchases = [p for p in purchases if (p['reste'] or 0) > 0]
+    total_paye = sum((pm.get('montant') or 0) for pm in paiements)
     return render_template('mg_paiements.html', paiements=paiements,
-                          commandes=commandes_data, fournisseurs=fournisseurs,
-                          caisses_fourn=caisses_fourn, banques_fourn=banques_fourn,
-                          solde_caisses=solde_caisses, solde_banques=solde_banques,
-                          solde_total_fourn=solde_caisses + solde_banques)
+                          purchases=purchases, total_paye=total_paye, nb=len(paiements),
+                          today_str=datetime.now().strftime('%Y-%m-%d'))
+
+@app.route('/mg/paiements/supplier-add', methods=['POST'])
+@permission_required_any('mg_gestion', 'fournisseurs_edit', 'admin')
+def mg_paiements_supplier_add():
+    pid = int(request.form.get('purchase_id', 0) or 0)
+    montant = _num_fr(request.form.get('montant'))
+    if not pid or montant <= 0:
+        flash("⚠️ Choisissez une facture et un montant valide.", "error")
+        return redirect('/mg/paiements')
+    conn = _gdb()
+    pr = conn.execute("SELECT supplier_id, contract_id FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
+    if not pr:
+        conn.close(); flash("Facture introuvable", "error"); return redirect('/mg/paiements')
+    conn.execute("""INSERT INTO supplier_payments (purchase_id, montant, date, mode_paiement, reference, notes, created_by)
+        VALUES (?,?,?,?,?,?,?)""",
+        (pid, montant, request.form.get('date', datetime.now().strftime('%Y-%m-%d')),
+         request.form.get('mode_paiement', 'espece'), request.form.get('reference', '').strip(),
+         request.form.get('notes', '').strip(), session.get('user_id')))
+    conn.commit(); conn.close()
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Fournisseur',
+                 f"Paiement fournisseur {montant:,.0f} F sur facture #{pid}", request.remote_addr)
+    flash(f"✅ Paiement de {montant:,.0f} F enregistré", "success")
+    return redirect('/mg/paiements')
 
 
 @app.route('/mg/paiements/add', methods=['POST'])

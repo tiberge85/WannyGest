@@ -3210,26 +3210,12 @@ function filterRecent() {
     <p style="font-size:10px;color:#aaa;margin-top:10px">💡 Le PDF inclut : synthèse globale, achats et paiements détaillés par fournisseur, reste à payer et statut.</p>
 </div></div>
 
-<!-- Stats globales -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:14px">
-    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #1a3a5c">
-        <div style="font-size:22px;font-weight:800;color:#1a3a5c">{{ "{:,.0f}".format(grand_total) }} F</div>
-        <div style="font-size:11px;color:#888">💰 Total achats</div>
-    </div>
-    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #2e7d32">
-        <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ "{:,.0f}".format(grand_paid) }} F</div>
-        <div style="font-size:11px;color:#888">✅ Total payé</div>
-    </div>
-    <div style="background:#fff;padding:14px;border-radius:10px;border-left:4px solid #c53030">
-        <div style="font-size:22px;font-weight:800;color:#c53030">{{ "{:,.0f}".format(grand_rest) }} F</div>
-        <div style="font-size:11px;color:#888">🔴 Reste à payer (dette)</div>
-    </div>
-</div>
+<div style="font-size:12px;color:#888;margin-bottom:10px">📋 Répertoire des fournisseurs — informations et coordonnées. Le suivi financier (achats / paiements) est dans <strong>« 💰 Suivi financier fournisseurs »</strong>.</div>
 
 <div class="card"><div class="card-body" style="padding:0">
 {% if suppliers %}
 <table>
-<thead><tr><th>Fournisseur</th><th>Contact</th><th>Total achats</th><th>Payé</th><th>Reste</th><th>% payé</th><th>Actions</th></tr></thead>
+<thead><tr><th>Fournisseur</th><th>Téléphone</th><th>Email</th><th>Ville</th><th>Contact</th><th>Statut</th><th>Actions</th></tr></thead>
 <tbody>
 {% for s in suppliers %}
 <tr{% if s.is_active == 0 %} style="background:#f5f5f5;opacity:0.65"{% endif %}>
@@ -3238,21 +3224,13 @@ function filterRecent() {
         {% if s.is_active == 0 %}<span style="background:#888;color:#fff;font-size:9px;padding:1px 5px;border-radius:4px;margin-left:6px">ARCHIVÉ</span>{% endif %}
         {% if s.adresse %}<br><span style="font-size:10px;color:#888">📍 {{ s.adresse }}</span>{% endif %}
     </td>
-    <td style="font-size:11px">
-        {% if s.telephone %}📞 {{ s.telephone }}<br>{% endif %}
-        {% if s.email %}✉️ {{ s.email }}{% endif %}
-    </td>
-    <td style="font-weight:700">{{ "{:,.0f}".format(s.total_purchases or 0) }} F</td>
-    <td style="color:#2e7d32">{{ "{:,.0f}".format(s.total_paid or 0) }} F</td>
-    <td style="color:#c53030;font-weight:700">{{ "{:,.0f}".format(s.reste or 0) }} F</td>
-    <td>
-        <div style="position:relative;width:80px;height:14px;background:#f0f0f0;border-radius:7px;overflow:hidden">
-            <div style="position:absolute;inset:0;width:{{ s.pct_paid|round|int }}%;background:{% if s.pct_paid >= 100 %}#2e7d32{% elif s.pct_paid > 0 %}#f29f2f{% else %}#c53030{% endif %}"></div>
-            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#1a3a5c">{{ s.pct_paid|round|int }}%</div>
-        </div>
-    </td>
+    <td style="font-size:11px">{{ s.telephone or '—' }}</td>
+    <td style="font-size:11px">{{ s.email or '—' }}</td>
+    <td style="font-size:11px">{{ s.ville or '—' }}</td>
+    <td style="font-size:11px">{{ s.contact or '—' }}</td>
+    <td>{% if s.is_active == 0 %}<span style="background:#888;color:#fff;font-size:9px;padding:2px 6px;border-radius:5px">Archivé</span>{% else %}<span style="background:#e8f5e9;color:#2e7d32;font-size:9px;padding:2px 6px;border-radius:5px">Actif</span>{% endif %}</td>
     <td style="white-space:nowrap">
-        <a href="/fournisseurs/{{ s.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px">📋 Détail</a>
+        <a href="/fournisseurs/{{ s.id }}" class="btn btn-sm" style="background:#1a7a6d;color:#fff;font-size:10px">📋 Voir / Modifier</a>
         {% if is_admin_view %}
             <form method="post" action="/fournisseurs/{{ s.id }}/toggle-active" style="display:inline"
                 onsubmit="return confirm('{% if s.is_active == 0 %}Réactiver{% else %}Archiver{% endif %} le fournisseur {{ s.nom|e }} ?');">

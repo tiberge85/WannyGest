@@ -138,7 +138,7 @@
     <div style="margin-bottom:8px"><label style="font-size:11px;color:#888">Notes</label><textarea name="notes" id="f_notes" rows="2" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></textarea></div>
     <div style="margin-bottom:10px"><label style="font-size:11px;color:#888">Document (PDF, DOCX, image)</label><input type="file" name="document" accept=".pdf,.doc,.docx,image/*" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;background:#fff"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('contratM').classList.remove('active')">Annuler</button>
+        <button type="button" class="btn btn-outline" onclick="closeCtrModal('contratM')">Annuler</button>
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
     </div>
 </form>
@@ -154,6 +154,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 var CH = {{ charts|tojson }};
+function closeCtrModal(id){ var m=document.getElementById(id); if(m) m.classList.remove('active'); }
+// fermeture robuste : clic sur le fond + touche Échap
+document.addEventListener('click', function(e){ if(e.target && e.target.classList && e.target.classList.contains('modal-bg')) e.target.classList.remove('active'); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ document.querySelectorAll('.modal-bg.active').forEach(function(m){ m.classList.remove('active'); }); } });
 function filterContrats(){var q=(document.getElementById('ctrSearch').value||'').toLowerCase();document.querySelectorAll('.ctr-row').forEach(function(r){r.style.display=(!q||(r.getAttribute('data-s')||'').indexOf(q)>=0)?'':'none';});}
 function openContrat(){document.getElementById('ctrTitle').textContent='📑 Nouveau contrat';var f=document.getElementById('contratForm');f.action='/mg/contrats/add';f.reset();document.getElementById('contratM').classList.add('active');}
 function editContrat(b){var d=b.dataset;document.getElementById('ctrTitle').textContent='✏️ Modifier le contrat';document.getElementById('contratForm').action='/mg/contrats/'+d.id+'/edit';

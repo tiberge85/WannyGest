@@ -205,6 +205,18 @@
             <textarea name="description" rows="6" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:7px;font-family:inherit"
                 placeholder="Décrivez précisément l'information remontée : contexte, observations, attentes du client, opportunité commerciale potentielle, etc."></textarea>
         </div>
+        <!-- v162 : départements concernés (notification prioritaire) -->
+        <div class="form-group" style="background:#fff8e1;border:1.5px solid #f29f2f;border-radius:10px;padding:14px 16px">
+            <label style="font-weight:700;color:#b8561f">🔔 Départements concernés (notification prioritaire)</label>
+            <div style="font-size:11px;color:#888;margin:2px 0 10px">Cochez le ou les services concernés : ils recevront la remontée <strong>en priorité</strong>.</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px">
+                {% for dk, dv in departements.items() %}
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:#fff;border:1px solid #eee;border-radius:7px;padding:7px 10px">
+                    <input type="checkbox" name="departements" value="{{ dk }}"> {{ dv[0] }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
         <!-- v159 : Planification du traitement de la remontée -->
         <div class="form-group" style="background:#f4f9f8;border:1.5px solid #1A7A6D;border-radius:10px;padding:14px 16px;margin-top:6px">
             <div style="font-weight:700;font-size:14px;color:#1A7A6D;margin-bottom:10px">🗓️ Quand traiter cette remontée ?</div>
