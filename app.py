@@ -2681,6 +2681,25 @@ try:
         created_at TEXT DEFAULT (datetime('now'))
     )""")
     _v162g.execute("CREATE INDEX IF NOT EXISTS idx_contracts_supplier ON supplier_contracts(supplier_id)")
+    # v162h : colonnes enrichies (cahier des charges Gestion des Contrats Fournisseurs)
+    for _col, _ddl in [
+        ('categorie', "ALTER TABLE supplier_contracts ADD COLUMN categorie TEXT"),
+        ('montant_consomme', "ALTER TABLE supplier_contracts ADD COLUMN montant_consomme REAL DEFAULT 0"),
+        ('duree_mois', "ALTER TABLE supplier_contracts ADD COLUMN duree_mois INTEGER"),
+        ('tacite_reconduction', "ALTER TABLE supplier_contracts ADD COLUMN tacite_reconduction INTEGER DEFAULT 0"),
+        ('document_path', "ALTER TABLE supplier_contracts ADD COLUMN document_path TEXT"),
+        ('deleted_at', "ALTER TABLE supplier_contracts ADD COLUMN deleted_at TEXT"),
+    ]:
+        try: _v162g.execute(_ddl)
+        except Exception: pass
+    try: _v162g.execute("ALTER TABLE suppliers ADD COLUMN ville TEXT")
+    except Exception: pass
+    # Table d'audit des contrats
+    _v162g.execute("""CREATE TABLE IF NOT EXISTS supplier_contract_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contrat_id INTEGER, action TEXT, details TEXT,
+        user_id INTEGER, user_name TEXT, created_at TEXT DEFAULT (datetime('now'))
+    )""")
     _v162g.commit()
     _v162g.close()
     print("[v162g-Contrats] Table supplier_contracts OK", flush=True)
@@ -32781,73 +32800,169 @@ def mg_receptions():
 
 
 # ============================================================
-# v162g : MODULE SUIVI DES CONTRATS FOURNISSEURS
+# v162g/h : MODULE GESTION DES CONTRATS FOURNISSEURS
 # ============================================================
 CONTRAT_TYPES = ['Maintenance', 'Location', 'Prestation de service', 'Fourniture',
                  'Abonnement', 'Assurance', 'Bail', 'Nettoyage', 'Gardiennage', 'Autre']
+CONTRAT_CATEGORIES = ['Informatique', 'Sécurité', 'Énergie', 'Télécom', 'Bâtiment',
+                      'Logistique', 'Services généraux', 'Consommables', 'Autre']
 CONTRAT_PERIODES = ['Ponctuel', 'Mensuel', 'Trimestriel', 'Semestriel', 'Annuel']
-CONTRAT_STATUTS = ['actif', 'en_cours', 'suspendu', 'expire', 'resilie']
+CONTRAT_STATUTS = ['actif', 'en_renouvellement', 'expire', 'suspendu', 'resilie']
+_CONTRAT_DOC_EXT = ('.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.webp')
 
 def _num_fr(v):
     try: return float((str(v) or '0').replace(' ', '').replace(',', '.'))
     except: return 0.0
 
+def _contract_derive(c):
+    """Calcule durée (mois), reste, jours restants, taux d'avancement et statut automatique."""
+    from datetime import datetime as _dt
+    today = _dt.now().date()
+    val = float(c.get('montant') or 0)
+    cons = float(c.get('montant_consomme') or 0)
+    c['valeur_totale'] = val
+    c['reste'] = max(0.0, val - cons)
+    c['taux'] = round(cons / val * 100, 1) if val else 0
+    d1 = d2 = None
+    try:
+        if c.get('date_debut'): d1 = _dt.strptime(str(c['date_debut'])[:10], '%Y-%m-%d').date()
+    except: pass
+    try:
+        if c.get('date_fin'): d2 = _dt.strptime(str(c['date_fin'])[:10], '%Y-%m-%d').date()
+    except: pass
+    c['duree_calc'] = ((d2.year - d1.year) * 12 + (d2.month - d1.month)) if (d1 and d2) else (c.get('duree_mois') or None)
+    c['jours_restants'] = (d2 - today).days if d2 else None
+    manual = c.get('statut')
+    if manual in ('resilie', 'suspendu'):
+        c['statut_auto'] = manual
+    elif c['jours_restants'] is not None:
+        c['statut_auto'] = 'expire' if c['jours_restants'] < 0 else ('en_renouvellement' if c['jours_restants'] <= 60 else 'actif')
+    else:
+        c['statut_auto'] = manual or 'actif'
+    return c
+
+def _contract_audit(cid, action, details=''):
+    try:
+        conn = _gdb(); u = get_user_by_id(session.get('user_id'))
+        conn.execute("""INSERT INTO supplier_contract_audit (contrat_id, action, details, user_id, user_name)
+            VALUES (?,?,?,?,?)""", (cid, action, details, session.get('user_id'), u['full_name'] if u else '?'))
+        conn.commit(); conn.close()
+    except Exception: pass
+    try:
+        u = get_user_by_id(session.get('user_id'))
+        log_activity(session.get('user_id'), u['full_name'] if u else '?', 'Contrats', f"{action} — {details}", request.remote_addr)
+    except Exception: pass
+
+def _save_contract_doc(cid, f):
+    if not f or not getattr(f, 'filename', ''): return None
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in _CONTRAT_DOC_EXT: return None
+    folder = os.path.join(app.config.get('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'data', 'uploads')), 'contracts')
+    os.makedirs(folder, exist_ok=True)
+    safe = f"contract_{cid}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    f.save(os.path.join(folder, safe))
+    return f"contracts/{safe}"
+
+def _contract_form_values():
+    return dict(
+        reference=(request.form.get('reference', '') or '').strip(),
+        supplier_id=int(request.form.get('supplier_id', 0) or 0) or None,
+        objet=request.form.get('objet', '').strip(),
+        categorie=request.form.get('categorie', '').strip(),
+        type_contrat=request.form.get('type_contrat', '').strip(),
+        date_debut=request.form.get('date_debut', '').strip() or None,
+        date_fin=request.form.get('date_fin', '').strip() or None,
+        montant=_num_fr(request.form.get('montant')),
+        montant_consomme=_num_fr(request.form.get('montant_consomme')),
+        periodicite=request.form.get('periodicite', '').strip(),
+        statut=request.form.get('statut', 'actif').strip() or 'actif',
+        prochaine_echeance=request.form.get('prochaine_echeance', '').strip() or None,
+        responsable=request.form.get('responsable', '').strip(),
+        tacite_reconduction=1 if request.form.get('tacite_reconduction') in ('1', 'on', 'true', 'yes') else 0,
+        conditions=request.form.get('conditions', '').strip(),
+        notes=request.form.get('notes', '').strip(),
+    )
+
 @app.route('/mg/contrats')
 @permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
 def mg_contrats():
-    """v162g : suivi des contrats fournisseurs (échéances, montants, alertes d'expiration)."""
-    from datetime import timedelta
+    """Tableau principal : KPI + filtres + DataTable + données graphiques."""
     conn = _gdb()
     rows = conn.execute("""
-        SELECT ct.*, s.nom AS fournisseur_name
-        FROM supplier_contracts ct
-        LEFT JOIN suppliers s ON s.id = ct.supplier_id
+        SELECT ct.*, s.nom AS fournisseur_name, s.ville AS fournisseur_ville
+        FROM supplier_contracts ct LEFT JOIN suppliers s ON s.id = ct.supplier_id
+        WHERE ct.deleted_at IS NULL
         ORDER BY (ct.date_fin IS NULL), ct.date_fin, ct.id DESC
     """).fetchall()
-    today = datetime.now().strftime('%Y-%m-%d')
-    soon = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
-    contrats = []
-    for r in rows:
-        c = dict(r)
-        df = c.get('date_fin')
-        c['expire'] = bool(df and df < today and c.get('statut') in ('actif', 'en_cours'))
-        c['expire_bientot'] = bool(df and today <= df <= soon and c.get('statut') in ('actif', 'en_cours'))
-        contrats.append(c)
+    contrats = [_contract_derive(dict(r)) for r in rows]
+    # Filtres
+    f_sup = request.args.get('fournisseur', '').strip()
+    f_resp = request.args.get('responsable', '').strip().lower()
+    f_cat = request.args.get('categorie', '').strip()
+    f_statut = request.args.get('statut', '').strip()
+    def _keep(c):
+        if f_sup and str(c.get('supplier_id') or '') != f_sup: return False
+        if f_resp and f_resp not in (c.get('responsable') or '').lower(): return False
+        if f_cat and (c.get('categorie') or '') != f_cat: return False
+        if f_statut and c.get('statut_auto') != f_statut: return False
+        return True
+    filtered = [c for c in contrats if _keep(c)]
+    # KPI (sur tout, non filtré)
     stats = {
         'total': len(contrats),
-        'actifs': sum(1 for c in contrats if c.get('statut') in ('actif', 'en_cours') and not c['expire']),
-        'expire_bientot': sum(1 for c in contrats if c['expire_bientot']),
-        'expires': sum(1 for c in contrats if c['expire']),
-        'montant_total': sum((c.get('montant') or 0) for c in contrats if c.get('statut') in ('actif', 'en_cours')),
+        'actifs': sum(1 for c in contrats if c['statut_auto'] == 'actif'),
+        'expires': sum(1 for c in contrats if c['statut_auto'] == 'expire'),
+        'renouvellement': sum(1 for c in contrats if c['statut_auto'] == 'en_renouvellement'),
+        'alertes_60': sum(1 for c in contrats if c['jours_restants'] is not None and 0 <= c['jours_restants'] <= 60),
+        'valeur_totale': sum((c.get('montant') or 0) for c in contrats),
+        'consomme': sum((c.get('montant_consomme') or 0) for c in contrats),
+        'reste': sum(c['reste'] for c in contrats),
+    }
+    # Données graphiques
+    from collections import defaultdict
+    par_cat = defaultdict(float); par_statut = defaultdict(int); par_fourn = defaultdict(lambda: [0.0, 0.0]); par_mois = defaultdict(float)
+    for c in contrats:
+        par_cat[c.get('categorie') or 'Autre'] += (c.get('montant') or 0)
+        par_statut[c['statut_auto']] += 1
+        fn = c.get('fournisseur_name') or '—'
+        par_fourn[fn][0] += (c.get('montant') or 0); par_fourn[fn][1] += (c.get('montant_consomme') or 0)
+        if c.get('date_debut'): par_mois[str(c['date_debut'])[:7]] += (c.get('montant') or 0)
+    top = sorted(par_fourn.items(), key=lambda kv: kv[1][0], reverse=True)[:10]
+    mois_sorted = sorted(par_mois.items())
+    charts = {
+        'cat_labels': list(par_cat.keys()), 'cat_values': [round(v) for v in par_cat.values()],
+        'statut_labels': list(par_statut.keys()), 'statut_values': list(par_statut.values()),
+        'top_labels': [k for k, _ in top], 'top_valeur': [round(v[0]) for _, v in top], 'top_consomme': [round(v[1]) for _, v in top],
+        'mois_labels': [k for k, _ in mois_sorted], 'mois_values': [round(v) for _, v in mois_sorted],
     }
     fournisseurs = [dict(r) for r in conn.execute(
         "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
     conn.close()
     return render_template('mg_contrats.html', page='mg_contrats',
-        contrats=contrats, stats=stats, fournisseurs=fournisseurs, today=today,
-        types=CONTRAT_TYPES, periodes=CONTRAT_PERIODES, statuts=CONTRAT_STATUTS)
+        contrats=filtered, stats=stats, charts=charts, fournisseurs=fournisseurs,
+        types=CONTRAT_TYPES, categories=CONTRAT_CATEGORIES, periodes=CONTRAT_PERIODES, statuts=CONTRAT_STATUTS,
+        f_sup=f_sup, f_resp=request.args.get('responsable', ''), f_cat=f_cat, f_statut=f_statut)
 
 @app.route('/mg/contrats/add', methods=['POST'])
 @permission_required_any('mg_gestion', 'mg_demande', 'achats', 'admin')
 def mg_contrats_add():
-    ref = (request.form.get('reference', '') or '').strip() or f"CTR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    v = _contract_form_values()
+    ref = v['reference'] or f"CTR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     conn = _gdb()
-    conn.execute("""INSERT INTO supplier_contracts
-        (reference, supplier_id, objet, type_contrat, date_debut, date_fin, montant,
-         periodicite, statut, prochaine_echeance, responsable, conditions, notes, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (ref, int(request.form.get('supplier_id', 0) or 0) or None,
-         request.form.get('objet', '').strip(), request.form.get('type_contrat', '').strip(),
-         request.form.get('date_debut', '').strip() or None, request.form.get('date_fin', '').strip() or None,
-         _num_fr(request.form.get('montant')), request.form.get('periodicite', '').strip(),
-         request.form.get('statut', 'actif').strip() or 'actif',
-         request.form.get('prochaine_echeance', '').strip() or None,
-         request.form.get('responsable', '').strip(), request.form.get('conditions', '').strip(),
-         request.form.get('notes', '').strip(), session.get('user_id')))
+    cur = conn.execute("""INSERT INTO supplier_contracts
+        (reference, supplier_id, objet, categorie, type_contrat, date_debut, date_fin, montant,
+         montant_consomme, periodicite, statut, prochaine_echeance, responsable, tacite_reconduction,
+         conditions, notes, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (ref, v['supplier_id'], v['objet'], v['categorie'], v['type_contrat'], v['date_debut'], v['date_fin'],
+         v['montant'], v['montant_consomme'], v['periodicite'], v['statut'], v['prochaine_echeance'],
+         v['responsable'], v['tacite_reconduction'], v['conditions'], v['notes'], session.get('user_id')))
+    cid = cur.lastrowid
+    doc = _save_contract_doc(cid, request.files.get('document') if hasattr(request, 'files') else None)
+    if doc:
+        conn.execute("UPDATE supplier_contracts SET document_path=? WHERE id=?", (doc, cid))
     conn.commit(); conn.close()
-    user = get_user_by_id(session['user_id'])
-    log_activity(session['user_id'], user['full_name'] if user else '?', 'Contrats',
-                 f"Contrat fournisseur {ref} créé", request.remote_addr)
+    _contract_audit(cid, 'Création', f"Contrat {ref}")
     flash(f"✅ Contrat {ref} ajouté", "success")
     return redirect('/mg/contrats')
 
@@ -32855,31 +32970,229 @@ def mg_contrats_add():
 @permission_required_any('mg_gestion', 'mg_demande', 'achats', 'admin')
 def mg_contrats_edit(cid):
     conn = _gdb()
-    if not conn.execute("SELECT id FROM supplier_contracts WHERE id=?", (cid,)).fetchone():
+    old = conn.execute("SELECT reference, statut FROM supplier_contracts WHERE id=?", (cid,)).fetchone()
+    if not old:
         conn.close(); flash("Contrat introuvable", "error"); return redirect('/mg/contrats')
+    v = _contract_form_values()
     conn.execute("""UPDATE supplier_contracts SET
-        reference=?, supplier_id=?, objet=?, type_contrat=?, date_debut=?, date_fin=?, montant=?,
-        periodicite=?, statut=?, prochaine_echeance=?, responsable=?, conditions=?, notes=? WHERE id=?""",
-        (request.form.get('reference', '').strip(), int(request.form.get('supplier_id', 0) or 0) or None,
-         request.form.get('objet', '').strip(), request.form.get('type_contrat', '').strip(),
-         request.form.get('date_debut', '').strip() or None, request.form.get('date_fin', '').strip() or None,
-         _num_fr(request.form.get('montant')), request.form.get('periodicite', '').strip(),
-         request.form.get('statut', 'actif').strip() or 'actif',
-         request.form.get('prochaine_echeance', '').strip() or None,
-         request.form.get('responsable', '').strip(), request.form.get('conditions', '').strip(),
-         request.form.get('notes', '').strip(), cid))
+        reference=?, supplier_id=?, objet=?, categorie=?, type_contrat=?, date_debut=?, date_fin=?, montant=?,
+        montant_consomme=?, periodicite=?, statut=?, prochaine_echeance=?, responsable=?, tacite_reconduction=?,
+        conditions=?, notes=?, updated_at=datetime('now') WHERE id=?""",
+        (v['reference'] or old['reference'], v['supplier_id'], v['objet'], v['categorie'], v['type_contrat'],
+         v['date_debut'], v['date_fin'], v['montant'], v['montant_consomme'], v['periodicite'], v['statut'],
+         v['prochaine_echeance'], v['responsable'], v['tacite_reconduction'], v['conditions'], v['notes'], cid))
+    doc = _save_contract_doc(cid, request.files.get('document') if hasattr(request, 'files') else None)
+    if doc:
+        conn.execute("UPDATE supplier_contracts SET document_path=? WHERE id=?", (doc, cid))
     conn.commit(); conn.close()
+    if old['statut'] != v['statut']:
+        _contract_audit(cid, 'Changement de statut', f"{old['statut']} → {v['statut']}")
+    _contract_audit(cid, 'Modification', f"Contrat {v['reference'] or old['reference']}")
     flash("✅ Contrat modifié", "success")
     return redirect('/mg/contrats')
 
 @app.route('/mg/contrats/<int:cid>/delete', methods=['POST'])
 @permission_required_any('mg_gestion', 'achats', 'admin')
 def mg_contrats_delete(cid):
+    """Soft delete."""
     conn = _gdb()
-    conn.execute("DELETE FROM supplier_contracts WHERE id=?", (cid,))
+    conn.execute("UPDATE supplier_contracts SET deleted_at=datetime('now') WHERE id=?", (cid,))
     conn.commit(); conn.close()
+    _contract_audit(cid, 'Suppression', 'Soft delete')
     flash("🗑️ Contrat supprimé", "success")
     return redirect('/mg/contrats')
+
+@app.route('/mg/contrats/<int:cid>/duplicate', methods=['POST'])
+@permission_required_any('mg_gestion', 'achats', 'admin')
+def mg_contrats_duplicate(cid):
+    conn = _gdb()
+    r = conn.execute("SELECT * FROM supplier_contracts WHERE id=?", (cid,)).fetchone()
+    if not r:
+        conn.close(); flash("Contrat introuvable", "error"); return redirect('/mg/contrats')
+    c = dict(r); ref = f"CTR-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    cur = conn.execute("""INSERT INTO supplier_contracts
+        (reference, supplier_id, objet, categorie, type_contrat, date_debut, date_fin, montant,
+         montant_consomme, periodicite, statut, prochaine_echeance, responsable, tacite_reconduction,
+         conditions, notes, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (ref, c.get('supplier_id'), (c.get('objet') or '') + ' (copie)', c.get('categorie'), c.get('type_contrat'),
+         c.get('date_debut'), c.get('date_fin'), c.get('montant'), 0, c.get('periodicite'), 'actif',
+         c.get('prochaine_echeance'), c.get('responsable'), c.get('tacite_reconduction'),
+         c.get('conditions'), c.get('notes'), session.get('user_id')))
+    conn.commit(); conn.close()
+    _contract_audit(cur.lastrowid, 'Duplication', f"depuis #{cid}")
+    flash(f"✅ Contrat dupliqué ({ref})", "success")
+    return redirect('/mg/contrats')
+
+@app.route('/mg/contrats/<int:cid>/renouveler', methods=['POST'])
+@permission_required_any('mg_gestion', 'achats', 'admin')
+def mg_contrats_renouveler(cid):
+    """Renouvellement : prolonge selon la durée initiale, repart le montant consommé à 0."""
+    from datetime import datetime as _dt
+    conn = _gdb()
+    r = conn.execute("SELECT * FROM supplier_contracts WHERE id=?", (cid,)).fetchone()
+    if not r:
+        conn.close(); flash("Contrat introuvable", "error"); return redirect('/mg/contrats')
+    c = _contract_derive(dict(r))
+    months = c.get('duree_calc') or 12
+    new_debut = c.get('date_fin') or _dt.now().strftime('%Y-%m-%d')
+    try:
+        d = _dt.strptime(str(new_debut)[:10], '%Y-%m-%d')
+        m = d.month - 1 + months; y = d.year + m // 12; mo = m % 12 + 1
+        import calendar as _cal
+        day = min(d.day, _cal.monthrange(y, mo)[1])
+        new_fin = _dt(y, mo, day).strftime('%Y-%m-%d')
+    except Exception:
+        new_fin = None
+    conn.execute("""UPDATE supplier_contracts SET date_debut=?, date_fin=?, statut='actif',
+        montant_consomme=0, updated_at=datetime('now') WHERE id=?""", (new_debut, new_fin, cid))
+    conn.commit(); conn.close()
+    _contract_audit(cid, 'Renouvellement', f"jusqu'au {new_fin}")
+    flash(f"🔄 Contrat renouvelé jusqu'au {new_fin or '?'}", "success")
+    return redirect('/mg/contrats')
+
+@app.route('/mg/contrats/<int:cid>/document')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def mg_contrats_document(cid):
+    conn = _gdb()
+    r = conn.execute("SELECT document_path, reference FROM supplier_contracts WHERE id=?", (cid,)).fetchone()
+    conn.close()
+    if not r or not r['document_path']:
+        flash("Aucun document attaché", "error"); return redirect('/mg/contrats')
+    folder = app.config.get('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'data', 'uploads'))
+    full = os.path.join(folder, r['document_path'])
+    if not os.path.exists(full):
+        flash("Document introuvable sur le disque", "error"); return redirect('/mg/contrats')
+    _contract_audit(cid, 'Téléchargement document', r['reference'] or '')
+    return send_file(full, as_attachment=False)
+
+@app.route('/mg/contrats/<int:cid>/historique')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def mg_contrats_historique(cid):
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT action, details, user_name, created_at FROM supplier_contract_audit WHERE contrat_id=? ORDER BY id DESC", (cid,)).fetchall()]
+    conn.close()
+    return jsonify({'ok': True, 'events': rows})
+
+@app.route('/mg/contrats/alertes')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def mg_contrats_alertes():
+    """Centre d'alertes : contrats à échéance (≤15 / ≤30 / ≤60 j) + expirés."""
+    conn = _gdb()
+    rows = conn.execute("""SELECT ct.*, s.nom AS fournisseur_name FROM supplier_contracts ct
+        LEFT JOIN suppliers s ON s.id=ct.supplier_id WHERE ct.deleted_at IS NULL""").fetchall()
+    conn.close()
+    contrats = [_contract_derive(dict(r)) for r in rows]
+    buckets = {'expire': [], 'j15': [], 'j30': [], 'j60': []}
+    for c in contrats:
+        jr = c['jours_restants']
+        if jr is None: continue
+        if jr < 0 and c['statut_auto'] != 'resilie': buckets['expire'].append(c)
+        elif jr <= 15: buckets['j15'].append(c)
+        elif jr <= 30: buckets['j30'].append(c)
+        elif jr <= 60: buckets['j60'].append(c)
+    for k in buckets: buckets[k].sort(key=lambda c: (c['jours_restants'] if c['jours_restants'] is not None else 9999))
+    return render_template('mg_contrats_alertes.html', page='mg_contrats', buckets=buckets)
+
+@app.route('/mg/contrats/analyse')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def mg_contrats_analyse():
+    """Analyse financière par fournisseur + taux d'avancement + top 10."""
+    conn = _gdb()
+    rows = conn.execute("""SELECT ct.*, s.nom AS fournisseur_name FROM supplier_contracts ct
+        LEFT JOIN suppliers s ON s.id=ct.supplier_id WHERE ct.deleted_at IS NULL""").fetchall()
+    conn.close()
+    from collections import defaultdict
+    agg = defaultdict(lambda: {'valeur': 0.0, 'consomme': 0.0, 'nb': 0})
+    for r in rows:
+        c = dict(r); fn = c.get('fournisseur_name') or '—'
+        agg[fn]['valeur'] += (c.get('montant') or 0)
+        agg[fn]['consomme'] += (c.get('montant_consomme') or 0)
+        agg[fn]['nb'] += 1
+    analyse = []
+    for fn, a in agg.items():
+        reste = max(0.0, a['valeur'] - a['consomme'])
+        taux = round(a['consomme'] / a['valeur'] * 100, 1) if a['valeur'] else 0
+        analyse.append({'fournisseur': fn, 'nb': a['nb'], 'valeur': a['valeur'],
+                        'consomme': a['consomme'], 'reste': reste, 'taux': taux})
+    analyse.sort(key=lambda x: x['valeur'], reverse=True)
+    if request.args.get('export') == 'csv':
+        import io, csv
+        buf = io.StringIO(); w = csv.writer(buf)
+        w.writerow(['Fournisseur', 'Nb contrats', 'Valeur totale', 'Consommé', 'Reste', "Taux d'avancement %"])
+        for a in analyse:
+            w.writerow([a['fournisseur'], a['nb'], a['valeur'], a['consomme'], a['reste'], a['taux']])
+        from flask import Response as _Resp
+        return _Resp(buf.getvalue(), mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename="analyse_fournisseurs.csv"'})
+    return render_template('mg_contrats_analyse.html', page='mg_contrats',
+        analyse=analyse, top=analyse[:10])
+
+# ---------- API REST (JSON) ----------
+@app.route('/api/contracts')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def api_contracts():
+    conn = _gdb()
+    rows = conn.execute("""SELECT ct.*, s.nom AS fournisseur_name FROM supplier_contracts ct
+        LEFT JOIN suppliers s ON s.id=ct.supplier_id WHERE ct.deleted_at IS NULL ORDER BY ct.id DESC""").fetchall()
+    conn.close()
+    return jsonify({'ok': True, 'data': [_contract_derive(dict(r)) for r in rows]})
+
+@app.route('/api/contracts/<int:cid>')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def api_contract(cid):
+    conn = _gdb()
+    r = conn.execute("""SELECT ct.*, s.nom AS fournisseur_name FROM supplier_contracts ct
+        LEFT JOIN suppliers s ON s.id=ct.supplier_id WHERE ct.id=? AND ct.deleted_at IS NULL""", (cid,)).fetchone()
+    conn.close()
+    if not r: return jsonify({'ok': False, 'error': 'not found'}), 404
+    return jsonify({'ok': True, 'data': _contract_derive(dict(r))})
+
+@app.route('/api/dashboard/contracts')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def api_dashboard_contracts():
+    conn = _gdb()
+    rows = conn.execute("SELECT * FROM supplier_contracts WHERE deleted_at IS NULL").fetchall()
+    conn.close()
+    cs = [_contract_derive(dict(r)) for r in rows]
+    return jsonify({'ok': True, 'data': {
+        'total': len(cs),
+        'actifs': sum(1 for c in cs if c['statut_auto'] == 'actif'),
+        'expires': sum(1 for c in cs if c['statut_auto'] == 'expire'),
+        'renouvellement': sum(1 for c in cs if c['statut_auto'] == 'en_renouvellement'),
+        'alertes_60': sum(1 for c in cs if c['jours_restants'] is not None and 0 <= c['jours_restants'] <= 60),
+        'valeur_totale': sum((c.get('montant') or 0) for c in cs),
+        'consomme': sum((c.get('montant_consomme') or 0) for c in cs),
+        'reste': sum(c['reste'] for c in cs),
+    }})
+
+@app.route('/api/contracts/alerts')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def api_contracts_alerts():
+    conn = _gdb()
+    rows = conn.execute("SELECT ct.*, s.nom AS fournisseur_name FROM supplier_contracts ct LEFT JOIN suppliers s ON s.id=ct.supplier_id WHERE ct.deleted_at IS NULL").fetchall()
+    conn.close()
+    cs = [_contract_derive(dict(r)) for r in rows]
+    alerts = [c for c in cs if c['jours_restants'] is not None and c['jours_restants'] <= 60]
+    alerts.sort(key=lambda c: c['jours_restants'])
+    return jsonify({'ok': True, 'data': alerts})
+
+@app.route('/api/contracts/analytics')
+@permission_required_any('mg_view', 'achats', 'fournisseurs', 'admin')
+def api_contracts_analytics():
+    conn = _gdb()
+    rows = conn.execute("SELECT ct.*, s.nom AS fournisseur_name FROM supplier_contracts ct LEFT JOIN suppliers s ON s.id=ct.supplier_id WHERE ct.deleted_at IS NULL").fetchall()
+    conn.close()
+    from collections import defaultdict
+    agg = defaultdict(lambda: {'valeur': 0.0, 'consomme': 0.0, 'nb': 0})
+    for r in rows:
+        c = dict(r); fn = c.get('fournisseur_name') or '—'
+        agg[fn]['valeur'] += (c.get('montant') or 0); agg[fn]['consomme'] += (c.get('montant_consomme') or 0); agg[fn]['nb'] += 1
+    data = [{'fournisseur': fn, **a, 'reste': max(0.0, a['valeur'] - a['consomme']),
+             'taux': round(a['consomme'] / a['valeur'] * 100, 1) if a['valeur'] else 0} for fn, a in agg.items()]
+    data.sort(key=lambda x: x['valeur'], reverse=True)
+    return jsonify({'ok': True, 'data': data})
 
 
 @app.route('/mg/receptions/add', methods=['POST'])

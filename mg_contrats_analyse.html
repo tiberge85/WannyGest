@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Analyse financière contrats{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📊 Analyse financière par fournisseur</h1>
+    <div style="display:flex;gap:6px">
+        <a href="/mg/contrats/analyse?export=csv" class="btn btn-sm" style="background:#2e7d32;color:#fff">⬇️ Export Excel (CSV)</a>
+        <a href="/mg/contrats" class="btn btn-outline btn-sm">← Contrats</a>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:14px"><div class="card-header"><h3>🏆 Top 10 fournisseurs (par valeur des contrats)</h3></div><div class="card-body">
+{% if top %}
+{% for a in top %}
+<div style="margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+        <strong>{{ loop.index }}. {{ a.fournisseur }}</strong>
+        <span>{{ '{:,.0f}'.format(a.valeur).replace(',', ' ') }} F · consommé {{ a.taux }}%</span>
+    </div>
+    <div style="background:#eee;border-radius:6px;height:14px;overflow:hidden">
+        <div style="height:100%;width:{{ a.taux if a.taux<=100 else 100 }}%;background:linear-gradient(90deg,#1A7A6D,#2e7d32)"></div>
+    </div>
+</div>
+{% endfor %}
+{% else %}<div style="color:#888;padding:10px">Aucune donnée.</div>{% endif %}
+</div></div>
+
+<div class="card"><div class="card-header"><h3>Détail par fournisseur</h3></div><div class="card-body">
+<div class="table-wrap"><table>
+    <thead><tr><th>Fournisseur</th><th>Nb contrats</th><th style="text-align:right">Valeur totale</th><th style="text-align:right">Consommé</th><th style="text-align:right">Reste</th><th>Taux d'avancement</th></tr></thead>
+    <tbody>
+    {% for a in analyse %}
+    <tr>
+        <td><strong>{{ a.fournisseur }}</strong></td>
+        <td style="text-align:center">{{ a.nb }}</td>
+        <td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(a.valeur).replace(',', ' ') }} F</td>
+        <td style="text-align:right;color:#e8672a">{{ '{:,.0f}'.format(a.consomme).replace(',', ' ') }} F</td>
+        <td style="text-align:right;color:#2e7d32;font-weight:700">{{ '{:,.0f}'.format(a.reste).replace(',', ' ') }} F</td>
+        <td style="min-width:140px">
+            <div style="display:flex;align-items:center;gap:6px">
+                <div style="flex:1;background:#eee;border-radius:5px;height:10px;overflow:hidden"><div style="height:100%;width:{{ a.taux if a.taux<=100 else 100 }}%;background:#1A7A6D"></div></div>
+                <span style="font-size:11px;font-weight:700">{{ a.taux }}%</span>
+            </div>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+</div></div>
+{% endblock %}
