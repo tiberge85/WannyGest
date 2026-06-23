@@ -31829,6 +31829,35 @@ def mg_bilan_pdf():
     equip_actifs = _scalar("SELECT COUNT(*) FROM mg_equipements WHERE statut='actif'")
     equip_panne = _scalar("SELECT COUNT(*) FROM mg_equipements WHERE statut IN ('panne','maintenance')")
 
+    # --- DÉTAIL FOURNISSEURS (ancien « Récap PDF » : achats + paiements par fournisseur) ---
+    suppliers_data = []
+    try:
+        _sups = [dict(r) for r in conn.execute(
+            "SELECT * FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+        for s in _sups:
+            purchases = [dict(r) for r in conn.execute("""
+                SELECT * FROM supplier_purchases
+                WHERE supplier_id=? AND date BETWEEN ? AND ? ORDER BY date""",
+                (s['id'], date_from, date_to)).fetchall()]
+            payments = [dict(r) for r in conn.execute("""
+                SELECT pay.*, p.description as purchase_desc
+                FROM supplier_payments pay LEFT JOIN supplier_purchases p ON pay.purchase_id=p.id
+                WHERE p.supplier_id=? AND pay.date BETWEEN ? AND ? ORDER BY pay.date""",
+                (s['id'], date_from, date_to)).fetchall()]
+            if not (purchases or payments):
+                continue
+            total_all = conn.execute("SELECT COALESCE(SUM(montant_total),0) FROM supplier_purchases WHERE supplier_id=?", (s['id'],)).fetchone()[0] or 0
+            paid_all = conn.execute("""SELECT COALESCE(SUM(pay.montant),0) FROM supplier_payments pay
+                JOIN supplier_purchases p ON pay.purchase_id=p.id WHERE p.supplier_id=?""", (s['id'],)).fetchone()[0] or 0
+            suppliers_data.append({
+                'supplier': s, 'purchases': purchases, 'payments': payments,
+                'total_achats_periode': sum(float(p.get('montant_total') or 0) for p in purchases),
+                'total_paye_periode': sum(float(p.get('montant') or 0) for p in payments),
+                'reste_global': max(0.0, float(total_all) - float(paid_all)),
+            })
+    except Exception as e:
+        print(f"bilan detail: {e}")
+
     conn.close()
 
     try:
@@ -31905,6 +31934,68 @@ def mg_bilan_pdf():
             ['Équipements actifs', f"{int(equip_actifs)}"],
             ['Équipements en panne / maintenance', f"{int(equip_panne)}"],
         ], accent=HexColor('#2e7d32'))
+
+        # --- DÉTAIL FOURNISSEURS (ex « Récap PDF ») : achats + paiements par fournisseur ---
+        from reportlab.platypus import PageBreak
+        story.append(PageBreak())
+        story.append(Paragraph("<b>Détail par fournisseur — achats &amp; paiements sur la période</b>",
+            ParagraphStyle('deth', fontSize=12, textColor=TEAL, alignment=TA_CENTER)))
+        story.append(Spacer(1, 5*mm))
+        if not suppliers_data:
+            story.append(Paragraph("<i>Aucune transaction (achat ou paiement) sur la période sélectionnée.</i>",
+                ParagraphStyle('empty', fontSize=10, alignment=TA_CENTER, textColor=HexColor('#888888'))))
+        else:
+            for sdata in suppliers_data:
+                s = sdata['supplier']
+                story.append(Paragraph(f"<b>{s['nom']}</b>", ParagraphStyle('sup', fontSize=12, textColor=TEAL)))
+                contact_line = []
+                if s.get('telephone'): contact_line.append(f"Tel. {s['telephone']}")
+                if s.get('email'): contact_line.append(s['email'])
+                if contact_line:
+                    story.append(Paragraph(' &nbsp; '.join(contact_line),
+                        ParagraphStyle('contact', fontSize=8, textColor=HexColor('#888888'))))
+                story.append(Spacer(1, 2*mm))
+                sup_synth = [
+                    ['Achats période', 'Paiements période', 'Reste global'],
+                    [f"{sdata['total_achats_periode']:,.0f} F", f"{sdata['total_paye_periode']:,.0f} F", f"{sdata['reste_global']:,.0f} F"],
+                ]
+                t = Table(sup_synth, colWidths=[58*mm, 58*mm, 58*mm])
+                t.setStyle(TableStyle([
+                    ('BACKGROUND',(0,0),(-1,0),HexColor('#e0f5f1')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                    ('FONTSIZE',(0,0),(-1,-1),9),('ALIGN',(0,0),(-1,-1),'CENTER'),
+                    ('GRID',(0,0),(-1,-1),0.3,HexColor('#cccccc')),('PADDING',(0,0),(-1,-1),4),
+                    ('FONTNAME',(0,1),(-1,1),'Helvetica-Bold'),('TEXTCOLOR',(2,1),(2,1),HexColor('#c53030')),
+                ]))
+                story.append(t); story.append(Spacer(1, 3*mm))
+                if sdata['purchases']:
+                    story.append(Paragraph("<b>Achats sur la période</b>", ParagraphStyle('lbl', fontSize=9, textColor=NAVY)))
+                    p_data = [['Date', 'Description', 'Montant', 'Échéance']]
+                    for p in sdata['purchases']:
+                        p_data.append([p.get('date',''), (p.get('description') or '')[:50],
+                                      f"{float(p.get('montant_total',0) or 0):,.0f} F", p.get('date_echeance','') or '-'])
+                    t_p = Table(p_data, colWidths=[22*mm, 90*mm, 35*mm, 25*mm])
+                    t_p.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,0),NAVY),('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+                        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),8),
+                        ('GRID',(0,0),(-1,-1),0.25,HexColor('#cccccc')),('PADDING',(0,0),(-1,-1),3),('ALIGN',(2,0),(2,-1),'RIGHT'),
+                    ]))
+                    story.append(t_p); story.append(Spacer(1, 3*mm))
+                if sdata['payments']:
+                    story.append(Paragraph("<b>Paiements (acomptes) sur la période</b>", ParagraphStyle('lbl', fontSize=9, textColor=NAVY)))
+                    pay_data = [['Date', 'Achat associé', 'Mode', 'Référence', 'Montant']]
+                    for pay in sdata['payments']:
+                        mode_lbl = {'espece':'Espèces','cheque':'Chèque','virement':'Virement','mobile':'Mobile'}.get(pay.get('mode_paiement',''), pay.get('mode_paiement','-'))
+                        pay_data.append([pay.get('date',''), (pay.get('purchase_desc') or '')[:35], mode_lbl,
+                                        pay.get('reference','') or '-', f"{float(pay.get('montant',0) or 0):,.0f} F"])
+                    t_pay = Table(pay_data, colWidths=[22*mm, 65*mm, 22*mm, 30*mm, 33*mm])
+                    t_pay.setStyle(TableStyle([
+                        ('BACKGROUND',(0,0),(-1,0),HexColor('#2e7d32')),('TEXTCOLOR',(0,0),(-1,0),HexColor('#ffffff')),
+                        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),8),
+                        ('GRID',(0,0),(-1,-1),0.25,HexColor('#cccccc')),('PADDING',(0,0),(-1,-1),3),
+                        ('ALIGN',(4,0),(4,-1),'RIGHT'),('TEXTCOLOR',(4,1),(4,-1),HexColor('#2e7d32')),('FONTNAME',(4,1),(4,-1),'Helvetica-Bold'),
+                    ]))
+                    story.append(t_pay)
+                story.append(Spacer(1, 7*mm))
 
         story.append(Spacer(1, 4*mm))
         story.append(Paragraph(

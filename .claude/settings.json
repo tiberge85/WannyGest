@@ -15,7 +15,8 @@
       "Bash(python3 -c \"import models; print\\(sorted\\(models.get_role_permissions\\('agent_recouvreur'\\)\\)\\)\")",
       "Bash(git commit -q -m 'v162 : MG réorg fournisseurs — portefeuilles + nouvel achat → Paiements fournisseurs ; Export CSV + Bilan général PDF au niveau Moyens Généraux *)",
       "Bash(xargs -I{} sh -c 'sed -n \"$\\(\\({}-3\\)\\),$\\(\\({}\\)\\)p\" app.py')",
-      "Bash(git commit -q -m 'v162 : paiement fournisseur — compte à débiter obligatoire + accès au Tableau de bord/Bilan MG rétabli *)"
+      "Bash(git commit -q -m 'v162 : paiement fournisseur — compte à débiter obligatoire + accès au Tableau de bord/Bilan MG rétabli *)",
+      "Bash(git commit -q -m 'v162 : bilan général MG inclut le détail par fournisseur \\(ancien Récap PDF\\) *)"
     ]
   }
 }
