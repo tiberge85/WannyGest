@@ -3375,6 +3375,13 @@ function filterRecent() {
             <input type="date" name="date_echeance" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
         <div><label style="font-size:11px;color:#888;display:block">Département</label>
             <input name="departement" placeholder="Technique, Commercial..." style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        {% if sup_contracts %}
+        <div><label style="font-size:11px;color:#888;display:block">Rattacher au contrat</label>
+            <select name="contract_id" title="Rattacher cette facture à un contrat" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">— Aucun —</option>
+                {% for ct in sup_contracts %}<option value="{{ ct.id }}">{{ ct.reference }} · {{ ct.objet|truncate(24) }}</option>{% endfor %}
+            </select></div>
+        {% endif %}
         <button type="submit" class="btn btn-primary btn-sm">+ Ajouter</button>
     </form>
 </div></div>
@@ -3406,7 +3413,7 @@ function filterRecent() {
         <button type="button" class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 6px"
             data-id="{{ p.id }}" data-desc="{{ p.description or '' }}" data-cat="{{ p.categorie or '' }}"
             data-mt="{{ p.montant_total or 0 }}" data-date="{{ p.date or '' }}" data-ech="{{ p.date_echeance or '' }}"
-            data-dept="{{ p.departement or '' }}" data-notes="{{ p.notes or '' }}"
+            data-dept="{{ p.departement or '' }}" data-notes="{{ p.notes or '' }}" data-ctr="{{ p.contract_id or '' }}"
             onclick="openEditPurchaseEl(this)" title="Modifier">✏️</button>
         <form method="post" action="/fournisseurs/purchase/{{ p.id }}/delete" style="display:inline" 
             onsubmit="return confirm('Supprimer cet achat ? Les paiements liés doivent être supprimés d\'abord.')">
@@ -3446,6 +3453,15 @@ function filterRecent() {
         <label style="font-size:11px;color:#888;display:block">Notes</label>
         <textarea name="notes" id="ep_notes" rows="2" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></textarea>
     </div>
+    {% if sup_contracts %}
+    <div style="margin-bottom:10px">
+        <label style="font-size:11px;color:#888;display:block">Rattacher au contrat (alimente le « consommé »)</label>
+        <select name="contract_id" id="ep_ctr" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">— Aucun —</option>
+            {% for ct in sup_contracts %}<option value="{{ ct.id }}">{{ ct.reference }} · {{ ct.objet|truncate(30) }}</option>{% endfor %}
+        </select>
+    </div>
+    {% endif %}
     <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('editPurchaseM').classList.remove('active')">Annuler</button>
         <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
@@ -3456,9 +3472,9 @@ function filterRecent() {
 <script>
 function openEditPurchaseEl(b){
     var d = b.dataset;
-    openEditPurchase(d.id, d.desc, d.cat, d.mt, d.date, d.ech, d.dept, d.notes);
+    openEditPurchase(d.id, d.desc, d.cat, d.mt, d.date, d.ech, d.dept, d.notes, d.ctr);
 }
-function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes) {
+function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes, ctr) {
     document.getElementById('editPurchaseForm').action = '/fournisseurs/purchase/' + id + '/edit';
     document.getElementById('ep_desc').value = desc;
     document.getElementById('ep_cat').value = cat;
@@ -3467,6 +3483,7 @@ function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes) {
     document.getElementById('ep_echeance').value = ech;
     document.getElementById('ep_dept').value = dept;
     document.getElementById('ep_notes').value = notes;
+    var ec = document.getElementById('ep_ctr'); if (ec) ec.value = ctr || '';
     document.getElementById('editPurchaseM').classList.add('active');
 }
 </script>

@@ -2689,6 +2689,7 @@ try:
         ('tacite_reconduction', "ALTER TABLE supplier_contracts ADD COLUMN tacite_reconduction INTEGER DEFAULT 0"),
         ('document_path', "ALTER TABLE supplier_contracts ADD COLUMN document_path TEXT"),
         ('deleted_at', "ALTER TABLE supplier_contracts ADD COLUMN deleted_at TEXT"),
+        ('updated_at', "ALTER TABLE supplier_contracts ADD COLUMN updated_at TEXT"),
     ]:
         try: _v162g.execute(_ddl)
         except Exception: pass
@@ -2700,6 +2701,16 @@ try:
         contrat_id INTEGER, action TEXT, details TEXT,
         user_id INTEGER, user_name TEXT, created_at TEXT DEFAULT (datetime('now'))
     )""")
+    # v162i : alertes d'échéance (anti-doublon J-60/J-30/J-15/J-7/J-1/EXPIRE)
+    _v162g.execute("""CREATE TABLE IF NOT EXISTS alertes_contrats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contrat_id INTEGER, type_alerte TEXT, date_alerte TEXT,
+        lu INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now'))
+    )""")
+    _v162g.execute("CREATE INDEX IF NOT EXISTS idx_alertes_ctr ON alertes_contrats(contrat_id, type_alerte)")
+    # v162i : lien facture fournisseur → contrat (pour alimenter le « consommé »)
+    try: _v162g.execute("ALTER TABLE supplier_purchases ADD COLUMN contract_id INTEGER")
+    except Exception: pass
     _v162g.commit()
     _v162g.close()
     print("[v162g-Contrats] Table supplier_contracts OK", flush=True)
@@ -31068,7 +31079,8 @@ def fournisseur_detail(sid):
     user = get_user_by_id(session['user_id'])
     perms = get_role_permissions(user['role']) if user else []
     can_edit = ('fournisseurs_edit' in perms or 'admin' in perms)
-    
+    _recompute_after = None
+
     if request.method == 'POST' and can_edit:
         action = request.form.get('action', '')
         if action == 'update_supplier':
@@ -31088,9 +31100,10 @@ def fournisseur_detail(sid):
                 flash(f"❌ Erreur : {e}", "error")
         elif action == 'add_purchase':
             try:
+                _ctr = int(request.form.get('contract_id', 0) or 0) or None
                 conn.execute("""INSERT INTO supplier_purchases
-                    (supplier_id, description, categorie, montant_total, date, date_echeance, departement, notes, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (supplier_id, description, categorie, montant_total, date, date_echeance, departement, notes, contract_id, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (sid,
                      request.form.get('description','').strip(),
                      request.form.get('categorie','').strip(),
@@ -31099,12 +31112,17 @@ def fournisseur_detail(sid):
                      request.form.get('date_echeance','').strip(),
                      request.form.get('departement','').strip(),
                      request.form.get('notes','').strip(),
-                     session.get('user_id')))
+                     _ctr, session.get('user_id')))
                 conn.commit()
+                if _ctr: _recompute_after = _ctr
                 flash("✅ Achat ajouté", "success")
             except Exception as e:
                 flash(f"❌ Erreur : {e}", "error")
-    
+
+    # v162i : contrats du fournisseur (pour rattacher une facture à un contrat)
+    sup_contracts = [dict(r) for r in conn.execute(
+        "SELECT id, reference, objet FROM supplier_contracts WHERE supplier_id=? AND deleted_at IS NULL ORDER BY id DESC",
+        (sid,)).fetchall()]
     purchases = []
     try:
         purchases = [dict(r) for r in conn.execute(
@@ -31121,9 +31139,10 @@ def fournisseur_detail(sid):
     
     summary = get_supplier_summary(sid)
     conn.close()
+    if _recompute_after: _recompute_contract_consumed(_recompute_after)
     return render_template('extra_pages.html', page='fournisseur_detail',
                           supplier=supplier, purchases=purchases,
-                          summary=summary, can_edit=can_edit,
+                          summary=summary, can_edit=can_edit, sup_contracts=sup_contracts,
                           today_str=datetime.now().strftime('%Y-%m-%d'))
 
 
@@ -31132,16 +31151,18 @@ def fournisseur_detail(sid):
 @permission_required_any('fournisseurs_edit', 'admin')
 def purchase_edit(pid):
     conn = _gdb()
-    p = conn.execute("SELECT supplier_id FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
+    p = conn.execute("SELECT supplier_id, contract_id FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
     if not p:
         conn.close()
         flash("Achat introuvable", "error")
         return redirect(url_for('fournisseurs_list'))
-    sid = p['supplier_id']
+    sid = p['supplier_id']; old_ctr = p['contract_id']
+    _touched = set()
     try:
+        new_ctr = int(request.form.get('contract_id', 0) or 0) or None
         conn.execute("""UPDATE supplier_purchases SET
             description=?, categorie=?, montant_total=?, date=?, date_echeance=?,
-            departement=?, notes=? WHERE id=?""",
+            departement=?, notes=?, contract_id=? WHERE id=?""",
             (request.form.get('description','').strip(),
              request.form.get('categorie','').strip(),
              float(request.form.get('montant_total','0') or 0),
@@ -31149,8 +31170,10 @@ def purchase_edit(pid):
              request.form.get('date_echeance','').strip() or None,
              request.form.get('departement','').strip(),
              request.form.get('notes','').strip(),
-             pid))
+             new_ctr, pid))
         conn.commit()
+        if old_ctr: _touched.add(old_ctr)
+        if new_ctr: _touched.add(new_ctr)
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?', 'Fournisseur',
             f"Achat #{pid} modifié (fournisseur #{sid})", request.remote_addr)
@@ -31158,6 +31181,7 @@ def purchase_edit(pid):
     except Exception as e:
         flash(f"❌ Erreur : {e}", "error")
     conn.close()
+    for _c in _touched: _recompute_contract_consumed(_c)
     return redirect(f'/fournisseurs/{sid}')
 
 
@@ -31166,12 +31190,12 @@ def purchase_edit(pid):
 @permission_required_any('fournisseurs_edit', 'admin')
 def purchase_delete(pid):
     conn = _gdb()
-    p = conn.execute("SELECT supplier_id, description, montant_total FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
+    p = conn.execute("SELECT supplier_id, description, montant_total, contract_id FROM supplier_purchases WHERE id=?", (pid,)).fetchone()
     if not p:
         conn.close()
         flash("Achat introuvable", "error")
         return redirect(url_for('fournisseurs_list'))
-    sid = p['supplier_id']
+    sid = p['supplier_id']; _ctr = p['contract_id']
     try:
         nb_pay = conn.execute("SELECT COUNT(*) FROM supplier_payments WHERE purchase_id=?", (pid,)).fetchone()[0]
     except: nb_pay = 0
@@ -31189,6 +31213,7 @@ def purchase_delete(pid):
     except Exception as e:
         flash(f"❌ Erreur : {e}", "error")
     conn.close()
+    if _ctr: _recompute_contract_consumed(_ctr)
     return redirect(f'/fournisseurs/{sid}')
 
 
@@ -33193,6 +33218,105 @@ def api_contracts_analytics():
              'taux': round(a['consomme'] / a['valeur'] * 100, 1) if a['valeur'] else 0} for fn, a in agg.items()]
     data.sort(key=lambda x: x['valeur'], reverse=True)
     return jsonify({'ok': True, 'data': data})
+
+# ---------- (b) Alimentation auto du « consommé » depuis les factures fournisseurs ----------
+def _recompute_contract_consumed(contract_id):
+    """Met à jour montant_consomme = somme des factures fournisseurs (supplier_purchases) liées au contrat."""
+    if not contract_id: return
+    try:
+        conn = _gdb()
+        total = conn.execute("SELECT COALESCE(SUM(montant_total),0) FROM supplier_purchases WHERE contract_id=?",
+                             (contract_id,)).fetchone()[0] or 0
+        conn.execute("UPDATE supplier_contracts SET montant_consomme=?, updated_at=datetime('now') WHERE id=?",
+                     (total, contract_id))
+        conn.commit(); conn.close()
+    except Exception: pass
+
+@app.route('/mg/contrats/recompute')
+@permission_required_any('mg_gestion', 'achats', 'admin')
+def mg_contrats_recompute():
+    conn = _gdb()
+    ids = [r['id'] for r in conn.execute("SELECT id FROM supplier_contracts WHERE deleted_at IS NULL").fetchall()]
+    conn.close()
+    for cid in ids: _recompute_contract_consumed(cid)
+    flash(f"🔄 « Consommé » recalculé depuis les factures fournisseurs ({len(ids)} contrats)", "success")
+    return redirect('/mg/contrats')
+
+# ---------- (a) Notifications d'échéance J-60 / J-30 / J-15 / J-7 / J-1 + EXPIRÉ ----------
+_CONTRAT_ALERT_THRESHOLDS = [60, 30, 15, 7, 1]
+_contract_scan_day = None
+
+def _scan_contract_alerts(force=False):
+    """Notifie les responsables (interne + email optionnel) aux jalons d'échéance.
+    Anti-doublon via alertes_contrats. Retourne le nombre d'alertes envoyées."""
+    from datetime import datetime as _dt
+    sent = 0
+    try:
+        conn = _gdb()
+        rows = conn.execute("""SELECT ct.*, s.nom AS fournisseur_name FROM supplier_contracts ct
+            LEFT JOIN suppliers s ON s.id=ct.supplier_id
+            WHERE ct.deleted_at IS NULL AND ct.date_fin IS NOT NULL AND ct.statut NOT IN ('resilie')""").fetchall()
+        today = _dt.now().date()
+        try: email_on = (get_notif_config('contract_alerts_email') == '1')
+        except Exception: email_on = False
+        for r in rows:
+            c = dict(r)
+            try: d2 = _dt.strptime(str(c['date_fin'])[:10], '%Y-%m-%d').date()
+            except Exception: continue
+            jr = (d2 - today).days
+            if jr < 0:
+                bucket = 'EXPIRE'
+            else:
+                applic = [t for t in _CONTRAT_ALERT_THRESHOLDS if jr <= t]
+                if not applic: continue
+                bucket = 'J' + str(min(applic))
+            if conn.execute("SELECT 1 FROM alertes_contrats WHERE contrat_id=? AND type_alerte=?",
+                            (c['id'], bucket)).fetchone():
+                continue
+            conn.execute("INSERT INTO alertes_contrats (contrat_id, type_alerte, date_alerte) VALUES (?,?,date('now'))",
+                         (c['id'], bucket)); conn.commit()
+            jtxt = "est EXPIRÉ" if jr < 0 else f"arrive à échéance dans {jr} jour(s)"
+            title = f"⏰ Échéance contrat fournisseur — {c.get('reference', '')}"
+            msg = f"Le contrat {c.get('reference', '')} avec {c.get('fournisseur_name') or 'le fournisseur'} {jtxt} (fin {c['date_fin']})."
+            try:
+                if c.get('responsable'):
+                    u = conn.execute("SELECT id, email FROM users WHERE full_name=? AND COALESCE(is_active,1)=1 LIMIT 1",
+                                     (c['responsable'],)).fetchone()
+                    if u:
+                        notify_user(u['id'], title, msg, link='/mg/contrats/alertes', type='warning',
+                                    module='moyens_generaux', priority='high')
+                        if email_on and u['email']:
+                            try: _send_email_smtp(u['email'], "Échéance contrat fournisseur", msg)
+                            except Exception: pass
+            except Exception: pass
+            try:
+                notify_roles(['moyens_generaux', 'mg', 'admin'], title, msg, link='/mg/contrats/alertes',
+                             type='warning', module='moyens_generaux', priority='high')
+            except Exception: pass
+            sent += 1
+        conn.close()
+    except Exception as _e:
+        print(f"[v162i-ContratAlerts] {_e}", flush=True)
+    return sent
+
+@app.before_request
+def _contract_alerts_daily():
+    """Déclenche le scan d'alertes au plus une fois par jour et par process (léger)."""
+    global _contract_scan_day
+    try:
+        from datetime import datetime as _dt
+        today = _dt.now().strftime('%Y-%m-%d')
+        if _contract_scan_day == today: return
+        _contract_scan_day = today
+        _scan_contract_alerts()
+    except Exception: pass
+
+@app.route('/mg/contrats/scan-alertes')
+@permission_required_any('mg_gestion', 'achats', 'admin')
+def mg_contrats_scan_alertes():
+    n = _scan_contract_alerts(force=True)
+    flash(f"🔔 Scan effectué — {n} nouvelle(s) notification(s) d'échéance envoyée(s)", "success")
+    return redirect('/mg/contrats/alertes')
 
 
 @app.route('/mg/receptions/add', methods=['POST'])
