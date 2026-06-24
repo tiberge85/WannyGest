@@ -29119,6 +29119,39 @@ def admin_pointage_company_planning(cid):
                 conn.commit()
                 flash("✅ Session planifiée supprimée", "success")
             except: pass
+        elif action == 'purge_doublons':
+            # v162 : supprime automatiquement les programmes en double sur la plage affichée.
+            # Garde 1 programme par (employé, date, heure) — en priorité celui déjà démarré/terminé —
+            # et ne supprime que les doublons encore au statut 'prevue'/'absente' (jamais une session réelle).
+            try:
+                ds = (request.form.get('range_start', '') or '').strip()
+                de = (request.form.get('range_end', '') or '').strip()
+                rows = [dict(r) for r in conn.execute("""
+                    SELECT id, company_user_id, date, heure_prevue, statut
+                    FROM pointage_planning_sessions
+                    WHERE company_id=? AND date BETWEEN ? AND ? AND COALESCE(is_active,1)=1
+                    ORDER BY company_user_id, date, heure_prevue, id""", (cid, ds, de)).fetchall()]
+                groups = {}
+                for r in rows:
+                    groups.setdefault((r['company_user_id'], r['date'], r['heure_prevue']), []).append(r)
+                STARTED = ('en_cours', 'ok', 'retard', 'termine')
+                deleted = 0
+                for key, items in groups.items():
+                    if len(items) <= 1:
+                        continue
+                    started = [it for it in items if it['statut'] in STARTED]
+                    keep_id = (started[0]['id'] if started else items[0]['id'])
+                    for it in items:
+                        if it['id'] != keep_id and it['statut'] in ('prevue', 'absente'):
+                            conn.execute("DELETE FROM pointage_planning_sessions WHERE id=? AND company_id=?", (it['id'], cid))
+                            deleted += 1
+                conn.commit()
+                flash(f"🧹 {deleted} programme(s) en double supprimé(s).", "success" if deleted else "warning")
+            except Exception as e:
+                flash(f"❌ Erreur purge doublons : {e}", "error")
+            conn.close()
+            return redirect(url_for('admin_pointage_company_planning', cid=cid,
+                                    date=request.form.get('date_filter', ''), view=request.form.get('view', 'jour'), doublons=1))
         elif action == 'mark_absent':
             try:
                 pid = int(request.form.get('planning_id', 0))
@@ -29285,14 +29318,46 @@ def admin_pointage_company_planning(cid):
     sessions_real = [dict(r) for r in conn.execute("""
         SELECT * FROM pointage_sessions WHERE company_id=? AND date BETWEEN ? AND ?""",
         (cid, start.isoformat(), end.isoformat())).fetchall()]
-    
+
+    # v162 : détection des programmes (sessions planifiées) en double / en trop sur la plage.
+    # Un doublon = même employé + même date + même heure prévue apparaissant plus d'une fois.
+    doublons = []
+    show_doublons = bool(request.args.get('doublons'))
+    if show_doublons:
+        rows = [dict(r) for r in conn.execute("""
+            SELECT pps.id, pps.company_user_id, pps.date, pps.heure_prevue, pps.libelle, pps.statut,
+                   pcu.full_name as user_name
+            FROM pointage_planning_sessions pps
+            LEFT JOIN pointage_company_users pcu ON pps.company_user_id = pcu.id
+            WHERE pps.company_id=? AND pps.date BETWEEN ? AND ? AND COALESCE(pps.is_active,1)=1
+            ORDER BY pps.company_user_id, pps.date, pps.heure_prevue, pps.id""",
+            (cid, start.isoformat(), end.isoformat())).fetchall()]
+        groups = {}
+        for r in rows:
+            groups.setdefault((r['company_user_id'], r['date'], r['heure_prevue']), []).append(r)
+        STARTED = ('en_cours', 'ok', 'retard', 'termine')
+        for key, items in groups.items():
+            if len(items) <= 1:
+                continue
+            started = [it for it in items if it['statut'] in STARTED]
+            keep_id = (started[0]['id'] if started else items[0]['id'])
+            doublons.append({
+                'user_name': items[0]['user_name'] or '—',
+                'date': items[0]['date'], 'heure': items[0]['heure_prevue'],
+                'count': len(items), 'keep_id': keep_id, 'items': items,
+                # supprimables = doublons jamais démarrés (sécurité : on ne touche pas aux sessions réelles)
+                'nb_supprimables': sum(1 for it in items if it['id'] != keep_id and it['statut'] in ('prevue', 'absente')),
+            })
+        doublons.sort(key=lambda g: (g['date'], g['user_name']))
+
     conn.close()
     return render_template('extra_pages.html', page='pt_company_planning',
                           company=company, users=users, plannings=plannings,
                           sessions_real=sessions_real, date_filter=date_filter,
                           view=view, range_start=start.isoformat(), range_end=end.isoformat(),
                           externes=externes, groupes=groupes,
-                          nb_employees_total=nb_employees_total)
+                          nb_employees_total=nb_employees_total,
+                          show_doublons=show_doublons, doublons=doublons)
 
 
 @app.route('/pt/<slug>/session/start/<int:planning_id>', methods=['GET', 'POST'])

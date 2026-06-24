@@ -4179,9 +4179,70 @@ function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes, ctr) {
 <div class="page-header">
     <h1>📅 Planning sessions — {{ company.name }}</h1>
     <div style="display:flex;gap:6px">
+        <a href="?view={{ view }}&date={{ date_filter }}&doublons=1" class="btn btn-sm" style="background:#7b1fa2;color:#fff">🔍 Programmes en double</a>
         <a href="/admin/pointage/companies/{{ company.id }}" class="btn btn-outline btn-sm">← Fiche entreprise</a>
     </div>
 </div>
+
+{% if show_doublons %}
+<div class="pl-card" style="border-left:4px solid #7b1fa2;background:#faf5fc">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+            <strong style="color:#7b1fa2">🔍 Programmes en double sur la période ({{ range_start }} → {{ range_end }})</strong>
+            <div style="font-size:11px;color:#777;margin-top:2px">Un doublon = même employé, même date et même heure prévue planifiés plusieurs fois.
+                {{ nb_employees_total }} employé(s) actif(s) — {{ plannings|length }} programme(s) sur la période.</div>
+        </div>
+        <div style="display:flex;gap:6px">
+            {% set total_extra = doublons|sum(attribute='nb_supprimables') %}
+            {% if total_extra and total_extra > 0 %}
+            <form method="post" onsubmit="return confirm('Supprimer automatiquement les {{ total_extra }} programme(s) en double encore au statut « prévue » ? Les sessions déjà démarrées ou terminées ne sont jamais supprimées.')">
+                <input type="hidden" name="action" value="purge_doublons">
+                <input type="hidden" name="range_start" value="{{ range_start }}">
+                <input type="hidden" name="range_end" value="{{ range_end }}">
+                <input type="hidden" name="date_filter" value="{{ date_filter }}">
+                <input type="hidden" name="view" value="{{ view }}">
+                <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff">🧹 Supprimer les {{ total_extra }} doublon(s)</button>
+            </form>
+            {% endif %}
+            <a href="?view={{ view }}&date={{ date_filter }}" class="btn btn-outline btn-sm">✖ Fermer</a>
+        </div>
+    </div>
+    {% if doublons %}
+    <div class="table-wrap" style="margin-top:10px">
+    <table style="width:100%;font-size:12px">
+        <thead><tr><th>Employé</th><th>Date</th><th>Heure</th><th style="text-align:center">Nb planifié</th><th>Détail des programmes</th></tr></thead>
+        <tbody>
+        {% for g in doublons %}
+        <tr>
+            <td><strong>{{ g.user_name }}</strong></td>
+            <td style="font-family:monospace">{{ g.date }}</td>
+            <td style="font-family:monospace">{{ g.heure }}</td>
+            <td style="text-align:center"><span style="background:#7b1fa2;color:#fff;padding:2px 8px;border-radius:10px;font-weight:700">{{ g.count }}×</span></td>
+            <td>
+                {% for it in g.items %}
+                <span style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:2px 6px;border-radius:6px;background:#fff;border:1px solid #e2d4ea">
+                    #{{ it.id }} <span class="pl-st-{{ it.statut }}">{{ it.statut }}</span>
+                    {% if it.id == g.keep_id %}<span style="color:#2e7d32;font-weight:700">✓ gardé</span>
+                    {% elif it.statut in ('prevue','absente') %}
+                    <form method="post" style="display:inline" onsubmit="return confirm('Supprimer le programme #{{ it.id }} ?')">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="planning_id" value="{{ it.id }}">
+                        <button type="submit" title="Supprimer ce doublon" style="border:none;background:none;color:#c53030;cursor:pointer;font-size:13px">🗑️</button>
+                    </form>
+                    {% else %}<span style="color:#b8561f">(démarré — conservé)</span>{% endif %}
+                </span>
+                {% endfor %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <div style="margin-top:10px;color:#2e7d32;font-weight:600">✅ Aucun programme en double détecté sur cette période. Le nombre de programmes correspond au planning attendu.</div>
+    {% endif %}
+</div>
+{% endif %}
 
 {% if company.type_pointage != 'session' %}
 <div class="pl-card" style="background:#fde8e8;border-left:4px solid #c53030">
