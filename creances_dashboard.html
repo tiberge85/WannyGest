@@ -167,12 +167,23 @@
 <div class="modal-bg" id="addCr"><div class="modal" style="max-width:700px"><h3>💰 Nouvelle créance</h3>
 <form method="post" action="/comptabilite/creances/add">
     <div class="form-row">
-        <div class="form-group"><label>N° Facture *</label><input type="text" name="num_facture" required placeholder="Ex: FAC-2026-0001"></div>
-        <div class="form-group"><label>Code Client</label><input type="text" name="client_code" placeholder="CLI001"></div>
+        <div class="form-group" style="flex:2"><label>Nom Client * <span style="font-size:10px;color:#888">(tapez pour rechercher)</span></label>
+            <input type="text" name="client_name" id="cr_client_name" list="cr_clients_dl" required autocomplete="off"
+                   placeholder="Rechercher un client…" oninput="crClientPick()">
+            <datalist id="cr_clients_dl">
+                {% for cl in creance_clients %}<option value="{{ cl.name }}">{{ cl.code }}{% if cl.city %} · {{ cl.city }}{% endif %}</option>{% endfor %}
+            </datalist>
+        </div>
+        <div class="form-group"><label>Ville</label><input type="text" name="ville" id="cr_ville" placeholder="Abidjan, Cocody"></div>
+    </div>
+    <!-- v162 : factures impayées du client sélectionné -->
+    <div id="cr_unpaid_box" style="display:none;background:#fff8e1;border:1.5px solid #f29f2f;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:700;color:#b8561f;margin-bottom:6px">🧾 Factures impayées de ce client — cliquez pour pré-remplir</div>
+        <div id="cr_unpaid_list" style="display:flex;flex-direction:column;gap:5px"></div>
     </div>
     <div class="form-row">
-        <div class="form-group" style="flex:2"><label>Nom Client *</label><input type="text" name="client_name" required placeholder="Ex: Société ARTECH"></div>
-        <div class="form-group"><label>Ville</label><input type="text" name="ville" placeholder="Abidjan, Cocody"></div>
+        <div class="form-group"><label>N° Facture *</label><input type="text" name="num_facture" id="cr_num" required placeholder="Ex: FAC-2026-0001"></div>
+        <div class="form-group"><label>Code Client</label><input type="text" name="client_code" id="cr_code" placeholder="CLI001"></div>
     </div>
     <div class="form-group"><label>Commercial</label><input type="text" name="commercial" placeholder="Nom du commercial"></div>
     <div class="form-row">
@@ -249,5 +260,49 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 document.querySelector('input[name="date_facture"]').value = new Date().toISOString().split('T')[0];
+
+// v162 : autofill client + factures impayées
+var CR_CLIENTS = {{ creance_clients|tojson }};
+var CR_UNPAID  = {{ creance_unpaid|tojson }};
+function _crFmt(n){ return (Math.round(n||0)).toLocaleString('fr-FR').replace(/ /g,' '); }
+function crClientPick(){
+    var name = (document.getElementById('cr_client_name').value || '').trim();
+    var cl = CR_CLIENTS.find(function(c){ return c.name === name; });
+    if (cl){
+        if (cl.code) document.getElementById('cr_code').value = cl.code;
+        if (cl.city) document.getElementById('cr_ville').value = cl.city;
+    }
+    var box = document.getElementById('cr_unpaid_box');
+    var list = document.getElementById('cr_unpaid_list');
+    var inv = CR_UNPAID[name] || [];
+    if (!inv.length){ box.style.display = 'none'; list.innerHTML = ''; return; }
+    list.innerHTML = '';
+    inv.forEach(function(f, i){
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;border:1px solid #f0e0c0;border-radius:6px;padding:5px 8px;font-size:12px';
+        var info = '<div><strong>' + (f.ref || '(sans n°)') + '</strong> — ' + _crFmt(f.ttc) + ' XOF'
+                 + (f.due ? ' · échéance ' + f.due : '') + (f.already ? ' <span style="color:#c53030">⚠ déjà en créance</span>' : '') + '</div>';
+        var btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'btn btn-sm';
+        btn.style.cssText = 'background:#1A7A6D;color:#fff;font-size:11px;padding:3px 8px;white-space:nowrap';
+        btn.textContent = f.already ? 'Déjà créée' : 'Utiliser';
+        btn.disabled = !!f.already;
+        if (f.already) btn.style.opacity = '0.5';
+        btn.onclick = function(){ crUseInvoice(f); };
+        row.innerHTML = info;
+        row.appendChild(btn);
+        list.appendChild(row);
+    });
+    box.style.display = 'block';
+}
+function crUseInvoice(f){
+    if (f.ref) document.getElementById('cr_num').value = f.ref;
+    var htInput = document.querySelector('input[name="montant_ht"]');
+    var tvaInput = document.querySelector('input[name="tva_rate"]');
+    if (htInput) htInput.value = Math.round(f.ht || 0);
+    if (tvaInput && f.tva_rate != null) tvaInput.value = f.tva_rate;
+    if (f.date) document.querySelector('input[name="date_facture"]').value = f.date;
+    if (f.due) document.querySelector('input[name="date_echeance"]').value = f.due;
+}
 </script>
 {% endblock %}

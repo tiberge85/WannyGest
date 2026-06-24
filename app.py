@@ -19805,6 +19805,37 @@ def creances_dashboard():
     if commercial_filter:
         creances = [c for c in creances if (c.get('commercial') or '') == commercial_filter]
     
+    # v162 : liste clients (pour la liste déroulante + autofill) et factures impayées (pour pré-remplissage)
+    creance_clients = []
+    try:
+        creance_clients = [dict(r) for r in conn.execute(
+            "SELECT id, name, COALESCE(client_code,'') AS code, COALESCE(city,'') AS city FROM clients ORDER BY name").fetchall()]
+    except Exception as e:
+        print(f"creance_clients: {e}")
+    creance_unpaid = {}
+    try:
+        existing_nums = {r[0] for r in conn.execute("SELECT num_facture FROM creances_invoices").fetchall()}
+        rows_inv = conn.execute("""
+            SELECT client_id, COALESCE(client_name,'') AS client_name, reference,
+                   COALESCE(total_ht,0) AS ht, COALESCE(tva_rate,18) AS tva_rate,
+                   COALESCE(total_ttc, amount, 0) AS ttc,
+                   COALESCE(due_date,'') AS due, substr(COALESCE(created_at,''),1,10) AS date
+            FROM invoices
+            WHERE COALESCE(status,'') NOT IN ('payee','paid','solde','annulee','annule','brouillon','draft')
+            ORDER BY created_at DESC""").fetchall()
+        for r in rows_inv:
+            r = dict(r)
+            key = (r['client_name'] or '').strip()
+            if not key:
+                continue
+            creance_unpaid.setdefault(key, []).append({
+                'ref': r['reference'] or '', 'ht': r['ht'] or 0, 'tva_rate': r['tva_rate'] or 18,
+                'ttc': r['ttc'] or 0, 'date': r['date'] or '', 'due': r['due'] or '',
+                'already': (r['reference'] in existing_nums),
+            })
+    except Exception as e:
+        print(f"creance_unpaid: {e}")
+
     conn.close()
     return render_template('creances_dashboard.html', page='creances',
         creances=creances, stats=stats,
@@ -19812,7 +19843,8 @@ def creances_dashboard():
         repartition_commercial=repartition_commercial,
         tranches=tranches,
         statut_filter=statut_filter, commercial_filter=commercial_filter,
-        statut_labels=STATUT_LABELS)
+        statut_labels=STATUT_LABELS,
+        creance_clients=creance_clients, creance_unpaid=creance_unpaid)
 
 
 @app.route('/comptabilite/creances/tableau-bord')
@@ -19910,6 +19942,13 @@ def creance_add():
     if not num or not client_name:
         flash("N° facture et nom client requis", "error")
         return redirect('/comptabilite/creances')
+    # v162 : éviter l'erreur brute « UNIQUE constraint failed » → message clair
+    conn_chk = _gdb()
+    dup = conn_chk.execute("SELECT id FROM creances_invoices WHERE num_facture=?", (num,)).fetchone()
+    conn_chk.close()
+    if dup:
+        flash(f"⚠️ Une créance existe déjà pour la facture « {num} ». Utilisez un autre n° de facture ou modifiez la créance existante.", "error")
+        return redirect('/comptabilite/creances')
     try:
         montant_ht = float(request.form.get('montant_ht', '0').replace(',', '.') or 0)
         tva_rate = float(request.form.get('tva_rate', '18').replace(',', '.') or 18) / 100
@@ -19937,7 +19976,10 @@ def creance_add():
         conn.commit(); conn.close()
         flash(f"✅ Créance {num} ajoutée", "success")
     except Exception as e:
-        flash(f"Erreur : {e}", "error")
+        if 'UNIQUE' in str(e):
+            flash(f"⚠️ La facture « {num} » existe déjà dans les créances.", "error")
+        else:
+            flash(f"Erreur : {e}", "error")
     return redirect('/comptabilite/creances')
 
 
