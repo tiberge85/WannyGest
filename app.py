@@ -34207,11 +34207,17 @@ def mg_prestataire_detail(pid):
     total_facture = sum((fa['montant'] or 0) for fa in factures)
     total_paye = sum((pa['montant'] or 0) for pa in paiements)
     caisses_presta, banques_presta = _prestataire_wallets(conn)
+    # v162 : on autorise aussi le débit depuis les portefeuilles FOURNISSEUR (ex. COMPTE FOURNISSEUR BDU)
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    _pc_ids = {c['id'] for c in caisses_presta}; _pb_ids = {b['id'] for b in banques_presta}
+    caisses_fourn = [c for c in caisses_fourn if c['id'] not in _pc_ids]
+    banques_fourn = [b for b in banques_fourn if b['id'] not in _pb_ids]
     conn.close()
     return render_template('mg_prestataire_detail.html', page='mg_prestataires',
         p=p, factures=factures, paiements=paiements,
         total_facture=total_facture, total_paye=total_paye, reste=total_facture - total_paye,
-        caisses_presta=caisses_presta, banques_presta=banques_presta)
+        caisses_presta=caisses_presta, banques_presta=banques_presta,
+        caisses_fourn=caisses_fourn, banques_fourn=banques_fourn)
 
 
 @app.route('/mg/prestataires/<int:pid>/facture/add', methods=['POST'])
@@ -34296,19 +34302,23 @@ def mg_prestataire_payer(pid):
         conn.close(); flash("Prestataire introuvable", "error"); return redirect('/mg/prestataires')
     pnom = prow['nom']
     caisses_presta, banques_presta = _prestataire_wallets(conn)
+    # v162 : on accepte aussi les portefeuilles FOURNISSEUR (ex. COMPTE FOURNISSEUR BDU)
+    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    caisses_ok = caisses_presta + caisses_fourn
+    banques_ok = banques_presta + banques_fourn
     ref = f"PRP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     libelle = f"Paiement prestataire {pnom}"
     caisse_id = banque_id = None; label = ''
     if ttype == 'caisse':
         wid_raw = request.form.get('caisse_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
-        if not any(c['id'] == wid for c in caisses_presta):
-            conn.close(); flash("⚠️ Choisissez une caisse prestataire valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
+        if not any(c['id'] == wid for c in caisses_ok):
+            conn.close(); flash("⚠️ Choisissez une caisse valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
         ok, label = _debit_fournisseur_wallet(conn, 'caisse', wid, montant, libelle, ref, session['user_id'], user_name, pid)
         caisse_id = wid
     elif ttype == 'banque':
         wid_raw = request.form.get('banque_id', '') or ''; wid = int(wid_raw) if wid_raw.isdigit() else 0
-        if not any(b['id'] == wid for b in banques_presta):
-            conn.close(); flash("⚠️ Choisissez un compte bancaire prestataire valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
+        if not any(b['id'] == wid for b in banques_ok):
+            conn.close(); flash("⚠️ Choisissez un compte bancaire valide à débiter.", "error"); return redirect(f'/mg/prestataires/{pid}')
         ok, label = _debit_fournisseur_wallet(conn, 'banque', wid, montant, libelle, ref, session['user_id'], user_name, pid)
         banque_id = wid
     else:

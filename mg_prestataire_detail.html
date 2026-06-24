@@ -100,14 +100,16 @@
                     <label style="display:flex;align-items:center;gap:5px;background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:6px;cursor:pointer;font-size:12px"><input type="radio" name="tresorerie_type" value="banque" id="pp_banque" required> 🏦 Banque</label>
                 </div>
                 <select name="caisse_id" id="pp_sel_caisse" style="display:none;width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:5px">
-                    <option value="">— Choisir une caisse prestataire —</option>
-                    {% for c in caisses_presta %}<option value="{{ c.id }}">{{ c.name }} — {{ '{:,.0f}'.format(c.solde).replace(',', ' ') }} F</option>{% endfor %}
+                    <option value="">— Choisir une caisse —</option>
+                    {% if caisses_presta %}<optgroup label="Caisses prestataire">{% for c in caisses_presta %}<option value="{{ c.id }}">{{ c.name }} — {{ '{:,.0f}'.format(c.solde).replace(',', ' ') }} F</option>{% endfor %}</optgroup>{% endif %}
+                    {% if caisses_fourn %}<optgroup label="Caisses fournisseur">{% for c in caisses_fourn %}<option value="{{ c.id }}">{{ c.name }} — {{ '{:,.0f}'.format(c.solde).replace(',', ' ') }} F</option>{% endfor %}</optgroup>{% endif %}
                 </select>
                 <select name="banque_id" id="pp_sel_banque" style="display:none;width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px">
-                    <option value="">— Choisir un compte bancaire prestataire —</option>
-                    {% for b in banques_presta %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}
+                    <option value="">— Choisir un compte bancaire —</option>
+                    {% if banques_presta %}<optgroup label="Comptes prestataire">{% for b in banques_presta %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}</optgroup>{% endif %}
+                    {% if banques_fourn %}<optgroup label="Comptes fournisseur">{% for b in banques_fourn %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}</optgroup>{% endif %}
                 </select>
-                {% if not caisses_presta and not banques_presta %}<p style="font-size:11px;color:#c53030;margin:4px 0 0">⚠️ Aucun portefeuille prestataire. Créez-en un via « + Caisse/Banque prestataire » sur la <a href="/mg/prestataires">liste des prestataires</a>.</p>{% endif %}
+                {% if not caisses_presta and not banques_presta and not caisses_fourn and not banques_fourn %}<p style="font-size:11px;color:#c53030;margin:4px 0 0">⚠️ Aucun portefeuille disponible. Créez-en un via « + Caisse/Banque prestataire » sur la <a href="/mg/prestataires">liste des prestataires</a>.</p>{% endif %}
             </div>
             <input type="text" name="commentaire" placeholder="Commentaire (optionnel)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:8px;font-size:12px">
             <div style="display:flex;justify-content:flex-end"><button type="submit" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-weight:700">✅ Valider &amp; débiter</button></div>
