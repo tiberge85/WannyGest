@@ -21266,11 +21266,18 @@ def facture_modifier(fri_id):
             flash("⛔ Cette facture est déjà payée et ne peut plus être modifiée", "error")
             return redirect(f'/recouvrement/facture/{fri_id}/preview')
 
-        # v160 : interdire la modification une fois la facture envoyée au client
-        if old['recovery_sent_at'] or old['status'] in ('caisse_choisie', 'en_recouvrement'):
-            conn.close()
-            flash("⛔ Cette facture a déjà été envoyée au client — modification impossible.", "error")
-            return redirect(f'/recouvrement/facture/{fri_id}/preview')
+        # v160/v162 : une fois la facture envoyée au client (recouvrement), seuls admin/DG
+        # peuvent encore la corriger, et uniquement avec une justification obligatoire.
+        post_envoi = bool(old['recovery_sent_at']) or old['status'] in ('caisse_choisie', 'en_recouvrement')
+        if post_envoi:
+            if user['role'] not in ('admin', 'dg'):
+                conn.close()
+                flash("⛔ Facture déjà envoyée au client — seul un administrateur ou le DG peut la corriger. Contactez-les.", "error")
+                return redirect(f'/recouvrement/facture/{fri_id}/preview')
+            if len(notes) < 5:
+                conn.close()
+                flash("⚠️ Justification obligatoire (min. 5 caractères) pour corriger une facture déjà envoyée au client.", "error")
+                return redirect(f'/recouvrement/facture/{fri_id}/preview')
         
         old_amount = old['amount']
         old_inv_num = old['invoice_number']

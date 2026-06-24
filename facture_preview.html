@@ -447,6 +447,42 @@
 </div>
 {% endif %}
 
+<!-- v162 : correction après envoi au client — réservé admin/DG, justification obligatoire -->
+{% if f.status in ('en_recouvrement','caisse_choisie') and user_role in ('admin','dg') %}
+<div class="modifier-block" style="border-color:#c53030;background:#fdf2f2">
+    <h3 style="margin:0 0 8px;color:#c53030;font-size:14px">🔒 Corriger une facture déjà envoyée (admin/DG)</h3>
+    <p style="font-size:11px;color:#666;margin:0 0 10px">
+        Cette facture est déjà en recouvrement. La correction est réservée à l'administrateur / DG et exige une <strong>justification</strong>.
+    </p>
+    <form method="post" action="/recouvrement/facture/{{ f.id }}/modifier">
+        <input type="hidden" name="tva_form" value="1">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div>
+                <label style="font-size:10px;color:#666">N° facture</label>
+                <input type="text" name="invoice_number" value="{{ f.invoice_number or '' }}" placeholder="FAC-2026-XXX"
+                    style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-family:monospace">
+            </div>
+            <div>
+                <label style="font-size:10px;color:#666">Montant TTC (XOF)</label>
+                <input type="number" name="amount" value="{{ f.amount|int }}" step="1" min="0" required
+                    style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;font-weight:700">
+            </div>
+        </div>
+        <div style="background:#fff8e1;padding:7px 10px;border-radius:6px;margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px">
+            <label style="cursor:pointer;font-weight:600">
+                <input type="checkbox" name="tva_apply" value="1" {% if f.tva_apply is none or f.tva_apply %}checked{% endif %} style="vertical-align:middle"> Appliquer la TVA
+            </label>
+            <span>Taux : <input type="number" name="tva_rate" value="{{ f.tva_rate if f.tva_rate is not none else 18 }}" min="0" max="100" step="0.1" style="width:60px;padding:3px;border:1.5px solid #ddd;border-radius:4px"> %</span>
+        </div>
+        <textarea name="notes" rows="2" required minlength="5" placeholder="Justification obligatoire de la correction (ex. erreur de montant signalée par le client)…"
+            style="width:100%;padding:6px;border:1.5px solid #c53030;border-radius:5px;font-size:11px;margin-bottom:8px"></textarea>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button type="submit" class="btn btn-sm" style="background:#c53030;color:#fff;font-weight:700">🔒 Corriger (admin/DG)</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
 <!-- Détails preuves de paiement -->
 {% if f.payment_type or f.cheque_number or f.recu_number or f.bordereau_number or f.proof_files or f.bordereau_file %}
 <div style="background:#fff;padding:14px;border-radius:10px;margin:14px auto;max-width:780px;box-shadow:0 1px 3px rgba(0,0,0,0.06)" class="actions-block">
