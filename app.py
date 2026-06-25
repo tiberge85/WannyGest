@@ -37105,6 +37105,75 @@ def recrutement_entreprise_add():
     return redirect('/recrutement/offres')
 
 
+# ───────────────────────── CVTHÈQUE ─────────────────────────
+@app.route('/recrutement/cvtheque')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_cvtheque():
+    q = (request.args.get('q', '') or '').strip()
+    ville = (request.args.get('ville', '') or '').strip()
+    niveau = (request.args.get('niveau', '') or '').strip()
+    conn = _gdb()
+    where = ["1=1"]; params = []
+    if q:
+        where.append("(c.nom LIKE ? OR c.prenoms LIKE ? OR c.metier LIKE ? OR c.competences LIKE ?)")
+        params += [f"%{q}%"] * 4
+    if ville:
+        where.append("c.ville LIKE ?"); params.append(f"%{ville}%")
+    if niveau:
+        where.append("c.niveau_etude LIKE ?"); params.append(f"%{niveau}%")
+    candidats = [dict(r) for r in conn.execute(f"""
+        SELECT c.*, (SELECT COUNT(*) FROM candidatures WHERE candidat_id=c.id) AS nb_cand,
+               (SELECT o.titre FROM candidatures ca JOIN offres_emploi o ON o.id=ca.offre_id
+                WHERE ca.candidat_id=c.id ORDER BY ca.created_at DESC LIMIT 1) AS derniere_offre
+        FROM candidats c WHERE {' AND '.join(where)}
+        ORDER BY c.created_at DESC LIMIT 300""", params).fetchall()]
+    villes = [r[0] for r in conn.execute(
+        "SELECT DISTINCT ville FROM candidats WHERE COALESCE(ville,'')!='' ORDER BY ville").fetchall()]
+    conn.close()
+    return render_template('recrutement_cvtheque.html', page='recrutement', candidats=candidats,
+        q=q, ville=ville, niveau=niveau, villes=villes, total=len(candidats))
+
+
+# ───────────────────────── STATISTIQUES ─────────────────────────
+@app.route('/recrutement/statistiques')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_statistiques():
+    conn = _gdb()
+    def _rows(sql, p=()):
+        try: return [dict(r) for r in conn.execute(sql, p).fetchall()]
+        except Exception: return []
+    def _n(sql, p=()):
+        try: return conn.execute(sql, p).fetchone()[0] or 0
+        except Exception: return 0
+    # Candidatures par mois (12 derniers mois)
+    par_mois = _rows("""SELECT strftime('%Y-%m', created_at) AS mois, COUNT(*) AS n
+        FROM candidatures WHERE created_at >= date('now','-12 months')
+        GROUP BY mois ORDER BY mois""")
+    # Répartition par type de contrat (offres)
+    par_contrat = _rows("SELECT COALESCE(NULLIF(type_contrat,''),'Non précisé') AS k, COUNT(*) AS n FROM offres_emploi GROUP BY k ORDER BY n DESC")
+    # Répartition des candidatures par statut
+    par_statut = _rows("SELECT statut AS k, COUNT(*) AS n FROM candidatures GROUP BY statut")
+    # Top offres par nombre de candidatures
+    top_offres = _rows("""SELECT o.titre AS titre, COUNT(ca.id) AS n
+        FROM offres_emploi o LEFT JOIN candidatures ca ON ca.offre_id=o.id
+        GROUP BY o.id ORDER BY n DESC LIMIT 8""")
+    total_cand = _n("SELECT COUNT(*) FROM candidatures")
+    retenus = _n("SELECT COUNT(*) FROM candidatures WHERE statut='retenu'")
+    refuses = _n("SELECT COUNT(*) FROM candidatures WHERE statut='refuse'")
+    taux = round(retenus * 100.0 / total_cand, 1) if total_cand else 0
+    # Temps moyen de recrutement (jours entre dépôt et passage à « retenu »)
+    delais = _rows("""SELECT julianday(updated_at)-julianday(created_at) AS d
+        FROM candidatures WHERE statut='retenu' AND updated_at IS NOT NULL""")
+    delais_vals = [x['d'] for x in delais if x.get('d') is not None and x['d'] >= 0]
+    delai_moyen = round(sum(delais_vals) / len(delais_vals), 1) if delais_vals else 0
+    conn.close()
+    stat_labels = {s: RECRUT_CAND_LABELS.get(s, (s, '#888', '•')) for s in RECRUT_CAND_STATUTS}
+    return render_template('recrutement_statistiques.html', page='recrutement',
+        par_mois=par_mois, par_contrat=par_contrat, par_statut=par_statut, top_offres=top_offres,
+        total_cand=total_cand, retenus=retenus, refuses=refuses, taux=taux, delai_moyen=delai_moyen,
+        stat_labels=stat_labels)
+
+
 @app.route('/uploads/recrutement_cv/<path:filename>')
 @permission_required_any('recrutement_view', 'admin')
 def recrutement_cv_serve(filename):

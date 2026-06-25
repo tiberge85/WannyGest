@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% block title %}WannyGest — Statistiques recrutement{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>📊 Statistiques recrutement</h1>
+    <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Candidatures totales</div><div style="font-size:24px;font-weight:800;color:#1565c0">{{ total_cand }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Recrutements</div><div style="font-size:24px;font-weight:800;color:#2e7d32">{{ retenus }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Taux de recrutement</div><div style="font-size:24px;font-weight:800;color:#7b1fa2">{{ taux }} %</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Refusées</div><div style="font-size:24px;font-weight:800;color:#c53030">{{ refuses }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Délai moyen (jours)</div><div style="font-size:24px;font-weight:800;color:#0277bd">{{ delai_moyen }}</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:14px">
+    <div class="card"><div class="card-header"><h3>Candidatures par mois</h3></div><div class="card-body"><canvas id="chMois" height="120"></canvas></div></div>
+    <div class="card"><div class="card-header"><h3>Par statut</h3></div><div class="card-body"><canvas id="chStatut" height="160"></canvas></div></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:14px">
+    <div class="card"><div class="card-header"><h3>Types de contrat</h3></div><div class="card-body"><canvas id="chContrat" height="160"></canvas></div></div>
+    <div class="card"><div class="card-header"><h3>Top offres (candidatures)</h3></div><div class="card-body"><canvas id="chOffres" height="160"></canvas></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+var MOIS = {{ par_mois|tojson }};
+var STATUT = {{ par_statut|tojson }};
+var CONTRAT = {{ par_contrat|tojson }};
+var OFFRES = {{ top_offres|tojson }};
+var STATUT_LBL = {{ stat_labels|tojson }};
+var PALETTE = ['#1565c0','#b8561f','#7b1fa2','#0277bd','#2e7d32','#c53030','#00897b','#f29f2f'];
+function mk(id, type, labels, data, opts){
+    var el = document.getElementById(id); if(!el) return;
+    new Chart(el, {type:type, data:{labels:labels, datasets:[{data:data,
+        backgroundColor: type==='line' ? 'rgba(21,101,192,.15)' : PALETTE,
+        borderColor:'#1565c0', borderWidth: type==='line'?2:0, fill:true, tension:.3,
+        borderRadius: type==='bar'?6:0}]},
+        options: Object.assign({responsive:true, plugins:{legend:{display:(type==='doughnut')}}}, opts||{})});
+}
+// Candidatures par mois
+mk('chMois','line', MOIS.map(function(m){return m.mois;}), MOIS.map(function(m){return m.n;}),
+   {plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true,ticks:{precision:0}}}});
+// Statut (doughnut, libellés humains)
+mk('chStatut','doughnut',
+   STATUT.map(function(s){ var l=STATUT_LBL[s.k]; return l?l[0]:s.k; }),
+   STATUT.map(function(s){return s.n;}));
+// Contrats
+mk('chContrat','doughnut', CONTRAT.map(function(c){return c.k;}), CONTRAT.map(function(c){return c.n;}));
+// Top offres (barres horizontales)
+(function(){
+    var el=document.getElementById('chOffres'); if(!el) return;
+    new Chart(el,{type:'bar',data:{labels:OFFRES.map(function(o){return o.titre;}),
+        datasets:[{data:OFFRES.map(function(o){return o.n;}),backgroundColor:'#1565c0',borderRadius:6}]},
+        options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{precision:0}}}}});
+})();
+</script>
+{% endblock %}

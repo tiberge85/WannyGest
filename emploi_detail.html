@@ -5,66 +5,71 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ o.titre }} — Offre d'emploi</title>
 <style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--teal-soft:#e7f3f0;--peach:#fcefe6;--coral:#ef8f63;--lav:#eef0fb}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f4f6f8;color:#222;line-height:1.6}
-.top{background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;padding:24px 20px}
-.top a{color:#cfeae3;font-size:13px;text-decoration:none}
-.top h1{font-size:26px;margin:8px 0 4px}
-.wrap{max-width:880px;margin:18px auto 50px;padding:0 16px;display:grid;grid-template-columns:1.6fr 1fr;gap:18px}
-.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px}
-.card h2{font-size:16px;color:#1A7A6D;margin-bottom:8px;border-bottom:2px solid #eaf4f1;padding-bottom:5px}
-.tag{display:inline-block;background:#eaf4f1;color:#1A7A6D;font-size:12px;font-weight:700;padding:3px 11px;border-radius:20px;margin:2px 5px 2px 0}
-.txt{white-space:pre-wrap;font-size:14px;color:#333}
-label{font-size:12px;color:#666;display:block;margin-bottom:3px;font-weight:600}
-input,textarea{width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:10px;font-family:inherit}
-.btn{background:#F29F2F;color:#fff;border:none;border-radius:9px;padding:12px;font-weight:700;cursor:pointer;font-size:15px;width:100%}
-.apply{position:sticky;top:16px}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#fbfaf8,#f6f8f7);color:var(--ink);line-height:1.6}
+a{text-decoration:none}
+.nav{max-width:900px;margin:0 auto;padding:18px 20px;display:flex;justify-content:space-between;align-items:center}
+.nav .back{color:var(--teal);font-size:14px;font-weight:600}
+.nav .acc{font-size:13px;color:var(--teal);background:var(--teal-soft);padding:8px 15px;border-radius:999px;font-weight:600}
+.head{max-width:900px;margin:6px auto 0;padding:0 20px}
+.headcard{background:#fff;border:1px solid #eef1f0;border-radius:20px;padding:24px;box-shadow:0 8px 26px rgba(26,122,109,.07)}
+.headcard h1{font-size:26px;color:#2b3b38;letter-spacing:-.3px}
+.headcard .co{color:var(--muted);font-weight:600;margin-top:4px}
+.tags{margin-top:12px}
+.tag{display:inline-block;background:var(--teal-soft);color:var(--teal);font-size:12.5px;font-weight:600;padding:5px 12px;border-radius:999px;margin:3px 6px 3px 0}
+.tag.peach{background:var(--peach);color:var(--coral)}.tag.lav{background:var(--lav);color:#5b62c4}
+.wrap{max-width:900px;margin:18px auto 50px;padding:0 20px;display:grid;grid-template-columns:1.55fr 1fr;gap:18px}
+.card{background:#fff;border:1px solid #eef1f0;border-radius:18px;padding:22px;box-shadow:0 4px 14px rgba(60,70,68,.05);margin-bottom:16px}
+.card h2{font-size:16px;color:var(--teal);margin-bottom:10px}
+.txt{white-space:pre-wrap;font-size:14.5px;color:#4a4f54}
+.info div{font-size:14px;margin:3px 0}
+label{font-size:12.5px;color:var(--muted);display:block;margin-bottom:4px;font-weight:600}
+input,textarea{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:12px;font-size:14px;margin-bottom:11px;font-family:inherit;background:#fcfdfc}
+input:focus,textarea:focus{outline:none;border-color:var(--teal);background:#fff}
+.btn{background:var(--coral);color:#fff;border:none;border-radius:13px;padding:14px;font-weight:700;cursor:pointer;font-size:15px;width:100%;transition:.15s}
+.btn:hover{background:#e57c4d}
+.apply{position:sticky;top:18px}
+.note{border-radius:12px;padding:10px 12px;font-size:12.5px;margin-bottom:12px}
+.note.ok{background:#e9f6ee;color:#2e7d32}.note.tip{background:var(--lav);color:#5b62c4}
+.foot{text-align:center;color:#b3b8bd;font-size:12.5px;padding:26px}
 @media(max-width:740px){.wrap{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="top">
-    <a href="/emplois">← Toutes les offres</a>
-    <h1>{{ o.titre }}</h1>
-    <div style="opacity:.9">{{ o.entreprise_nom or 'Entreprise' }}{% if o.entreprise_ville %} · {{ o.entreprise_ville }}{% endif %}</div>
-    <div style="margin-top:8px">
-        <span class="tag" style="background:rgba(255,255,255,.2);color:#fff">{{ o.type_contrat or 'Emploi' }}</span>
-        {% if o.lieu_travail %}<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">📍 {{ o.lieu_travail }}</span>{% endif %}
-        {% if o.teletravail %}<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">🏠 Télétravail</span>{% endif %}
+<div class="nav">
+    <a class="back" href="/emplois">← Toutes les offres</a>
+    {% if candidat_nom %}<a class="acc" href="/emplois/compte/dashboard">👤 Mon espace</a>{% else %}<a class="acc" href="/emplois/compte">🔑 Espace candidat</a>{% endif %}
+</div>
+<div class="head">
+    <div class="headcard">
+        <h1>{{ o.titre }}</h1>
+        <div class="co">{{ o.entreprise_nom or 'Entreprise' }}{% if o.entreprise_ville %} · {{ o.entreprise_ville }}{% endif %}</div>
+        <div class="tags">
+            <span class="tag">{{ o.type_contrat or 'Emploi' }}</span>
+            {% if o.lieu_travail %}<span class="tag lav">📍 {{ o.lieu_travail }}</span>{% endif %}
+            {% if o.teletravail %}<span class="tag peach">🏠 Télétravail</span>{% endif %}
+        </div>
     </div>
 </div>
 <div class="wrap">
     <div>
-        <div class="card">
-            <h2>Description du poste</h2>
-            <div class="txt">{{ o.description or 'Non précisée.' }}</div>
-        </div>
-        {% if o.missions %}<div class="card"><h2>Missions</h2><div class="txt">{{ o.missions }}</div></div>{% endif %}
-        {% if o.profil_recherche %}<div class="card"><h2>Profil recherché</h2><div class="txt">{{ o.profil_recherche }}</div></div>{% endif %}
-        <div class="card"><h2>Informations</h2>
-            <div style="font-size:14px">
-                {% if o.experience %}<div>🧭 <strong>Expérience :</strong> {{ o.experience }}</div>{% endif %}
-                {% if o.niveau_etude %}<div>🎓 <strong>Niveau :</strong> {{ o.niveau_etude }}</div>{% endif %}
-                {% if o.nombre_postes %}<div>👥 <strong>Postes :</strong> {{ o.nombre_postes }}</div>{% endif %}
-                {% if o.salaire_min or o.salaire_max %}<div>💰 <strong>Salaire :</strong> {{ '{:,.0f}'.format(o.salaire_min or 0).replace(',', ' ') }}{% if o.salaire_max %} – {{ '{:,.0f}'.format(o.salaire_max or 0).replace(',', ' ') }}{% endif %} XOF</div>{% endif %}
-                {% if o.date_limite %}<div>⏳ <strong>Date limite :</strong> {{ o.date_limite }}</div>{% endif %}
-                {% if o.reference %}<div style="color:#999;font-size:12px;margin-top:6px">Réf. {{ o.reference }}</div>{% endif %}
-            </div>
-        </div>
+        <div class="card"><h2>📝 Description du poste</h2><div class="txt">{{ o.description or 'Non précisée.' }}</div></div>
+        {% if o.missions %}<div class="card"><h2>🎯 Missions</h2><div class="txt">{{ o.missions }}</div></div>{% endif %}
+        {% if o.profil_recherche %}<div class="card"><h2>👤 Profil recherché</h2><div class="txt">{{ o.profil_recherche }}</div></div>{% endif %}
+        <div class="card"><h2>ℹ️ Informations</h2><div class="info">
+            {% if o.experience %}<div>🧭 <strong>Expérience :</strong> {{ o.experience }}</div>{% endif %}
+            {% if o.niveau_etude %}<div>🎓 <strong>Niveau :</strong> {{ o.niveau_etude }}</div>{% endif %}
+            {% if o.nombre_postes %}<div>👥 <strong>Postes :</strong> {{ o.nombre_postes }}</div>{% endif %}
+            {% if o.salaire_min or o.salaire_max %}<div>💰 <strong>Salaire :</strong> {{ '{:,.0f}'.format(o.salaire_min or 0).replace(',', ' ') }}{% if o.salaire_max %} – {{ '{:,.0f}'.format(o.salaire_max or 0).replace(',', ' ') }}{% endif %} XOF</div>{% endif %}
+            {% if o.date_limite %}<div>⏳ <strong>Date limite :</strong> {{ o.date_limite }}</div>{% endif %}
+            {% if o.reference %}<div style="color:#b3b8bd;font-size:12px;margin-top:6px">Réf. {{ o.reference }}</div>{% endif %}
+        </div></div>
     </div>
-
     <div>
-        <div class="card apply">
-            <h2>📨 Postuler à cette offre</h2>
-            {% if candidat_nom %}
-            <div style="background:#e8f5e9;color:#2e7d32;border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px">
-                ✅ Connecté en tant que <strong>{{ candidat_nom }}</strong> — <a href="/emplois/compte/dashboard" style="color:#1A7A6D">suivre mes candidatures</a>
-            </div>
-            {% else %}
-            <div style="background:#eef4fb;color:#1565c0;border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px">
-                💡 <a href="/emplois/compte" style="color:#1565c0;font-weight:700">Créez un compte</a> pour suivre vos candidatures et être notifié(e) par email.
-            </div>
-            {% endif %}
+        <div class="card apply"><h2>📨 Postuler</h2>
+            {% if candidat_nom %}<div class="note ok">✅ Connecté : <strong>{{ candidat_nom }}</strong> — <a href="/emplois/compte/dashboard" style="color:var(--teal)">mes candidatures</a></div>
+            {% else %}<div class="note tip">💡 <a href="/emplois/compte" style="color:#5b62c4;font-weight:700">Créez un compte</a> pour suivre vos candidatures.</div>{% endif %}
             <form method="post" action="/emplois/{{ o.id }}/postuler" enctype="multipart/form-data">
                 <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                 <label>Nom *</label><input name="nom" required value="{{ moi.nom if moi else '' }}">
@@ -83,5 +88,6 @@ input,textarea{width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:
         </div>
     </div>
 </div>
+<div class="foot">Fait avec 💚 par WannyGest — RAMYA Technologie &amp; Innovation</div>
 </body>
 </html>
