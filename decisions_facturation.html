@@ -199,19 +199,31 @@ function _decShowCost(id, show){
     document.getElementById('cost_'+id).style.display = show ? 'block' : 'none';
     var inp = document.getElementById('cost_input_'+id); if (inp) inp.required = show;
     var sc = document.getElementById('sc_'+id); if (sc) sc.required = show;
+    if (show) _decContractPick(id); // appliquer l'état initial (verrou contrat) à l'ouverture
 }
 function _decContractPick(id){
     var sc = document.getElementById('sc_'+id);
     var inp = document.getElementById('cost_input_'+id);
     var hint = document.getElementById('sc_hint_'+id);
-    if (!sc) return;
+    if (!sc || !inp) return;
     if (sc.value === '1'){
         var rate = parseInt(sc.getAttribute('data-rate') || '0', 10);
-        if (rate > 0 && inp) inp.value = rate;
-        if (hint) hint.innerHTML = rate > 0
-            ? '📄 Pré-rempli au tarif du contrat (' + rate.toLocaleString('fr-FR').replace(/ /g,' ') + ' XOF) — ajustez si nécessaire.'
-            : '📄 Client sous contrat — aucun tarif enregistré, indiquez le montant.';
+        if (rate > 0){
+            // Montant repris AUTOMATIQUEMENT du contrat et VERROUILLÉ (non saisi à la main)
+            inp.value = rate;
+            inp.readOnly = true;
+            inp.style.background = '#eef4fb';
+            inp.style.color = '#1565c0';
+            inp.style.cursor = 'not-allowed';
+            if (hint) hint.innerHTML = '🔒 Montant repris automatiquement du contrat : <strong>' + rate.toLocaleString('fr-FR').replace(/ /g,' ') + ' XOF</strong> (non modifiable).';
+        } else {
+            // Sous contrat mais aucun tarif enregistré dans la gestion des contrats
+            inp.readOnly = false; inp.style.background=''; inp.style.color=''; inp.style.cursor='';
+            if (hint) hint.innerHTML = '⚠️ Client sous contrat mais aucun tarif enregistré dans la gestion des contrats — renseignez le montant ou ajoutez le tarif au contrat.';
+        }
     } else {
+        // Sans contrat → saisie manuelle par le DG
+        inp.readOnly = false; inp.style.background=''; inp.style.color=''; inp.style.cursor='';
         if (hint) hint.innerHTML = '⚪ Client sans contrat — indiquez le montant à facturer.';
     }
 }

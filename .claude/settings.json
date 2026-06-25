@@ -52,7 +52,9 @@
       "Bash(git commit -q -m 'v163s : contrôle des paiements manuels — numéro émetteur + justificatif \\(reçu\\) + checklist admin *)",
       "Bash(python3 -c \"import app\")",
       "Bash(git commit -q -m 'v163t : module Services carrière \\(mini-marketplace\\) — catalogue + commande + livraison *)",
-      "Bash(git commit -q -m 'v163u-v : formations + suppression recruteur/paiement + correcteur déplacé + design soft *)"
+      "Bash(git commit -q -m 'v163u-v : formations + suppression recruteur/paiement + correcteur déplacé + design soft *)",
+      "Bash(git commit -q -m 'v163w : design moins blanc — fond coloré \\(dégradé + halos teal/pêche/lavande\\), en-têtes de cartes et de tables teintés, liseré coloré sur les cartes *)",
+      "Bash(git commit -q -m 'v163x/y : design coloré limité au module Recrutement + coût facture auto depuis le contrat *)"
     ]
   }
 }

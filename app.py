@@ -21142,11 +21142,28 @@ def field_report_decide_facturation(rid):
 
     conn = _gdb()
     try:
-        r = conn.execute("SELECT reference, client_name, cost_amount, type_info FROM field_reports WHERE id=?", (rid,)).fetchone()
+        r = conn.execute("SELECT reference, client_name, client_id, cost_amount, type_info FROM field_reports WHERE id=?", (rid,)).fetchone()
         if not r:
             conn.close()
             flash("Remontée introuvable", "error")
             return redirect('/field-reports')
+
+        # v163y : CLIENT SOUS CONTRAT → le coût est repris AUTOMATIQUEMENT du contrat
+        # enregistré dans la gestion des contrats (le DG ne le saisit pas).
+        if is_sous_contrat:
+            cid_lookup = r['client_id']
+            if not cid_lookup and r['client_name']:
+                _cr = conn.execute("SELECT id FROM clients WHERE name=? LIMIT 1", (r['client_name'],)).fetchone()
+                cid_lookup = _cr['id'] if _cr else None
+            if cid_lookup:
+                try:
+                    _ctr = conn.execute("""SELECT monthly_rate FROM contracts
+                        WHERE client_id=? AND COALESCE(status,'actif') NOT IN ('resilie','expire','annule','termine')
+                        ORDER BY id DESC LIMIT 1""", (cid_lookup,)).fetchone()
+                    if _ctr and float(_ctr['monthly_rate'] or 0) > 0:
+                        cost = float(_ctr['monthly_rate'])  # coût imposé par le contrat
+                except Exception as _e:
+                    print(f"decision contrat cost: {_e}")
 
         # v159 : Montant déjà saisi en amont (ex: rapport d'heures envoyé par la RH) →
         # le DG valide sans ressaisir le montant ; on retombe sur le montant existant.
