@@ -43,6 +43,10 @@
         ✅ Factures déjà recouvrées <span class="tab-badge">{{ counts.recouvrees }}</span>
         <span style="display:block;font-size:11px;font-weight:700;color:#2FA85B;margin-top:2px">{{ '{:,.0f}'.format(totals.recouvrees or 0).replace(',', ' ') }} F</span>
     </a>
+    <a href="/decisions/facturation?tab=sous_contrat" class="tab" style="background:#e8f4fd;border-color:#1565c0">
+        📄 Clients sous contrat <span class="tab-badge" style="background:#1565c0">{{ counts.sous_contrat or 0 }}</span>
+        <span style="display:block;font-size:11px;font-weight:700;color:#1565c0;margin-top:2px">ce mois-ci</span>
+    </a>
 </div>
 
 <form method="get" class="filter-bar">

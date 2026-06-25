@@ -21100,10 +21100,10 @@ def field_report_decide_facturation(rid):
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
-    # v162 : 3 choix possibles — '1' facturable, '0' non facturable, 'contrat' client sous contrat
+    # v162 : facturable ('1'/'0') + liste déroulante « sous_contrat » (1=sous contrat, 0=sans contrat)
     choix = request.form.get('facturable')
-    is_facturable = choix in ('1', 'contrat')
-    is_sous_contrat = (choix == 'contrat')
+    is_facturable = choix in ('1', 'contrat')  # 'contrat' gardé pour compat. anciens formulaires
+    is_sous_contrat = is_facturable and (request.form.get('sous_contrat') == '1' or choix == 'contrat')
     cost_str = (request.form.get('cost_amount','') or '0').replace(',','.').strip()
     motif = (request.form.get('motif','') or '').strip()
     
@@ -21557,6 +21557,14 @@ def recouvrement_dashboard():
         'en_attente': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status IN ('en_recouvrement','caisse_choisie')").fetchone()[0],
         'recouvrees': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
     }
+    # v162 : clients sous contrat visités ce mois (lien vers l'onglet dédié des décisions)
+    try:
+        counts['sous_contrat'] = conn.execute(
+            "SELECT COUNT(*) FROM field_reports WHERE sous_contrat=1 "
+            "AND strftime('%Y-%m', COALESCE(facturation_decided_at, executed_at, updated_at)) = strftime('%Y-%m','now')"
+        ).fetchone()[0]
+    except Exception:
+        counts['sous_contrat'] = 0
     # v160 : solde (somme des montants) par catégorie — affiché en face de chaque onglet
     totals = {
         'nouvelles': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status='facture_editee'").fetchone()[0],

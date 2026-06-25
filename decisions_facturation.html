@@ -142,26 +142,31 @@
         <form method="post" action="/field-reports/{{ it.id }}/decide-facturation" style="margin-top:8px;padding-top:8px;border-top:1px dashed #ccc">
             <div class="form-row-radio">
                 <label class="yes">
-                    <input type="radio" name="facturable" value="1" required onchange="document.getElementById('cost_{{ it.id }}').style.display='block';document.getElementById('cost_input_{{ it.id }}').required=true">
+                    <input type="radio" name="facturable" value="1" required onchange="_decShowCost('{{ it.id }}', true)">
                     <strong style="color:#2e7d32">✅ Facturable</strong>
                 </label>
                 <label class="no">
-                    <input type="radio" name="facturable" value="0" required onchange="document.getElementById('cost_{{ it.id }}').style.display='none';document.getElementById('cost_input_{{ it.id }}').required=false">
+                    <input type="radio" name="facturable" value="0" required onchange="_decShowCost('{{ it.id }}', false)">
                     <strong style="color:#c53030">❌ Non facturable</strong>
                 </label>
             </div>
-            <label class="yes" style="display:block;border:1.5px solid #1565c0;border-radius:7px;padding:7px 10px;margin-bottom:8px;cursor:pointer;background:#e8f4fd">
-                <input type="radio" name="facturable" value="contrat" required onchange="document.getElementById('cost_{{ it.id }}').style.display='block';document.getElementById('cost_input_{{ it.id }}').required=true">
-                <strong style="color:#1565c0">📄 Client sous contrat</strong>
-                <span style="font-size:10px;color:#1565c0">— facturer selon le contrat (montant pré-rempli, modifiable)</span>
-            </label>
             <div id="cost_{{ it.id }}" style="display:none;margin-bottom:10px">
+                <label style="font-size:10px;color:#666;font-weight:600">📄 Statut du client *</label>
+                <select name="sous_contrat" id="sc_{{ it.id }}"
+                    data-rate="{{ it.contrat.monthly_rate|int if (it.contrat and it.contrat.monthly_rate) else 0 }}"
+                    onchange="_decContractPick('{{ it.id }}')"
+                    style="width:100%;padding:8px;border:2px solid #1565c0;border-radius:6px;font-weight:600;margin-bottom:8px">
+                    <option value="0" {% if not it.sous_contrat %}selected{% endif %}>⚪ Client sans contrat — j'indique le montant</option>
+                    <option value="1" {% if it.sous_contrat %}selected{% endif %}>📄 Client sous contrat — facturer selon le contrat</option>
+                </select>
                 <label style="font-size:10px;color:#666;font-weight:600">💰 Montant à facturer (XOF) *</label>
                 <input id="cost_input_{{ it.id }}" type="number" name="cost_amount" step="1" min="1" placeholder="Ex: 50000 (obligatoire si facturable)"
                     value="{% if it.type_info == 'rapport_heures' and it.cost_amount %}{{ it.cost_amount|int }}{% elif it.sous_contrat and it.contrat and it.contrat.monthly_rate %}{{ it.contrat.monthly_rate|int }}{% endif %}"
                     style="width:100%;padding:8px;border:2px solid #1A7A6D;border-radius:6px;font-weight:700">
-                {% if it.type_info == 'rapport_heures' %}<div style="font-size:10px;color:#5e35b1;margin-top:3px">⏱️ Montant déjà saisi par la RH — vous n'avez qu'à valider.</div>
-                {% elif it.sous_contrat and it.contrat and it.contrat.monthly_rate %}<div style="font-size:10px;color:#1565c0;margin-top:3px">📄 Pré-rempli au tarif du contrat ({{ '{:,.0f}'.format(it.contrat.monthly_rate or 0) }} XOF) — ajustez si nécessaire.</div>{% endif %}
+                <div id="sc_hint_{{ it.id }}" style="font-size:10px;margin-top:3px;color:#1565c0">
+                    {% if it.type_info == 'rapport_heures' %}<span style="color:#5e35b1">⏱️ Montant déjà saisi par la RH — vous n'avez qu'à valider.</span>
+                    {% elif it.sous_contrat and it.contrat and it.contrat.monthly_rate %}📄 Pré-rempli au tarif du contrat ({{ '{:,.0f}'.format(it.contrat.monthly_rate or 0) }} XOF) — ajustez si nécessaire.{% endif %}
+                </div>
             </div>
             <label style="font-size:10px;color:#666;font-weight:600">📝 Commentaire / Justification * (obligatoire)</label>
             <textarea name="motif" rows="2" required minlength="5" 
@@ -189,4 +194,26 @@
 </div>
 {% endif %}
 
+<script>
+function _decShowCost(id, show){
+    document.getElementById('cost_'+id).style.display = show ? 'block' : 'none';
+    var inp = document.getElementById('cost_input_'+id); if (inp) inp.required = show;
+    var sc = document.getElementById('sc_'+id); if (sc) sc.required = show;
+}
+function _decContractPick(id){
+    var sc = document.getElementById('sc_'+id);
+    var inp = document.getElementById('cost_input_'+id);
+    var hint = document.getElementById('sc_hint_'+id);
+    if (!sc) return;
+    if (sc.value === '1'){
+        var rate = parseInt(sc.getAttribute('data-rate') || '0', 10);
+        if (rate > 0 && inp) inp.value = rate;
+        if (hint) hint.innerHTML = rate > 0
+            ? '📄 Pré-rempli au tarif du contrat (' + rate.toLocaleString('fr-FR').replace(/ /g,' ') + ' XOF) — ajustez si nécessaire.'
+            : '📄 Client sous contrat — aucun tarif enregistré, indiquez le montant.';
+    } else {
+        if (hint) hint.innerHTML = '⚪ Client sans contrat — indiquez le montant à facturer.';
+    }
+}
+</script>
 {% endblock %}
