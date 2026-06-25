@@ -37023,6 +37023,20 @@ def _recrut_save_cv(file_storage, candidat_id):
 
 _RECRUT_IMG_EXT = ('.png', '.jpg', '.jpeg', '.webp', '.gif')
 
+def _recrut_save_logo(file_storage, entreprise_id):
+    """Logo entreprise (image). Retourne le chemin relatif ou ''."""
+    if not file_storage or not file_storage.filename:
+        return ''
+    ext = os.path.splitext(file_storage.filename)[1].lower()
+    if ext not in _RECRUT_IMG_EXT:
+        return ''
+    updir = os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_logos')
+    os.makedirs(updir, exist_ok=True)
+    fname = f"logo_{entreprise_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    file_storage.save(os.path.join(updir, fname))
+    return f"recrutement_logos/{fname}"
+
+
 def _recrut_save_photo(file_storage, candidat_id):
     """Enregistre la photo de profil candidat (image uniquement). Retourne le chemin relatif ou ''."""
     if not file_storage or not file_storage.filename:
@@ -37795,6 +37809,42 @@ def recruteur_dashboard():
         sub=sub, plans=plans, methodes=RECRUT_PAY_METHODES,
         prix_pub=_recrut_price('recrut_prix_publication', 15000),
         prix_spon=_recrut_price('recrut_prix_sponsorise', 10000))
+
+
+@app.route('/recruteur/profil', methods=['GET', 'POST'])
+def recruteur_profil():
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    if request.method == 'POST':
+        nom = (request.form.get('raison_sociale', '') or '').strip()
+        if not nom:
+            flash("La raison sociale est obligatoire.", "error"); return redirect('/recruteur/profil')
+        conn = _gdb()
+        logo = None
+        try:
+            logo = _recrut_save_logo(request.files.get('logo'), e['id'])
+        except Exception as _ex:
+            print(f"[v163] logo err: {_ex}")
+        conn.execute("""UPDATE entreprises_recrutement SET raison_sociale=?, secteur_activite=?, description=?,
+            email=?, telephone=?, site_web=?, adresse=?, ville=?, pays=?, updated_at=datetime('now') WHERE id=?""",
+            (nom, request.form.get('secteur_activite', ''), request.form.get('description', ''),
+             (request.form.get('email', '') or '').strip(), request.form.get('telephone', ''),
+             request.form.get('site_web', ''), request.form.get('adresse', ''),
+             request.form.get('ville', ''), request.form.get('pays', ''), e['id']))
+        if logo:
+            conn.execute("UPDATE entreprises_recrutement SET logo=? WHERE id=?", (logo, e['id']))
+        conn.commit(); conn.close()
+        session['recruteur_nom'] = nom
+        flash("✅ Profil de l'entreprise mis à jour.", "success")
+        return redirect('/recruteur/dashboard')
+    return render_template('recruteur_profil.html', e=e)
+
+
+@app.route('/uploads/recrutement_logos/<path:filename>')
+def recrutement_logo_serve(filename):
+    # Logo = ressource de marque, affiché publiquement sur le portail
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_logos'), filename)
 
 
 @app.route('/recruteur/offres/add', methods=['POST'])

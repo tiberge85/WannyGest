@@ -36,11 +36,14 @@ input,select,textarea{width:100%;padding:9px;border:1.5px solid #eceeed;border-r
 </head>
 <body>
 <div class="top">
-    <div><strong style="font-size:18px">🏢 {{ e.raison_sociale }}</strong>
-        {% if approved %}<span class="badge" style="background:#fff;color:#2e7d32;margin-left:8px">✅ Validé</span>
-        {% else %}<span class="badge" style="background:#fff;color:#b8561f;margin-left:8px">⏳ En attente de validation</span>{% endif %}
+    <div style="display:flex;align-items:center;gap:12px">
+        {% if e.logo %}<img src="/uploads/{{ e.logo }}" alt="logo" style="width:46px;height:46px;border-radius:12px;object-fit:cover;border:2px solid rgba(255,255,255,.5)">{% endif %}
+        <div><strong style="font-size:18px">🏢 {{ e.raison_sociale }}</strong>
+            {% if approved %}<span class="badge" style="background:#fff;color:#2e7d32;margin-left:8px">✅ Validé</span>
+            {% else %}<span class="badge" style="background:#fff;color:#b8561f;margin-left:8px">⏳ En attente de validation</span>{% endif %}
+        </div>
     </div>
-    <div class="links"><a href="/recruteur/candidatures">🗂️ Candidatures</a><a href="/emplois" target="_blank">🌐 Portail</a><a href="/recruteur/logout">Déconnexion</a></div>
+    <div class="links"><a href="/recruteur/profil">✏️ Profil</a><a href="/recruteur/candidatures">🗂️ Candidatures</a><a href="/emplois" target="_blank">🌐 Portail</a><a href="/recruteur/logout">Déconnexion</a></div>
 </div>
 <div class="wrap">
     {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}

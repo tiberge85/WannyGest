@@ -47,7 +47,8 @@
       "Bash(git commit -q -m 'v163n : monétisation recrutement — publication payante + offres sponsorisées + abonnements *)",
       "Bash(grep -n \"^import re$\\\\|^import re \" app.py)",
       "Bash(python3 -c \"import app; print\\('re' in dir\\(app\\), app.re.__name__ if hasattr\\(app,'re'\\) else 'NO RE'\\)\")",
-      "Bash(git commit -q -m 'v163o-q : profil candidat à la une \\(tarif paramétrable\\) + compte obligatoire pour postuler + durcissement sécurité *)"
+      "Bash(git commit -q -m 'v163o-q : profil candidat à la une \\(tarif paramétrable\\) + compte obligatoire pour postuler + durcissement sécurité *)",
+      "Bash(git commit -q -m 'v163r : édition du profil entreprise \\(recruteur\\) + logo *)"
     ]
   }
 }

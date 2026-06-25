@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profil entreprise — {{ e.raison_sociale }}</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--coral:#ef8f63}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:#f5f8f7;color:var(--ink)}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,#14564d,#0f5249);color:#fff;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.top a{color:#fff;background:rgba(255,255,255,.16);padding:8px 14px;border-radius:999px;font-size:13px}
+.wrap{max-width:720px;margin:22px auto;padding:0 16px}
+.card{background:#fff;border:1px solid #eef1f0;border-radius:18px;padding:24px;box-shadow:0 6px 20px rgba(20,86,77,.06)}
+h2{font-size:17px;color:var(--teal);margin-bottom:16px}
+.logo-row{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+.logo{width:84px;height:84px;border-radius:16px;object-fit:cover;border:2px solid #e7f3f0;background:#e7f3f0;display:flex;align-items:center;justify-content:center;font-size:34px;flex:none}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{font-size:12.5px;color:var(--muted);display:block;margin:8px 0 4px;font-weight:600}
+input,textarea{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:11px;font-size:14px;font-family:inherit;background:#fcfdfc}
+input:focus,textarea:focus{outline:none;border-color:var(--teal);background:#fff}
+.btn{margin-top:18px;width:100%;background:var(--coral);color:#fff;border:none;border-radius:12px;padding:13px;font-weight:700;cursor:pointer;font-size:15px}
+.flash{margin-bottom:14px}.flash div{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:6px}
+.flash .success{background:#e8f5e9;color:#2e7d32}.flash .error{background:#fde8e8;color:#c53030}
+.lock{font-size:11px;color:var(--muted);margin-top:3px}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top"><strong style="font-size:17px">✏️ Profil de l'entreprise</strong>
+    <div style="display:flex;gap:8px"><a href="/recruteur/dashboard">← Mon espace</a><a href="/recruteur/logout">Déconnexion</a></div></div>
+<div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+    <div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
+    {% endif %}{% endwith %}
+    <div class="card">
+        <form method="post" action="/recruteur/profil" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <div class="logo-row">
+                {% if e.logo %}<img class="logo" src="/uploads/{{ e.logo }}" alt="logo">{% else %}<div class="logo">🏢</div>{% endif %}
+                <div style="flex:1"><label>Logo de l'entreprise (JPG, PNG, WEBP)</label><input type="file" name="logo" accept=".png,.jpg,.jpeg,.webp"></div>
+            </div>
+            <div class="grid">
+                <div style="grid-column:1/-1"><label>Raison sociale *</label><input name="raison_sociale" required value="{{ e.raison_sociale or '' }}"></div>
+                <div><label>Secteur d'activité</label><input name="secteur_activite" value="{{ e.secteur_activite or '' }}"></div>
+                <div><label>Email de contact</label><input type="email" name="email" value="{{ e.email or '' }}"></div>
+                <div><label>Téléphone</label><input name="telephone" value="{{ e.telephone or '' }}"></div>
+                <div><label>Site web</label><input name="site_web" value="{{ e.site_web or '' }}" placeholder="https://…"></div>
+                <div><label>Ville</label><input name="ville" value="{{ e.ville or '' }}"></div>
+                <div><label>Pays</label><input name="pays" value="{{ e.pays or '' }}"></div>
+                <div style="grid-column:1/-1"><label>Adresse</label><input name="adresse" value="{{ e.adresse or '' }}"></div>
+                <div style="grid-column:1/-1"><label>Description de l'entreprise</label><textarea name="description" rows="4" placeholder="Présentez votre entreprise aux candidats…">{{ e.description or '' }}</textarea></div>
+            </div>
+            <div class="lock">🔒 L'identifiant de connexion (email d'inscription : <strong>{{ e.username }}</strong>) reste inchangé.</div>
+            <button class="btn" type="submit">💾 Enregistrer le profil</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>
