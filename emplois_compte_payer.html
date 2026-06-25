@@ -31,12 +31,16 @@ ul{margin:8px 0 0 18px;font-size:13px;color:#555}
         <div class="note">⭐ Votre profil apparaîtra <strong>en tête de la CVthèque</strong> consultée par les recruteurs, avec un badge « à la une ». Réglez par votre moyen préféré puis indiquez la référence ; l'effet est appliqué après validation par l'administrateur.
             <ul><li>Plus de visibilité auprès des recruteurs</li><li>Badge ⭐ sur votre profil</li></ul>
         </div>
-        <form method="post" action="/emplois/compte/alaune">
+        <form method="post" action="/emplois/compte/alaune" enctype="multipart/form-data">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <label>Moyen de paiement</label>
-            <select name="methode">{% for m in methodes %}<option>{{ m }}</option>{% endfor %}</select>
-            <label>Référence de la transaction</label>
-            <input name="reference_externe" placeholder="Ex: TXN-12345">
+            <select name="methode" title="Moyen de paiement">{% for m in methodes %}<option>{{ m }}</option>{% endfor %}</select>
+            <label>Numéro émetteur (le compte qui a payé) *</label>
+            <input name="payer_phone" required placeholder="Ex: 07 00 00 00 00">
+            <label>Référence / ID de la transaction *</label>
+            <input name="reference_externe" required placeholder="Ex: TXN-12345">
+            <label>Justificatif (capture d'écran / reçu) — recommandé</label>
+            <input type="file" name="recu" accept=".png,.jpg,.jpeg,.webp,.pdf" title="Justificatif">
             <button class="btn" type="submit">✅ J'ai payé — soumettre pour validation</button>
         </form>
     </div>

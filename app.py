@@ -36825,12 +36825,33 @@ def _recrut_active_sub(conn, entreprise_id):
         return None
 
 
-def _recrut_create_paiement(entreprise_id, ptype, ref_id, libelle, montant, methode='', reference_externe='', candidat_id=None):
+def _recrut_save_recu(file_storage, pid):
+    """Justificatif de paiement (image/PDF). Retourne le chemin relatif ou ''."""
+    if not file_storage or not file_storage.filename:
+        return ''
+    ext = os.path.splitext(file_storage.filename)[1].lower()
+    if ext not in ('.png', '.jpg', '.jpeg', '.webp', '.pdf'):
+        return ''
+    updir = os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_recus')
+    os.makedirs(updir, exist_ok=True)
+    fname = f"recu_{pid}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    file_storage.save(os.path.join(updir, fname))
+    return f"recrutement_recus/{fname}"
+
+
+def _recrut_create_paiement(entreprise_id, ptype, ref_id, libelle, montant, methode='', reference_externe='', candidat_id=None, payer_phone='', recu_file=None):
     conn = _gdb()
-    cur = conn.execute("""INSERT INTO recrut_paiements (entreprise_id, candidat_id, type, ref_id, libelle, montant, methode, reference_externe, statut, created_at)
-        VALUES (?,?,?,?,?,?,?,?, 'en_attente', datetime('now'))""",
-        (entreprise_id, candidat_id, ptype, ref_id, libelle, montant, methode, reference_externe))
+    cur = conn.execute("""INSERT INTO recrut_paiements (entreprise_id, candidat_id, type, ref_id, libelle, montant, methode, reference_externe, payer_phone, statut, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?, 'en_attente', datetime('now'))""",
+        (entreprise_id, candidat_id, ptype, ref_id, libelle, montant, methode, reference_externe, (payer_phone or '').strip()))
     pid = cur.lastrowid
+    if recu_file is not None:
+        try:
+            rp = _recrut_save_recu(recu_file, pid)
+            if rp:
+                conn.execute("UPDATE recrut_paiements SET recu_path=? WHERE id=?", (rp, pid))
+        except Exception as _ex:
+            print(f"[v163] recu err: {_ex}")
     payeur = "Candidat"
     if entreprise_id:
         nom = conn.execute("SELECT raison_sociale FROM entreprises_recrutement WHERE id=?", (entreprise_id,)).fetchone()
@@ -36946,10 +36967,11 @@ def _recrut_migrate():
             libelle TEXT, montant REAL DEFAULT 0, methode TEXT, reference_externe TEXT,
             statut TEXT DEFAULT 'en_attente', created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             validated_at TEXT, validated_by INTEGER)""")
-        try: c.execute("SELECT candidat_id FROM recrut_paiements LIMIT 1")
-        except:
-            try: c.execute("ALTER TABLE recrut_paiements ADD COLUMN candidat_id INTEGER")
-            except: pass
+        for _pd in ["candidat_id INTEGER", "payer_phone TEXT", "recu_path TEXT"]:
+            try: c.execute(f"SELECT {_pd.split()[0]} FROM recrut_paiements LIMIT 1")
+            except:
+                try: c.execute(f"ALTER TABLE recrut_paiements ADD COLUMN {_pd}")
+                except: pass
         for _od in ["is_paid INTEGER DEFAULT 0", "is_sponsored INTEGER DEFAULT 0", "paid_until TEXT"]:
             try: c.execute(f"SELECT {_od.split()[0]} FROM offres_emploi LIMIT 1")
             except:
@@ -37693,7 +37715,8 @@ def candidat_alaune():
         if me.get('is_featured'):
             flash("Votre profil est déjà à la une.", "info"); return redirect('/emplois/compte/dashboard')
         _recrut_create_paiement(None, 'profil_alaune', cid, "Profil candidat à la une", prix,
-                                request.form.get('methode', ''), request.form.get('reference_externe', ''), candidat_id=cid)
+                                request.form.get('methode', ''), request.form.get('reference_externe', ''), candidat_id=cid,
+                                payer_phone=request.form.get('payer_phone', ''), recu_file=request.files.get('recu'))
         flash("⭐ Demande enregistrée. Votre profil sera mis à la une dès validation du paiement par l'administrateur.", "success")
         return redirect('/emplois/compte/dashboard')
     return render_template('emplois_compte_payer.html', me=me, prix=prix, methodes=RECRUT_PAY_METHODES)
@@ -37847,6 +37870,13 @@ def recrutement_logo_serve(filename):
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_logos'), filename)
 
 
+@app.route('/uploads/recrutement_recus/<path:filename>')
+@admin_only_required
+def recrutement_recu_serve(filename):
+    # Justificatif de paiement — réservé à l'admin (vérification)
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_recus'), filename)
+
+
 @app.route('/recruteur/offres/add', methods=['POST'])
 def recruteur_offre_add():
     e = _recruteur_get()
@@ -37942,7 +37972,8 @@ def recruteur_offre_payer(oid):
     prix = _recrut_price('recrut_prix_publication', 15000)
     if request.method == 'POST':
         _recrut_create_paiement(e['id'], 'publication', oid, f"Publication : {o['titre']}", prix,
-                                request.form.get('methode', ''), request.form.get('reference_externe', ''))
+                                request.form.get('methode', ''), request.form.get('reference_externe', ''),
+                                payer_phone=request.form.get('payer_phone', ''), recu_file=request.files.get('recu'))
         flash("💳 Demande de paiement enregistrée. Votre offre sera publiée dès validation par l'administrateur.", "success")
         return redirect('/recruteur/dashboard')
     return render_template('recruteur_payer.html', e=e, o=o, prix=prix, methodes=RECRUT_PAY_METHODES,

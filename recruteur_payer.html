@@ -28,12 +28,16 @@ select,input{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:10
         <div class="sub">{{ o.titre }}</div>
         <div class="price">{{ '{:,.0f}'.format(prix).replace(',', ' ') }} F</div>
         <div class="note">💡 Réglez par votre moyen préféré (Wave, Orange Money, MTN, Moov…) sur le numéro communiqué par l'administrateur, puis indiquez la <strong>référence de la transaction</strong> ci-dessous. Votre offre sera <strong>publiée dès validation</strong> du paiement.</div>
-        <form method="post" action="/recruteur/offre/{{ o.id }}/payer">
+        <form method="post" action="/recruteur/offre/{{ o.id }}/payer" enctype="multipart/form-data">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <label>Moyen de paiement</label>
-            <select name="methode">{% for m in methodes %}<option>{{ m }}</option>{% endfor %}</select>
-            <label>Référence de la transaction (n° reçu Wave/MoMo…)</label>
-            <input name="reference_externe" placeholder="Ex: TXN-12345">
+            <select name="methode" title="Moyen de paiement">{% for m in methodes %}<option>{{ m }}</option>{% endfor %}</select>
+            <label>Numéro émetteur (le compte qui a payé) *</label>
+            <input name="payer_phone" required placeholder="Ex: 07 00 00 00 00">
+            <label>Référence / ID de la transaction *</label>
+            <input name="reference_externe" required placeholder="Ex: TXN-12345">
+            <label>Justificatif (capture d'écran / reçu) — recommandé</label>
+            <input type="file" name="recu" accept=".png,.jpg,.jpeg,.webp,.pdf" title="Justificatif de paiement">
             <button class="btn" type="submit">✅ J'ai payé — soumettre pour validation</button>
         </form>
     </div>

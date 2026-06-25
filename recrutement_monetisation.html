@@ -10,6 +10,11 @@
     <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">En attente</div><div style="font-size:23px;font-weight:800;color:#b8561f">{{ '{:,.0f}'.format(revenus.attente).replace(',', ' ') }} F</div></div>
 </div>
 
+{% if revenus.nb_attente %}
+<div style="background:#eef4fb;border:1px solid #c6dbf5;color:#1565c0;border-radius:8px;padding:10px 14px;font-size:12.5px;margin-bottom:14px">
+    🔎 <strong>Avant de valider un paiement</strong> : ouvrez votre application <strong>Wave / Mobile Money</strong>, vérifiez que la somme est bien <strong>reçue</strong> (montant + numéro émetteur + référence ci-dessous correspondent), puis cliquez « Valider ». Ne validez jamais sans avoir vu l'argent arriver sur votre compte.
+</div>
+{% endif %}
 <div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Paiements</h3></div><div class="card-body" style="padding:0">
 {% if paiements %}
 <div class="table-wrap"><table>
@@ -22,7 +27,11 @@
         <td style="font-size:12px">{{ p.libelle }}</td>
         <td style="font-size:11px">{% if p.type=='abonnement' %}📅 Abonnement{% elif p.type=='publication' %}📋 Publication{% elif p.type=='sponsorise' %}⭐ À la une{% else %}{{ p.type }}{% endif %}</td>
         <td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(p.montant or 0).replace(',', ' ') }} F</td>
-        <td style="font-size:11px">{{ p.methode or '—' }}{% if p.reference_externe %}<br><span style="color:#888">{{ p.reference_externe }}</span>{% endif %}</td>
+        <td style="font-size:11px">{{ p.methode or '—' }}
+            {% if p.payer_phone %}<br>📱 {{ p.payer_phone }}{% endif %}
+            {% if p.reference_externe %}<br><span style="color:#888">réf. {{ p.reference_externe }}</span>{% endif %}
+            {% if p.recu_path %}<br><a href="/uploads/{{ p.recu_path }}" target="_blank" style="color:#7b1fa2;font-weight:700">🧾 Voir le reçu</a>{% endif %}
+        </td>
         <td>
             {% if p.statut == 'paye' %}<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">✅ Payé</span>
             {% elif p.statut == 'en_attente' %}<span style="background:#fff3e0;color:#b8561f;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">⏳ En attente</span>
