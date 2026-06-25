@@ -37,6 +37,7 @@
 </div>
 
 <div class="tabs">
+    {% if can_decide %}
     <a href="?tab=nouvelles{% if search %}&q={{ search }}{% endif %}" class="tab {% if tab == 'nouvelles' %}active{% endif %}">
         🆕 Nouvelles décisions <span class="tab-badge">{{ counts.nouvelles }}</span>
     </a>
@@ -51,6 +52,10 @@
     </a>
     <a href="?tab=pointage{% if search %}&q={{ search }}{% endif %}" class="tab {% if tab == 'pointage' %}active{% endif %}">
         ⏱️ Facture pointage <span class="tab-badge">{{ counts.pointage }}</span>
+    </a>
+    {% endif %}
+    <a href="?tab=sous_contrat{% if search %}&q={{ search }}{% endif %}" class="tab {% if tab == 'sous_contrat' %}active{% endif %}" style="background:#e8f4fd;border-color:#1565c0">
+        📄 Clients sous contrat <span class="tab-badge" style="background:#1565c0">{{ counts.sous_contrat }}</span>
     </a>
 </div>
 
@@ -145,6 +150,11 @@
                     <strong style="color:#c53030">❌ Non facturable</strong>
                 </label>
             </div>
+            <label class="yes" style="display:block;border:1.5px solid #1565c0;border-radius:7px;padding:7px 10px;margin-bottom:8px;cursor:pointer;background:#e8f4fd">
+                <input type="radio" name="facturable" value="contrat" required onchange="document.getElementById('cost_{{ it.id }}').style.display='block';document.getElementById('cost_input_{{ it.id }}').required=true">
+                <strong style="color:#1565c0">📄 Client sous contrat</strong>
+                <span style="font-size:10px;color:#1565c0">— facturer selon le contrat (montant pré-rempli, modifiable)</span>
+            </label>
             <div id="cost_{{ it.id }}" style="display:none;margin-bottom:10px">
                 <label style="font-size:10px;color:#666;font-weight:600">💰 Montant à facturer (XOF) *</label>
                 <input id="cost_input_{{ it.id }}" type="number" name="cost_amount" step="1" min="1" placeholder="Ex: 50000 (obligatoire si facturable)"
@@ -163,8 +173,11 @@
             </div>
         </form>
         {% else %}
-        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px;flex-wrap:wrap">
             <a href="/field-reports/{{ it.id }}" class="btn btn-outline btn-sm">📋 Voir remontée</a>
+            {% if tab == 'sous_contrat' and it.fri_id %}
+            <a href="/recouvrement/facture/{{ it.fri_id }}/preview" class="btn btn-sm" style="background:#1565c0;color:#fff;font-weight:700">🧾 Éditer la facture</a>
+            {% endif %}
         </div>
         {% endif %}
     </div>

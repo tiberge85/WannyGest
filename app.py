@@ -1920,6 +1920,7 @@ try:
         "facturation_decided_at TEXT",
         "facturation_motif TEXT",
         "traiter_le TEXT",  # v159 : date de traitement planifiée (vide/NULL = traiter maintenant)
+        "sous_contrat INTEGER DEFAULT 0",  # v162 : client sous contrat (facturation selon contrat)
     ]:
         col_name = col_def.split()[0]
         try: _v142.execute(f"SELECT {col_name} FROM field_reports LIMIT 1")
@@ -20934,8 +20935,9 @@ def field_report_execute(rid):
 
 
 # v143 : Page dédiée pour les décisions de facturation (DG/RH)
+# v162 : ouverte aussi à l'agent recouvreur (facture_edit) pour l'onglet « Clients sous contrat »
 @app.route('/decisions/facturation')
-@permission_required_any('facturation_decision', 'admin')
+@permission_required_any('facturation_decision', 'facture_edit', 'admin')
 def decisions_facturation():
     """v143 / v144 / v145 : Page décisions facturation avec onglets et filtres.
     Onglets : nouvelles (en attente) / avec facture (facturable=1) / sans facture (facturable=0).
@@ -20944,9 +20946,15 @@ def decisions_facturation():
     try: _sync_vehicles_recharge()
     except: pass
     # Onglet actif
+    # v162 : qui peut décider (DG/RH/admin) ? Sinon (agent recouvreur) → onglet sous contrat uniquement
+    _u = get_user_by_id(session.get('user_id'))
+    _perms = get_role_permissions(_u['role']) if _u else []
+    can_decide = ('facturation_decision' in _perms) or ('admin' in _perms)
     tab = request.args.get('tab', 'nouvelles').strip()
-    if tab not in ('nouvelles', 'avec_facture', 'sans_facture', 'tracking', 'pointage'):
+    if tab not in ('nouvelles', 'avec_facture', 'sans_facture', 'tracking', 'pointage', 'sous_contrat'):
         tab = 'nouvelles'
+    if not can_decide:
+        tab = 'sous_contrat'
     
     # Filtres
     search = request.args.get('q', '').strip()
@@ -20980,6 +20988,12 @@ def decisions_facturation():
     elif tab == 'avec_facture':
         where_clauses.append("fr.facturable=1")
         order_by = "fr.facturation_decided_at DESC"
+    elif tab == 'sous_contrat':
+        # v162 : clients sous contrat décidés ce mois-ci (liste + nombre de visites facturées au contrat)
+        where_clauses.append("fr.sous_contrat=1")
+        if not date_from and not date_to:
+            where_clauses.append("strftime('%Y-%m', COALESCE(fr.facturation_decided_at, fr.executed_at, fr.updated_at)) = strftime('%Y-%m','now')")
+        order_by = "fr.facturation_decided_at DESC"
     else:  # sans_facture
         where_clauses.append("fr.facturable=0")
         order_by = "fr.facturation_decided_at DESC"
@@ -21002,41 +21016,45 @@ def decisions_facturation():
                fr.description, fr.execution_notes, fr.executed_at,
                fr.statut as fr_statut, fr.linked_intervention_id,
                fr.facturable, fr.cost_amount, fr.facturation_motif,
-               fr.facturation_decided_at, fr.client_id,
+               fr.facturation_decided_at, fr.client_id, fr.sous_contrat,
                u.full_name as executed_by_name,
                ud.full_name as decided_by_name,
                clc.client_status as client_status,
+               fri.id as fri_id, fri.status as fri_status,
                i.rapport as technicien_rapport
         FROM field_reports fr
         LEFT JOIN users u ON u.id = fr.executed_by
         LEFT JOIN users ud ON ud.id = fr.facturation_decided_by
         LEFT JOIN clients clc ON clc.id = fr.client_id
+        LEFT JOIN field_report_invoices fri ON fri.field_report_id = fr.id
         LEFT JOIN interventions i ON i.id = fr.linked_intervention_id
         WHERE {where_sql}
         ORDER BY {order_by} LIMIT 100""", params).fetchall()]
 
     # v162 : pour chaque remontée, déterminer si le CLIENT est sous contrat
-    # (contrat actif dans la table contracts) → permet de tarifer la facture selon le contrat.
+    # (contrat dans la table « contracts » = module Gestion des contrats) → tarification selon contrat.
     for it in items:
-        it['sous_contrat'] = False
+        # Le marquage explicite du DG (fr.sous_contrat=1) prime, sinon détection auto.
+        it['sous_contrat'] = bool(it.get('sous_contrat'))
         it['contrat'] = None
         cid = it.get('client_id')
         cstatut = it.get('client_status')
-        # Résoudre le client par nom si pas d'id lié
+        # Résoudre le client par nom (insensible casse/espaces) si pas d'id lié
         if not cid and it.get('client_name'):
-            crow = conn.execute("SELECT id, client_status FROM clients WHERE name=? LIMIT 1", (it['client_name'],)).fetchone()
+            crow = conn.execute(
+                "SELECT id, client_status FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) LIMIT 1",
+                (it['client_name'],)).fetchone()
             if crow:
                 cid = crow['id']; cstatut = crow['client_status']
         if cid:
             try:
                 ctr = conn.execute("""SELECT reference, monthly_rate, start_date, end_date,
                        COALESCE(status,'actif') AS status, description
-                    FROM contracts
-                    WHERE client_id=? AND COALESCE(status,'actif') NOT IN ('resilie','expire','annule','termine')
-                    ORDER BY id DESC LIMIT 1""", (cid,)).fetchone()
+                    FROM contracts WHERE client_id=? ORDER BY id DESC LIMIT 1""", (cid,)).fetchone()
                 if ctr:
-                    it['sous_contrat'] = True
                     it['contrat'] = dict(ctr)
+                    if str(ctr['status'] or 'actif') not in ('resilie', 'expire', 'annule', 'termine'):
+                        it['sous_contrat'] = True
             except Exception as e:
                 print(f"decisions contrat lookup: {e}")
         # Repli sur le libellé client_status (« entreprise_sous_contrat »)
@@ -21060,12 +21078,17 @@ def decisions_facturation():
             "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') "
             "AND facturable IS NULL AND type_info='rapport_heures'"
         ).fetchone()[0],
+        # v162 : clients sous contrat visités ce mois-ci
+        'sous_contrat': conn.execute(
+            "SELECT COUNT(*) FROM field_reports WHERE sous_contrat=1 "
+            "AND strftime('%Y-%m', COALESCE(facturation_decided_at, executed_at, updated_at)) = strftime('%Y-%m','now')"
+        ).fetchone()[0],
     }
     
     conn.close()
     
     return render_template('decisions_facturation.html', page='decisions_facturation',
-        items=items, tab=tab, counts=counts,
+        items=items, tab=tab, counts=counts, can_decide=can_decide,
         search=search, date_from=date_from, date_to=date_to)
 
 
@@ -21077,7 +21100,10 @@ def field_report_decide_facturation(rid):
     user = get_user_by_id(session['user_id'])
     if not user: return redirect('/login')
     
-    is_facturable = request.form.get('facturable') == '1'
+    # v162 : 3 choix possibles — '1' facturable, '0' non facturable, 'contrat' client sous contrat
+    choix = request.form.get('facturable')
+    is_facturable = choix in ('1', 'contrat')
+    is_sous_contrat = (choix == 'contrat')
     cost_str = (request.form.get('cost_amount','') or '0').replace(',','.').strip()
     motif = (request.form.get('motif','') or '').strip()
     
@@ -21113,13 +21139,13 @@ def field_report_decide_facturation(rid):
         
         # Mettre à jour la remontée
         conn.execute("""UPDATE field_reports
-            SET facturable=?, cost_amount=?, cost_currency='XOF',
+            SET facturable=?, sous_contrat=?, cost_amount=?, cost_currency='XOF',
                 facturation_decided_by=?, facturation_decided_at=datetime('now'),
                 facturation_motif=?,
                 updated_at=datetime('now')
             WHERE id=?""",
-            (1 if is_facturable else 0, cost if is_facturable else 0,
-             user['id'], motif, rid))
+            (1 if is_facturable else 0, 1 if is_sous_contrat else 0,
+             cost if is_facturable else 0, user['id'], motif, rid))
         
         if is_facturable:
             # v152 : Date limite par défaut = lendemain (J+1)
