@@ -16,7 +16,27 @@
       "Bash(git commit -q -m 'v162 : MG réorg fournisseurs — portefeuilles + nouvel achat → Paiements fournisseurs ; Export CSV + Bilan général PDF au niveau Moyens Généraux *)",
       "Bash(xargs -I{} sh -c 'sed -n \"$\\(\\({}-3\\)\\),$\\(\\({}\\)\\)p\" app.py')",
       "Bash(git commit -q -m 'v162 : paiement fournisseur — compte à débiter obligatoire + accès au Tableau de bord/Bilan MG rétabli *)",
-      "Bash(git commit -q -m 'v162 : bilan général MG inclut le détail par fournisseur \\(ancien Récap PDF\\) *)"
+      "Bash(git commit -q -m 'v162 : bilan général MG inclut le détail par fournisseur \\(ancien Récap PDF\\) *)",
+      "Bash(python3 -m py_compile traccar_bridge.py)",
+      "Bash(git commit -q -m 'tracking : passerelle Traccar → WannyGest \\(relais positions GPS\\) *)",
+      "WebSearch",
+      "WebFetch(domain:docplayer.net)",
+      "WebFetch(domain:www.whatsgps.net)",
+      "WebFetch(domain:www.scribd.com)",
+      "WebFetch(domain:www.whatsgps.com)",
+      "Bash(git commit -q -m 'v162 : remontée — grille des départements concernés mieux alignée \\(colonnes régulières, case non rétrécie\\) *)",
+      "Bash(git commit -q -m 'v162 : planning sessions — bouton « Programmes en double » pour identifier/purger les sessions planifiées en trop *)",
+      "Bash(git commit -q -m 'v162 : paiement prestataire — autoriser le débit depuis les comptes fournisseur \\(ex. COMPTE FOURNISSEUR BDU\\) *)",
+      "Bash(grep -n \"^import sqlite3$\\\\|^import sqlite3 \" app.py)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(git commit -q -m 'v162 : nouvelle créance — liste déroulante clients + recherche + autofill + factures impayées ; message clair si n° facture déjà créé *)",
+      "Bash(git commit -q -m 'v162 : correction facture après envoi — réservée admin/DG avec justification obligatoire *)",
+      "Bash(git commit -q -m 'v162 : agent recouvreur peut créer une nouvelle facture *)",
+      "Bash(git commit -q -m 'v162 : facturation à décider — affiche le statut « sous contrat » du client et pré-remplit le montant selon le contrat *)",
+      "Bash(git commit -q -m 'v162 : facturation à décider — bouton « Client sous contrat » + onglet mensuel + accès agent recouvreur *)",
+      "Bash(git commit -q -m 'v162 : décision facture — statut contrat en liste déroulante + bouton « Clients sous contrat » dans le tableau recouvrement *)",
+      "Bash(git commit -q -m 'v163 : module Recrutement \\(ATS\\) Phase 1 — offres, candidatures Kanban, entretiens, portail public *)",
+      "Bash(git commit -q -m 'v163b : Recrutement Phase 2 — espace candidat \\(compte + suivi\\) + emails candidats + accès admin uniquement *)"
     ]
   }
 }

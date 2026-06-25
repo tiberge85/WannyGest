@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Espace candidat — Emplois RAMYA</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f4f6f8;color:#222;min-height:100vh}
+.top{background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;padding:22px 20px;text-align:center}
+.top a{color:#cfeae3;font-size:13px;text-decoration:none}
+.wrap{max-width:880px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:#fff;border-radius:14px;padding:24px;box-shadow:0 2px 10px rgba(0,0,0,.07)}
+.card h2{font-size:18px;color:#1A7A6D;margin-bottom:14px}
+label{font-size:12px;color:#666;display:block;margin:8px 0 3px;font-weight:600}
+input{width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px}
+.btn{margin-top:14px;width:100%;border:none;border-radius:9px;padding:12px;font-weight:700;cursor:pointer;font-size:15px;color:#fff}
+.flash{max-width:880px;margin:14px auto 0;padding:0 16px}
+.flash div{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:6px}
+.flash .error{background:#fde8e8;color:#c53030}.flash .warning{background:#fff8e1;color:#8a5a00}.flash .success{background:#e8f5e9;color:#2e7d32}.flash .info{background:#e8f4fd;color:#1565c0}
+@media(max-width:680px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top">
+    <a href="/emplois">← Retour aux offres</a>
+    <h1 style="font-size:24px;margin-top:6px">🧑‍💼 Espace candidat</h1>
+    <p style="opacity:.9;font-size:14px">Créez votre compte pour postuler et suivre vos candidatures</p>
+</div>
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+<div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
+{% endif %}{% endwith %}
+<div class="wrap">
+    <div class="card">
+        <h2>🔑 Se connecter</h2>
+        <form method="post" action="/emplois/compte/login">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label>Email</label><input type="email" name="email" required>
+            <label>Mot de passe</label><input type="password" name="password" required>
+            <button class="btn" style="background:#1A7A6D" type="submit">Se connecter</button>
+        </form>
+    </div>
+    <div class="card">
+        <h2>✨ Créer un compte</h2>
+        <form method="post" action="/emplois/compte/register">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label>Nom *</label><input name="nom" required>
+            <label>Prénoms</label><input name="prenoms">
+            <label>Email *</label><input type="email" name="email" required>
+            <label>Téléphone</label><input name="telephone">
+            <label>Ville</label><input name="ville">
+            <label>Mot de passe * (4 caractères min.)</label><input type="password" name="password" minlength="4" required>
+            <button class="btn" style="background:#F29F2F" type="submit">Créer mon compte</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

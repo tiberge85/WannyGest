@@ -7,7 +7,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f4f6f8;color:#222}
-.hero{background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;padding:40px 20px 60px;text-align:center}
+.hero{position:relative;background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;padding:40px 20px 60px;text-align:center}
 .hero h1{font-size:30px;margin-bottom:6px}
 .hero p{opacity:.9;font-size:15px}
 .wrap{max-width:1000px;margin:-36px auto 40px;padding:0 16px}
@@ -29,6 +29,10 @@ body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;backgr
 </head>
 <body>
 <div class="hero">
+    <div style="position:absolute;top:14px;right:16px;font-size:13px">
+        {% if candidat_nom %}<a href="/emplois/compte/dashboard" style="color:#fff;background:rgba(255,255,255,.2);padding:7px 12px;border-radius:8px;text-decoration:none">👤 Mon espace</a>
+        {% else %}<a href="/emplois/compte" style="color:#fff;background:rgba(255,255,255,.2);padding:7px 12px;border-radius:8px;text-decoration:none">🔑 Espace candidat</a>{% endif %}
+    </div>
     <h1>🧑‍💼 Offres d'emploi</h1>
     <p>Rejoignez les équipes qui recrutent — postulez en ligne en quelques clics</p>
 </div>

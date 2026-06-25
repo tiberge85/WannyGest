@@ -36710,8 +36710,40 @@ RECRUT_CAND_LABELS = {
 RECRUT_ENTRETIEN_TYPES = ['presentiel', 'telephonique', 'visio']
 _RECRUT_CV_EXT = ('.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.webp')
 
-# Le formulaire public de candidature poste sans session authentifiée
+# Endpoints publics qui postent avant qu'une session existe
 CSRF_BOOTSTRAP_ENDPOINTS.add('emploi_postuler')
+CSRF_BOOTSTRAP_ENDPOINTS.add('candidat_register')
+CSRF_BOOTSTRAP_ENDPOINTS.add('candidat_login')
+
+
+def _candidat_hash(password, salt):
+    import hashlib
+    return hashlib.sha256((password + (salt or '')).encode()).hexdigest()
+
+
+def _recrut_email_candidat(email, nom, subject, lines):
+    """v163b : envoie un email au candidat (best-effort, silencieux si SMTP non configuré)."""
+    if not email:
+        return
+    try:
+        body = f"Bonjour {nom},\n\n" + "\n".join(lines) + \
+               "\n\nCordialement,\nL'équipe Recrutement — RAMYA Technologie & Innovation"
+        html = "<div style='font-family:Arial,sans-serif;color:#222'>" \
+               f"<p>Bonjour {nom},</p>" + "".join(f"<p>{l}</p>" for l in lines) + \
+               "<p style='color:#888;font-size:12px'>L'équipe Recrutement — RAMYA Technologie &amp; Innovation</p></div>"
+        _send_email_smtp(email, subject, body, html=html)
+    except Exception as _e:
+        print(f"[v163b] email candidat err: {_e}")
+
+
+CAND_STATUT_MESSAGES = {
+    'recu': "Votre candidature a bien été reçue.",
+    'analyse': "Votre candidature est en cours d'analyse par notre équipe RH.",
+    'preselection': "Bonne nouvelle : votre profil a été présélectionné !",
+    'entretien': "Vous êtes convoqué(e) à un entretien. Nous vous contacterons pour les détails.",
+    'retenu': "Félicitations ! Votre candidature a été retenue. Nous reviendrons vers vous très vite.",
+    'refuse': "Après étude, votre candidature n'a pas été retenue pour ce poste. Nous vous souhaitons une bonne continuation.",
+}
 
 
 def _recrut_migrate():
@@ -36736,6 +36768,13 @@ def _recrut_migrate():
             date_naissance TEXT, telephone TEXT, email TEXT, adresse TEXT, ville TEXT, pays TEXT,
             niveau_etude TEXT, metier TEXT, competences TEXT, linkedin TEXT, cv_path TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        # v163b : colonnes compte candidat (espace candidat + suivi)
+        for _cd in ["username TEXT", "password_hash TEXT", "salt TEXT",
+                    "is_active INTEGER DEFAULT 1", "last_login TEXT"]:
+            try: c.execute(f"SELECT {_cd.split()[0]} FROM candidats LIMIT 1")
+            except:
+                try: c.execute(f"ALTER TABLE candidats ADD COLUMN {_cd}")
+                except: pass
         c.execute("""CREATE TABLE IF NOT EXISTS candidatures (
             id INTEGER PRIMARY KEY AUTOINCREMENT, offre_id INTEGER NOT NULL, candidat_id INTEGER NOT NULL,
             lettre_motivation TEXT, cv TEXT, statut TEXT DEFAULT 'recu', note INTEGER,
@@ -36756,25 +36795,19 @@ def _recrut_migrate():
 
 
 def _recrut_grant_perms():
-    """v163 : accorde les permissions recrutement à admin/rh/dg (une seule fois)."""
+    """v163b : module recrutement réservé à l'ADMINISTRATEUR pour le moment.
+    L'admin passe par sa permission 'admin' (joker) → aucune attribution explicite nécessaire.
+    On retire toute permission recrutement accordée à d'autres rôles (déploiement progressif)."""
     try:
         from models import get_db as _rdb
         c = _rdb()
-        if not c.execute("SELECT value FROM app_settings WHERE key='v163_recrut_perms'").fetchone():
-            grants = {
-                'admin': ['section_recrutement', 'recrutement_view', 'recrutement_edit'],
-                'rh': ['section_recrutement', 'recrutement_view', 'recrutement_edit'],
-                'directrice_rh': ['section_recrutement', 'recrutement_view', 'recrutement_edit'],
-                'dg': ['section_recrutement', 'recrutement_view'],
-                'directeur': ['section_recrutement', 'recrutement_view'],
-            }
-            for role, perms in grants.items():
-                for p in perms:
-                    try: c.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?,?)", (role, p))
-                    except: pass
-            c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v163_recrut_perms','1',datetime('now'))")
+        if not c.execute("SELECT value FROM app_settings WHERE key='v163b_recrut_admin_only'").fetchone():
+            for p in ('section_recrutement', 'recrutement_view', 'recrutement_edit'):
+                try: c.execute("DELETE FROM permissions WHERE permission=? AND role!='admin'", (p,))
+                except: pass
+            c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v163b_recrut_admin_only','1',datetime('now'))")
             c.commit()
-            print("[v163-Recrutement] Permissions accordées (admin/rh/dg)", flush=True)
+            print("[v163b-Recrutement] Module réservé à l'administrateur (perms retirées des autres rôles)", flush=True)
         c.close()
     except Exception as _e:
         print(f"[v163-Recrutement] perms err : {_e}", flush=True)
@@ -36967,11 +37000,18 @@ def recrutement_candidature_statut(cid, statut):
     if statut not in RECRUT_CAND_STATUTS:
         return (jsonify({'ok': False}), 400) if request.is_json or request.args.get('ajax') else redirect('/recrutement/candidatures')
     conn = _gdb()
-    row = conn.execute("""SELECT ca.candidat_id, c.nom, c.prenoms, c.email, o.titre AS offre_titre
+    row = conn.execute("""SELECT ca.candidat_id, c.nom, c.email, o.titre AS offre_titre
         FROM candidatures ca LEFT JOIN candidats c ON c.id=ca.candidat_id
         LEFT JOIN offres_emploi o ON o.id=ca.offre_id WHERE ca.id=?""", (cid,)).fetchone()
     conn.execute("UPDATE candidatures SET statut=?, updated_at=datetime('now') WHERE id=?", (statut, cid))
     conn.commit(); conn.close()
+    # Email d'information au candidat sur le changement de statut
+    if row:
+        r = dict(row)
+        _recrut_email_candidat(r.get('email'), r.get('nom') or 'Candidat',
+            f"Suivi de votre candidature — {r.get('offre_titre') or ''}",
+            [CAND_STATUT_MESSAGES.get(statut, "Le statut de votre candidature a évolué."),
+             "Connectez-vous à votre espace candidat pour plus de détails."])
     if request.args.get('ajax'):
         return jsonify({'ok': True, 'statut': statut})
     flash(f"✅ Candidature : {_recrut_status_label('cand', statut)[0]}", "success")
@@ -37096,7 +37136,7 @@ def emplois_portail():
     conn.close()
     return render_template('emplois_public.html', offres=offres, q=q, ville=ville,
         contrat=contrat, villes=villes, contrats=RECRUT_CONTRATS,
-        contrat_labels=RECRUT_OFFRE_LABELS)
+        contrat_labels=RECRUT_OFFRE_LABELS, candidat_nom=session.get('candidat_nom'))
 
 
 @app.route('/emplois/<int:oid>')
@@ -37106,15 +37146,20 @@ def emploi_detail(oid):
         e.ville AS entreprise_ville, e.description AS entreprise_desc
         FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
         WHERE o.id=? AND o.statut='publiee'""", (oid,)).fetchone()
+    moi = None
+    if session.get('candidat_id'):
+        r = conn.execute("SELECT * FROM candidats WHERE id=?", (session['candidat_id'],)).fetchone()
+        moi = dict(r) if r else None
     conn.close()
     if not o:
         flash("Offre introuvable ou clôturée", "error"); return redirect('/emplois')
-    return render_template('emploi_detail.html', o=dict(o))
+    return render_template('emploi_detail.html', o=dict(o), moi=moi,
+        candidat_nom=session.get('candidat_nom'))
 
 
 @app.route('/emplois/<int:oid>/postuler', methods=['POST'])
 def emploi_postuler(oid):
-    """Candidature publique : crée le candidat + la candidature (CV optionnel)."""
+    """Candidature publique : réutilise le compte candidat connecté, sinon crée le candidat (CV optionnel)."""
     conn = _gdb()
     o = conn.execute("SELECT id, titre FROM offres_emploi WHERE id=? AND statut='publiee'", (oid,)).fetchone()
     if not o:
@@ -37123,13 +37168,26 @@ def emploi_postuler(oid):
     email = (request.form.get('email', '') or '').strip()
     if not nom or not email:
         conn.close(); flash("Nom et email sont obligatoires.", "error"); return redirect(f'/emplois/{oid}')
-    cur = conn.execute("""INSERT INTO candidats (nom, prenoms, telephone, email, ville, metier, niveau_etude, competences, linkedin, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?, datetime('now'))""",
-        (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email,
-         request.form.get('ville', ''), request.form.get('metier', ''),
-         request.form.get('niveau_etude', ''), request.form.get('competences', ''),
-         request.form.get('linkedin', '')))
-    candidat_id = cur.lastrowid
+    # Candidat connecté → on réutilise/MAJ son profil ; sinon nouveau candidat
+    candidat_id = session.get('candidat_id')
+    if candidat_id and conn.execute("SELECT id FROM candidats WHERE id=?", (candidat_id,)).fetchone():
+        conn.execute("""UPDATE candidats SET nom=?, prenoms=?, telephone=?, email=?, ville=?, metier=?,
+            niveau_etude=?, competences=?, linkedin=?, updated_at=datetime('now') WHERE id=?""",
+            (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email,
+             request.form.get('ville', ''), request.form.get('metier', ''),
+             request.form.get('niveau_etude', ''), request.form.get('competences', ''),
+             request.form.get('linkedin', ''), candidat_id))
+    else:
+        cur = conn.execute("""INSERT INTO candidats (nom, prenoms, telephone, email, ville, metier, niveau_etude, competences, linkedin, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?, datetime('now'))""",
+            (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email,
+             request.form.get('ville', ''), request.form.get('metier', ''),
+             request.form.get('niveau_etude', ''), request.form.get('competences', ''),
+             request.form.get('linkedin', '')))
+        candidat_id = cur.lastrowid
+    # éviter une double candidature à la même offre
+    if conn.execute("SELECT id FROM candidatures WHERE offre_id=? AND candidat_id=?", (oid, candidat_id)).fetchone():
+        conn.close(); flash("Vous avez déjà postulé à cette offre.", "warning"); return redirect(f'/emplois/{oid}')
     cv_path = ''
     try:
         cv_path = _recrut_save_cv(request.files.get('cv'), candidat_id)
@@ -37141,7 +37199,6 @@ def emploi_postuler(oid):
         VALUES (?,?,?,?, 'recu', datetime('now'))""",
         (oid, candidat_id, request.form.get('lettre_motivation', ''), cv_path))
     conn.commit(); conn.close()
-    # Notifier les RH
     try:
         notify_roles(['rh', 'directrice_rh', 'admin', 'dg'],
             title=f"🧑‍💼 Nouvelle candidature : {o['titre']}",
@@ -37149,8 +37206,97 @@ def emploi_postuler(oid):
             link="/recrutement/candidatures", type='info', module='recrutement', icon='🧑‍💼', priority='normal')
     except Exception as _e:
         print(f"[v163] notif err: {_e}")
+    _recrut_email_candidat(email, nom, f"Candidature reçue — {o['titre']}",
+        [f"Nous confirmons la bonne réception de votre candidature au poste « {o['titre']} ».",
+         "Notre équipe RH va l'étudier et vous tiendra informé(e) de la suite.",
+         "Vous pouvez suivre l'état de vos candidatures depuis votre espace candidat."])
     flash(f"✅ Votre candidature à « {o['titre']} » a bien été envoyée. Merci !", "success")
     return redirect(f'/emplois/{oid}')
+
+
+# ───────────────────────── ESPACE CANDIDAT (compte + suivi) ─────────────────────────
+@app.route('/emplois/compte')
+def candidat_compte():
+    if session.get('candidat_id'):
+        return redirect('/emplois/compte/dashboard')
+    return render_template('emplois_compte.html')
+
+
+@app.route('/emplois/compte/register', methods=['POST'])
+def candidat_register():
+    nom = (request.form.get('nom', '') or '').strip()
+    email = (request.form.get('email', '') or '').strip().lower()
+    pwd = request.form.get('password', '') or ''
+    if not nom or not email or len(pwd) < 4:
+        flash("Nom, email et mot de passe (4 caractères min.) sont requis.", "error")
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    if conn.execute("SELECT id FROM candidats WHERE LOWER(username)=? OR (LOWER(email)=? AND username IS NOT NULL)", (email, email)).fetchone():
+        conn.close(); flash("Un compte existe déjà avec cet email. Connectez-vous.", "warning"); return redirect('/emplois/compte')
+    salt = secrets.token_hex(8)
+    ph = _candidat_hash(pwd, salt)
+    # Réutilise un candidat sans compte ayant déjà postulé avec cet email, sinon en crée un
+    existing = conn.execute("SELECT id FROM candidats WHERE LOWER(email)=? AND COALESCE(username,'')='' ORDER BY id DESC LIMIT 1", (email,)).fetchone()
+    if existing:
+        cid = existing['id']
+        conn.execute("UPDATE candidats SET nom=?, prenoms=?, telephone=?, ville=?, username=?, password_hash=?, salt=?, is_active=1, updated_at=datetime('now') WHERE id=?",
+            (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), request.form.get('ville', ''), email, ph, salt, cid))
+    else:
+        cur = conn.execute("""INSERT INTO candidats (nom, prenoms, telephone, email, ville, username, password_hash, salt, is_active, created_at)
+            VALUES (?,?,?,?,?,?,?,?,1, datetime('now'))""",
+            (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email, request.form.get('ville', ''), email, ph, salt))
+        cid = cur.lastrowid
+    conn.commit(); conn.close()
+    session['candidat_id'] = cid; session['candidat_nom'] = nom
+    flash("✅ Compte créé. Bienvenue dans votre espace candidat !", "success")
+    return redirect('/emplois/compte/dashboard')
+
+
+@app.route('/emplois/compte/login', methods=['POST'])
+def candidat_login():
+    email = (request.form.get('email', '') or '').strip().lower()
+    pwd = request.form.get('password', '') or ''
+    conn = _gdb()
+    c = conn.execute("SELECT * FROM candidats WHERE LOWER(username)=? AND COALESCE(is_active,1)=1", (email,)).fetchone()
+    if c:
+        c = dict(c)
+        if c.get('password_hash') and _candidat_hash(pwd, c.get('salt', '')) == c['password_hash']:
+            conn.execute("UPDATE candidats SET last_login=datetime('now') WHERE id=?", (c['id'],))
+            conn.commit(); conn.close()
+            session['candidat_id'] = c['id']; session['candidat_nom'] = c['nom']
+            return redirect('/emplois/compte/dashboard')
+    conn.close()
+    flash("Identifiants incorrects.", "error")
+    return redirect('/emplois/compte')
+
+
+@app.route('/emplois/compte/logout')
+def candidat_logout():
+    session.pop('candidat_id', None); session.pop('candidat_nom', None)
+    return redirect('/emplois')
+
+
+@app.route('/emplois/compte/dashboard')
+def candidat_dashboard():
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    me = conn.execute("SELECT * FROM candidats WHERE id=?", (cid,)).fetchone()
+    if not me:
+        conn.close(); session.pop('candidat_id', None); return redirect('/emplois/compte')
+    me = dict(me)
+    candidatures = [dict(r) for r in conn.execute("""
+        SELECT ca.id, ca.statut, ca.created_at, o.titre AS offre_titre, o.reference, o.lieu_travail, o.type_contrat
+        FROM candidatures ca LEFT JOIN offres_emploi o ON o.id=ca.offre_id
+        WHERE ca.candidat_id=? ORDER BY ca.created_at DESC""", (cid,)).fetchall()]
+    entretiens = [dict(r) for r in conn.execute("""
+        SELECT e.date, e.heure, e.type, e.lieu, o.titre AS offre_titre
+        FROM entretiens e LEFT JOIN offres_emploi o ON o.id=e.offre_id
+        WHERE e.candidat_id=? ORDER BY e.date DESC""", (cid,)).fetchall()]
+    conn.close()
+    return render_template('emplois_compte_dashboard.html', me=me, candidatures=candidatures,
+        entretiens=entretiens, cand_labels=RECRUT_CAND_LABELS)
 
 
 if __name__ == '__main__':

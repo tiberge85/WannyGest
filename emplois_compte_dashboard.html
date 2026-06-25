@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mon espace candidat — Emplois RAMYA</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f4f6f8;color:#222}
+.top{background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;padding:22px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.top a{color:#fff;font-size:13px;text-decoration:none;background:rgba(255,255,255,.18);padding:7px 12px;border-radius:8px}
+.wrap{max-width:920px;margin:22px auto;padding:0 16px}
+.card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px}
+.card h2{font-size:16px;color:#1A7A6D;margin-bottom:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:9px 8px;text-align:left;border-bottom:1px solid #f0f0f0}
+th{font-size:11px;text-transform:uppercase;color:#888}
+.badge{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700}
+.flash{max-width:920px;margin:14px auto 0;padding:0 16px}
+.flash div{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:6px}
+.flash .success{background:#e8f5e9;color:#2e7d32}.flash .info{background:#e8f4fd;color:#1565c0}.flash .warning{background:#fff8e1;color:#8a5a00}
+.empty{padding:24px;text-align:center;color:#888}
+</style>
+</head>
+<body>
+<div class="top">
+    <div><strong style="font-size:18px">👤 Bonjour {{ me.nom }} {{ me.prenoms or '' }}</strong><div style="opacity:.85;font-size:13px">{{ me.email }}</div></div>
+    <div style="display:flex;gap:8px"><a href="/emplois">🔍 Offres</a><a href="/emplois/compte/logout">Déconnexion</a></div>
+</div>
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+<div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
+{% endif %}{% endwith %}
+<div class="wrap">
+    <div class="card">
+        <h2>📋 Mes candidatures ({{ candidatures|length }})</h2>
+        {% if candidatures %}
+        <table>
+            <thead><tr><th>Offre</th><th>Contrat</th><th>Lieu</th><th>Statut</th><th>Postulé le</th></tr></thead>
+            <tbody>
+            {% for c in candidatures %}
+            {% set lbl = cand_labels.get(c.statut, (c.statut,'#888','•')) %}
+            <tr>
+                <td><strong>{{ c.offre_titre or '—' }}</strong></td>
+                <td>{{ c.type_contrat or '—' }}</td>
+                <td>{{ c.lieu_travail or '—' }}</td>
+                <td><span class="badge" style="background:{{ lbl[1] }}22;color:{{ lbl[1] }}">{{ lbl[2] }} {{ lbl[0] }}</span></td>
+                <td style="color:#888">{{ (c.created_at or '')[:10] }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<div class="empty">Vous n'avez pas encore postulé. <a href="/emplois" style="color:#1A7A6D">Voir les offres</a></div>{% endif %}
+    </div>
+
+    <div class="card">
+        <h2>📅 Mes entretiens</h2>
+        {% if entretiens %}
+        <table>
+            <thead><tr><th>Date</th><th>Heure</th><th>Type</th><th>Offre</th><th>Lieu / lien</th></tr></thead>
+            <tbody>
+            {% for e in entretiens %}
+            <tr><td>{{ e.date }}</td><td>{{ e.heure or '—' }}</td>
+                <td>{% if e.type == 'presentiel' %}🏢 Présentiel{% elif e.type == 'telephonique' %}📞 Tél.{% elif e.type == 'visio' %}💻 Visio{% else %}{{ e.type }}{% endif %}</td>
+                <td>{{ e.offre_titre or '—' }}</td><td>{{ e.lieu or '—' }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<div class="empty">Aucun entretien planifié pour le moment.</div>{% endif %}
+    </div>
+</div>
+</body>
+</html>
