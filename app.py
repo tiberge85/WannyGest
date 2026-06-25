@@ -8232,7 +8232,7 @@ def comptabilite_factures_delete_bulk():
 
 
 @app.route('/comptabilite/facture/new', methods=['GET', 'POST'])
-@permission_required('comptabilite_edit')
+@permission_required_any('comptabilite_edit', 'facture_edit', 'admin')
 def invoice_new():
     if request.method == 'POST':
         ref = f"FAC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
