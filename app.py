@@ -21002,16 +21002,46 @@ def decisions_facturation():
                fr.description, fr.execution_notes, fr.executed_at,
                fr.statut as fr_statut, fr.linked_intervention_id,
                fr.facturable, fr.cost_amount, fr.facturation_motif,
-               fr.facturation_decided_at,
+               fr.facturation_decided_at, fr.client_id,
                u.full_name as executed_by_name,
                ud.full_name as decided_by_name,
+               clc.client_status as client_status,
                i.rapport as technicien_rapport
         FROM field_reports fr
         LEFT JOIN users u ON u.id = fr.executed_by
         LEFT JOIN users ud ON ud.id = fr.facturation_decided_by
+        LEFT JOIN clients clc ON clc.id = fr.client_id
         LEFT JOIN interventions i ON i.id = fr.linked_intervention_id
         WHERE {where_sql}
         ORDER BY {order_by} LIMIT 100""", params).fetchall()]
+
+    # v162 : pour chaque remontée, déterminer si le CLIENT est sous contrat
+    # (contrat actif dans la table contracts) → permet de tarifer la facture selon le contrat.
+    for it in items:
+        it['sous_contrat'] = False
+        it['contrat'] = None
+        cid = it.get('client_id')
+        cstatut = it.get('client_status')
+        # Résoudre le client par nom si pas d'id lié
+        if not cid and it.get('client_name'):
+            crow = conn.execute("SELECT id, client_status FROM clients WHERE name=? LIMIT 1", (it['client_name'],)).fetchone()
+            if crow:
+                cid = crow['id']; cstatut = crow['client_status']
+        if cid:
+            try:
+                ctr = conn.execute("""SELECT reference, monthly_rate, start_date, end_date,
+                       COALESCE(status,'actif') AS status, description
+                    FROM contracts
+                    WHERE client_id=? AND COALESCE(status,'actif') NOT IN ('resilie','expire','annule','termine')
+                    ORDER BY id DESC LIMIT 1""", (cid,)).fetchone()
+                if ctr:
+                    it['sous_contrat'] = True
+                    it['contrat'] = dict(ctr)
+            except Exception as e:
+                print(f"decisions contrat lookup: {e}")
+        # Repli sur le libellé client_status (« entreprise_sous_contrat »)
+        if not it['sous_contrat'] and (cstatut or '') == 'entreprise_sous_contrat':
+            it['sous_contrat'] = True
     
     # Compteurs pour les onglets
     counts = {

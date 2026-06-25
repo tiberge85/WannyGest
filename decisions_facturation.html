@@ -112,6 +112,27 @@
         </div>
         {% endif %}
         
+        {# v162 : statut « sous contrat » du client → tarification selon le contrat #}
+        {% if it.sous_contrat %}
+        <div style="background:#e8f4fd;border:1.5px solid #1565c0;border-radius:7px;padding:8px 10px;margin:8px 0;font-size:12px">
+            <strong style="color:#1565c0">📄 Client sous contrat</strong>
+            {% if it.contrat %}
+            <div style="margin-top:4px;color:#333;display:flex;flex-wrap:wrap;gap:10px">
+                {% if it.contrat.reference %}<span>Réf : <strong>{{ it.contrat.reference }}</strong></span>{% endif %}
+                {% if it.contrat.monthly_rate %}<span>Tarif contrat : <strong>{{ '{:,.0f}'.format(it.contrat.monthly_rate or 0) }} XOF</strong></span>{% endif %}
+                {% if it.contrat.start_date or it.contrat.end_date %}<span>Période : {{ it.contrat.start_date or '?' }} → {{ it.contrat.end_date or '?' }}</span>{% endif %}
+            </div>
+            <div style="font-size:11px;color:#1565c0;margin-top:4px">💡 Tarifez la facture <strong>selon le contrat</strong>. Le montant ci-dessous est pré-rempli au tarif du contrat (modifiable).</div>
+            {% else %}
+            <div style="font-size:11px;color:#1565c0;margin-top:3px">Ce client a un statut « sous contrat ». Vérifiez le tarif contractuel applicable.</div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div style="background:#fff8e1;border:1px solid #f29f2f;border-radius:7px;padding:6px 10px;margin:8px 0;font-size:11px;color:#8a5a00">
+            ⚪ Client <strong>sans contrat</strong> — indiquez le montant à facturer.
+        </div>
+        {% endif %}
+
         {% if tab in ['nouvelles','tracking','pointage'] %}
         <form method="post" action="/field-reports/{{ it.id }}/decide-facturation" style="margin-top:8px;padding-top:8px;border-top:1px dashed #ccc">
             <div class="form-row-radio">
@@ -127,9 +148,10 @@
             <div id="cost_{{ it.id }}" style="display:none;margin-bottom:10px">
                 <label style="font-size:10px;color:#666;font-weight:600">💰 Montant à facturer (XOF) *</label>
                 <input id="cost_input_{{ it.id }}" type="number" name="cost_amount" step="1" min="1" placeholder="Ex: 50000 (obligatoire si facturable)"
-                    value="{% if it.type_info == 'rapport_heures' and it.cost_amount %}{{ it.cost_amount|int }}{% endif %}"
+                    value="{% if it.type_info == 'rapport_heures' and it.cost_amount %}{{ it.cost_amount|int }}{% elif it.sous_contrat and it.contrat and it.contrat.monthly_rate %}{{ it.contrat.monthly_rate|int }}{% endif %}"
                     style="width:100%;padding:8px;border:2px solid #1A7A6D;border-radius:6px;font-weight:700">
-                {% if it.type_info == 'rapport_heures' %}<div style="font-size:10px;color:#5e35b1;margin-top:3px">⏱️ Montant déjà saisi par la RH — vous n'avez qu'à valider.</div>{% endif %}
+                {% if it.type_info == 'rapport_heures' %}<div style="font-size:10px;color:#5e35b1;margin-top:3px">⏱️ Montant déjà saisi par la RH — vous n'avez qu'à valider.</div>
+                {% elif it.sous_contrat and it.contrat and it.contrat.monthly_rate %}<div style="font-size:10px;color:#1565c0;margin-top:3px">📄 Pré-rempli au tarif du contrat ({{ '{:,.0f}'.format(it.contrat.monthly_rate or 0) }} XOF) — ajustez si nécessaire.</div>{% endif %}
             </div>
             <label style="font-size:10px;color:#666;font-weight:600">📝 Commentaire / Justification * (obligatoire)</label>
             <textarea name="motif" rows="2" required minlength="5" 
