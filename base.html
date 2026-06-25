@@ -382,8 +382,8 @@
             </div>
             {% endif %}
 
-            {# v163 : Section RECRUTEMENT (ATS) #}
-            {% if 'section_recrutement' in permissions or 'recrutement_view' in permissions or 'admin' in permissions %}
+            {# v163 : Section RECRUTEMENT (ATS) — réservée à l'administrateur (rôle réel) #}
+            {% if user_role == 'admin' %}
             <div class="nav-section" id="sec-recrutement">
                 <div class="nav-section-title" onclick="toggleSection('sec-recrutement')">🧑‍💼 RECRUTEMENT <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
@@ -1487,5 +1487,88 @@ function sortTable(tableId, colIndex, type){
 </script>
 <!-- v159 : Multi-fenêtres in-app (fenêtres flottantes draggables) -->
 <script src="/floating_windows.js"></script>
+
+<!-- v163m : Correcteur orthographique & grammatical (LanguageTool, français) -->
+<style>
+#corrBtn{position:fixed;right:18px;bottom:18px;z-index:9998;background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;border:none;border-radius:50%;width:50px;height:50px;font-size:20px;cursor:pointer;box-shadow:0 4px 14px rgba(26,122,109,.4)}
+#corrBtn:hover{transform:scale(1.06)}
+#corrPanel{position:fixed;right:18px;bottom:78px;z-index:9999;width:340px;max-height:60vh;overflow-y:auto;background:#fff;border:1px solid #e2e2e2;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.18);display:none;font-size:13px}
+#corrPanel header{background:#1A7A6D;color:#fff;padding:11px 14px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;font-weight:700}
+#corrPanel header span{cursor:pointer}
+#corrBody{padding:12px 14px}
+.corr-item{border-bottom:1px solid #f0f0f0;padding:8px 0}
+.corr-msg{color:#555;font-size:12px;margin-bottom:5px}
+.corr-ctx{font-family:monospace;font-size:11px;color:#888;margin-bottom:5px}
+.corr-ctx b{background:#ffe2cc;color:#c0392b;font-style:normal;padding:0 2px;border-radius:3px}
+.corr-sug{display:inline-block;background:#e7f3f0;color:#1A7A6D;border:none;border-radius:7px;padding:4px 9px;margin:2px 4px 2px 0;font-size:12px;font-weight:700;cursor:pointer}
+.corr-sug:hover{background:#1A7A6D;color:#fff}
+.corr-foot{padding:10px 14px;border-top:1px solid #f0f0f0;display:flex;gap:6px}
+.corr-foot button{flex:1;border:none;border-radius:8px;padding:9px;font-weight:700;cursor:pointer;font-size:12px}
+.corr-all{background:#f29f2f;color:#fff}.corr-close{background:#eee;color:#333}
+.corr-empty{text-align:center;color:#2e7d32;padding:14px;font-weight:600}
+.corr-loading{text-align:center;color:#888;padding:18px}
+</style>
+<button id="corrBtn" title="Correcteur orthographique (placez le curseur dans un champ texte)" onclick="corrRun()">✍️</button>
+<div id="corrPanel">
+    <header>✍️ Correcteur <span onclick="corrHide()">✕</span></header>
+    <div id="corrBody"></div>
+</div>
+<script>
+(function(){
+    var lastEl=null;
+    document.addEventListener('focusin', function(e){
+        var t=e.target;
+        if(t && (t.tagName==='TEXTAREA' || (t.tagName==='INPUT' && /^(text|search|)$/i.test(t.type||'')))){
+            if(t.id!=='corr_ignore') lastEl=t;
+        }
+    });
+    window.corrHide=function(){ document.getElementById('corrPanel').style.display='none'; };
+    function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function setBody(h){ document.getElementById('corrBody').innerHTML=h; document.getElementById('corrPanel').style.display='block'; }
+    var curMatches=[];
+    window.corrRun=function(){
+        if(!lastEl || !(''+lastEl.value).trim()){ setBody('<div class="corr-loading">Placez le curseur dans un champ texte à corriger, puis recliquez sur ✍️.</div>'); return; }
+        setBody('<div class="corr-loading">🔎 Analyse en cours…</div>');
+        var text=lastEl.value;
+        fetch('https://api.languagetool.org/v2/check', {
+            method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:'language=fr&text='+encodeURIComponent(text)
+        }).then(function(r){return r.json();}).then(function(d){
+            curMatches=(d.matches||[]);
+            if(!curMatches.length){ setBody('<div class="corr-empty">✅ Aucune faute détectée. Beau travail !</div>'); return; }
+            var h='';
+            curMatches.forEach(function(m,i){
+                var c=m.context||{}, ct=c.text||'', off=c.offset||0, len=c.length||0;
+                var ctx=esc(ct.slice(0,off))+'<b>'+esc(ct.substr(off,len))+'</b>'+esc(ct.slice(off+len));
+                h+='<div class="corr-item"><div class="corr-msg">'+esc(m.shortMessage||m.message||'')+'</div>';
+                h+='<div class="corr-ctx">…'+ctx+'…</div>';
+                (m.replacements||[]).slice(0,4).forEach(function(rep,j){
+                    h+='<button class="corr-sug" onclick="corrApply('+i+','+j+')">'+esc(rep.value)+'</button>';
+                });
+                h+='</div>';
+            });
+            h+='<div class="corr-foot"><button class="corr-all" onclick="corrApplyAll()">✅ Tout corriger</button><button class="corr-close" onclick="corrHide()">Fermer</button></div>';
+            setBody(h);
+        }).catch(function(){ setBody('<div class="corr-loading">⚠️ Service de correction indisponible. Réessayez plus tard.</div>'); });
+    };
+    function applyOne(m, repValue){
+        var v=lastEl.value;
+        lastEl.value=v.slice(0,m.offset)+repValue+v.slice(m.offset+m.length);
+    }
+    window.corrApply=function(i,j){
+        var m=curMatches[i]; if(!m) return;
+        applyOne(m, m.replacements[j].value);
+        lastEl.dispatchEvent(new Event('input',{bubbles:true}));
+        corrRun(); // re-analyse (offsets décalés)
+    };
+    window.corrApplyAll=function(){
+        // appliquer du dernier au premier pour préserver les offsets
+        var ms=curMatches.filter(function(m){return m.replacements&&m.replacements.length;}).sort(function(a,b){return b.offset-a.offset;});
+        ms.forEach(function(m){ applyOne(m, m.replacements[0].value); });
+        lastEl.dispatchEvent(new Event('input',{bubbles:true}));
+        corrRun();
+    };
+})();
+</script>
 </body>
 </html>

@@ -4231,6 +4231,21 @@ def permission_required_any(*perms):
     return decorator
 
 
+def admin_only_required(f):
+    """v163l : accès STRICTEMENT réservé au rôle 'admin' (aucun bypass RH).
+    Utilisé pour le module Recrutement (déploiement progressif)."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        user = get_user_by_id(session['user_id'])
+        if not user or (user.get('role') or '') != 'admin':
+            flash("🔒 Accès réservé à l'administrateur.", "error")
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
 def recharge_access_required(f):
     """v79 : Accès au module recharge Internet.
     Autorisé pour : admin, et les rôles/permissions IT, comptabilité, RH.
@@ -36926,7 +36941,7 @@ def _recrut_save_photo(file_storage, candidat_id):
 
 # ───────────────────────── DASHBOARD RH ─────────────────────────
 @app.route('/recrutement')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_dashboard():
     conn = _gdb()
     def _n(sql, p=()):
@@ -36960,7 +36975,7 @@ def recrutement_dashboard():
 
 # ───────────────────────── OFFRES ─────────────────────────
 @app.route('/recrutement/offres')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_offres():
     statut = request.args.get('statut', '').strip()
     conn = _gdb()
@@ -36979,7 +36994,7 @@ def recrutement_offres():
 
 
 @app.route('/recrutement/offres/add', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_offre_add():
     titre = (request.form.get('titre', '') or '').strip()
     if not titre:
@@ -37008,7 +37023,7 @@ def recrutement_offre_add():
 
 
 @app.route('/recrutement/offres/<int:oid>/edit', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_offre_edit(oid):
     conn = _gdb()
     if not conn.execute("SELECT id FROM offres_emploi WHERE id=?", (oid,)).fetchone():
@@ -37029,7 +37044,7 @@ def recrutement_offre_edit(oid):
 
 
 @app.route('/recrutement/offres/<int:oid>/statut/<statut>', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_offre_statut(oid, statut):
     if statut not in RECRUT_OFFRE_STATUTS:
         flash("Statut invalide", "error"); return redirect('/recrutement/offres')
@@ -37046,7 +37061,7 @@ def recrutement_offre_statut(oid, statut):
 
 
 @app.route('/recrutement/offres/<int:oid>/delete', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_offre_delete(oid):
     conn = _gdb()
     conn.execute("DELETE FROM offres_emploi WHERE id=?", (oid,))
@@ -37057,7 +37072,7 @@ def recrutement_offre_delete(oid):
 
 # ───────────────────────── CANDIDATURES (pipeline) ─────────────────────────
 @app.route('/recrutement/candidatures')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_candidatures():
     offre_id = request.args.get('offre', '').strip()
     conn = _gdb()
@@ -37091,7 +37106,7 @@ def recrutement_candidatures():
 
 
 @app.route('/recrutement/candidature/<int:cid>/statut/<statut>', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_candidature_statut(cid, statut):
     if statut not in RECRUT_CAND_STATUTS:
         return (jsonify({'ok': False}), 400) if request.is_json or request.args.get('ajax') else redirect('/recrutement/candidatures')
@@ -37115,7 +37130,7 @@ def recrutement_candidature_statut(cid, statut):
 
 
 @app.route('/recrutement/candidature/<int:cid>')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_candidature_detail(cid):
     conn = _gdb()
     cand = conn.execute("""SELECT ca.*, c.nom, c.prenoms, c.telephone, c.email, c.ville, c.metier,
@@ -37149,7 +37164,7 @@ def recrutement_candidature_detail(cid):
 
 
 @app.route('/recrutement/candidature/<int:cid>/note', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_candidature_note(cid):
     conn = _gdb()
     conn.execute("UPDATE candidatures SET note=?, commentaire_recruteur=?, updated_at=datetime('now') WHERE id=?",
@@ -37161,7 +37176,7 @@ def recrutement_candidature_note(cid):
 
 # ───────────────────────── ENTRETIENS ─────────────────────────
 @app.route('/recrutement/entretiens')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_entretiens():
     conn = _gdb()
     entretiens = [dict(r) for r in conn.execute("""
@@ -37175,7 +37190,7 @@ def recrutement_entretiens():
 
 
 @app.route('/recrutement/entretiens/add', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_entretien_add():
     cid = int(request.form.get('candidature_id', 0) or 0)
     date = (request.form.get('date', '') or '').strip()
@@ -37199,7 +37214,7 @@ def recrutement_entretien_add():
 
 # ───────────────────────── ENTREPRISES (léger) ─────────────────────────
 @app.route('/recrutement/entreprises/add', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_entreprise_add():
     nom = (request.form.get('raison_sociale', '') or '').strip()
     if not nom:
@@ -37217,7 +37232,7 @@ def recrutement_entreprise_add():
 
 # ───────────────────────── CVTHÈQUE ─────────────────────────
 @app.route('/recrutement/cvtheque')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_cvtheque():
     q = (request.args.get('q', '') or '').strip()
     ville = (request.args.get('ville', '') or '').strip()
@@ -37246,7 +37261,7 @@ def recrutement_cvtheque():
 
 # ───────────────────────── STATISTIQUES ─────────────────────────
 @app.route('/recrutement/statistiques')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_statistiques():
     conn = _gdb()
     def _rows(sql, p=()):
@@ -37285,7 +37300,7 @@ def recrutement_statistiques():
 
 
 @app.route('/uploads/recrutement_cv/<path:filename>')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_cv_serve(filename):
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_cv'), filename)
 
@@ -37751,7 +37766,7 @@ def recruteur_candidature_statut(cid, statut):
 
 # ───────────────────────── ADMIN : validation des entreprises ─────────────────────────
 @app.route('/recrutement/entreprises')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_entreprises():
     conn = _gdb()
     entreprises = [dict(r) for r in conn.execute("""SELECT e.*,
@@ -37765,7 +37780,7 @@ def recrutement_entreprises():
 
 
 @app.route('/recrutement/entreprises/<int:eid>/valider/<action>', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_entreprise_valider(eid, action):
     if action not in ('approve', 'reject', 'suspend'):
         return redirect('/recrutement/entreprises')
@@ -37930,7 +37945,7 @@ def recruteur_messages(cid):
 
 # Admin (depuis la fiche candidature)
 @app.route('/recrutement/candidature/<int:cid>/message', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_message_admin(cid):
     user = get_user_by_id(session['user_id'])
     _recrut_post_message(cid, 'admin', (user['full_name'] if user else 'RH'), request.form.get('message'))
@@ -38004,7 +38019,7 @@ def candidat_cv_pdf():
 
 
 @app.route('/recrutement/candidat/<int:cand_id>/cv.pdf')
-@permission_required_any('recrutement_view', 'admin')
+@admin_only_required
 def recrutement_candidat_cv_pdf(cand_id):
     conn = _gdb(); c = conn.execute("SELECT * FROM candidats WHERE id=?", (cand_id,)).fetchone(); conn.close()
     if not c:
@@ -38095,7 +38110,7 @@ def _recrut_create_contrat(cid, titre, contenu, by_role, by_id):
 
 
 @app.route('/recrutement/candidature/<int:cid>/contrat', methods=['POST'])
-@permission_required_any('recrutement_edit', 'admin')
+@admin_only_required
 def recrutement_contrat_create(cid):
     titre = (request.form.get('titre', '') or 'Contrat de travail').strip()
     contenu = request.form.get('contenu', '') or ''
