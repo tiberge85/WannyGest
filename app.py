@@ -36825,17 +36825,23 @@ def _recrut_active_sub(conn, entreprise_id):
         return None
 
 
-def _recrut_create_paiement(entreprise_id, ptype, ref_id, libelle, montant, methode='', reference_externe=''):
+def _recrut_create_paiement(entreprise_id, ptype, ref_id, libelle, montant, methode='', reference_externe='', candidat_id=None):
     conn = _gdb()
-    cur = conn.execute("""INSERT INTO recrut_paiements (entreprise_id, type, ref_id, libelle, montant, methode, reference_externe, statut, created_at)
-        VALUES (?,?,?,?,?,?,?, 'en_attente', datetime('now'))""",
-        (entreprise_id, ptype, ref_id, libelle, montant, methode, reference_externe))
+    cur = conn.execute("""INSERT INTO recrut_paiements (entreprise_id, candidat_id, type, ref_id, libelle, montant, methode, reference_externe, statut, created_at)
+        VALUES (?,?,?,?,?,?,?,?, 'en_attente', datetime('now'))""",
+        (entreprise_id, candidat_id, ptype, ref_id, libelle, montant, methode, reference_externe))
     pid = cur.lastrowid
-    nom = conn.execute("SELECT raison_sociale FROM entreprises_recrutement WHERE id=?", (entreprise_id,)).fetchone()
+    payeur = "Candidat"
+    if entreprise_id:
+        nom = conn.execute("SELECT raison_sociale FROM entreprises_recrutement WHERE id=?", (entreprise_id,)).fetchone()
+        payeur = nom['raison_sociale'] if nom else 'Entreprise'
+    elif candidat_id:
+        nom = conn.execute("SELECT nom FROM candidats WHERE id=?", (candidat_id,)).fetchone()
+        payeur = (nom['nom'] if nom else 'Candidat')
     conn.commit(); conn.close()
     try:
         notify_roles(['admin'], title="💰 Paiement recrutement à valider",
-            message=f"{(nom['raison_sociale'] if nom else 'Entreprise')} — {libelle} ({montant:,.0f} F)",
+            message=f"{payeur} — {libelle} ({montant:,.0f} F)",
             link="/recrutement/monetisation", type='info', module='recrutement', icon='💰', priority='high')
     except Exception: pass
     return pid
@@ -36858,6 +36864,8 @@ def _recrut_apply_paiement(conn, pay):
             WHERE id=? AND entreprise_id=?""", (ref, eid))
     elif t == 'sponsorise':
         conn.execute("UPDATE offres_emploi SET is_sponsored=1, updated_at=datetime('now') WHERE id=? AND entreprise_id=?", (ref, eid))
+    elif t == 'profil_alaune':
+        conn.execute("UPDATE candidats SET is_featured=1 WHERE id=?", (pay.get('candidat_id') or ref,))
 
 
 CAND_STATUT_MESSAGES = {
@@ -36901,8 +36909,9 @@ def _recrut_migrate():
             niveau_etude TEXT, metier TEXT, competences TEXT, linkedin TEXT, cv_path TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
         # v163b : colonnes compte candidat (espace candidat + suivi)
+        # v163o : is_featured (profil à la une, monétisation candidat)
         for _cd in ["username TEXT", "password_hash TEXT", "salt TEXT",
-                    "is_active INTEGER DEFAULT 1", "last_login TEXT"]:
+                    "is_active INTEGER DEFAULT 1", "last_login TEXT", "is_featured INTEGER DEFAULT 0"]:
             try: c.execute(f"SELECT {_cd.split()[0]} FROM candidats LIMIT 1")
             except:
                 try: c.execute(f"ALTER TABLE candidats ADD COLUMN {_cd}")
@@ -36937,6 +36946,10 @@ def _recrut_migrate():
             libelle TEXT, montant REAL DEFAULT 0, methode TEXT, reference_externe TEXT,
             statut TEXT DEFAULT 'en_attente', created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             validated_at TEXT, validated_by INTEGER)""")
+        try: c.execute("SELECT candidat_id FROM recrut_paiements LIMIT 1")
+        except:
+            try: c.execute("ALTER TABLE recrut_paiements ADD COLUMN candidat_id INTEGER")
+            except: pass
         for _od in ["is_paid INTEGER DEFAULT 0", "is_sponsored INTEGER DEFAULT 0", "paid_until TEXT"]:
             try: c.execute(f"SELECT {_od.split()[0]} FROM offres_emploi LIMIT 1")
             except:
@@ -37336,7 +37349,7 @@ def recrutement_cvtheque():
                (SELECT o.titre FROM candidatures ca JOIN offres_emploi o ON o.id=ca.offre_id
                 WHERE ca.candidat_id=c.id ORDER BY ca.created_at DESC LIMIT 1) AS derniere_offre
         FROM candidats c WHERE {' AND '.join(where)}
-        ORDER BY c.created_at DESC LIMIT 300""", params).fetchall()]
+        ORDER BY COALESCE(c.is_featured,0) DESC, c.created_at DESC LIMIT 300""", params).fetchall()]
     villes = [r[0] for r in conn.execute(
         "SELECT DISTINCT ville FROM candidats WHERE COALESCE(ville,'')!='' ORDER BY ville").fetchall()]
     conn.close()
@@ -37385,9 +37398,29 @@ def recrutement_statistiques():
 
 
 @app.route('/uploads/recrutement_cv/<path:filename>')
-@admin_only_required
 def recrutement_cv_serve(filename):
-    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_cv'), filename)
+    """v163p : CV = donnée personnelle sensible. Accès réservé à :
+    l'admin · le candidat propriétaire · un recruteur dont une offre a reçu ce candidat."""
+    # admin / staff interne
+    if session.get('user_id'):
+        u = get_user_by_id(session['user_id'])
+        if u and u.get('role') == 'admin':
+            return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_cv'), filename)
+    # identifier le candidat propriétaire depuis le nom de fichier cv_<id>_<ts>.<ext>
+    import re as _re
+    m = _re.match(r'cv_(\d+)_', filename or '')
+    owner_id = int(m.group(1)) if m else 0
+    if session.get('candidat_id') and owner_id and session['candidat_id'] == owner_id:
+        return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_cv'), filename)
+    rid = session.get('recruteur_id')
+    if rid and owner_id:
+        conn = _gdb()
+        ok = conn.execute("""SELECT 1 FROM candidatures ca JOIN offres_emploi o ON o.id=ca.offre_id
+            WHERE ca.candidat_id=? AND o.entreprise_id=? LIMIT 1""", (owner_id, rid)).fetchone()
+        conn.close()
+        if ok:
+            return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_cv'), filename)
+    abort(403)
 
 
 # ───────────────────────── PORTAIL PUBLIC /emplois ─────────────────────────
@@ -37439,7 +37472,13 @@ def emploi_detail(oid):
 
 @app.route('/emplois/<int:oid>/postuler', methods=['POST'])
 def emploi_postuler(oid):
-    """Candidature publique : réutilise le compte candidat connecté, sinon crée le candidat (CV optionnel)."""
+    """Candidature : nécessite un compte candidat (réutilise/MAJ son profil). CV optionnel."""
+    # v163q : compte candidat OBLIGATOIRE pour postuler
+    candidat_id = session.get('candidat_id')
+    if not candidat_id:
+        session['recrut_next'] = f'/emplois/{oid}'
+        flash("Veuillez créer un compte ou vous connecter pour postuler.", "warning")
+        return redirect('/emplois/compte')
     conn = _gdb()
     o = conn.execute("SELECT id, titre FROM offres_emploi WHERE id=? AND statut='publiee'", (oid,)).fetchone()
     if not o:
@@ -37448,23 +37487,14 @@ def emploi_postuler(oid):
     email = (request.form.get('email', '') or '').strip()
     if not nom or not email:
         conn.close(); flash("Nom et email sont obligatoires.", "error"); return redirect(f'/emplois/{oid}')
-    # Candidat connecté → on réutilise/MAJ son profil ; sinon nouveau candidat
-    candidat_id = session.get('candidat_id')
-    if candidat_id and conn.execute("SELECT id FROM candidats WHERE id=?", (candidat_id,)).fetchone():
-        conn.execute("""UPDATE candidats SET nom=?, prenoms=?, telephone=?, email=?, ville=?, metier=?,
-            niveau_etude=?, competences=?, linkedin=?, updated_at=datetime('now') WHERE id=?""",
-            (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email,
-             request.form.get('ville', ''), request.form.get('metier', ''),
-             request.form.get('niveau_etude', ''), request.form.get('competences', ''),
-             request.form.get('linkedin', ''), candidat_id))
-    else:
-        cur = conn.execute("""INSERT INTO candidats (nom, prenoms, telephone, email, ville, metier, niveau_etude, competences, linkedin, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?, datetime('now'))""",
-            (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email,
-             request.form.get('ville', ''), request.form.get('metier', ''),
-             request.form.get('niveau_etude', ''), request.form.get('competences', ''),
-             request.form.get('linkedin', '')))
-        candidat_id = cur.lastrowid
+    if not conn.execute("SELECT id FROM candidats WHERE id=?", (candidat_id,)).fetchone():
+        conn.close(); session.pop('candidat_id', None); return redirect('/emplois/compte')
+    conn.execute("""UPDATE candidats SET nom=?, prenoms=?, telephone=?, email=?, ville=?, metier=?,
+        niveau_etude=?, competences=?, linkedin=?, updated_at=datetime('now') WHERE id=?""",
+        (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email,
+         request.form.get('ville', ''), request.form.get('metier', ''),
+         request.form.get('niveau_etude', ''), request.form.get('competences', ''),
+         request.form.get('linkedin', ''), candidat_id))
     # éviter une double candidature à la même offre
     if conn.execute("SELECT id FROM candidatures WHERE offre_id=? AND candidat_id=?", (oid, candidat_id)).fetchone():
         conn.close(); flash("Vous avez déjà postulé à cette offre.", "warning"); return redirect(f'/emplois/{oid}')
@@ -37529,7 +37559,8 @@ def candidat_register():
     conn.commit(); conn.close()
     session['candidat_id'] = cid; session['candidat_nom'] = nom
     flash("✅ Compte créé. Bienvenue dans votre espace candidat !", "success")
-    return redirect('/emplois/compte/dashboard')
+    nxt = session.pop('recrut_next', '')
+    return redirect(nxt if nxt.startswith('/emplois/') else '/emplois/compte/dashboard')
 
 
 @app.route('/emplois/compte/login', methods=['POST'])
@@ -37544,7 +37575,8 @@ def candidat_login():
             conn.execute("UPDATE candidats SET last_login=datetime('now') WHERE id=?", (c['id'],))
             conn.commit(); conn.close()
             session['candidat_id'] = c['id']; session['candidat_nom'] = c['nom']
-            return redirect('/emplois/compte/dashboard')
+            nxt = session.pop('recrut_next', '')
+            return redirect(nxt if nxt.startswith('/emplois/') else '/emplois/compte/dashboard')
     conn.close()
     flash("Identifiants incorrects.", "error")
     return redirect('/emplois/compte')
@@ -37632,8 +37664,32 @@ def candidat_profil():
     return render_template('emplois_compte_profil.html', me=me)
 
 
+@app.route('/emplois/compte/alaune', methods=['GET', 'POST'])
+def candidat_alaune():
+    """v163o : le candidat met (optionnellement) son profil à la une — la candidature reste gratuite."""
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb(); me = conn.execute("SELECT id, nom, is_featured FROM candidats WHERE id=?", (cid,)).fetchone(); conn.close()
+    if not me:
+        session.pop('candidat_id', None); return redirect('/emplois/compte')
+    me = dict(me)
+    prix = _recrut_price('recrut_prix_profil_alaune', 5000)
+    if request.method == 'POST':
+        if me.get('is_featured'):
+            flash("Votre profil est déjà à la une.", "info"); return redirect('/emplois/compte/dashboard')
+        _recrut_create_paiement(None, 'profil_alaune', cid, "Profil candidat à la une", prix,
+                                request.form.get('methode', ''), request.form.get('reference_externe', ''), candidat_id=cid)
+        flash("⭐ Demande enregistrée. Votre profil sera mis à la une dès validation du paiement par l'administrateur.", "success")
+        return redirect('/emplois/compte/dashboard')
+    return render_template('emplois_compte_payer.html', me=me, prix=prix, methodes=RECRUT_PAY_METHODES)
+
+
 @app.route('/uploads/recrutement_photos/<path:filename>')
 def recrutement_photo_serve(filename):
+    # v163p : photos accessibles uniquement à un utilisateur authentifié (candidat, recruteur ou staff)
+    if not (session.get('candidat_id') or session.get('recruteur_id') or session.get('user_id')):
+        abort(403)
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_photos'), filename)
 
 
@@ -37882,8 +37938,11 @@ def recruteur_abonnement(plan_id):
 @admin_only_required
 def recrutement_monetisation():
     conn = _gdb()
-    paiements = [dict(r) for r in conn.execute("""SELECT p.*, e.raison_sociale AS entreprise_nom
-        FROM recrut_paiements p LEFT JOIN entreprises_recrutement e ON e.id=p.entreprise_id
+    paiements = [dict(r) for r in conn.execute("""SELECT p.*,
+        COALESCE(e.raison_sociale, ca.nom || ' (candidat)') AS entreprise_nom
+        FROM recrut_paiements p
+        LEFT JOIN entreprises_recrutement e ON e.id=p.entreprise_id
+        LEFT JOIN candidats ca ON ca.id=p.candidat_id
         ORDER BY CASE p.statut WHEN 'en_attente' THEN 0 ELSE 1 END, p.created_at DESC LIMIT 300""").fetchall()]
     plans = [dict(r) for r in conn.execute("SELECT * FROM recrut_plans ORDER BY display_order, prix").fetchall()]
     revenus = {
@@ -37897,7 +37956,8 @@ def recrutement_monetisation():
     return render_template('recrutement_monetisation.html', page='recrutement',
         paiements=paiements, plans=plans, revenus=revenus, par_type=par_type,
         prix_pub=_recrut_price('recrut_prix_publication', 15000),
-        prix_spon=_recrut_price('recrut_prix_sponsorise', 10000))
+        prix_spon=_recrut_price('recrut_prix_sponsorise', 10000),
+        prix_profil=_recrut_price('recrut_prix_profil_alaune', 5000))
 
 
 @app.route('/recrutement/monetisation/paiement/<int:pid>/<action>', methods=['POST'])
@@ -37926,6 +37986,7 @@ def recrutement_paiement_action(pid, action):
 def recrutement_prix():
     set_notif_config('recrut_prix_publication', str(_num_fr(request.form.get('prix_publication')) or 15000))
     set_notif_config('recrut_prix_sponsorise', str(_num_fr(request.form.get('prix_sponsorise')) or 10000))
+    set_notif_config('recrut_prix_profil_alaune', str(_num_fr(request.form.get('prix_profil')) or 5000))
     flash("✅ Tarifs mis à jour.", "success")
     return redirect('/recrutement/monetisation')
 
@@ -38421,9 +38482,15 @@ def candidat_contrat_pdf(ctr_id):
     if not ctr:
         flash("Contrat introuvable", "error"); return redirect('/emplois/compte/dashboard')
     ctr = dict(ctr)
-    # accès : le candidat propriétaire OU un agent interne connecté
-    if not ((cid and ctr['candidat_id'] == cid) or session.get('user_id')):
-        return redirect('/emplois/compte')
+    # v163p : accès au contrat = candidat propriétaire · admin · recruteur émetteur de l'offre
+    allowed = bool(cid and ctr['candidat_id'] == cid)
+    if not allowed and session.get('user_id'):
+        u = get_user_by_id(session['user_id'])
+        allowed = bool(u and u.get('role') == 'admin')
+    if not allowed and session.get('recruteur_id') and ctr.get('entreprise_id') == session['recruteur_id']:
+        allowed = True
+    if not allowed:
+        abort(403)
 
     def build():
         from reportlab.lib.styles import ParagraphStyle

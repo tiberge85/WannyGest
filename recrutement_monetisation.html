@@ -59,8 +59,10 @@
         <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
         <label style="font-size:11px;color:#888">Publication d'une offre (F)</label>
         <input type="number" name="prix_publication" value="{{ prix_pub|int }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:8px">
-        <label style="font-size:11px;color:#888">Mise à la une « ⭐ sponsorisé » (F)</label>
-        <input type="number" name="prix_sponsorise" value="{{ prix_spon|int }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:10px">
+        <label style="font-size:11px;color:#888">Mise à la une offre « ⭐ sponsorisé » (F)</label>
+        <input type="number" name="prix_sponsorise" value="{{ prix_spon|int }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:8px">
+        <label style="font-size:11px;color:#888">⭐ Profil candidat à la une (F)</label>
+        <input type="number" name="prix_profil" value="{{ prix_profil|int }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:10px">
         <button class="btn btn-primary btn-sm" style="width:100%">💾 Enregistrer les tarifs</button>
     </form>
     </div></div>

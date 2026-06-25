@@ -39,6 +39,8 @@ th{font-size:11px;text-transform:uppercase;color:#888}
         <strong style="font-size:14px;color:#1A7A6D">📄 Mes documents :</strong>
         <a href="/emplois/compte/cv.pdf" target="_blank" class="badge" style="background:#7b1fa2;color:#fff;padding:7px 12px">Générer mon CV (PDF)</a>
         <a href="/emplois/compte/profil" class="badge" style="background:#1A7A6D;color:#fff;padding:7px 12px">✏️ Modifier mon profil</a>
+        {% if me.is_featured %}<span class="badge" style="background:#fcefe6;color:#e08a3c;padding:7px 12px">⭐ Profil à la une</span>
+        {% else %}<a href="/emplois/compte/alaune" class="badge" style="background:#ef8f63;color:#fff;padding:7px 12px">⭐ Mettre mon profil à la une</a>{% endif %}
     </div>
 
     {% if contrats %}

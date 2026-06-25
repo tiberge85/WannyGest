@@ -71,8 +71,12 @@ input:focus,textarea:focus{outline:none;border-color:var(--teal);background:#fff
     </div>
     <div>
         <div class="card apply"><h2>📨 Postuler</h2>
-            {% if candidat_nom %}<div class="note ok">✅ Connecté : <strong>{{ candidat_nom }}</strong> — <a href="/emplois/compte/dashboard" style="color:var(--teal)">mes candidatures</a></div>
-            {% else %}<div class="note tip">💡 <a href="/emplois/compte" style="color:#5b62c4;font-weight:700">Créez un compte</a> pour suivre vos candidatures.</div>{% endif %}
+            {% if not candidat_nom %}
+            <div class="note tip">🔒 Pour postuler, vous devez avoir un compte candidat (gratuit).</div>
+            <a href="/emplois/compte" class="btn" style="display:block;text-align:center;text-decoration:none">🔑 Créer un compte / se connecter</a>
+            <p style="font-size:11px;color:var(--muted);text-align:center;margin-top:8px">Postuler est 100 % gratuit. Le compte vous permet de suivre vos candidatures.</p>
+            {% else %}
+            <div class="note ok">✅ Connecté : <strong>{{ candidat_nom }}</strong> — <a href="/emplois/compte/dashboard" style="color:var(--teal)">mes candidatures</a></div>
             <form method="post" action="/emplois/{{ o.id }}/postuler" enctype="multipart/form-data">
                 <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                 <label>Nom *</label><input name="nom" required value="{{ moi.nom if moi else '' }}">
@@ -89,6 +93,7 @@ input:focus,textarea:focus{outline:none;border-color:var(--teal);background:#fff
                 <textarea name="lettre_motivation" id="lettre" rows="5" placeholder="Présentez votre motivation…"></textarea>
                 <button class="btn" type="submit">✅ Envoyer ma candidature</button>
             </form>
+            {% endif %}
         </div>
         <div class="card" style="text-align:center"><h2>📣 Partager</h2>
             <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">

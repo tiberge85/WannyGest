@@ -16,7 +16,8 @@
 {% if candidats %}
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
     {% for c in candidats %}
-    <div class="card" style="padding:14px">
+    <div class="card" style="padding:14px{% if c.is_featured %};border:1.5px solid #f0c674;box-shadow:0 4px 14px rgba(242,159,47,.14){% endif %}">
+        {% if c.is_featured %}<div style="background:#fcefe6;color:#e08a3c;font-size:10px;font-weight:800;padding:2px 9px;border-radius:999px;display:inline-block;margin-bottom:6px">⭐ À la une</div>{% endif %}
         <div style="display:flex;justify-content:space-between;align-items:start;gap:6px">
             <div style="display:flex;gap:10px;align-items:center">
                 {% if c.photo %}<img src="/uploads/{{ c.photo }}" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid #eef4fb;flex:none">
