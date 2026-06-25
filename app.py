@@ -36803,6 +36803,63 @@ def _recrut_qr_data_uri(url, color='#1A7A6D'):
         return ''
 
 
+RECRUT_PAY_METHODES = ['Wave', 'Orange Money', 'MTN MoMo', 'Moov Money', 'Virement', 'Espèces']
+
+def _recrut_price(key, default):
+    try:
+        v = get_notif_config(key)
+        return float(v) if v not in (None, '') else float(default)
+    except Exception:
+        return float(default)
+
+
+def _recrut_active_sub(conn, entreprise_id):
+    """Abonnement actif (non expiré, avec crédit d'offres restant) ou None."""
+    try:
+        r = conn.execute("""SELECT s.*, p.nom AS plan_nom, p.nb_offres, p.sponsored_inclus, p.cvtheque_access, p.prix
+            FROM recrut_subscriptions s JOIN recrut_plans p ON p.id=s.plan_id
+            WHERE s.entreprise_id=? AND s.statut='actif' AND (s.expires_at IS NULL OR s.expires_at>=date('now'))
+            ORDER BY s.expires_at DESC LIMIT 1""", (entreprise_id,)).fetchone()
+        return dict(r) if r else None
+    except Exception:
+        return None
+
+
+def _recrut_create_paiement(entreprise_id, ptype, ref_id, libelle, montant, methode='', reference_externe=''):
+    conn = _gdb()
+    cur = conn.execute("""INSERT INTO recrut_paiements (entreprise_id, type, ref_id, libelle, montant, methode, reference_externe, statut, created_at)
+        VALUES (?,?,?,?,?,?,?, 'en_attente', datetime('now'))""",
+        (entreprise_id, ptype, ref_id, libelle, montant, methode, reference_externe))
+    pid = cur.lastrowid
+    nom = conn.execute("SELECT raison_sociale FROM entreprises_recrutement WHERE id=?", (entreprise_id,)).fetchone()
+    conn.commit(); conn.close()
+    try:
+        notify_roles(['admin'], title="💰 Paiement recrutement à valider",
+            message=f"{(nom['raison_sociale'] if nom else 'Entreprise')} — {libelle} ({montant:,.0f} F)",
+            link="/recrutement/monetisation", type='info', module='recrutement', icon='💰', priority='high')
+    except Exception: pass
+    return pid
+
+
+def _recrut_apply_paiement(conn, pay):
+    """Applique l'effet d'un paiement validé selon son type."""
+    t = pay['type']; eid = pay['entreprise_id']; ref = pay['ref_id']
+    if t == 'abonnement':
+        plan = conn.execute("SELECT * FROM recrut_plans WHERE id=?", (ref,)).fetchone()
+        if plan:
+            plan = dict(plan)
+            conn.execute("UPDATE recrut_subscriptions SET statut='expire' WHERE entreprise_id=? AND statut='actif'", (eid,))
+            conn.execute("""INSERT INTO recrut_subscriptions (entreprise_id, plan_id, started_at, expires_at, offres_used, statut, created_at)
+                VALUES (?,?, date('now'), date('now', ?), 0, 'actif', datetime('now'))""",
+                (eid, plan['id'], f"+{int(plan['duree_jours'] or 30)} days"))
+    elif t == 'publication':
+        conn.execute("""UPDATE offres_emploi SET statut='publiee', is_paid=1,
+            date_publication=COALESCE(date_publication, date('now')), updated_at=datetime('now')
+            WHERE id=? AND entreprise_id=?""", (ref, eid))
+    elif t == 'sponsorise':
+        conn.execute("UPDATE offres_emploi SET is_sponsored=1, updated_at=datetime('now') WHERE id=? AND entreprise_id=?", (ref, eid))
+
+
 CAND_STATUT_MESSAGES = {
     'recu': "Votre candidature a bien été reçue.",
     'analyse': "Votre candidature est en cours d'analyse par notre équipe RH.",
@@ -36865,6 +36922,33 @@ def _recrut_migrate():
             sender_type TEXT, sender_name TEXT, message TEXT,
             read_by_recruteur INTEGER DEFAULT 0, read_by_candidat INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        # v163n : MONÉTISATION — plans d'abonnement, abonnements, paiements
+        c.execute("""CREATE TABLE IF NOT EXISTS recrut_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT NOT NULL, prix REAL DEFAULT 0,
+            duree_jours INTEGER DEFAULT 30, nb_offres INTEGER DEFAULT 1, sponsored_inclus INTEGER DEFAULT 0,
+            cvtheque_access INTEGER DEFAULT 0, description TEXT, actif INTEGER DEFAULT 1,
+            display_order INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS recrut_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, entreprise_id INTEGER, plan_id INTEGER,
+            started_at TEXT, expires_at TEXT, offres_used INTEGER DEFAULT 0,
+            statut TEXT DEFAULT 'actif', created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS recrut_paiements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, entreprise_id INTEGER, type TEXT, ref_id INTEGER,
+            libelle TEXT, montant REAL DEFAULT 0, methode TEXT, reference_externe TEXT,
+            statut TEXT DEFAULT 'en_attente', created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            validated_at TEXT, validated_by INTEGER)""")
+        for _od in ["is_paid INTEGER DEFAULT 0", "is_sponsored INTEGER DEFAULT 0", "paid_until TEXT"]:
+            try: c.execute(f"SELECT {_od.split()[0]} FROM offres_emploi LIMIT 1")
+            except:
+                try: c.execute(f"ALTER TABLE offres_emploi ADD COLUMN {_od}")
+                except: pass
+        if c.execute("SELECT COUNT(*) FROM recrut_plans").fetchone()[0] == 0:
+            for nom, prix, dj, nbo, spons, cvt, desc, order_ in [
+                ('Starter', 15000, 30, 1, 0, 0, '1 offre / mois', 1),
+                ('Pro', 50000, 30, 5, 1, 1, '5 offres + 1 mise à la une + accès CVthèque', 2),
+                ('Entreprise', 120000, 30, 20, 1, 1, '20 offres + mises à la une + CVthèque', 3)]:
+                c.execute("""INSERT INTO recrut_plans (nom, prix, duree_jours, nb_offres, sponsored_inclus, cvtheque_access, description, display_order)
+                    VALUES (?,?,?,?,?,?,?,?)""", (nom, prix, dj, nbo, spons, cvt, desc, order_))
         # v163i : contrats avec signature électronique
         c.execute("""CREATE TABLE IF NOT EXISTS recrutement_contrats (
             id INTEGER PRIMARY KEY AUTOINCREMENT, candidature_id INTEGER, candidat_id INTEGER,
@@ -37325,7 +37409,7 @@ def emplois_portail():
     offres = [dict(r) for r in conn.execute(f"""
         SELECT o.*, e.raison_sociale AS entreprise_nom, e.ville AS entreprise_ville
         FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
-        WHERE {' AND '.join(where)} ORDER BY o.date_publication DESC, o.created_at DESC""", params).fetchall()]
+        WHERE {' AND '.join(where)} ORDER BY COALESCE(o.is_sponsored,0) DESC, o.date_publication DESC, o.created_at DESC""", params).fetchall()]
     villes = [r[0] for r in conn.execute(
         "SELECT DISTINCT lieu_travail FROM offres_emploi WHERE statut='publiee' AND COALESCE(lieu_travail,'')!='' ORDER BY lieu_travail").fetchall()]
     conn.close()
@@ -37646,10 +37730,15 @@ def recruteur_dashboard():
     offres = [dict(r) for r in conn.execute("""SELECT o.*,
         (SELECT COUNT(*) FROM candidatures WHERE offre_id=o.id) AS nb_cand
         FROM offres_emploi o WHERE o.entreprise_id=? ORDER BY o.created_at DESC""", (rid,)).fetchall()]
+    sub = _recrut_active_sub(conn, rid)
+    plans = [dict(r) for r in conn.execute("SELECT * FROM recrut_plans WHERE actif=1 ORDER BY display_order, prix").fetchall()]
     conn.close()
     return render_template('recruteur_dashboard.html', e=e, kpi=kpi, offres=offres,
         contrats=RECRUT_CONTRATS, offre_labels=RECRUT_OFFRE_LABELS,
-        approved=(e.get('account_status') == 'approved'))
+        approved=(e.get('account_status') == 'approved'),
+        sub=sub, plans=plans, methodes=RECRUT_PAY_METHODES,
+        prix_pub=_recrut_price('recrut_prix_publication', 15000),
+        prix_spon=_recrut_price('recrut_prix_sponsorise', 10000))
 
 
 @app.route('/recruteur/offres/add', methods=['POST'])
@@ -37661,14 +37750,18 @@ def recruteur_offre_add():
     if not titre:
         flash("Le titre est obligatoire.", "error"); return redirect('/recruteur/dashboard')
     approved = e.get('account_status') == 'approved'
-    publier = request.form.get('action') == 'publier' and approved
+    want_publish = request.form.get('action') == 'publier'
     ref = f"OFF-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(2).upper()}"
     conn = _gdb()
+    # v163n : publication = besoin d'un crédit d'abonnement actif (sinon paiement à l'unité)
+    sub = _recrut_active_sub(conn, e['id']) if approved else None
+    has_credit = sub and (sub['offres_used'] < (sub['nb_offres'] or 0))
+    publier = want_publish and approved and has_credit
     conn.execute("""INSERT INTO offres_emploi
         (entreprise_id, reference, titre, description, missions, profil_recherche, niveau_etude,
          experience, type_contrat, salaire_min, salaire_max, lieu_travail, teletravail,
-         date_publication, date_limite, nombre_postes, statut, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))""",
+         date_publication, date_limite, nombre_postes, statut, is_paid, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))""",
         (e['id'], ref, titre, request.form.get('description', ''), request.form.get('missions', ''),
          request.form.get('profil_recherche', ''), request.form.get('niveau_etude', ''),
          request.form.get('experience', ''), request.form.get('type_contrat', 'CDI'),
@@ -37676,12 +37769,20 @@ def recruteur_offre_add():
          request.form.get('lieu_travail', ''), 1 if request.form.get('teletravail') else 0,
          datetime.now().strftime('%Y-%m-%d') if publier else None,
          request.form.get('date_limite', '') or None, int(request.form.get('nombre_postes', 1) or 1),
-         'publiee' if publier else 'brouillon'))
+         'publiee' if publier else 'brouillon', 1 if publier else 0))
+    oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    if publier:
+        conn.execute("UPDATE recrut_subscriptions SET offres_used=offres_used+1 WHERE id=?", (sub['id'],))
     conn.commit(); conn.close()
-    if request.form.get('action') == 'publier' and not approved:
-        flash("Offre enregistrée en brouillon. La publication sera possible une fois votre compte validé par l'administrateur.", "warning")
+    if not want_publish:
+        flash(f"✅ Offre « {titre} » enregistrée en brouillon.", "success")
+    elif not approved:
+        flash("Offre en brouillon. La publication sera possible une fois votre compte validé par l'administrateur.", "warning")
+    elif publier:
+        flash(f"✅ Offre « {titre} » publiée (1 crédit d'offre utilisé).", "success")
     else:
-        flash(f"✅ Offre « {titre} » {'publiée' if publier else 'enregistrée en brouillon'}.", "success")
+        flash("Offre en brouillon. Souscrivez un forfait ou payez la publication à l'unité pour la publier.", "warning")
+        return redirect(f'/recruteur/offre/{oid}/payer')
     return redirect('/recruteur/dashboard')
 
 
@@ -37696,16 +37797,137 @@ def recruteur_offre_statut(oid, statut):
     own = conn.execute("SELECT id FROM offres_emploi WHERE id=? AND entreprise_id=?", (oid, e['id'])).fetchone()
     if not own:
         conn.close(); flash("Offre introuvable.", "error"); return redirect('/recruteur/dashboard')
-    if statut == 'publiee' and e.get('account_status') != 'approved':
-        conn.close(); flash("⏳ Votre compte doit être validé par l'administrateur avant de publier.", "warning"); return redirect('/recruteur/dashboard')
     if statut == 'publiee':
-        conn.execute("UPDATE offres_emploi SET statut='publiee', date_publication=COALESCE(date_publication, ?), updated_at=datetime('now') WHERE id=?",
-            (datetime.now().strftime('%Y-%m-%d'), oid))
-    else:
-        conn.execute("UPDATE offres_emploi SET statut=?, updated_at=datetime('now') WHERE id=?", (statut, oid))
+        if e.get('account_status') != 'approved':
+            conn.close(); flash("⏳ Votre compte doit être validé par l'administrateur avant de publier.", "warning"); return redirect('/recruteur/dashboard')
+        already_paid = conn.execute("SELECT is_paid FROM offres_emploi WHERE id=?", (oid,)).fetchone()['is_paid']
+        sub = _recrut_active_sub(conn, e['id'])
+        has_credit = sub and (sub['offres_used'] < (sub['nb_offres'] or 0))
+        if already_paid:
+            conn.execute("UPDATE offres_emploi SET statut='publiee', date_publication=COALESCE(date_publication, ?), updated_at=datetime('now') WHERE id=?",
+                (datetime.now().strftime('%Y-%m-%d'), oid))
+        elif has_credit:
+            conn.execute("UPDATE offres_emploi SET statut='publiee', is_paid=1, date_publication=COALESCE(date_publication, ?), updated_at=datetime('now') WHERE id=?",
+                (datetime.now().strftime('%Y-%m-%d'), oid))
+            conn.execute("UPDATE recrut_subscriptions SET offres_used=offres_used+1 WHERE id=?", (sub['id'],))
+        else:
+            conn.close(); flash("💳 Publication payante : souscrivez un forfait ou payez la publication à l'unité.", "warning")
+            return redirect(f'/recruteur/offre/{oid}/payer')
+        conn.commit(); conn.close()
+        flash("✅ Offre publiée.", "success")
+        return redirect('/recruteur/dashboard')
+    conn.execute("UPDATE offres_emploi SET statut=?, updated_at=datetime('now') WHERE id=?", (statut, oid))
     conn.commit(); conn.close()
     flash(f"✅ Offre : {_recrut_status_label('offre', statut)[0]}", "success")
     return redirect('/recruteur/dashboard')
+
+
+@app.route('/recruteur/offre/<int:oid>/payer', methods=['GET', 'POST'])
+def recruteur_offre_payer(oid):
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    conn = _gdb()
+    o = conn.execute("SELECT id, titre, statut, is_paid FROM offres_emploi WHERE id=? AND entreprise_id=?", (oid, e['id'])).fetchone()
+    conn.close()
+    if not o:
+        flash("Offre introuvable.", "error"); return redirect('/recruteur/dashboard')
+    o = dict(o)
+    prix = _recrut_price('recrut_prix_publication', 15000)
+    if request.method == 'POST':
+        _recrut_create_paiement(e['id'], 'publication', oid, f"Publication : {o['titre']}", prix,
+                                request.form.get('methode', ''), request.form.get('reference_externe', ''))
+        flash("💳 Demande de paiement enregistrée. Votre offre sera publiée dès validation par l'administrateur.", "success")
+        return redirect('/recruteur/dashboard')
+    return render_template('recruteur_payer.html', e=e, o=o, prix=prix, methodes=RECRUT_PAY_METHODES,
+                           kind='publication', titre="Publier cette offre")
+
+
+@app.route('/recruteur/offre/<int:oid>/sponsoriser', methods=['POST'])
+def recruteur_offre_sponsoriser(oid):
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    conn = _gdb()
+    o = conn.execute("SELECT titre FROM offres_emploi WHERE id=? AND entreprise_id=?", (oid, e['id'])).fetchone()
+    conn.close()
+    if not o:
+        flash("Offre introuvable.", "error"); return redirect('/recruteur/dashboard')
+    prix = _recrut_price('recrut_prix_sponsorise', 10000)
+    _recrut_create_paiement(e['id'], 'sponsorise', oid, f"Mise à la une : {o['titre']}", prix,
+                            request.form.get('methode', ''), request.form.get('reference_externe', ''))
+    flash("⭐ Demande de mise à la une enregistrée. Effective après validation administrateur.", "success")
+    return redirect('/recruteur/dashboard')
+
+
+@app.route('/recruteur/abonnement/<int:plan_id>', methods=['POST'])
+def recruteur_abonnement(plan_id):
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    conn = _gdb()
+    plan = conn.execute("SELECT * FROM recrut_plans WHERE id=? AND actif=1", (plan_id,)).fetchone()
+    conn.close()
+    if not plan:
+        flash("Forfait introuvable.", "error"); return redirect('/recruteur/dashboard')
+    plan = dict(plan)
+    _recrut_create_paiement(e['id'], 'abonnement', plan_id, f"Abonnement {plan['nom']}", plan['prix'],
+                            request.form.get('methode', ''), request.form.get('reference_externe', ''))
+    flash(f"💳 Demande d'abonnement « {plan['nom']} » enregistrée. Actif dès validation administrateur.", "success")
+    return redirect('/recruteur/dashboard')
+
+
+# ───────────────────────── ADMIN : monétisation ─────────────────────────
+@app.route('/recrutement/monetisation')
+@admin_only_required
+def recrutement_monetisation():
+    conn = _gdb()
+    paiements = [dict(r) for r in conn.execute("""SELECT p.*, e.raison_sociale AS entreprise_nom
+        FROM recrut_paiements p LEFT JOIN entreprises_recrutement e ON e.id=p.entreprise_id
+        ORDER BY CASE p.statut WHEN 'en_attente' THEN 0 ELSE 1 END, p.created_at DESC LIMIT 300""").fetchall()]
+    plans = [dict(r) for r in conn.execute("SELECT * FROM recrut_plans ORDER BY display_order, prix").fetchall()]
+    revenus = {
+        'total': conn.execute("SELECT COALESCE(SUM(montant),0) FROM recrut_paiements WHERE statut='paye'").fetchone()[0],
+        'attente': conn.execute("SELECT COALESCE(SUM(montant),0) FROM recrut_paiements WHERE statut='en_attente'").fetchone()[0],
+        'mois': conn.execute("SELECT COALESCE(SUM(montant),0) FROM recrut_paiements WHERE statut='paye' AND strftime('%Y-%m',validated_at)=strftime('%Y-%m','now')").fetchone()[0],
+        'nb_attente': conn.execute("SELECT COUNT(*) FROM recrut_paiements WHERE statut='en_attente'").fetchone()[0],
+    }
+    par_type = [dict(r) for r in conn.execute("SELECT type, COALESCE(SUM(montant),0) AS total, COUNT(*) AS n FROM recrut_paiements WHERE statut='paye' GROUP BY type").fetchall()]
+    conn.close()
+    return render_template('recrutement_monetisation.html', page='recrutement',
+        paiements=paiements, plans=plans, revenus=revenus, par_type=par_type,
+        prix_pub=_recrut_price('recrut_prix_publication', 15000),
+        prix_spon=_recrut_price('recrut_prix_sponsorise', 10000))
+
+
+@app.route('/recrutement/monetisation/paiement/<int:pid>/<action>', methods=['POST'])
+@admin_only_required
+def recrutement_paiement_action(pid, action):
+    conn = _gdb()
+    pay = conn.execute("SELECT * FROM recrut_paiements WHERE id=?", (pid,)).fetchone()
+    if not pay:
+        conn.close(); flash("Paiement introuvable.", "error"); return redirect('/recrutement/monetisation')
+    pay = dict(pay)
+    if action == 'valider' and pay['statut'] == 'en_attente':
+        conn.execute("UPDATE recrut_paiements SET statut='paye', validated_at=datetime('now'), validated_by=? WHERE id=?",
+            (session.get('user_id'), pid))
+        _recrut_apply_paiement(conn, pay)
+        conn.commit(); flash("✅ Paiement validé et appliqué.", "success")
+    elif action == 'refuser':
+        conn.execute("UPDATE recrut_paiements SET statut='refuse', validated_at=datetime('now'), validated_by=? WHERE id=?",
+            (session.get('user_id'), pid))
+        conn.commit(); flash("❌ Paiement refusé.", "warning")
+    conn.close()
+    return redirect('/recrutement/monetisation')
+
+
+@app.route('/recrutement/monetisation/prix', methods=['POST'])
+@admin_only_required
+def recrutement_prix():
+    set_notif_config('recrut_prix_publication', str(_num_fr(request.form.get('prix_publication')) or 15000))
+    set_notif_config('recrut_prix_sponsorise', str(_num_fr(request.form.get('prix_sponsorise')) or 10000))
+    flash("✅ Tarifs mis à jour.", "success")
+    return redirect('/recrutement/monetisation')
 
 
 @app.route('/recruteur/candidatures')

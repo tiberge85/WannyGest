@@ -53,6 +53,28 @@ input,select,textarea{width:100%;padding:9px;border:1.5px solid #eceeed;border-r
     <div class="banner ok">✅ Votre compte est validé — vous pouvez publier vos offres et gérer vos candidatures.</div>
     {% endif %}
 
+    <div class="card">
+        <h3>💳 Abonnement &amp; publication</h3>
+        {% if sub %}
+        <div class="banner ok" style="margin-bottom:10px">✅ Forfait <strong>{{ sub.plan_nom }}</strong> actif — {{ sub.nb_offres - sub.offres_used }} offre(s) restante(s) sur {{ sub.nb_offres }} · expire le {{ sub.expires_at }}</div>
+        {% else %}
+        <div class="banner warn" style="margin-bottom:10px">Aucun forfait actif. Souscrivez un forfait (plusieurs offres) ou payez chaque publication à l'unité ({{ '{:,.0f}'.format(prix_pub).replace(',', ' ') }} F / offre).</div>
+        {% endif %}
+        <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+        {% for pl in plans %}
+            <div style="border:1.5px solid #e6e6e6;border-radius:12px;padding:14px;text-align:center">
+                <div style="font-weight:800;color:#14564d;font-size:15px">{{ pl.nom }}</div>
+                <div style="font-size:22px;font-weight:900;color:#1A7A6D;margin:4px 0">{{ '{:,.0f}'.format(pl.prix).replace(',', ' ') }} F</div>
+                <div style="font-size:11px;color:#888;min-height:32px">{{ pl.description }}</div>
+                <form method="post" action="/recruteur/abonnement/{{ pl.id }}" style="margin-top:8px">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                    <button class="btn teal" type="submit" style="width:100%">Souscrire</button>
+                </form>
+            </div>
+        {% endfor %}
+        </div>
+    </div>
+
     <div class="kpis">
         <div class="kpi"><div class="l">Offres</div><div class="v">{{ kpi.offres }}</div></div>
         <div class="kpi"><div class="l">Offres actives</div><div class="v" style="color:#2e7d32">{{ kpi.actives }}</div></div>
@@ -103,6 +125,8 @@ input,select,textarea{width:100%;padding:9px;border:1.5px solid #eceeed;border-r
             <td style="white-space:nowrap">
                 {% if o.statut != 'publiee' %}<form method="post" action="/recruteur/offres/{{ o.id }}/statut/publiee" style="display:inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn teal" style="padding:4px 8px;font-size:11px" {% if not approved %}disabled title="Compte en attente"{% endif %}>Publier</button></form>{% endif %}
                 {% if o.statut == 'publiee' %}<form method="post" action="/recruteur/offres/{{ o.id }}/statut/suspendue" style="display:inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn ghost" style="padding:4px 8px;font-size:11px">Suspendre</button></form>{% endif %}
+                {% if o.statut == 'publiee' and not o.is_sponsored %}<form method="post" action="/recruteur/offres/{{ o.id }}/sponsoriser" style="display:inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn" style="padding:4px 8px;font-size:11px;background:#f29f2f" title="Mettre à la une (payant)">⭐ À la une</button></form>{% endif %}
+                {% if o.is_sponsored %}<span class="badge" style="background:#fcefe6;color:#e08a3c">⭐ À la une</span>{% endif %}
                 {% if o.statut != 'cloturee' %}<form method="post" action="/recruteur/offres/{{ o.id }}/statut/cloturee" style="display:inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn" style="padding:4px 8px;font-size:11px;background:#c53030">Clôturer</button></form>{% endif %}
             </td>
         </tr>

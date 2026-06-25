@@ -1,0 +1,68 @@
+{% extends "base.html" %}{% block title %}WannyGest — Monétisation recrutement{% endblock %}{% block content %}
+<div class="page-header">
+    <div><h1>💰 Monétisation recrutement</h1><p style="color:#666;font-size:13px">{{ revenus.nb_attente }} paiement(s) en attente de validation</p></div>
+    <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px">
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Revenus encaissés</div><div style="font-size:23px;font-weight:800;color:#2e7d32">{{ '{:,.0f}'.format(revenus.total).replace(',', ' ') }} F</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Ce mois-ci</div><div style="font-size:23px;font-weight:800;color:#1565c0">{{ '{:,.0f}'.format(revenus.mois).replace(',', ' ') }} F</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">En attente</div><div style="font-size:23px;font-weight:800;color:#b8561f">{{ '{:,.0f}'.format(revenus.attente).replace(',', ' ') }} F</div></div>
+</div>
+
+<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Paiements</h3></div><div class="card-body" style="padding:0">
+{% if paiements %}
+<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Entreprise</th><th>Objet</th><th>Type</th><th style="text-align:right">Montant</th><th>Moyen / réf.</th><th>Statut</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for p in paiements %}
+    <tr {% if p.statut == 'en_attente' %}style="background:#fff8e1"{% endif %}>
+        <td style="font-size:11px">{{ (p.created_at or '')[:10] }}</td>
+        <td><strong>{{ p.entreprise_nom or '—' }}</strong></td>
+        <td style="font-size:12px">{{ p.libelle }}</td>
+        <td style="font-size:11px">{% if p.type=='abonnement' %}📅 Abonnement{% elif p.type=='publication' %}📋 Publication{% elif p.type=='sponsorise' %}⭐ À la une{% else %}{{ p.type }}{% endif %}</td>
+        <td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(p.montant or 0).replace(',', ' ') }} F</td>
+        <td style="font-size:11px">{{ p.methode or '—' }}{% if p.reference_externe %}<br><span style="color:#888">{{ p.reference_externe }}</span>{% endif %}</td>
+        <td>
+            {% if p.statut == 'paye' %}<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">✅ Payé</span>
+            {% elif p.statut == 'en_attente' %}<span style="background:#fff3e0;color:#b8561f;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">⏳ En attente</span>
+            {% else %}<span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">❌ Refusé</span>{% endif %}
+        </td>
+        <td style="white-space:nowrap">
+            {% if p.statut == 'en_attente' %}
+            <form method="post" action="/recrutement/monetisation/paiement/{{ p.id }}/valider" style="display:inline"><button class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:11px;padding:4px 8px">✅ Valider</button></form>
+            <form method="post" action="/recrutement/monetisation/paiement/{{ p.id }}/refuser" style="display:inline"><button class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:11px;padding:4px 8px">❌</button></form>
+            {% else %}—{% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}<div style="padding:30px;text-align:center;color:#888">Aucun paiement pour l'instant.</div>{% endif %}
+</div></div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px">
+    <div class="card"><div class="card-header"><h3>Forfaits d'abonnement</h3></div><div class="card-body" style="padding:0">
+    <table><thead><tr><th>Forfait</th><th>Prix</th><th>Offres</th><th>À la une</th><th>CVthèque</th></tr></thead><tbody>
+    {% for pl in plans %}
+    <tr><td><strong>{{ pl.nom }}</strong><br><span style="font-size:10px;color:#888">{{ pl.description }}</span></td>
+        <td style="font-weight:700">{{ '{:,.0f}'.format(pl.prix).replace(',', ' ') }} F</td>
+        <td>{{ pl.nb_offres }}/{{ pl.duree_jours }}j</td>
+        <td>{{ '✅' if pl.sponsored_inclus else '—' }}</td>
+        <td>{{ '✅' if pl.cvtheque_access else '—' }}</td></tr>
+    {% endfor %}
+    </tbody></table>
+    </div></div>
+
+    <div class="card"><div class="card-header"><h3>Tarifs à l'unité</h3></div><div class="card-body">
+    <form method="post" action="/recrutement/monetisation/prix">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <label style="font-size:11px;color:#888">Publication d'une offre (F)</label>
+        <input type="number" name="prix_publication" value="{{ prix_pub|int }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:8px">
+        <label style="font-size:11px;color:#888">Mise à la une « ⭐ sponsorisé » (F)</label>
+        <input type="number" name="prix_sponsorise" value="{{ prix_spon|int }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:10px">
+        <button class="btn btn-primary btn-sm" style="width:100%">💾 Enregistrer les tarifs</button>
+    </form>
+    </div></div>
+</div>
+{% endblock %}

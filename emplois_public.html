@@ -118,7 +118,8 @@ a{text-decoration:none}
     {% if offres %}
     <div class="grid">
         {% for o in offres %}
-        <a class="job" href="/emplois/{{ o.id }}">
+        <a class="job" href="/emplois/{{ o.id }}"{% if o.is_sponsored %} style="border-color:#f0c674;box-shadow:0 4px 16px rgba(242,159,47,.16)"{% endif %}>
+            {% if o.is_sponsored %}<div style="align-self:flex-start;background:#fcefe6;color:#e08a3c;font-size:11px;font-weight:800;padding:2px 10px;border-radius:999px;margin-bottom:8px">⭐ À la une</div>{% endif %}
             <div class="co">
                 <div class="logo">🏢</div>
                 <div><h3>{{ o.titre }}</h3><small>{{ o.entreprise_nom or 'Entreprise' }}</small></div>
