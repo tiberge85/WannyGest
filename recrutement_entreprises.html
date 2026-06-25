@@ -25,6 +25,7 @@
             {% if st != 'approved' %}<form method="post" action="/recrutement/entreprises/{{ e.id }}/valider/approve" style="display:inline"><button class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:11px;padding:4px 8px">✅ Valider</button></form>{% endif %}
             {% if st == 'approved' %}<form method="post" action="/recrutement/entreprises/{{ e.id }}/valider/suspend" style="display:inline"><button class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:11px;padding:4px 8px">⏸️ Suspendre</button></form>{% endif %}
             {% if st != 'rejected' %}<form method="post" action="/recrutement/entreprises/{{ e.id }}/valider/reject" style="display:inline" onsubmit="return confirm('Refuser cette entreprise ? Ses offres publiées seront suspendues.')"><button class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:11px;padding:4px 8px">❌ Refuser</button></form>{% endif %}
+            <form method="post" action="/recrutement/entreprises/{{ e.id }}/delete" style="display:inline" onsubmit="return confirm('⚠️ Supprimer définitivement « {{ e.raison_sociale }} » AINSI QUE ses offres et candidatures ? Action irréversible.')"><button class="btn btn-sm" style="background:#fafafa;color:#999;font-size:11px;padding:4px 8px" title="Supprimer">🗑️</button></form>
         </td>
     </tr>
     {% endfor %}

@@ -39,9 +39,10 @@
         </td>
         <td style="white-space:nowrap">
             {% if p.statut == 'en_attente' %}
-            <form method="post" action="/recrutement/monetisation/paiement/{{ p.id }}/valider" style="display:inline"><button class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:11px;padding:4px 8px">✅ Valider</button></form>
-            <form method="post" action="/recrutement/monetisation/paiement/{{ p.id }}/refuser" style="display:inline"><button class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:11px;padding:4px 8px">❌</button></form>
-            {% else %}—{% endif %}
+            <form method="post" action="/recrutement/monetisation/paiement/{{ p.id }}/valider" style="display:inline"><button type="submit" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:11px;padding:4px 8px">✅ Valider</button></form>
+            <form method="post" action="/recrutement/monetisation/paiement/{{ p.id }}/refuser" style="display:inline"><button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:11px;padding:4px 8px">❌</button></form>
+            {% endif %}
+            <form method="post" action="/recrutement/monetisation/paiement/{{ p.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer définitivement ce paiement de l\'historique ?')"><button type="submit" class="btn btn-sm" style="background:#fafafa;color:#999;font-size:11px;padding:4px 8px" title="Supprimer">🗑️</button></form>
         </td>
     </tr>
     {% endfor %}

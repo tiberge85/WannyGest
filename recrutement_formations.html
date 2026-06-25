@@ -1,0 +1,57 @@
+{% extends "base.html" %}{% block title %}WannyGest — Formations{% endblock %}{% block content %}
+<div class="page-header">
+    <div><h1>📚 Formations</h1><p style="color:#666;font-size:13px">Catalogue + inscriptions des candidats</p></div>
+    <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+</div>
+
+<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Inscriptions</h3></div><div class="card-body" style="padding:0">
+{% if inscriptions %}
+<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Candidat</th><th>Formation</th><th>Paiement</th><th>Statut</th></tr></thead>
+    <tbody>
+    {% for i in inscriptions %}{% set lbl = insc_labels.get(i.statut, (i.statut,'#888','•')) %}
+    <tr>
+        <td style="font-size:11px">{{ (i.created_at or '')[:10] }}</td>
+        <td><strong>{{ i.cand_nom }} {{ i.prenoms or '' }}</strong>{% if i.cand_email %}<br><span style="font-size:10px;color:#888">{{ i.cand_email }}</span>{% endif %}</td>
+        <td style="font-size:12px">{{ i.formation_titre }}</td>
+        <td style="font-size:11px">{% if i.pay_statut == 'paye' %}<span style="color:#2e7d32;font-weight:700">✅ Payé</span>{% elif i.pay_statut == 'en_attente' %}<span style="color:#b8561f">⏳ À valider</span>{% else %}—{% endif %}</td>
+        <td><span style="background:{{ lbl[1] }}22;color:{{ lbl[1] }};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">{{ lbl[2] }} {{ lbl[0] }}</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}<div style="padding:24px;text-align:center;color:#888">Aucune inscription pour l'instant.</div>{% endif %}
+</div></div>
+
+<div class="card"><div class="card-header"><h3>Catalogue de formations (tarifs paramétrables)</h3></div><div class="card-body">
+{% for f in formations %}
+<form method="post" action="/recrutement/formations/{{ f.id }}/edit" style="display:grid;grid-template-columns:1.8fr 0.8fr 0.8fr 0.9fr 1.2fr auto auto auto;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="titre" value="{{ f.titre }}" title="Titre" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+    <input type="number" name="prix" value="{{ f.prix|int }}" title="Prix" style="padding:6px;border:1.5px solid #ddd;border-radius:6px;text-align:right">
+    <input name="duree" value="{{ f.duree or '' }}" placeholder="Durée" title="Durée" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+    <input name="date_debut" value="{{ f.date_debut or '' }}" placeholder="Date" title="Date" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+    <input name="formateur" value="{{ f.formateur or '' }}" placeholder="Formateur" title="Formateur" style="padding:6px;border:1.5px solid #ddd;border-radius:6px">
+    <input type="number" name="places" value="{{ f.places or '' }}" placeholder="Pl." title="Places" style="padding:6px;border:1.5px solid #ddd;border-radius:6px;width:60px">
+    <label style="font-size:11px;white-space:nowrap"><input type="checkbox" name="actif" {% if f.actif %}checked{% endif %}> Actif</label>
+    <span style="display:flex;gap:4px">
+        <button type="submit" class="btn btn-sm btn-primary" style="font-size:11px">💾</button>
+    </span>
+    <input type="hidden" name="description" value="{{ f.description or '' }}">
+</form>
+<form method="post" action="/recrutement/formations/{{ f.id }}/delete" onsubmit="return confirm('Supprimer cette formation ?')" style="margin:-6px 0 6px;text-align:right"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button type="submit" style="border:none;background:none;color:#c53030;cursor:pointer;font-size:11px">🗑️ Supprimer</button></form>
+{% endfor %}
+<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700;color:#1A7A6D;font-size:13px">+ Ajouter une formation</summary>
+<form method="post" action="/recrutement/formations/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:8px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="titre" placeholder="Titre *" required style="padding:7px;border:1.5px solid #ddd;border-radius:6px;grid-column:1/-1">
+    <input type="number" name="prix" placeholder="Prix" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input name="duree" placeholder="Durée (ex: 2 jours)" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input name="date_debut" placeholder="Date début" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input name="formateur" placeholder="Formateur" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input type="number" name="places" placeholder="Places" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input name="description" placeholder="Description" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;grid-column:1/-1">
+    <button type="submit" class="btn btn-sm btn-primary">Ajouter</button>
+</form></details>
+</div></div>
+{% endblock %}

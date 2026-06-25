@@ -36889,6 +36889,8 @@ def _recrut_apply_paiement(conn, pay):
         conn.execute("UPDATE candidats SET is_featured=1 WHERE id=?", (pay.get('candidat_id') or ref,))
     elif t == 'service':
         conn.execute("UPDATE recrut_commandes SET statut='en_cours', updated_at=datetime('now') WHERE id=?", (ref,))
+    elif t == 'formation':
+        conn.execute("UPDATE recrut_inscriptions SET statut='confirme', updated_at=datetime('now') WHERE id=?", (ref,))
 
 
 CAND_STATUT_MESSAGES = {
@@ -37002,6 +37004,20 @@ def _recrut_migrate():
                 ('Simulation d\'entretien', 'entretien', 10000, "Entretien blanc avec un pro + retours détaillés.", 3)]:
                 c.execute("INSERT INTO recrut_services (titre, type, prix, description, display_order) VALUES (?,?,?,?,?)",
                           (titre, typ, prix, desc, order_))
+        # v163v : FORMATIONS (sous-catalogue)
+        c.execute("""CREATE TABLE IF NOT EXISTS recrut_formations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, prix REAL DEFAULT 0,
+            duree TEXT, date_debut TEXT, places INTEGER, formateur TEXT, description TEXT,
+            actif INTEGER DEFAULT 1, display_order INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS recrut_inscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, candidat_id INTEGER, formation_id INTEGER,
+            statut TEXT DEFAULT 'inscrit', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        if c.execute("SELECT COUNT(*) FROM recrut_formations").fetchone()[0] == 0:
+            for titre, prix, duree, desc, order_ in [
+                ('Réussir ses entretiens d\'embauche', 25000, '2 jours', 'Techniques, posture, réponses aux questions pièges, mises en situation.', 1),
+                ('Booster son CV & sa présence LinkedIn', 15000, '1 jour', 'Construire un CV percutant et un profil LinkedIn qui attire les recruteurs.', 2)]:
+                c.execute("INSERT INTO recrut_formations (titre, prix, duree, description, display_order) VALUES (?,?,?,?,?)",
+                          (titre, prix, duree, desc, order_))
         # v163i : contrats avec signature électronique
         c.execute("""CREATE TABLE IF NOT EXISTS recrutement_contrats (
             id INTEGER PRIMARY KEY AUTOINCREMENT, candidature_id INTEGER, candidat_id INTEGER,
@@ -37672,10 +37688,13 @@ def candidat_dashboard():
     services = [dict(r) for r in conn.execute("""SELECT cm.id, cm.statut, cm.created_at, cm.livrable_path,
         cm.livrable_note, s.titre, s.prix FROM recrut_commandes cm LEFT JOIN recrut_services s ON s.id=cm.service_id
         WHERE cm.candidat_id=? ORDER BY cm.created_at DESC""", (cid,)).fetchall()]
+    formations = [dict(r) for r in conn.execute("""SELECT i.id, i.statut, i.created_at, f.titre, f.prix, f.duree, f.date_debut
+        FROM recrut_inscriptions i LEFT JOIN recrut_formations f ON f.id=i.formation_id
+        WHERE i.candidat_id=? ORDER BY i.created_at DESC""", (cid,)).fetchall()]
     conn.close()
     return render_template('emplois_compte_dashboard.html', me=me, candidatures=candidatures,
-        entretiens=entretiens, contrats=contrats, unread=unread, services=services,
-        cand_labels=RECRUT_CAND_LABELS, cmd_labels=RECRUT_CMD_LABELS)
+        entretiens=entretiens, contrats=contrats, unread=unread, services=services, formations=formations,
+        cand_labels=RECRUT_CAND_LABELS, cmd_labels=RECRUT_CMD_LABELS, insc_labels=RECRUT_INSC_LABELS)
 
 
 @app.route('/emplois/compte/profil', methods=['GET', 'POST'])
@@ -38084,6 +38103,16 @@ def recrutement_paiement_action(pid, action):
     return redirect('/recrutement/monetisation')
 
 
+@app.route('/recrutement/monetisation/paiement/<int:pid>/delete', methods=['POST'])
+@admin_only_required
+def recrutement_paiement_delete(pid):
+    conn = _gdb()
+    conn.execute("DELETE FROM recrut_paiements WHERE id=?", (pid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Paiement supprimé.", "success")
+    return redirect('/recrutement/monetisation')
+
+
 @app.route('/recrutement/monetisation/prix', methods=['POST'])
 @admin_only_required
 def recrutement_prix():
@@ -38190,6 +38219,24 @@ def recrutement_entreprise_valider(eid, action):
         msg = "⏸️ Entreprise suspendue (repassée en attente)."
     conn.commit(); conn.close()
     flash(msg, "success")
+    return redirect('/recrutement/entreprises')
+
+
+@app.route('/recrutement/entreprises/<int:eid>/delete', methods=['POST'])
+@admin_only_required
+def recrutement_entreprise_delete(eid):
+    conn = _gdb()
+    e = conn.execute("SELECT raison_sociale FROM entreprises_recrutement WHERE id=?", (eid,)).fetchone()
+    if not e:
+        conn.close(); flash("Entreprise introuvable.", "error"); return redirect('/recrutement/entreprises')
+    # supprimer les dépendances (candidatures de ses offres, ses offres, abonnements, paiements)
+    conn.execute("DELETE FROM candidatures WHERE offre_id IN (SELECT id FROM offres_emploi WHERE entreprise_id=?)", (eid,))
+    conn.execute("DELETE FROM offres_emploi WHERE entreprise_id=?", (eid,))
+    conn.execute("DELETE FROM recrut_subscriptions WHERE entreprise_id=?", (eid,))
+    conn.execute("DELETE FROM recrut_paiements WHERE entreprise_id=?", (eid,))
+    conn.execute("DELETE FROM entreprises_recrutement WHERE id=?", (eid,))
+    conn.commit(); conn.close()
+    flash(f"🗑️ Entreprise « {e['raison_sociale']} » supprimée (avec ses offres et candidatures).", "success")
     return redirect('/recrutement/entreprises')
 
 
@@ -38793,6 +38840,120 @@ def recrutement_commande_livrer(cmd_id):
          "Connectez-vous à votre espace candidat pour consulter le livrable et les détails."])
     flash("✅ Commande marquée comme livrée. Le candidat est notifié.", "success")
     return redirect('/recrutement/services')
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163v : FORMATIONS — catalogue + inscription + paiement
+# ════════════════════════════════════════════════════════════════════════════
+RECRUT_INSC_LABELS = {
+    'inscrit': ('À payer', '#b8561f', '💳'),
+    'confirme': ('Confirmée', '#2e7d32', '✅'),
+    'annule': ('Annulée', '#c53030', '❌'),
+}
+
+
+@app.route('/emplois/formations')
+def emplois_formations():
+    conn = _gdb()
+    formations = [dict(r) for r in conn.execute(
+        "SELECT * FROM recrut_formations WHERE actif=1 ORDER BY display_order, prix").fetchall()]
+    conn.close()
+    return render_template('emplois_formations.html', formations=formations, candidat_nom=session.get('candidat_nom'))
+
+
+@app.route('/emplois/formations/<int:fid>/inscrire', methods=['POST'])
+def emploi_formation_inscrire(fid):
+    cid = session.get('candidat_id')
+    if not cid:
+        session['recrut_next'] = '/emplois/formations'
+        flash("Veuillez créer un compte ou vous connecter pour vous inscrire.", "warning")
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    f = conn.execute("SELECT id FROM recrut_formations WHERE id=? AND actif=1", (fid,)).fetchone()
+    if not f:
+        conn.close(); flash("Formation indisponible.", "error"); return redirect('/emplois/formations')
+    cur = conn.execute("INSERT INTO recrut_inscriptions (candidat_id, formation_id, statut, created_at) VALUES (?,?, 'inscrit', datetime('now'))", (cid, fid))
+    insc_id = cur.lastrowid
+    conn.commit(); conn.close()
+    return redirect(f'/emplois/compte/formation/{insc_id}/payer')
+
+
+@app.route('/emplois/compte/formation/<int:insc_id>/payer', methods=['GET', 'POST'])
+def candidat_formation_payer(insc_id):
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    insc = conn.execute("""SELECT i.*, f.titre, f.prix, f.duree FROM recrut_inscriptions i
+        JOIN recrut_formations f ON f.id=i.formation_id WHERE i.id=?""", (insc_id,)).fetchone()
+    if not insc or insc['candidat_id'] != cid:
+        conn.close(); flash("Inscription introuvable.", "error"); return redirect('/emplois/compte/dashboard')
+    insc = dict(insc); conn.close()
+    if insc['statut'] != 'inscrit':
+        flash("Cette inscription est déjà réglée.", "info"); return redirect('/emplois/compte/dashboard')
+    if request.method == 'POST':
+        _recrut_create_paiement(None, 'formation', insc_id, f"Formation : {insc['titre']}", insc['prix'],
+                                request.form.get('methode', ''), request.form.get('reference_externe', ''), candidat_id=cid,
+                                payer_phone=request.form.get('payer_phone', ''), recu_file=request.files.get('recu'))
+        flash("💳 Paiement soumis. Votre inscription sera confirmée dès validation par l'administrateur.", "success")
+        return redirect('/emplois/compte/dashboard')
+    return render_template('emplois_compte_formation_payer.html', insc=insc, methodes=RECRUT_PAY_METHODES)
+
+
+@app.route('/recrutement/formations')
+@admin_only_required
+def recrutement_formations():
+    conn = _gdb()
+    formations = [dict(r) for r in conn.execute("SELECT * FROM recrut_formations ORDER BY display_order, prix").fetchall()]
+    inscriptions = [dict(r) for r in conn.execute("""SELECT i.*, f.titre AS formation_titre,
+        c.nom AS cand_nom, c.prenoms, c.email AS cand_email,
+        (SELECT statut FROM recrut_paiements WHERE type='formation' AND ref_id=i.id ORDER BY id DESC LIMIT 1) AS pay_statut
+        FROM recrut_inscriptions i LEFT JOIN recrut_formations f ON f.id=i.formation_id
+        LEFT JOIN candidats c ON c.id=i.candidat_id ORDER BY i.created_at DESC LIMIT 200""").fetchall()]
+    conn.close()
+    return render_template('recrutement_formations.html', page='recrutement',
+        formations=formations, inscriptions=inscriptions, insc_labels=RECRUT_INSC_LABELS)
+
+
+@app.route('/recrutement/formations/add', methods=['POST'])
+@admin_only_required
+def recrutement_formation_add():
+    titre = (request.form.get('titre', '') or '').strip()
+    if not titre:
+        flash("Titre requis.", "error"); return redirect('/recrutement/formations')
+    conn = _gdb()
+    conn.execute("""INSERT INTO recrut_formations (titre, prix, duree, date_debut, places, formateur, description, actif, display_order, created_at)
+        VALUES (?,?,?,?,?,?,?,1,?, datetime('now'))""",
+        (titre, _num_fr(request.form.get('prix')), request.form.get('duree', ''), request.form.get('date_debut', ''),
+         int(request.form.get('places', 0) or 0) or None, request.form.get('formateur', ''),
+         request.form.get('description', ''), int(request.form.get('display_order', 0) or 0)))
+    conn.commit(); conn.close()
+    flash("✅ Formation ajoutée.", "success")
+    return redirect('/recrutement/formations')
+
+
+@app.route('/recrutement/formations/<int:fid>/edit', methods=['POST'])
+@admin_only_required
+def recrutement_formation_edit(fid):
+    conn = _gdb()
+    conn.execute("""UPDATE recrut_formations SET titre=?, prix=?, duree=?, date_debut=?, places=?, formateur=?, description=?, actif=? WHERE id=?""",
+        (request.form.get('titre', ''), _num_fr(request.form.get('prix')), request.form.get('duree', ''),
+         request.form.get('date_debut', ''), int(request.form.get('places', 0) or 0) or None,
+         request.form.get('formateur', ''), request.form.get('description', ''),
+         1 if request.form.get('actif') else 0, fid))
+    conn.commit(); conn.close()
+    flash("✅ Formation mise à jour.", "success")
+    return redirect('/recrutement/formations')
+
+
+@app.route('/recrutement/formations/<int:fid>/delete', methods=['POST'])
+@admin_only_required
+def recrutement_formation_delete(fid):
+    conn = _gdb()
+    conn.execute("DELETE FROM recrut_formations WHERE id=?", (fid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Formation supprimée.", "success")
+    return redirect('/recrutement/formations')
 
 
 if __name__ == '__main__':

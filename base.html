@@ -207,6 +207,36 @@
         }
         .recharge-alert-card { animation: rechargeBlink 1.3s ease-in-out infinite; }
         .recharge-badge-blink { animation: rechargeBadgePulse 1s ease-in-out infinite; display:inline-block }
+
+        /* ═══ v163u : SOFT DESIGN — couche d'adoucissement globale ═══ */
+        body{background:linear-gradient(180deg,#f4f7f6 0%,#eef2f4 100%) !important}
+        .main-content, .content{ }
+        .card{
+            border-radius:16px !important;
+            box-shadow:0 6px 22px rgba(31,45,61,0.07) !important;
+            border:1px solid #eef1f3;
+            transition:box-shadow .2s ease, transform .2s ease;
+        }
+        .card:hover{ box-shadow:0 12px 30px rgba(31,45,61,0.10) !important; }
+        .card-header{ border-bottom:1px solid #f0f3f5; background:linear-gradient(180deg,#fdfefe,#f8fafb); }
+        .card-header h3{ letter-spacing:.2px }
+        .stat-card{ border-radius:16px !important; box-shadow:0 6px 22px rgba(31,45,61,0.07) !important; border:1px solid #eef1f3; transition:transform .18s ease, box-shadow .18s ease }
+        .stat-card:hover{ transform:translateY(-3px); box-shadow:0 14px 32px rgba(31,45,61,0.12) !important }
+        .page-header h1{
+            font-weight:800; letter-spacing:-.4px; color:#1f2d3d;
+            background:linear-gradient(120deg,#1A7A6D,#2a9d8b);
+            -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+        }
+        .btn{ border-radius:10px !important; transition:transform .12s ease, box-shadow .2s ease, filter .2s ease }
+        .btn:hover{ transform:translateY(-1px) }
+        .btn-primary{ box-shadow:0 4px 14px rgba(26,122,109,.25) }
+        .btn-primary:hover{ filter:brightness(1.05); box-shadow:0 8px 22px rgba(26,122,109,.32) }
+        table th{ background:#f6f9f8 !important; border-bottom:1px solid #e7edeb !important }
+        tr:hover td{ background:#f4faf8 !important }
+        input:focus, select:focus, textarea:focus{ outline:none; border-color:#1A7A6D !important; box-shadow:0 0 0 3px rgba(26,122,109,.12) }
+        ::-webkit-scrollbar{width:10px;height:10px}
+        ::-webkit-scrollbar-thumb{background:#cdd8d5;border-radius:8px;border:2px solid transparent;background-clip:content-box}
+        ::-webkit-scrollbar-thumb:hover{background:#b3c2be;background-clip:content-box}
     </style>
 </head>
 <body>
@@ -394,7 +424,8 @@
                     <a href="/recrutement/entreprises" class="{% if page == 'recrutement' %}active{% endif %}">🏢 Entreprises recruteuses</a>
                     <a href="/recrutement/monetisation" class="{% if page == 'recrutement' %}active{% endif %}">💰 Monétisation</a>
                     <a href="/recrutement/services" class="{% if page == 'recrutement' %}active{% endif %}">🎓 Services carrière</a>
-                    <a href="/recrutement/cvtheque" class="{% if page == 'recrutement' %}active{% endif %}">📚 CVthèque</a>
+                    <a href="/recrutement/formations" class="{% if page == 'recrutement' %}active{% endif %}">📚 Formations</a>
+                    <a href="/recrutement/cvtheque" class="{% if page == 'recrutement' %}active{% endif %}">🗂️ CVthèque</a>
                     <a href="/recrutement/statistiques" class="{% if page == 'recrutement' %}active{% endif %}">📊 Statistiques</a>
                     <a href="/emplois" target="_blank">🌐 Portail emploi public</a>
                 </div>
@@ -1492,9 +1523,9 @@ function sortTable(tableId, colIndex, type){
 
 <!-- v163m : Correcteur orthographique & grammatical (LanguageTool, français) -->
 <style>
-#corrBtn{position:fixed;right:18px;bottom:18px;z-index:9998;background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;border:none;border-radius:50%;width:50px;height:50px;font-size:20px;cursor:pointer;box-shadow:0 4px 14px rgba(26,122,109,.4)}
+#corrBtn{position:fixed;left:18px;bottom:18px;z-index:9998;background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;border:none;border-radius:50%;width:50px;height:50px;font-size:20px;cursor:pointer;box-shadow:0 4px 14px rgba(26,122,109,.4)}
 #corrBtn:hover{transform:scale(1.06)}
-#corrPanel{position:fixed;right:18px;bottom:78px;z-index:9999;width:340px;max-height:60vh;overflow-y:auto;background:#fff;border:1px solid #e2e2e2;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.18);display:none;font-size:13px}
+#corrPanel{position:fixed;left:18px;bottom:78px;z-index:9999;width:340px;max-width:calc(100vw - 36px);max-height:60vh;overflow-y:auto;background:#fff;border:1px solid #e2e2e2;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.18);display:none;font-size:13px}
 #corrPanel header{background:#1A7A6D;color:#fff;padding:11px 14px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;font-weight:700}
 #corrPanel header span{cursor:pointer}
 #corrBody{padding:12px 14px}

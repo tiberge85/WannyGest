@@ -61,6 +61,22 @@ th{font-size:11px;text-transform:uppercase;color:#888}
     </div>
     {% endif %}
 
+    {% if formations %}
+    <div class="card">
+        <h2>📚 Mes formations</h2>
+        {% for fo in formations %}{% set fl = insc_labels.get(fo.statut, (fo.statut,'#888','•')) %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0">
+            <div><strong>{{ fo.titre }}</strong> <span style="color:#888;font-size:12px">· {{ '{:,.0f}'.format(fo.prix or 0).replace(',', ' ') }} F{% if fo.duree %} · {{ fo.duree }}{% endif %}</span></div>
+            <div style="display:flex;gap:6px;align-items:center">
+                <span class="badge" style="background:{{ fl[1] }}22;color:{{ fl[1] }}">{{ fl[2] }} {{ fl[0] }}</span>
+                {% if fo.statut == 'inscrit' %}<a href="/emplois/compte/formation/{{ fo.id }}/payer" class="badge" style="background:#ef8f63;color:#fff;padding:6px 10px">💳 Payer</a>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        <a href="/emplois/formations" style="font-size:12px;color:#1A7A6D;display:inline-block;margin-top:8px">+ Voir les formations</a>
+    </div>
+    {% endif %}
+
     {% if contrats %}
     <div class="card">
         <h2>📑 Contrats</h2>

@@ -51,7 +51,8 @@
       "Bash(git commit -q -m 'v163r : édition du profil entreprise \\(recruteur\\) + logo *)",
       "Bash(git commit -q -m 'v163s : contrôle des paiements manuels — numéro émetteur + justificatif \\(reçu\\) + checklist admin *)",
       "Bash(python3 -c \"import app\")",
-      "Bash(git commit -q -m 'v163t : module Services carrière \\(mini-marketplace\\) — catalogue + commande + livraison *)"
+      "Bash(git commit -q -m 'v163t : module Services carrière \\(mini-marketplace\\) — catalogue + commande + livraison *)",
+      "Bash(git commit -q -m 'v163u-v : formations + suppression recruteur/paiement + correcteur déplacé + design soft *)"
     ]
   }
 }

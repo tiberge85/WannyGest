@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paiement formation — {{ insc.titre }}</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--coral:#ef8f63}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:#f5f8f7;color:var(--ink)}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,var(--teal),#0f5249);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center}
+.top a{color:#fff;background:rgba(255,255,255,.16);padding:7px 13px;border-radius:999px;font-size:13px}
+.wrap{max-width:520px;margin:24px auto;padding:0 16px}
+.card{background:#fff;border:1px solid #eef1f3;border-radius:16px;padding:24px;box-shadow:0 6px 22px rgba(26,122,109,.07)}
+.price{font-size:32px;font-weight:900;color:var(--coral);text-align:center;margin:6px 0}
+.sub{text-align:center;color:var(--muted);font-size:13px;margin-bottom:16px}
+label{font-size:12px;color:var(--muted);display:block;margin:10px 0 4px;font-weight:600}
+select,input{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:10px;font-size:14px}
+.btn{margin-top:16px;width:100%;background:var(--coral);color:#fff;border:none;border-radius:11px;padding:13px;font-weight:700;cursor:pointer;font-size:15px}
+.note{background:#eef4fb;color:#1565c0;border-radius:10px;padding:12px;font-size:12.5px;margin-bottom:16px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="top"><strong>💳 Paiement de la formation</strong><a href="/emplois/compte/dashboard">← Mon espace</a></div>
+<div class="wrap">
+    <div class="card">
+        <div class="sub">{{ insc.titre }}{% if insc.duree %} · {{ insc.duree }}{% endif %}</div>
+        <div class="price">{{ '{:,.0f}'.format(insc.prix or 0).replace(',', ' ') }} F</div>
+        <div class="note">💡 Réglez par votre moyen préféré, indiquez le numéro émetteur et la référence, joignez le reçu si possible. Votre inscription est <strong>confirmée dès validation</strong> du paiement par l'administrateur.</div>
+        <form method="post" action="/emplois/compte/formation/{{ insc.id }}/payer" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label>Moyen de paiement</label>
+            <select name="methode" title="Moyen de paiement">{% for m in methodes %}<option>{{ m }}</option>{% endfor %}</select>
+            <label>Numéro émetteur (le compte qui a payé) *</label>
+            <input name="payer_phone" required placeholder="Ex: 07 00 00 00 00">
+            <label>Référence / ID de la transaction *</label>
+            <input name="reference_externe" required placeholder="Ex: TXN-12345">
+            <label>Justificatif (capture / reçu) — recommandé</label>
+            <input type="file" name="recu" accept=".png,.jpg,.jpeg,.webp,.pdf" title="Justificatif">
+            <button class="btn" type="submit">✅ J'ai payé — soumettre pour validation</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>
