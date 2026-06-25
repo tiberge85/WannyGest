@@ -36843,6 +36843,19 @@ def _recrut_migrate():
             offre_id INTEGER, date TEXT, heure TEXT, lieu TEXT, type TEXT DEFAULT 'presentiel',
             statut TEXT DEFAULT 'planifie', notes TEXT, created_by INTEGER,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        # v163h : messagerie interne entreprise/recruteur ↔ candidat (par candidature)
+        c.execute("""CREATE TABLE IF NOT EXISTS recrutement_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, candidature_id INTEGER NOT NULL,
+            sender_type TEXT, sender_name TEXT, message TEXT,
+            read_by_recruteur INTEGER DEFAULT 0, read_by_candidat INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        # v163i : contrats avec signature électronique
+        c.execute("""CREATE TABLE IF NOT EXISTS recrutement_contrats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, candidature_id INTEGER, candidat_id INTEGER,
+            offre_id INTEGER, entreprise_id INTEGER, titre TEXT, contenu TEXT,
+            statut TEXT DEFAULT 'envoye', created_by_role TEXT, created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            signed_at TEXT, signature_name TEXT, signature_data TEXT, signer_ip TEXT)""")
         # Entreprise par défaut (RAMYA) si aucune
         if c.execute("SELECT COUNT(*) FROM entreprises_recrutement").fetchone()[0] == 0:
             c.execute("""INSERT INTO entreprises_recrutement (raison_sociale, secteur_activite, ville, pays, statut)
@@ -37123,10 +37136,16 @@ def recrutement_candidature_detail(cid):
          'niveau_etude': cand.get('o_niveau'), 'lieu_travail': cand.get('o_lieu'), 'teletravail': cand.get('o_tt')})
     entretiens = [dict(r) for r in conn.execute(
         "SELECT * FROM entretiens WHERE candidature_id=? ORDER BY date DESC, heure DESC", (cid,)).fetchall()]
+    msgs = _recrut_messages(conn, cid)
+    conn.execute("UPDATE recrutement_messages SET read_by_recruteur=1 WHERE candidature_id=?", (cid,))
+    conn.commit()
+    contrats = [dict(r) for r in conn.execute(
+        "SELECT id, titre, statut, created_at, signed_at FROM recrutement_contrats WHERE candidature_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
     conn.close()
     return render_template('recrutement_candidature_detail.html', page='recrutement', c=cand,
         entretiens=entretiens, statuts=RECRUT_CAND_STATUTS, cand_labels=RECRUT_CAND_LABELS,
-        entretien_types=RECRUT_ENTRETIEN_TYPES, today_str=datetime.now().strftime('%Y-%m-%d'))
+        entretien_types=RECRUT_ENTRETIEN_TYPES, today_str=datetime.now().strftime('%Y-%m-%d'),
+        msgs=msgs, contrats=contrats)
 
 
 @app.route('/recrutement/candidature/<int:cid>/note', methods=['POST'])
@@ -37455,9 +37474,18 @@ def candidat_dashboard():
         SELECT e.date, e.heure, e.type, e.lieu, o.titre AS offre_titre
         FROM entretiens e LEFT JOIN offres_emploi o ON o.id=e.offre_id
         WHERE e.candidat_id=? ORDER BY e.date DESC""", (cid,)).fetchall()]
+    contrats = [dict(r) for r in conn.execute("""
+        SELECT ct.id, ct.titre, ct.statut, ct.created_at, ct.signed_at, o.titre AS offre_titre
+        FROM recrutement_contrats ct LEFT JOIN offres_emploi o ON o.id=ct.offre_id
+        WHERE ct.candidat_id=? ORDER BY ct.created_at DESC""", (cid,)).fetchall()]
+    # messages non lus par candidature
+    unread = {}
+    for r in conn.execute("""SELECT candidature_id, COUNT(*) AS n FROM recrutement_messages
+        WHERE read_by_candidat=0 AND sender_type IN ('recruteur','admin') GROUP BY candidature_id""").fetchall():
+        unread[r['candidature_id']] = r['n']
     conn.close()
     return render_template('emplois_compte_dashboard.html', me=me, candidatures=candidatures,
-        entretiens=entretiens, cand_labels=RECRUT_CAND_LABELS)
+        entretiens=entretiens, contrats=contrats, unread=unread, cand_labels=RECRUT_CAND_LABELS)
 
 
 @app.route('/emplois/compte/profil', methods=['GET', 'POST'])
@@ -37807,6 +37835,373 @@ def api_job_detail(oid):
         o.pop(k, None)
     o['apply_url'] = request.url_root.rstrip('/') + f"/emplois/{oid}"
     return jsonify(o)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163h : MESSAGERIE INTERNE entreprise/recruteur ↔ candidat (par candidature)
+# ════════════════════════════════════════════════════════════════════════════
+def _recrut_cand_full(conn, cid):
+    r = conn.execute("""SELECT ca.id, ca.candidat_id, ca.offre_id, c.nom AS cand_nom, c.prenoms,
+        c.email AS cand_email, o.titre AS offre_titre, o.entreprise_id,
+        e.raison_sociale AS entreprise_nom, e.email AS ent_email
+        FROM candidatures ca LEFT JOIN candidats c ON c.id=ca.candidat_id
+        LEFT JOIN offres_emploi o ON o.id=ca.offre_id
+        LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id WHERE ca.id=?""", (cid,)).fetchone()
+    return dict(r) if r else None
+
+
+def _recrut_messages(conn, cid):
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM recrutement_messages WHERE candidature_id=? ORDER BY created_at", (cid,)).fetchall()]
+
+
+def _recrut_post_message(cid, sender_type, sender_name, message):
+    message = (message or '').strip()
+    if not message:
+        return
+    conn = _gdb()
+    rd_r = 1 if sender_type == 'recruteur' else 0
+    rd_c = 1 if sender_type == 'candidat' else 0
+    conn.execute("""INSERT INTO recrutement_messages (candidature_id, sender_type, sender_name, message, read_by_recruteur, read_by_candidat, created_at)
+        VALUES (?,?,?,?,?,?, datetime('now'))""", (cid, sender_type, sender_name, message, rd_r, rd_c))
+    info = _recrut_cand_full(conn, cid)
+    conn.commit(); conn.close()
+    if not info:
+        return
+    if sender_type in ('recruteur', 'admin'):
+        _recrut_email_candidat(info.get('cand_email'), info.get('cand_nom') or 'Candidat',
+            f"Nouveau message — {info.get('offre_titre') or 'votre candidature'}",
+            ["Vous avez reçu un nouveau message concernant votre candidature.",
+             "Connectez-vous à votre espace candidat pour répondre."])
+    else:
+        if info.get('ent_email'):
+            _recrut_email_candidat(info['ent_email'], info.get('entreprise_nom') or 'Recruteur',
+                f"Nouveau message d'un candidat — {info.get('offre_titre') or ''}",
+                [f"{info.get('cand_nom','Un candidat')} vous a envoyé un message.",
+                 "Connectez-vous à votre espace recruteur pour répondre."])
+        try:
+            notify_roles(['admin', 'rh'], title="💬 Message candidat (recrutement)",
+                message=f"{info.get('cand_nom','Candidat')} — {info.get('offre_titre','')}",
+                link=f"/recrutement/candidature/{cid}", type='info', module='recrutement', icon='💬')
+        except Exception: pass
+
+
+# Candidat
+@app.route('/emplois/compte/candidature/<int:cid>/messages', methods=['GET', 'POST'])
+def candidat_messages(cid):
+    cuid = session.get('candidat_id')
+    if not cuid:
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    info = _recrut_cand_full(conn, cid)
+    if not info or info['candidat_id'] != cuid:
+        conn.close(); flash("Candidature introuvable.", "error"); return redirect('/emplois/compte/dashboard')
+    if request.method == 'POST':
+        conn.close()
+        _recrut_post_message(cid, 'candidat', info.get('cand_nom') or 'Candidat', request.form.get('message'))
+        return redirect(f'/emplois/compte/candidature/{cid}/messages')
+    conn.execute("UPDATE recrutement_messages SET read_by_candidat=1 WHERE candidature_id=?", (cid,))
+    conn.commit()
+    msgs = _recrut_messages(conn, cid)
+    conn.close()
+    return render_template('emplois_compte_messages.html', info=info, msgs=msgs)
+
+
+# Recruteur
+@app.route('/recruteur/candidature/<int:cid>/messages', methods=['GET', 'POST'])
+def recruteur_messages(cid):
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    conn = _gdb()
+    info = _recrut_cand_full(conn, cid)
+    if not info or info.get('entreprise_id') != e['id']:
+        conn.close(); flash("Candidature introuvable.", "error"); return redirect('/recruteur/candidatures')
+    if request.method == 'POST':
+        conn.close()
+        _recrut_post_message(cid, 'recruteur', e['raison_sociale'], request.form.get('message'))
+        return redirect(f'/recruteur/candidature/{cid}/messages')
+    conn.execute("UPDATE recrutement_messages SET read_by_recruteur=1 WHERE candidature_id=?", (cid,))
+    conn.commit()
+    msgs = _recrut_messages(conn, cid)
+    conn.close()
+    return render_template('recruteur_messages.html', e=e, info=info, msgs=msgs)
+
+
+# Admin (depuis la fiche candidature)
+@app.route('/recrutement/candidature/<int:cid>/message', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_message_admin(cid):
+    user = get_user_by_id(session['user_id'])
+    _recrut_post_message(cid, 'admin', (user['full_name'] if user else 'RH'), request.form.get('message'))
+    return redirect(f'/recrutement/candidature/{cid}')
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163j : GÉNÉRATION PDF — CV + lettre de motivation
+# ════════════════════════════════════════════════════════════════════════════
+def _recrut_pdf_response(story_builder, filename):
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate
+        import io
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18*mm, rightMargin=18*mm, topMargin=18*mm, bottomMargin=18*mm)
+        doc.build(story_builder())
+        buf.seek(0)
+        return Response(buf.getvalue(), mimetype='application/pdf',
+                        headers={'Content-Disposition': f'inline; filename={filename}'})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        flash(f"Erreur génération PDF : {e}", "error")
+        return redirect(request.referrer or '/emplois')
+
+
+def _recrut_cv_story(c):
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+    TEAL = HexColor('#1A7A6D')
+    s = []
+    s.append(Paragraph(f"<b>{(c.get('nom') or '').upper()} {c.get('prenoms') or ''}</b>",
+        ParagraphStyle('n', fontSize=20, textColor=TEAL)))
+    if c.get('metier'):
+        s.append(Paragraph(c['metier'], ParagraphStyle('m', fontSize=12, textColor=HexColor('#555555'))))
+    contact = ' · '.join([x for x in [c.get('email'), c.get('telephone'), c.get('ville'), c.get('niveau_etude')] if x])
+    s.append(Spacer(1, 3*mm)); s.append(Paragraph(contact, ParagraphStyle('c', fontSize=9, textColor=HexColor('#777777'))))
+    s.append(Spacer(1, 6*mm))
+    def section(title, body):
+        s.append(Paragraph(f"<b>{title}</b>", ParagraphStyle('h', fontSize=12, textColor=TEAL, spaceAfter=4)))
+        s.append(Table([['']], colWidths=[174*mm], style=TableStyle([('LINEBELOW',(0,0),(-1,-1),0.8,TEAL)])))
+        s.append(Spacer(1, 2*mm))
+        s.append(Paragraph(body or '—', ParagraphStyle('b', fontSize=10, leading=15)))
+        s.append(Spacer(1, 5*mm))
+    section("Compétences", (c.get('competences') or '').replace('\n', '<br/>'))
+    if c.get('linkedin'):
+        section("Réseaux", f"LinkedIn : {c['linkedin']}")
+    if c.get('adresse'):
+        section("Adresse", c.get('adresse'))
+    s.append(Spacer(1, 8*mm))
+    s.append(Paragraph(f"<i>CV généré le {datetime.now().strftime('%d/%m/%Y')} via le portail emploi RAMYA</i>",
+        ParagraphStyle('f', fontSize=8, textColor=HexColor('#999999'))))
+    return s
+
+
+@app.route('/emplois/compte/cv.pdf')
+def candidat_cv_pdf():
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb(); c = conn.execute("SELECT * FROM candidats WHERE id=?", (cid,)).fetchone(); conn.close()
+    if not c:
+        return redirect('/emplois/compte')
+    c = dict(c)
+    return _recrut_pdf_response(lambda: _recrut_cv_story(c), f"CV_{c.get('nom','candidat')}.pdf")
+
+
+@app.route('/recrutement/candidat/<int:cand_id>/cv.pdf')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_candidat_cv_pdf(cand_id):
+    conn = _gdb(); c = conn.execute("SELECT * FROM candidats WHERE id=?", (cand_id,)).fetchone(); conn.close()
+    if not c:
+        flash("Candidat introuvable", "error"); return redirect('/recrutement/cvtheque')
+    c = dict(c)
+    return _recrut_pdf_response(lambda: _recrut_cv_story(c), f"CV_{c.get('nom','candidat')}.pdf")
+
+
+def _recrut_lettre_text(c, offre_titre, entreprise):
+    nom = f"{c.get('prenoms') or ''} {c.get('nom') or ''}".strip()
+    comp = c.get('competences') or 'mes compétences'
+    return (f"Objet : Candidature au poste de {offre_titre}\n\n"
+            f"Madame, Monsieur,\n\n"
+            f"Actuellement {c.get('metier') or 'à la recherche de nouvelles opportunités'}, "
+            f"je me permets de vous adresser ma candidature au poste de {offre_titre}"
+            f"{(' au sein de ' + entreprise) if entreprise else ''}.\n\n"
+            f"Mon parcours et mes compétences ({comp}) me permettraient de contribuer efficacement "
+            f"à vos projets. Rigoureux(se) et motivé(e), je suis convaincu(e) de pouvoir apporter "
+            f"une réelle valeur ajoutée à votre équipe.\n\n"
+            f"Je reste à votre disposition pour un entretien afin de vous exposer plus en détail "
+            f"mes motivations.\n\n"
+            f"Dans l'attente de votre retour, je vous prie d'agréer, Madame, Monsieur, "
+            f"l'expression de mes salutations distinguées.\n\n"
+            f"{nom}")
+
+
+@app.route('/emplois/compte/lettre.pdf')
+def candidat_lettre_pdf():
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    oid = request.args.get('offre', '')
+    conn = _gdb()
+    c = conn.execute("SELECT * FROM candidats WHERE id=?", (cid,)).fetchone()
+    offre_titre = 'le poste proposé'; entreprise = ''
+    if oid.isdigit():
+        o = conn.execute("""SELECT o.titre, e.raison_sociale FROM offres_emploi o
+            LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id WHERE o.id=?""", (int(oid),)).fetchone()
+        if o:
+            offre_titre = o['titre']; entreprise = o['raison_sociale'] or ''
+    conn.close()
+    if not c:
+        return redirect('/emplois/compte')
+    txt = _recrut_lettre_text(dict(c), offre_titre, entreprise)
+
+    def build():
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import Paragraph, Spacer
+        from reportlab.lib.units import mm
+        st = []
+        for para in txt.split('\n\n'):
+            st.append(Paragraph(para.replace('\n', '<br/>'), ParagraphStyle('p', fontSize=11, leading=17)))
+            st.append(Spacer(1, 4*mm))
+        return st
+    return _recrut_pdf_response(build, "lettre_motivation.pdf")
+
+
+@app.route('/api/lettre-brouillon')
+def api_lettre_brouillon():
+    """Brouillon de lettre (JSON) pour pré-remplir le formulaire de candidature."""
+    nom = (request.args.get('nom', '') or '').strip()
+    metier = (request.args.get('metier', '') or '').strip()
+    comp = (request.args.get('competences', '') or '').strip()
+    offre = (request.args.get('offre', '') or 'le poste proposé').strip()
+    ent = (request.args.get('entreprise', '') or '').strip()
+    txt = _recrut_lettre_text({'nom': nom, 'prenoms': '', 'metier': metier, 'competences': comp}, offre, ent)
+    return jsonify({'lettre': txt})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163i : CONTRATS — signature électronique
+# ════════════════════════════════════════════════════════════════════════════
+def _recrut_create_contrat(cid, titre, contenu, by_role, by_id):
+    conn = _gdb()
+    info = _recrut_cand_full(conn, cid)
+    if not info:
+        conn.close(); return False
+    conn.execute("""INSERT INTO recrutement_contrats
+        (candidature_id, candidat_id, offre_id, entreprise_id, titre, contenu, statut, created_by_role, created_by, created_at)
+        VALUES (?,?,?,?,?,?, 'envoye', ?, ?, datetime('now'))""",
+        (cid, info['candidat_id'], info['offre_id'], info.get('entreprise_id'), titre, contenu, by_role, by_id))
+    conn.commit(); conn.close()
+    _recrut_email_candidat(info.get('cand_email'), info.get('cand_nom') or 'Candidat',
+        f"Proposition de contrat — {titre}",
+        ["Une proposition de contrat vous a été adressée.",
+         "Connectez-vous à votre espace candidat pour la consulter et la signer en ligne."])
+    return True
+
+
+@app.route('/recrutement/candidature/<int:cid>/contrat', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_contrat_create(cid):
+    titre = (request.form.get('titre', '') or 'Contrat de travail').strip()
+    contenu = request.form.get('contenu', '') or ''
+    _recrut_create_contrat(cid, titre, contenu, 'admin', session.get('user_id'))
+    flash("📄 Contrat envoyé au candidat pour signature.", "success")
+    return redirect(f'/recrutement/candidature/{cid}')
+
+
+@app.route('/recruteur/candidature/<int:cid>/contrat', methods=['POST'])
+def recruteur_contrat_create(cid):
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    conn = _gdb(); info = _recrut_cand_full(conn, cid); conn.close()
+    if not info or info.get('entreprise_id') != e['id']:
+        flash("Candidature introuvable.", "error"); return redirect('/recruteur/candidatures')
+    titre = (request.form.get('titre', '') or 'Contrat de travail').strip()
+    _recrut_create_contrat(cid, titre, request.form.get('contenu', '') or '', 'recruteur', e['id'])
+    flash("📄 Contrat envoyé au candidat pour signature.", "success")
+    return redirect(f'/recruteur/candidature/{cid}/messages')
+
+
+@app.route('/emplois/compte/contrat/<int:ctr_id>', methods=['GET', 'POST'])
+def candidat_contrat(ctr_id):
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    ctr = conn.execute("""SELECT ct.*, o.titre AS offre_titre, e.raison_sociale AS entreprise_nom
+        FROM recrutement_contrats ct LEFT JOIN offres_emploi o ON o.id=ct.offre_id
+        LEFT JOIN entreprises_recrutement e ON e.id=ct.entreprise_id WHERE ct.id=?""", (ctr_id,)).fetchone()
+    if not ctr or ctr['candidat_id'] != cid:
+        conn.close(); flash("Contrat introuvable.", "error"); return redirect('/emplois/compte/dashboard')
+    ctr = dict(ctr)
+    if request.method == 'POST' and ctr['statut'] != 'signe':
+        sig_name = (request.form.get('signature_name', '') or '').strip()
+        sig_data = request.form.get('signature_data', '') or ''
+        if not sig_name or request.form.get('consent') != '1':
+            conn.close(); flash("Veuillez saisir votre nom et cocher le consentement pour signer.", "error")
+            return redirect(f'/emplois/compte/contrat/{ctr_id}')
+        conn.execute("""UPDATE recrutement_contrats SET statut='signe', signed_at=datetime('now'),
+            signature_name=?, signature_data=?, signer_ip=? WHERE id=?""",
+            (sig_name, sig_data, request.remote_addr, ctr_id))
+        conn.commit(); conn.close()
+        flash("✅ Contrat signé électroniquement. Merci !", "success")
+        return redirect(f'/emplois/compte/contrat/{ctr_id}')
+    conn.close()
+    return render_template('emplois_compte_contrat.html', ctr=ctr)
+
+
+@app.route('/emplois/compte/contrat/<int:ctr_id>.pdf')
+def candidat_contrat_pdf(ctr_id):
+    cid = session.get('candidat_id')
+    conn = _gdb()
+    ctr = conn.execute("""SELECT ct.*, c.nom AS cand_nom, c.prenoms, o.titre AS offre_titre,
+        e.raison_sociale AS entreprise_nom FROM recrutement_contrats ct
+        LEFT JOIN candidats c ON c.id=ct.candidat_id LEFT JOIN offres_emploi o ON o.id=ct.offre_id
+        LEFT JOIN entreprises_recrutement e ON e.id=ct.entreprise_id WHERE ct.id=?""", (ctr_id,)).fetchone()
+    conn.close()
+    if not ctr:
+        flash("Contrat introuvable", "error"); return redirect('/emplois/compte/dashboard')
+    ctr = dict(ctr)
+    # accès : le candidat propriétaire OU un agent interne connecté
+    if not ((cid and ctr['candidat_id'] == cid) or session.get('user_id')):
+        return redirect('/emplois/compte')
+
+    def build():
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.units import mm
+        from reportlab.lib.colors import HexColor
+        TEAL = HexColor('#1A7A6D')
+        st = [Paragraph(f"<b>{ctr.get('titre') or 'Contrat'}</b>", ParagraphStyle('t', fontSize=16, textColor=TEAL))]
+        meta = ' · '.join([x for x in [ctr.get('entreprise_nom'), ctr.get('offre_titre')] if x])
+        st.append(Paragraph(meta, ParagraphStyle('m', fontSize=9, textColor=HexColor('#777777'))))
+        st.append(Spacer(1, 6*mm))
+        for para in (ctr.get('contenu') or '').split('\n\n'):
+            st.append(Paragraph(para.replace('\n', '<br/>'), ParagraphStyle('p', fontSize=10.5, leading=16)))
+            st.append(Spacer(1, 3*mm))
+        st.append(Spacer(1, 8*mm))
+        if ctr.get('statut') == 'signe':
+            sig = [['Signé électroniquement par', ctr.get('signature_name') or ''],
+                   ['Date', ctr.get('signed_at') or ''], ['Adresse IP', ctr.get('signer_ip') or '']]
+            t = Table(sig, colWidths=[60*mm, 110*mm])
+            t.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.4,HexColor('#cccccc')),
+                ('BACKGROUND',(0,0),(0,-1),HexColor('#e7f3f0')),('FONTSIZE',(0,0),(-1,-1),9),('PADDING',(0,0),(-1,-1),5)]))
+            st.append(Paragraph("<b>✅ Signature électronique</b>", ParagraphStyle('s', fontSize=11, textColor=TEAL)))
+            st.append(Spacer(1, 2*mm)); st.append(t)
+        else:
+            st.append(Paragraph("<i>Document non signé.</i>", ParagraphStyle('ns', fontSize=10, textColor=HexColor('#c53030'))))
+        return st
+    return _recrut_pdf_response(build, f"contrat_{ctr_id}.pdf")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163k : ESPACE STAGES (page publique dédiée)
+# ════════════════════════════════════════════════════════════════════════════
+@app.route('/emplois/stages')
+def emplois_stages():
+    conn = _gdb()
+    offres = [dict(r) for r in conn.execute("""SELECT o.*, e.raison_sociale AS entreprise_nom
+        FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
+        WHERE o.statut='publiee' AND o.type_contrat='Stage'
+        ORDER BY o.date_publication DESC, o.created_at DESC""").fetchall()]
+    conn.close()
+    return render_template('emplois_stages.html', offres=offres, candidat_nom=session.get('candidat_nom'))
 
 
 if __name__ == '__main__':

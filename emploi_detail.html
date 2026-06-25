@@ -85,12 +85,32 @@ input:focus,textarea:focus{outline:none;border-color:var(--teal);background:#fff
                 <label>Compétences clés</label><input name="competences" placeholder="Ex: Java, gestion de projet…" value="{{ moi.competences if moi else '' }}">
                 <label>LinkedIn</label><input name="linkedin" placeholder="https://…" value="{{ moi.linkedin if moi else '' }}">
                 <label>CV (PDF, DOCX ou image)</label><input type="file" name="cv" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp">
-                <label>Lettre de motivation</label><textarea name="lettre_motivation" rows="4" placeholder="Présentez votre motivation…"></textarea>
+                <label>Lettre de motivation <button type="button" onclick="genLettre()" style="border:none;background:#eef0fb;color:#5b62c4;border-radius:8px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer">✨ Générer un brouillon</button></label>
+                <textarea name="lettre_motivation" id="lettre" rows="5" placeholder="Présentez votre motivation…"></textarea>
                 <button class="btn" type="submit">✅ Envoyer ma candidature</button>
             </form>
+        </div>
+        <div class="card" style="text-align:center"><h2>📣 Partager</h2>
+            <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                <a target="_blank" rel="noopener" href="https://www.linkedin.com/sharing/share-offsite/?url={{ (request.url)|urlencode }}" style="background:#0a66c2;color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:700">in LinkedIn</a>
+                <a target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u={{ (request.url)|urlencode }}" style="background:#1877f2;color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:700">f Facebook</a>
+                <a target="_blank" rel="noopener" href="https://wa.me/?text={{ (o.titre ~ ' — ' ~ request.url)|urlencode }}" style="background:#25d366;color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:700">WhatsApp</a>
+            </div>
         </div>
     </div>
 </div>
 <div class="foot">Fait avec 💚 par WannyGest — RAMYA Technologie &amp; Innovation</div>
+<script>
+function genLettre(){
+    var f=document.querySelector('form[action*="postuler"]');
+    var p=new URLSearchParams({
+        nom:(f.nom.value||''), metier:(f.metier.value||''), competences:(f.competences.value||''),
+        offre:{{ o.titre|tojson }}, entreprise:{{ (o.entreprise_nom or '')|tojson }}
+    });
+    fetch('/api/lettre-brouillon?'+p.toString()).then(function(r){return r.json();}).then(function(d){
+        if(d&&d.lettre){ document.getElementById('lettre').value=d.lettre; }
+    });
+}
+</script>
 </body>
 </html>

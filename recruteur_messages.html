@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messages — {{ info.cand_nom }}</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--coral:#ef8f63}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:#f5f8f7;color:var(--ink)}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,#14564d,#0f5249);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.top a{color:#fff;background:rgba(255,255,255,.16);padding:7px 13px;border-radius:999px;font-size:13px}
+.wrap{max-width:680px;margin:18px auto;padding:0 16px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:12px}
+.thread{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.msg{max-width:78%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.4}
+.msg .meta{font-size:10px;opacity:.7;margin-top:3px}
+.mine{align-self:flex-end;background:var(--teal);color:#fff;border-bottom-right-radius:4px}
+.theirs{align-self:flex-start;background:#fff;border:1px solid #e6e6e6;border-bottom-left-radius:4px}
+.box{background:#fff;border:1px solid #eef1f0;border-radius:14px;padding:14px;margin-bottom:14px}
+textarea,input{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical}
+.btn{margin-top:8px;background:var(--coral);color:#fff;border:none;border-radius:10px;padding:11px 18px;font-weight:700;cursor:pointer}
+.btn.teal{background:var(--teal)}
+.empty{background:#fff;border-radius:12px;padding:30px;text-align:center;color:var(--muted)}
+h3{font-size:14px;color:var(--teal);margin-bottom:8px}
+</style>
+</head>
+<body>
+<div class="top"><strong>💬 {{ info.cand_nom }} {{ info.prenoms or '' }}</strong><a href="/recruteur/candidatures">← Candidatures</a></div>
+<div class="wrap">
+    <div class="sub">Candidature : <strong>{{ info.offre_titre or '—' }}</strong>{% if info.cand_email %} · {{ info.cand_email }}{% endif %}</div>
+    {% if msgs %}
+    <div class="thread">
+        {% for m in msgs %}
+        <div class="msg {{ 'mine' if m.sender_type in ('recruteur','admin') else 'theirs' }}">
+            {{ m.message }}<div class="meta">{{ m.sender_name }} · {{ (m.created_at or '')[:16] }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}<div class="empty">Aucun message. Écrivez au candidat ci-dessous.</div>{% endif %}
+    <div class="box">
+        <form method="post" action="/recruteur/candidature/{{ info.id }}/messages">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <textarea name="message" rows="3" required placeholder="Votre message au candidat…"></textarea>
+            <div style="text-align:right"><button class="btn" type="submit">Envoyer ➤</button></div>
+        </form>
+    </div>
+    <div class="box">
+        <h3>📄 Envoyer un contrat à signer</h3>
+        <form method="post" action="/recruteur/candidature/{{ info.id }}/contrat">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input name="titre" placeholder="Titre (ex: Contrat de travail CDI)" value="Contrat de travail" style="margin-bottom:8px">
+            <textarea name="contenu" rows="5" required placeholder="Termes du contrat (poste, durée, rémunération, conditions…)"></textarea>
+            <div style="text-align:right"><button class="btn teal" type="submit">📄 Envoyer pour signature</button></div>
+        </form>
+    </div>
+</div>
+</body>
+</html>

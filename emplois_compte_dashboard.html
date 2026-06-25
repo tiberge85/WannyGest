@@ -35,20 +35,42 @@ th{font-size:11px;text-transform:uppercase;color:#888}
 <div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
 {% endif %}{% endwith %}
 <div class="wrap">
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <strong style="font-size:14px;color:#1A7A6D">📄 Mes documents :</strong>
+        <a href="/emplois/compte/cv.pdf" target="_blank" class="badge" style="background:#7b1fa2;color:#fff;padding:7px 12px">Générer mon CV (PDF)</a>
+        <a href="/emplois/compte/profil" class="badge" style="background:#1A7A6D;color:#fff;padding:7px 12px">✏️ Modifier mon profil</a>
+    </div>
+
+    {% if contrats %}
+    <div class="card">
+        <h2>📑 Contrats</h2>
+        {% for ct in contrats %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0">
+            <div><strong>{{ ct.titre }}</strong>{% if ct.offre_titre %} <span style="color:#888;font-size:12px">· {{ ct.offre_titre }}</span>{% endif %}</div>
+            <div>
+                {% if ct.statut == 'signe' %}<span class="badge" style="background:#e8f5e9;color:#2e7d32">✅ Signé</span>
+                <a href="/emplois/compte/contrat/{{ ct.id }}.pdf" target="_blank" class="badge" style="background:#7b1fa2;color:#fff">PDF</a>
+                {% else %}<a href="/emplois/compte/contrat/{{ ct.id }}" class="badge" style="background:#ef8f63;color:#fff;padding:6px 12px">✍️ À signer</a>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <div class="card">
         <h2>📋 Mes candidatures ({{ candidatures|length }})</h2>
         {% if candidatures %}
         <table>
-            <thead><tr><th>Offre</th><th>Contrat</th><th>Lieu</th><th>Statut</th><th>Postulé le</th></tr></thead>
+            <thead><tr><th>Offre</th><th>Contrat</th><th>Statut</th><th>Postulé le</th><th></th></tr></thead>
             <tbody>
             {% for c in candidatures %}
             {% set lbl = cand_labels.get(c.statut, (c.statut,'#888','•')) %}
             <tr>
-                <td><strong>{{ c.offre_titre or '—' }}</strong></td>
+                <td><strong>{{ c.offre_titre or '—' }}</strong>{% if c.lieu_travail %}<br><span style="font-size:10px;color:#888">{{ c.lieu_travail }}</span>{% endif %}</td>
                 <td>{{ c.type_contrat or '—' }}</td>
-                <td>{{ c.lieu_travail or '—' }}</td>
                 <td><span class="badge" style="background:{{ lbl[1] }}22;color:{{ lbl[1] }}">{{ lbl[2] }} {{ lbl[0] }}</span></td>
                 <td style="color:#888">{{ (c.created_at or '')[:10] }}</td>
+                <td><a href="/emplois/compte/candidature/{{ c.id }}/messages" style="color:#1565c0;font-weight:600">💬 Messages{% if unread.get(c.id) %} <span style="background:#c53030;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">{{ unread.get(c.id) }}</span>{% endif %}</a></td>
             </tr>
             {% endfor %}
             </tbody>

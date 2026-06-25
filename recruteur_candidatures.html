@@ -45,8 +45,8 @@ a{text-decoration:none}
                 <div style="font-size:10px;color:#888">{{ c.offre_titre or '—' }}</div>
                 {% if c.metier %}<div style="font-size:10px;color:#1565c0">{{ c.metier }}</div>{% endif %}
                 <div style="display:flex;gap:8px;margin-top:5px;flex-wrap:wrap">
+                    <a href="/recruteur/candidature/{{ c.id }}/messages" style="font-size:10px;color:#1565c0;font-weight:700">💬 Messages</a>
                     {% if c.cv_path %}<a href="/uploads/{{ c.cv_path }}" target="_blank" style="font-size:10px;color:#7b1fa2">📄 CV</a>{% endif %}
-                    {% if c.email %}<a href="mailto:{{ c.email }}" style="font-size:10px;color:#1565c0">✉️ Email</a>{% endif %}
                     {% if c.telephone %}<span style="font-size:10px;color:#888">📞 {{ c.telephone }}</span>{% endif %}
                 </div>
             </div>

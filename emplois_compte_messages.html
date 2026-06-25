@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messages — {{ info.offre_titre }}</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--coral:#ef8f63}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:#f5f8f7;color:var(--ink)}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,var(--teal),#0f5249);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.top a{color:#fff;background:rgba(255,255,255,.16);padding:7px 13px;border-radius:999px;font-size:13px}
+.wrap{max-width:680px;margin:18px auto;padding:0 16px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:12px}
+.thread{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.msg{max-width:78%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.4}
+.msg .meta{font-size:10px;opacity:.7;margin-top:3px}
+.mine{align-self:flex-end;background:var(--teal);color:#fff;border-bottom-right-radius:4px}
+.theirs{align-self:flex-start;background:#fff;border:1px solid #e6e6e6;border-bottom-left-radius:4px}
+.box{background:#fff;border:1px solid #eef1f0;border-radius:14px;padding:14px}
+textarea{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical}
+.btn{margin-top:8px;background:var(--coral);color:#fff;border:none;border-radius:10px;padding:11px 18px;font-weight:700;cursor:pointer;float:right}
+.empty{background:#fff;border-radius:12px;padding:30px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="top"><strong>💬 Messages</strong><a href="/emplois/compte/dashboard">← Mon espace</a></div>
+<div class="wrap">
+    <div class="sub">À propos de votre candidature : <strong>{{ info.offre_titre or '—' }}</strong>{% if info.entreprise_nom %} · {{ info.entreprise_nom }}{% endif %}</div>
+    {% if msgs %}
+    <div class="thread">
+        {% for m in msgs %}
+        <div class="msg {{ 'mine' if m.sender_type == 'candidat' else 'theirs' }}">
+            {{ m.message }}
+            <div class="meta">{{ m.sender_name }} · {{ (m.created_at or '')[:16] }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}<div class="empty">Aucun message pour l'instant. Écrivez au recruteur ci-dessous.</div>{% endif %}
+    <div class="box">
+        <form method="post" action="/emplois/compte/candidature/{{ info.id }}/messages">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <textarea name="message" rows="3" required placeholder="Votre message…"></textarea>
+            <button class="btn" type="submit">Envoyer ➤</button>
+            <div style="clear:both"></div>
+        </form>
+    </div>
+</div>
+</body>
+</html>

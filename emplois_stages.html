@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offres de stage — RAMYA</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--teal-soft:#e7f3f0;--peach:#fcefe6;--coral:#ef8f63;--lav:#eef0fb}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#fbfaf8,#f6f8f7);color:var(--ink);line-height:1.55}
+a{text-decoration:none}
+.nav{display:flex;justify-content:space-between;align-items:center;max-width:1080px;margin:0 auto;padding:18px 20px}
+.brand{font-weight:800;color:var(--teal);font-size:18px}
+.nav a.acc{font-size:13px;color:var(--teal);background:var(--teal-soft);padding:9px 16px;border-radius:999px;font-weight:600}
+.hero{max-width:1080px;margin:0 auto;padding:24px 20px 4px;text-align:center}
+.hero .pill{display:inline-block;background:var(--lav);color:#5b62c4;font-weight:700;font-size:12px;padding:6px 14px;border-radius:999px;margin-bottom:14px}
+.hero h1{font-size:clamp(26px,4.5vw,38px);color:#2b3b38}
+.hero h1 span{background:linear-gradient(120deg,var(--teal),#3aa392);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--muted);font-size:15px;margin-top:10px}
+.wrap{max-width:1080px;margin:26px auto 50px;padding:0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
+.job{background:#fff;border-radius:18px;padding:20px;border:1px solid #eef1f0;box-shadow:0 4px 14px rgba(60,70,68,.05);display:flex;flex-direction:column;color:inherit;transition:.18s}
+.job:hover{transform:translateY(-4px);box-shadow:0 16px 34px rgba(26,122,109,.13)}
+.job h3{font-size:17px;color:#2b3b38;margin-bottom:2px}
+.job small{color:var(--muted);font-size:12px;font-weight:600}
+.tag{display:inline-block;background:var(--lav);color:#5b62c4;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;margin:6px 5px 4px 0}
+.go{margin-top:auto;padding-top:10px;font-size:13px;color:var(--coral);font-weight:700}
+.empty{background:#fff;border-radius:20px;padding:56px;text-align:center;color:var(--muted);border:1px solid #eef1f0}
+.foot{text-align:center;color:#b3b8bd;font-size:12.5px;padding:28px}
+</style>
+</head>
+<body>
+<div class="nav">
+    <div class="brand">🎓 RAMYA · Stages</div>
+    <a class="acc" href="/emplois">← Toutes les offres</a>
+</div>
+<div class="hero">
+    <span class="pill">🎓 Espace stages étudiants</span>
+    <h1>Lancez votre carrière avec un <span>stage formateur</span></h1>
+    <p>Découvrez les offres de stage et postulez en ligne — idéal pour les étudiants et jeunes diplômés.</p>
+</div>
+<div class="wrap">
+    {% if offres %}
+    <div class="grid">
+        {% for o in offres %}
+        <a class="job" href="/emplois/{{ o.id }}">
+            <h3>{{ o.titre }}</h3>
+            <small>{{ o.entreprise_nom or 'Entreprise' }}</small>
+            <div>
+                <span class="tag">🎓 Stage</span>
+                {% if o.lieu_travail %}<span class="tag">📍 {{ o.lieu_travail }}</span>{% endif %}
+                {% if o.teletravail %}<span class="tag">🏠 Télétravail</span>{% endif %}
+            </div>
+            {% if o.niveau_etude %}<div style="font-size:12.5px;color:var(--muted)">🎓 {{ o.niveau_etude }}</div>{% endif %}
+            <span class="go">Voir le stage →</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">🎓 Aucune offre de stage publiée pour le moment.<br><a href="/emplois" style="color:var(--teal);font-weight:600">Voir toutes les offres</a></div>
+    {% endif %}
+</div>
+<div class="foot">Fait avec 💚 par WannyGest — RAMYA Technologie &amp; Innovation</div>
+</body>
+</html>

@@ -62,8 +62,11 @@ a{text-decoration:none}
 <body>
 <div class="nav">
     <div class="brand">🌿 RAMYA · Carrières</div>
-    {% if candidat_nom %}<a class="acc" href="/emplois/compte/dashboard">👤 Mon espace</a>
-    {% else %}<a class="acc" href="/emplois/compte">🔑 Espace candidat</a>{% endif %}
+    <div style="display:flex;gap:8px;align-items:center">
+        <a class="acc" href="/emplois/stages" style="background:#eef0fb;color:#5b62c4">🎓 Stages</a>
+        {% if candidat_nom %}<a class="acc" href="/emplois/compte/dashboard">👤 Mon espace</a>
+        {% else %}<a class="acc" href="/emplois/compte">🔑 Espace candidat</a>{% endif %}
+    </div>
 </div>
 
 <div class="hero">

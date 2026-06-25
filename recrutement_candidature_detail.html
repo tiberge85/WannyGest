@@ -15,7 +15,43 @@
             <div>📍 {{ c.ville or '—' }}{% if c.metier %} · 💼 {{ c.metier }}{% endif %}{% if c.niveau_etude %} · 🎓 {{ c.niveau_etude }}{% endif %}</div>
             {% if c.linkedin %}<div>🔗 <a href="{{ c.linkedin }}" target="_blank">{{ c.linkedin }}</a></div>{% endif %}
             {% if c.competences %}<div style="margin-top:6px"><strong>Compétences :</strong> {{ c.competences }}</div>{% endif %}
-            {% if c.cv_path %}<div style="margin-top:8px"><a href="/uploads/{{ c.cv_path }}" target="_blank" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📄 Voir / télécharger le CV</a></div>{% endif %}
+            <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+                {% if c.cv_path %}<a href="/uploads/{{ c.cv_path }}" target="_blank" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📄 CV envoyé</a>{% endif %}
+                <a href="/recrutement/candidat/{{ c.candidat_id }}/cv.pdf" target="_blank" class="btn btn-sm btn-outline">🧾 CV généré (PDF)</a>
+            </div>
+        </div></div>
+
+        <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>💬 Messagerie</h3></div>
+        <div class="card-body">
+            <div style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+            {% for m in msgs %}
+                <div style="align-self:{{ 'flex-end' if m.sender_type in ('recruteur','admin') else 'flex-start' }};max-width:80%;background:{{ '#e7f3f0' if m.sender_type in ('recruteur','admin') else '#f4f4f6' }};border-radius:10px;padding:7px 10px;font-size:12.5px">
+                    {{ m.message }}<div style="font-size:9px;color:#888;margin-top:2px">{{ m.sender_name }} · {{ (m.created_at or '')[:16] }}</div>
+                </div>
+            {% else %}<div style="color:#888;font-size:12px">Aucun message.</div>{% endfor %}
+            </div>
+            <form method="post" action="/recrutement/candidature/{{ c.id }}/message" style="display:flex;gap:6px">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <input name="message" required placeholder="Message au candidat…" style="flex:1;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <button class="btn btn-primary btn-sm" type="submit">Envoyer</button>
+            </form>
+        </div></div>
+
+        <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>📄 Contrat (signature électronique)</h3></div>
+        <div class="card-body">
+            {% for ct in contrats %}
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f0f0f0;font-size:12.5px">
+                <span>{{ ct.titre }}</span>
+                {% if ct.statut == 'signe' %}<a href="/emplois/compte/contrat/{{ ct.id }}.pdf" target="_blank" style="color:#2e7d32;font-weight:700">✅ Signé · PDF</a>
+                {% else %}<span style="color:#b8561f">⏳ Envoyé, en attente de signature</span>{% endif %}
+            </div>
+            {% endfor %}
+            <form method="post" action="/recrutement/candidature/{{ c.id }}/contrat" style="margin-top:8px">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <input name="titre" value="Contrat de travail" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:6px">
+                <textarea name="contenu" rows="3" required placeholder="Termes du contrat (poste, durée, rémunération…)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:6px"></textarea>
+                <div style="text-align:right"><button class="btn btn-sm" style="background:#1A7A6D;color:#fff" type="submit">📄 Envoyer pour signature</button></div>
+            </form>
         </div></div>
 
         {% if c.lettre_motivation %}
