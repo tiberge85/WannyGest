@@ -49,7 +49,9 @@
       "Bash(python3 -c \"import app; print\\('re' in dir\\(app\\), app.re.__name__ if hasattr\\(app,'re'\\) else 'NO RE'\\)\")",
       "Bash(git commit -q -m 'v163o-q : profil candidat à la une \\(tarif paramétrable\\) + compte obligatoire pour postuler + durcissement sécurité *)",
       "Bash(git commit -q -m 'v163r : édition du profil entreprise \\(recruteur\\) + logo *)",
-      "Bash(git commit -q -m 'v163s : contrôle des paiements manuels — numéro émetteur + justificatif \\(reçu\\) + checklist admin *)"
+      "Bash(git commit -q -m 'v163s : contrôle des paiements manuels — numéro émetteur + justificatif \\(reçu\\) + checklist admin *)",
+      "Bash(python3 -c \"import app\")",
+      "Bash(git commit -q -m 'v163t : module Services carrière \\(mini-marketplace\\) — catalogue + commande + livraison *)"
     ]
   }
 }

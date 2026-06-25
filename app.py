@@ -36887,6 +36887,8 @@ def _recrut_apply_paiement(conn, pay):
         conn.execute("UPDATE offres_emploi SET is_sponsored=1, updated_at=datetime('now') WHERE id=? AND entreprise_id=?", (ref, eid))
     elif t == 'profil_alaune':
         conn.execute("UPDATE candidats SET is_featured=1 WHERE id=?", (pay.get('candidat_id') or ref,))
+    elif t == 'service':
+        conn.execute("UPDATE recrut_commandes SET statut='en_cours', updated_at=datetime('now') WHERE id=?", (ref,))
 
 
 CAND_STATUT_MESSAGES = {
@@ -36984,6 +36986,22 @@ def _recrut_migrate():
                 ('Entreprise', 120000, 30, 20, 1, 1, '20 offres + mises à la une + CVthèque', 3)]:
                 c.execute("""INSERT INTO recrut_plans (nom, prix, duree_jours, nb_offres, sponsored_inclus, cvtheque_access, description, display_order)
                     VALUES (?,?,?,?,?,?,?,?)""", (nom, prix, dj, nbo, spons, cvt, desc, order_))
+        # v163t : SERVICES CARRIÈRE (mini-marketplace) — catalogue + commandes
+        c.execute("""CREATE TABLE IF NOT EXISTS recrut_services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, titre TEXT NOT NULL, type TEXT, prix REAL DEFAULT 0,
+            prestataire TEXT, description TEXT, actif INTEGER DEFAULT 1, display_order INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS recrut_commandes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, candidat_id INTEGER, service_id INTEGER,
+            statut TEXT DEFAULT 'commande', livrable_path TEXT, livrable_note TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        if c.execute("SELECT COUNT(*) FROM recrut_services").fetchone()[0] == 0:
+            for titre, typ, prix, desc, order_ in [
+                ('Relecture de CV par un pro', 'cv', 5000, 'Un expert relit, corrige et optimise votre CV. Livrable : CV corrigé en PDF.', 1),
+                ('Coaching carrière (1h)', 'coaching', 15000, "Séance individuelle d'1h : projet pro, stratégie de recherche, pitch.", 2),
+                ('Simulation d\'entretien', 'entretien', 10000, "Entretien blanc avec un pro + retours détaillés.", 3)]:
+                c.execute("INSERT INTO recrut_services (titre, type, prix, description, display_order) VALUES (?,?,?,?,?)",
+                          (titre, typ, prix, desc, order_))
         # v163i : contrats avec signature électronique
         c.execute("""CREATE TABLE IF NOT EXISTS recrutement_contrats (
             id INTEGER PRIMARY KEY AUTOINCREMENT, candidature_id INTEGER, candidat_id INTEGER,
@@ -37651,9 +37669,13 @@ def candidat_dashboard():
     for r in conn.execute("""SELECT candidature_id, COUNT(*) AS n FROM recrutement_messages
         WHERE read_by_candidat=0 AND sender_type IN ('recruteur','admin') GROUP BY candidature_id""").fetchall():
         unread[r['candidature_id']] = r['n']
+    services = [dict(r) for r in conn.execute("""SELECT cm.id, cm.statut, cm.created_at, cm.livrable_path,
+        cm.livrable_note, s.titre, s.prix FROM recrut_commandes cm LEFT JOIN recrut_services s ON s.id=cm.service_id
+        WHERE cm.candidat_id=? ORDER BY cm.created_at DESC""", (cid,)).fetchall()]
     conn.close()
     return render_template('emplois_compte_dashboard.html', me=me, candidatures=candidatures,
-        entretiens=entretiens, contrats=contrats, unread=unread, cand_labels=RECRUT_CAND_LABELS)
+        entretiens=entretiens, contrats=contrats, unread=unread, services=services,
+        cand_labels=RECRUT_CAND_LABELS, cmd_labels=RECRUT_CMD_LABELS)
 
 
 @app.route('/emplois/compte/profil', methods=['GET', 'POST'])
@@ -38613,6 +38635,164 @@ def emplois_stages():
         ORDER BY o.date_publication DESC, o.created_at DESC""").fetchall()]
     conn.close()
     return render_template('emplois_stages.html', offres=offres, candidat_nom=session.get('candidat_nom'))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163t : SERVICES CARRIÈRE (mini-marketplace) — catalogue · commande · livraison
+# ════════════════════════════════════════════════════════════════════════════
+RECRUT_CMD_LABELS = {
+    'commande': ('À payer', '#b8561f', '💳'),
+    'en_cours': ('En cours', '#1565c0', '🔧'),
+    'livre': ('Livré', '#2e7d32', '✅'),
+    'annule': ('Annulé', '#c53030', '❌'),
+}
+
+
+def _recrut_save_livrable(file_storage, cmd_id):
+    if not file_storage or not file_storage.filename:
+        return ''
+    ext = os.path.splitext(file_storage.filename)[1].lower()
+    if ext not in ('.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.webp', '.zip'):
+        return ''
+    updir = os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_livrables')
+    os.makedirs(updir, exist_ok=True)
+    fname = f"liv_{cmd_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    file_storage.save(os.path.join(updir, fname))
+    return f"recrutement_livrables/{fname}"
+
+
+@app.route('/emplois/services')
+def emplois_services():
+    conn = _gdb()
+    services = [dict(r) for r in conn.execute(
+        "SELECT * FROM recrut_services WHERE actif=1 ORDER BY display_order, prix").fetchall()]
+    conn.close()
+    return render_template('emplois_services.html', services=services, candidat_nom=session.get('candidat_nom'))
+
+
+@app.route('/emplois/services/<int:sid>/commander', methods=['POST'])
+def emploi_service_commander(sid):
+    cid = session.get('candidat_id')
+    if not cid:
+        session['recrut_next'] = '/emplois/services'
+        flash("Veuillez créer un compte ou vous connecter pour commander un service.", "warning")
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    s = conn.execute("SELECT id FROM recrut_services WHERE id=? AND actif=1", (sid,)).fetchone()
+    if not s:
+        conn.close(); flash("Service indisponible.", "error"); return redirect('/emplois/services')
+    cur = conn.execute("INSERT INTO recrut_commandes (candidat_id, service_id, statut, created_at) VALUES (?,?, 'commande', datetime('now'))", (cid, sid))
+    cmd_id = cur.lastrowid
+    conn.commit(); conn.close()
+    return redirect(f'/emplois/compte/service/{cmd_id}/payer')
+
+
+@app.route('/emplois/compte/service/<int:cmd_id>/payer', methods=['GET', 'POST'])
+def candidat_service_payer(cmd_id):
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    cmd = conn.execute("""SELECT cm.*, s.titre, s.prix, s.description FROM recrut_commandes cm
+        JOIN recrut_services s ON s.id=cm.service_id WHERE cm.id=?""", (cmd_id,)).fetchone()
+    if not cmd or cmd['candidat_id'] != cid:
+        conn.close(); flash("Commande introuvable.", "error"); return redirect('/emplois/compte/dashboard')
+    cmd = dict(cmd)
+    conn.close()
+    if cmd['statut'] != 'commande':
+        flash("Cette commande est déjà payée.", "info"); return redirect('/emplois/compte/dashboard')
+    if request.method == 'POST':
+        _recrut_create_paiement(None, 'service', cmd_id, f"Service : {cmd['titre']}", cmd['prix'],
+                                request.form.get('methode', ''), request.form.get('reference_externe', ''), candidat_id=cid,
+                                payer_phone=request.form.get('payer_phone', ''), recu_file=request.files.get('recu'))
+        flash("💳 Paiement soumis. Le service démarrera dès validation par l'administrateur.", "success")
+        return redirect('/emplois/compte/dashboard')
+    return render_template('emplois_compte_service_payer.html', cmd=cmd, methodes=RECRUT_PAY_METHODES)
+
+
+@app.route('/emplois/compte/service/<int:cmd_id>/livrable')
+def candidat_service_livrable(cmd_id):
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    cmd = conn.execute("SELECT candidat_id, livrable_path FROM recrut_commandes WHERE id=?", (cmd_id,)).fetchone()
+    conn.close()
+    if not cmd or cmd['candidat_id'] != cid or not cmd['livrable_path']:
+        abort(404)
+    return send_from_directory(app.config['UPLOAD_FOLDER'], cmd['livrable_path'], as_attachment=True)
+
+
+# ── Admin : gestion des services & commandes ──
+@app.route('/recrutement/services')
+@admin_only_required
+def recrutement_services():
+    conn = _gdb()
+    services = [dict(r) for r in conn.execute("SELECT * FROM recrut_services ORDER BY display_order, prix").fetchall()]
+    commandes = [dict(r) for r in conn.execute("""SELECT cm.*, s.titre AS service_titre,
+        c.nom AS cand_nom, c.prenoms, c.email AS cand_email,
+        (SELECT statut FROM recrut_paiements WHERE type='service' AND ref_id=cm.id ORDER BY id DESC LIMIT 1) AS pay_statut
+        FROM recrut_commandes cm LEFT JOIN recrut_services s ON s.id=cm.service_id
+        LEFT JOIN candidats c ON c.id=cm.candidat_id
+        ORDER BY CASE cm.statut WHEN 'en_cours' THEN 0 WHEN 'commande' THEN 1 ELSE 2 END, cm.created_at DESC LIMIT 200""").fetchall()]
+    conn.close()
+    return render_template('recrutement_services.html', page='recrutement',
+        services=services, commandes=commandes, cmd_labels=RECRUT_CMD_LABELS)
+
+
+@app.route('/recrutement/services/add', methods=['POST'])
+@admin_only_required
+def recrutement_service_add():
+    titre = (request.form.get('titre', '') or '').strip()
+    if not titre:
+        flash("Titre requis.", "error"); return redirect('/recrutement/services')
+    conn = _gdb()
+    conn.execute("INSERT INTO recrut_services (titre, type, prix, prestataire, description, actif, display_order, created_at) VALUES (?,?,?,?,?,1,?, datetime('now'))",
+        (titre, request.form.get('type', ''), _num_fr(request.form.get('prix')), request.form.get('prestataire', ''),
+         request.form.get('description', ''), int(request.form.get('display_order', 0) or 0)))
+    conn.commit(); conn.close()
+    flash("✅ Service ajouté.", "success")
+    return redirect('/recrutement/services')
+
+
+@app.route('/recrutement/services/<int:sid>/edit', methods=['POST'])
+@admin_only_required
+def recrutement_service_edit(sid):
+    conn = _gdb()
+    conn.execute("""UPDATE recrut_services SET titre=?, prix=?, prestataire=?, description=?, actif=? WHERE id=?""",
+        (request.form.get('titre', ''), _num_fr(request.form.get('prix')), request.form.get('prestataire', ''),
+         request.form.get('description', ''), 1 if request.form.get('actif') else 0, sid))
+    conn.commit(); conn.close()
+    flash("✅ Service mis à jour.", "success")
+    return redirect('/recrutement/services')
+
+
+@app.route('/recrutement/commande/<int:cmd_id>/livrer', methods=['POST'])
+@admin_only_required
+def recrutement_commande_livrer(cmd_id):
+    conn = _gdb()
+    cmd = conn.execute("""SELECT cm.candidat_id, c.email AS cand_email, c.nom AS cand_nom, s.titre
+        FROM recrut_commandes cm LEFT JOIN candidats c ON c.id=cm.candidat_id
+        LEFT JOIN recrut_services s ON s.id=cm.service_id WHERE cm.id=?""", (cmd_id,)).fetchone()
+    if not cmd:
+        conn.close(); flash("Commande introuvable.", "error"); return redirect('/recrutement/services')
+    cmd = dict(cmd)
+    lp = None
+    try:
+        lp = _recrut_save_livrable(request.files.get('livrable'), cmd_id)
+    except Exception as _ex:
+        print(f"[v163] livrable err: {_ex}")
+    conn.execute("UPDATE recrut_commandes SET statut='livre', livrable_note=?, updated_at=datetime('now') WHERE id=?",
+        (request.form.get('livrable_note', ''), cmd_id))
+    if lp:
+        conn.execute("UPDATE recrut_commandes SET livrable_path=? WHERE id=?", (lp, cmd_id))
+    conn.commit(); conn.close()
+    _recrut_email_candidat(cmd.get('cand_email'), cmd.get('cand_nom') or 'Candidat',
+        f"Votre service est prêt — {cmd.get('titre') or ''}",
+        ["Votre prestation est terminée.",
+         "Connectez-vous à votre espace candidat pour consulter le livrable et les détails."])
+    flash("✅ Commande marquée comme livrée. Le candidat est notifié.", "success")
+    return redirect('/recrutement/services')
 
 
 if __name__ == '__main__':

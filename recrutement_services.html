@@ -1,0 +1,60 @@
+{% extends "base.html" %}{% block title %}WannyGest — Services carrière{% endblock %}{% block content %}
+<div class="page-header">
+    <div><h1>🎓 Services carrière</h1><p style="color:#666;font-size:13px">Catalogue + commandes des candidats</p></div>
+    <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+</div>
+
+<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Commandes</h3></div><div class="card-body" style="padding:0">
+{% if commandes %}
+<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Candidat</th><th>Service</th><th>Paiement</th><th>Statut</th><th>Livrable</th></tr></thead>
+    <tbody>
+    {% for c in commandes %}{% set lbl = cmd_labels.get(c.statut, (c.statut,'#888','•')) %}
+    <tr {% if c.statut == 'en_cours' %}style="background:#eef4fb"{% endif %}>
+        <td style="font-size:11px">{{ (c.created_at or '')[:10] }}</td>
+        <td><strong>{{ c.cand_nom }} {{ c.prenoms or '' }}</strong>{% if c.cand_email %}<br><span style="font-size:10px;color:#888">{{ c.cand_email }}</span>{% endif %}</td>
+        <td style="font-size:12px">{{ c.service_titre }}</td>
+        <td style="font-size:11px">{% if c.pay_statut == 'paye' %}<span style="color:#2e7d32;font-weight:700">✅ Payé</span>{% elif c.pay_statut == 'en_attente' %}<span style="color:#b8561f">⏳ À valider</span>{% else %}—{% endif %}</td>
+        <td><span style="background:{{ lbl[1] }}22;color:{{ lbl[1] }};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">{{ lbl[2] }} {{ lbl[0] }}</span></td>
+        <td>
+            {% if c.statut == 'livre' %}
+                {% if c.livrable_path %}<a href="/uploads/{{ c.livrable_path }}" target="_blank" style="color:#7b1fa2;font-weight:700">📎 Livrable</a>{% else %}<span style="color:#888;font-size:11px">{{ c.livrable_note|truncate(30) }}</span>{% endif %}
+            {% elif c.statut == 'en_cours' %}
+                <button class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:11px;padding:4px 8px" onclick="document.getElementById('liv{{ c.id }}').style.display='block'">✅ Marquer livré</button>
+                <form id="liv{{ c.id }}" method="post" action="/recrutement/commande/{{ c.id }}/livrer" enctype="multipart/form-data" style="display:none;margin-top:6px">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                    <input type="file" name="livrable" title="Livrable" style="font-size:11px;margin-bottom:4px">
+                    <input name="livrable_note" placeholder="Note (ex: lien visio, commentaire)" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:5px;font-size:11px;margin-bottom:4px">
+                    <button type="submit" class="btn btn-sm btn-primary" style="font-size:11px">Confirmer la livraison</button>
+                </form>
+            {% else %}<span style="color:#888;font-size:11px">en attente de paiement</span>{% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}<div style="padding:24px;text-align:center;color:#888">Aucune commande pour l'instant.</div>{% endif %}
+</div></div>
+
+<div class="card"><div class="card-header"><h3>Catalogue de services (tarifs paramétrables)</h3></div><div class="card-body">
+{% for s in services %}
+<form method="post" action="/recrutement/services/{{ s.id }}/edit" style="display:grid;grid-template-columns:2fr 1fr 1.5fr auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="titre" value="{{ s.titre }}" title="Titre" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input type="number" name="prix" value="{{ s.prix|int }}" title="Prix" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;text-align:right">
+    <input name="prestataire" value="{{ s.prestataire or '' }}" placeholder="Prestataire" title="Prestataire" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <label style="font-size:11px;white-space:nowrap"><input type="checkbox" name="actif" {% if s.actif %}checked{% endif %}> Actif</label>
+    <button type="submit" class="btn btn-sm btn-primary" style="font-size:11px">💾</button>
+</form>
+{% endfor %}
+<details style="margin-top:12px"><summary style="cursor:pointer;font-weight:700;color:#1A7A6D;font-size:13px">+ Ajouter un service</summary>
+<form method="post" action="/recrutement/services/add" style="display:grid;grid-template-columns:2fr 1fr 1.5fr auto;gap:8px;margin-top:8px">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input name="titre" placeholder="Titre du service *" required style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input type="number" name="prix" placeholder="Prix" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <input name="prestataire" placeholder="Prestataire" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+    <button type="submit" class="btn btn-sm btn-primary">Ajouter</button>
+    <input name="description" placeholder="Description" style="grid-column:1/-1;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+</form></details>
+</div></div>
+{% endblock %}
