@@ -36714,6 +36714,8 @@ _RECRUT_CV_EXT = ('.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.webp')
 CSRF_BOOTSTRAP_ENDPOINTS.add('emploi_postuler')
 CSRF_BOOTSTRAP_ENDPOINTS.add('candidat_register')
 CSRF_BOOTSTRAP_ENDPOINTS.add('candidat_login')
+CSRF_BOOTSTRAP_ENDPOINTS.add('recruteur_register')
+CSRF_BOOTSTRAP_ENDPOINTS.add('recruteur_login')
 
 
 def _candidat_hash(password, salt):
@@ -36736,6 +36738,55 @@ def _recrut_email_candidat(email, nom, subject, lines):
         print(f"[v163b] email candidat err: {_e}")
 
 
+def _recrut_match_score(cand, offre):
+    """v163f : score de compatibilité candidat/offre (0-100).
+    Combine compétences (50), niveau d'étude (20), localisation (15), métier/titre (15)."""
+    def _toks(s):
+        import re as _re
+        return set(t for t in _re.split(r'[^a-zàâäéèêëïîôöùûüç0-9]+', (s or '').lower()) if len(t) > 2)
+    score = 0.0
+    cand_kw = _toks(cand.get('competences')) | _toks(cand.get('metier'))
+    offre_kw = _toks(offre.get('profil_recherche')) | _toks(offre.get('titre')) | _toks(offre.get('missions')) | _toks(offre.get('description'))
+    if offre_kw:
+        inter = cand_kw & offre_kw
+        score += 50.0 * min(1.0, len(inter) / max(3, len(offre_kw) * 0.25))
+    else:
+        score += 25.0
+    # Niveau d'étude
+    niv_c = (cand.get('niveau_etude') or '').lower(); niv_o = (offre.get('niveau_etude') or '').lower()
+    if niv_o and niv_c:
+        score += 20.0 if (niv_c in niv_o or niv_o in niv_c or _toks(niv_c) & _toks(niv_o)) else 6.0
+    else:
+        score += 12.0
+    # Localisation
+    ville_c = (cand.get('ville') or '').lower(); lieu_o = (offre.get('lieu_travail') or '').lower()
+    if lieu_o and ville_c:
+        score += 15.0 if (ville_c in lieu_o or lieu_o in ville_c) else 3.0
+    elif offre.get('teletravail'):
+        score += 12.0
+    else:
+        score += 8.0
+    # Métier / titre
+    if _toks(cand.get('metier')) & (_toks(offre.get('titre'))):
+        score += 15.0
+    else:
+        score += 4.0
+    return int(min(100, round(score)))
+
+
+def _recrut_qr_data_uri(url, color='#1A7A6D'):
+    """Génère un QR code (data URI PNG) pour une URL. '' si la lib manque."""
+    try:
+        import qrcode, io, base64
+        qr = qrcode.QRCode(version=1, box_size=8, border=2)
+        qr.add_data(url); qr.make(fit=True)
+        img = qr.make_image(fill_color=color, back_color="white")
+        buf = io.BytesIO(); img.save(buf, format='PNG')
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return ''
+
+
 CAND_STATUT_MESSAGES = {
     'recu': "Votre candidature a bien été reçue.",
     'analyse': "Votre candidature est en cours d'analyse par notre équipe RH.",
@@ -36756,6 +36807,14 @@ def _recrut_migrate():
             secteur_activite TEXT, description TEXT, email TEXT, telephone TEXT, site_web TEXT,
             adresse TEXT, ville TEXT, pays TEXT DEFAULT 'Côte d''Ivoire', statut TEXT DEFAULT 'actif',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        # v163e : colonnes compte recruteur (espace entreprise + validation admin)
+        for _ed in ["username TEXT", "password_hash TEXT", "salt TEXT",
+                    "account_status TEXT DEFAULT 'approved'", "reject_reason TEXT",
+                    "last_login TEXT", "created_by_self INTEGER DEFAULT 0"]:
+            try: c.execute(f"SELECT {_ed.split()[0]} FROM entreprises_recrutement LIMIT 1")
+            except:
+                try: c.execute(f"ALTER TABLE entreprises_recrutement ADD COLUMN {_ed}")
+                except: pass
         c.execute("""CREATE TABLE IF NOT EXISTS offres_emploi (
             id INTEGER PRIMARY KEY AUTOINCREMENT, entreprise_id INTEGER, reference TEXT,
             titre TEXT NOT NULL, description TEXT, missions TEXT, profil_recherche TEXT,
@@ -36994,13 +37053,21 @@ def recrutement_candidatures():
         where += " AND ca.offre_id=?"; params.append(int(offre_id))
     rows = [dict(r) for r in conn.execute(f"""
         SELECT ca.*, c.nom, c.prenoms, c.metier, c.telephone, c.email, c.ville, c.cv_path,
-               o.titre AS offre_titre
+               c.competences, c.niveau_etude,
+               o.titre AS offre_titre, o.profil_recherche AS o_profil, o.niveau_etude AS o_niveau,
+               o.lieu_travail AS o_lieu, o.teletravail AS o_tt, o.missions AS o_miss, o.description AS o_desc
         FROM candidatures ca
         LEFT JOIN candidats c ON c.id=ca.candidat_id
         LEFT JOIN offres_emploi o ON o.id=ca.offre_id
         {where} ORDER BY ca.created_at DESC""", params).fetchall()]
     colonnes = {s: [] for s in RECRUT_CAND_STATUTS}
     for r in rows:
+        r['match_score'] = _recrut_match_score(
+            {'competences': r.get('competences'), 'metier': r.get('metier'),
+             'niveau_etude': r.get('niveau_etude'), 'ville': r.get('ville')},
+            {'profil_recherche': r.get('o_profil'), 'titre': r.get('offre_titre'),
+             'missions': r.get('o_miss'), 'description': r.get('o_desc'),
+             'niveau_etude': r.get('o_niveau'), 'lieu_travail': r.get('o_lieu'), 'teletravail': r.get('o_tt')})
         colonnes.setdefault(r['statut'] or 'recu', []).append(r)
     offres = [dict(r) for r in conn.execute(
         "SELECT id, titre FROM offres_emploi ORDER BY created_at DESC").fetchall()]
@@ -37040,12 +37107,20 @@ def recrutement_candidature_detail(cid):
     conn = _gdb()
     cand = conn.execute("""SELECT ca.*, c.nom, c.prenoms, c.telephone, c.email, c.ville, c.metier,
         c.niveau_etude, c.competences, c.linkedin, c.cv_path, c.photo, c.date_naissance,
-        o.titre AS offre_titre, o.reference AS offre_ref, o.id AS offre_id
+        o.titre AS offre_titre, o.reference AS offre_ref, o.id AS offre_id,
+        o.profil_recherche AS o_profil, o.niveau_etude AS o_niveau, o.lieu_travail AS o_lieu,
+        o.teletravail AS o_tt, o.missions AS o_miss, o.description AS o_desc
         FROM candidatures ca LEFT JOIN candidats c ON c.id=ca.candidat_id
         LEFT JOIN offres_emploi o ON o.id=ca.offre_id WHERE ca.id=?""", (cid,)).fetchone()
     if not cand:
         conn.close(); flash("Candidature introuvable", "error"); return redirect('/recrutement/candidatures')
     cand = dict(cand)
+    cand['match_score'] = _recrut_match_score(
+        {'competences': cand.get('competences'), 'metier': cand.get('metier'),
+         'niveau_etude': cand.get('niveau_etude'), 'ville': cand.get('ville')},
+        {'profil_recherche': cand.get('o_profil'), 'titre': cand.get('offre_titre'),
+         'missions': cand.get('o_miss'), 'description': cand.get('o_desc'),
+         'niveau_etude': cand.get('o_niveau'), 'lieu_travail': cand.get('o_lieu'), 'teletravail': cand.get('o_tt')})
     entretiens = [dict(r) for r in conn.execute(
         "SELECT * FROM entretiens WHERE candidature_id=? ORDER BY date DESC, heure DESC", (cid,)).fetchall()]
     conn.close()
@@ -37238,7 +37313,8 @@ def emploi_detail(oid):
     conn.close()
     if not o:
         flash("Offre introuvable ou clôturée", "error"); return redirect('/emplois')
-    return render_template('emploi_detail.html', o=dict(o), moi=moi,
+    qr = _recrut_qr_data_uri(request.url_root.rstrip('/') + f'/emplois/{oid}')
+    return render_template('emploi_detail.html', o=dict(o), moi=moi, qr=qr,
         candidat_nom=session.get('candidat_nom'))
 
 
@@ -37431,6 +37507,306 @@ def candidat_profil():
 @app.route('/uploads/recrutement_photos/<path:filename>')
 def recrutement_photo_serve(filename):
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_photos'), filename)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163e : ESPACE ENTREPRISE (RECRUTEUR) — auth + tableau de bord + validation admin
+# ════════════════════════════════════════════════════════════════════════════
+def _recruteur_get():
+    """Retourne l'entreprise connectée (dict) ou None."""
+    rid = session.get('recruteur_id')
+    if not rid:
+        return None
+    conn = _gdb()
+    r = conn.execute("SELECT * FROM entreprises_recrutement WHERE id=?", (rid,)).fetchone()
+    conn.close()
+    return dict(r) if r else None
+
+
+@app.route('/recruteur')
+def recruteur_home():
+    if session.get('recruteur_id'):
+        return redirect('/recruteur/dashboard')
+    return render_template('recruteur_login.html')
+
+
+@app.route('/recruteur/register', methods=['POST'])
+def recruteur_register():
+    nom = (request.form.get('raison_sociale', '') or '').strip()
+    email = (request.form.get('email', '') or '').strip().lower()
+    pwd = request.form.get('password', '') or ''
+    if not nom or not email or len(pwd) < 4:
+        flash("Raison sociale, email et mot de passe (4 car. min.) requis.", "error")
+        return redirect('/recruteur')
+    conn = _gdb()
+    if conn.execute("SELECT id FROM entreprises_recrutement WHERE LOWER(username)=?", (email,)).fetchone():
+        conn.close(); flash("Un compte existe déjà avec cet email.", "warning"); return redirect('/recruteur')
+    salt = secrets.token_hex(8); ph = _candidat_hash(pwd, salt)
+    cur = conn.execute("""INSERT INTO entreprises_recrutement
+        (raison_sociale, secteur_activite, email, telephone, ville, pays, statut,
+         username, password_hash, salt, account_status, created_by_self, created_at)
+        VALUES (?,?,?,?,?,?, 'actif', ?,?,?, 'pending', 1, datetime('now'))""",
+        (nom, request.form.get('secteur_activite', ''), email, request.form.get('telephone', ''),
+         request.form.get('ville', ''), request.form.get('pays', "Côte d'Ivoire"), email, ph, salt))
+    conn.commit(); conn.close()
+    try:
+        notify_roles(['admin'], title="🏢 Nouvelle entreprise recruteuse à valider",
+            message=f"« {nom} » a créé un compte recruteur. Validez-le pour autoriser la publication d'offres.",
+            link="/recrutement/entreprises", type='info', module='recrutement', icon='🏢', priority='high')
+    except Exception: pass
+    flash("✅ Compte créé. Il sera actif après validation par l'administrateur. Vous pouvez préparer vos offres en brouillon.", "success")
+    session['recruteur_id'] = cur.lastrowid; session['recruteur_nom'] = nom
+    return redirect('/recruteur/dashboard')
+
+
+@app.route('/recruteur/login', methods=['POST'])
+def recruteur_login():
+    email = (request.form.get('email', '') or '').strip().lower()
+    pwd = request.form.get('password', '') or ''
+    conn = _gdb()
+    e = conn.execute("SELECT * FROM entreprises_recrutement WHERE LOWER(username)=?", (email,)).fetchone()
+    if e:
+        e = dict(e)
+        if e.get('password_hash') and _candidat_hash(pwd, e.get('salt', '')) == e['password_hash']:
+            conn.execute("UPDATE entreprises_recrutement SET last_login=datetime('now') WHERE id=?", (e['id'],))
+            conn.commit(); conn.close()
+            session['recruteur_id'] = e['id']; session['recruteur_nom'] = e['raison_sociale']
+            return redirect('/recruteur/dashboard')
+    conn.close()
+    flash("Identifiants incorrects.", "error")
+    return redirect('/recruteur')
+
+
+@app.route('/recruteur/logout')
+def recruteur_logout():
+    session.pop('recruteur_id', None); session.pop('recruteur_nom', None)
+    return redirect('/recruteur')
+
+
+@app.route('/recruteur/dashboard')
+def recruteur_dashboard():
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    conn = _gdb()
+    rid = e['id']
+    def _n(sql):
+        try: return conn.execute(sql, (rid,)).fetchone()[0] or 0
+        except Exception: return 0
+    kpi = {
+        'offres': _n("SELECT COUNT(*) FROM offres_emploi WHERE entreprise_id=?"),
+        'actives': _n("SELECT COUNT(*) FROM offres_emploi WHERE entreprise_id=? AND statut='publiee'"),
+        'candidatures': _n("SELECT COUNT(*) FROM candidatures WHERE offre_id IN (SELECT id FROM offres_emploi WHERE entreprise_id=?)"),
+        'entretiens': _n("SELECT COUNT(*) FROM entretiens WHERE offre_id IN (SELECT id FROM offres_emploi WHERE entreprise_id=?) AND date>=date('now')"),
+    }
+    offres = [dict(r) for r in conn.execute("""SELECT o.*,
+        (SELECT COUNT(*) FROM candidatures WHERE offre_id=o.id) AS nb_cand
+        FROM offres_emploi o WHERE o.entreprise_id=? ORDER BY o.created_at DESC""", (rid,)).fetchall()]
+    conn.close()
+    return render_template('recruteur_dashboard.html', e=e, kpi=kpi, offres=offres,
+        contrats=RECRUT_CONTRATS, offre_labels=RECRUT_OFFRE_LABELS,
+        approved=(e.get('account_status') == 'approved'))
+
+
+@app.route('/recruteur/offres/add', methods=['POST'])
+def recruteur_offre_add():
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    titre = (request.form.get('titre', '') or '').strip()
+    if not titre:
+        flash("Le titre est obligatoire.", "error"); return redirect('/recruteur/dashboard')
+    approved = e.get('account_status') == 'approved'
+    publier = request.form.get('action') == 'publier' and approved
+    ref = f"OFF-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(2).upper()}"
+    conn = _gdb()
+    conn.execute("""INSERT INTO offres_emploi
+        (entreprise_id, reference, titre, description, missions, profil_recherche, niveau_etude,
+         experience, type_contrat, salaire_min, salaire_max, lieu_travail, teletravail,
+         date_publication, date_limite, nombre_postes, statut, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))""",
+        (e['id'], ref, titre, request.form.get('description', ''), request.form.get('missions', ''),
+         request.form.get('profil_recherche', ''), request.form.get('niveau_etude', ''),
+         request.form.get('experience', ''), request.form.get('type_contrat', 'CDI'),
+         _num_fr(request.form.get('salaire_min')), _num_fr(request.form.get('salaire_max')),
+         request.form.get('lieu_travail', ''), 1 if request.form.get('teletravail') else 0,
+         datetime.now().strftime('%Y-%m-%d') if publier else None,
+         request.form.get('date_limite', '') or None, int(request.form.get('nombre_postes', 1) or 1),
+         'publiee' if publier else 'brouillon'))
+    conn.commit(); conn.close()
+    if request.form.get('action') == 'publier' and not approved:
+        flash("Offre enregistrée en brouillon. La publication sera possible une fois votre compte validé par l'administrateur.", "warning")
+    else:
+        flash(f"✅ Offre « {titre} » {'publiée' if publier else 'enregistrée en brouillon'}.", "success")
+    return redirect('/recruteur/dashboard')
+
+
+@app.route('/recruteur/offres/<int:oid>/statut/<statut>', methods=['POST'])
+def recruteur_offre_statut(oid, statut):
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    if statut not in RECRUT_OFFRE_STATUTS:
+        return redirect('/recruteur/dashboard')
+    conn = _gdb()
+    own = conn.execute("SELECT id FROM offres_emploi WHERE id=? AND entreprise_id=?", (oid, e['id'])).fetchone()
+    if not own:
+        conn.close(); flash("Offre introuvable.", "error"); return redirect('/recruteur/dashboard')
+    if statut == 'publiee' and e.get('account_status') != 'approved':
+        conn.close(); flash("⏳ Votre compte doit être validé par l'administrateur avant de publier.", "warning"); return redirect('/recruteur/dashboard')
+    if statut == 'publiee':
+        conn.execute("UPDATE offres_emploi SET statut='publiee', date_publication=COALESCE(date_publication, ?), updated_at=datetime('now') WHERE id=?",
+            (datetime.now().strftime('%Y-%m-%d'), oid))
+    else:
+        conn.execute("UPDATE offres_emploi SET statut=?, updated_at=datetime('now') WHERE id=?", (statut, oid))
+    conn.commit(); conn.close()
+    flash(f"✅ Offre : {_recrut_status_label('offre', statut)[0]}", "success")
+    return redirect('/recruteur/dashboard')
+
+
+@app.route('/recruteur/candidatures')
+def recruteur_candidatures():
+    e = _recruteur_get()
+    if not e:
+        return redirect('/recruteur')
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute("""
+        SELECT ca.*, c.nom, c.prenoms, c.metier, c.telephone, c.email, c.ville, c.cv_path,
+               c.competences, c.niveau_etude,
+               o.titre AS offre_titre, o.profil_recherche AS o_profil, o.niveau_etude AS o_niveau,
+               o.lieu_travail AS o_lieu, o.teletravail AS o_tt, o.missions AS o_miss, o.description AS o_desc
+        FROM candidatures ca LEFT JOIN candidats c ON c.id=ca.candidat_id
+        JOIN offres_emploi o ON o.id=ca.offre_id
+        WHERE o.entreprise_id=? ORDER BY ca.created_at DESC""", (e['id'],)).fetchall()]
+    for r in rows:
+        r['match_score'] = _recrut_match_score(
+            {'competences': r.get('competences'), 'metier': r.get('metier'),
+             'niveau_etude': r.get('niveau_etude'), 'ville': r.get('ville')},
+            {'profil_recherche': r.get('o_profil'), 'titre': r.get('offre_titre'),
+             'missions': r.get('o_miss'), 'description': r.get('o_desc'),
+             'niveau_etude': r.get('o_niveau'), 'lieu_travail': r.get('o_lieu'), 'teletravail': r.get('o_tt')})
+    colonnes = {s: [] for s in RECRUT_CAND_STATUTS}
+    for r in rows:
+        colonnes.setdefault(r['statut'] or 'recu', []).append(r)
+    conn.close()
+    return render_template('recruteur_candidatures.html', e=e, colonnes=colonnes,
+        statuts=RECRUT_CAND_STATUTS, cand_labels=RECRUT_CAND_LABELS, total=len(rows))
+
+
+@app.route('/recruteur/candidature/<int:cid>/statut/<statut>', methods=['POST'])
+def recruteur_candidature_statut(cid, statut):
+    e = _recruteur_get()
+    if not e:
+        return (jsonify({'ok': False}), 403) if request.args.get('ajax') else redirect('/recruteur')
+    if statut not in RECRUT_CAND_STATUTS:
+        return (jsonify({'ok': False}), 400) if request.args.get('ajax') else redirect('/recruteur/candidatures')
+    conn = _gdb()
+    row = conn.execute("""SELECT ca.id, c.nom, c.email, o.titre AS offre_titre
+        FROM candidatures ca LEFT JOIN candidats c ON c.id=ca.candidat_id
+        JOIN offres_emploi o ON o.id=ca.offre_id
+        WHERE ca.id=? AND o.entreprise_id=?""", (cid, e['id'])).fetchone()
+    if not row:
+        conn.close()
+        return (jsonify({'ok': False}), 404) if request.args.get('ajax') else redirect('/recruteur/candidatures')
+    conn.execute("UPDATE candidatures SET statut=?, updated_at=datetime('now') WHERE id=?", (statut, cid))
+    conn.commit(); conn.close()
+    r = dict(row)
+    _recrut_email_candidat(r.get('email'), r.get('nom') or 'Candidat',
+        f"Suivi de votre candidature — {r.get('offre_titre') or ''}",
+        [CAND_STATUT_MESSAGES.get(statut, "Le statut de votre candidature a évolué."),
+         "Connectez-vous à votre espace candidat pour plus de détails."])
+    if request.args.get('ajax'):
+        return jsonify({'ok': True, 'statut': statut})
+    flash(f"✅ Candidature : {_recrut_status_label('cand', statut)[0]}", "success")
+    return redirect('/recruteur/candidatures')
+
+
+# ───────────────────────── ADMIN : validation des entreprises ─────────────────────────
+@app.route('/recrutement/entreprises')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_entreprises():
+    conn = _gdb()
+    entreprises = [dict(r) for r in conn.execute("""SELECT e.*,
+        (SELECT COUNT(*) FROM offres_emploi WHERE entreprise_id=e.id) AS nb_offres
+        FROM entreprises_recrutement e ORDER BY
+        CASE COALESCE(e.account_status,'approved') WHEN 'pending' THEN 0 ELSE 1 END, e.created_at DESC""").fetchall()]
+    nb_pending = sum(1 for x in entreprises if (x.get('account_status') or 'approved') == 'pending')
+    conn.close()
+    return render_template('recrutement_entreprises.html', page='recrutement',
+        entreprises=entreprises, nb_pending=nb_pending)
+
+
+@app.route('/recrutement/entreprises/<int:eid>/valider/<action>', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_entreprise_valider(eid, action):
+    if action not in ('approve', 'reject', 'suspend'):
+        return redirect('/recrutement/entreprises')
+    conn = _gdb()
+    e = conn.execute("SELECT raison_sociale FROM entreprises_recrutement WHERE id=?", (eid,)).fetchone()
+    if not e:
+        conn.close(); flash("Entreprise introuvable.", "error"); return redirect('/recrutement/entreprises')
+    if action == 'approve':
+        conn.execute("UPDATE entreprises_recrutement SET account_status='approved', reject_reason=NULL WHERE id=?", (eid,))
+        msg = "✅ Entreprise validée — elle peut désormais publier ses offres."
+    elif action == 'reject':
+        conn.execute("UPDATE entreprises_recrutement SET account_status='rejected', reject_reason=? WHERE id=?",
+            (request.form.get('reason', ''), eid))
+        # dépublier ses offres
+        conn.execute("UPDATE offres_emploi SET statut='suspendue' WHERE entreprise_id=? AND statut='publiee'", (eid,))
+        msg = "❌ Entreprise refusée — ses offres ont été suspendues."
+    else:  # suspend
+        conn.execute("UPDATE entreprises_recrutement SET account_status='pending' WHERE id=?", (eid,))
+        conn.execute("UPDATE offres_emploi SET statut='suspendue' WHERE entreprise_id=? AND statut='publiee'", (eid,))
+        msg = "⏸️ Entreprise suspendue (repassée en attente)."
+    conn.commit(); conn.close()
+    flash(msg, "success")
+    return redirect('/recrutement/entreprises')
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163g : API REST PUBLIQUE (offres en JSON)
+# ════════════════════════════════════════════════════════════════════════════
+@app.route('/api/jobs')
+def api_jobs():
+    """Liste publique des offres publiées (JSON). Filtres : ?q=&ville=&contrat="""
+    q = (request.args.get('q', '') or '').strip()
+    ville = (request.args.get('ville', '') or '').strip()
+    contrat = (request.args.get('contrat', '') or '').strip()
+    conn = _gdb()
+    where = ["o.statut='publiee'"]; params = []
+    if q:
+        where.append("(o.titre LIKE ? OR o.description LIKE ?)"); params += [f"%{q}%"] * 2
+    if ville:
+        where.append("o.lieu_travail LIKE ?"); params.append(f"%{ville}%")
+    if contrat:
+        where.append("o.type_contrat=?"); params.append(contrat)
+    rows = [dict(r) for r in conn.execute(f"""
+        SELECT o.id, o.reference, o.titre, o.type_contrat, o.lieu_travail, o.teletravail,
+               o.experience, o.niveau_etude, o.salaire_min, o.salaire_max, o.nombre_postes,
+               o.date_publication, o.date_limite, e.raison_sociale AS entreprise
+        FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
+        WHERE {' AND '.join(where)} ORDER BY o.date_publication DESC, o.created_at DESC LIMIT 200""", params).fetchall()]
+    conn.close()
+    base = request.url_root.rstrip('/')
+    for r in rows:
+        r['url'] = f"{base}/emplois/{r['id']}"
+    return jsonify({'count': len(rows), 'jobs': rows})
+
+
+@app.route('/api/jobs/<int:oid>')
+def api_job_detail(oid):
+    conn = _gdb()
+    o = conn.execute("""SELECT o.*, e.raison_sociale AS entreprise
+        FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
+        WHERE o.id=? AND o.statut='publiee'""", (oid,)).fetchone()
+    conn.close()
+    if not o:
+        return jsonify({'error': 'not_found'}), 404
+    o = dict(o)
+    for k in ('username', 'password_hash', 'salt'):
+        o.pop(k, None)
+    o['apply_url'] = request.url_root.rstrip('/') + f"/emplois/{oid}"
+    return jsonify(o)
 
 
 if __name__ == '__main__':

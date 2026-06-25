@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mon espace recruteur — {{ e.raison_sociale }}</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--teal-soft:#e7f3f0;--coral:#ef8f63}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:#f5f8f7;color:var(--ink)}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,#14564d,#0f5249);color:#fff;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.top .links a{color:#fff;background:rgba(255,255,255,.16);padding:8px 14px;border-radius:999px;font-size:13px;margin-left:6px}
+.wrap{max-width:1040px;margin:20px auto;padding:0 16px}
+.banner{border-radius:12px;padding:12px 16px;font-size:13px;margin-bottom:16px}
+.banner.warn{background:#fff8e1;color:#8a5a00;border:1px solid #f0d089}
+.banner.ok{background:#e8f5e9;color:#2e7d32;border:1px solid #b6dcc0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.kpi{background:#fff;border-radius:12px;padding:14px;border:1px solid #eef1f0}
+.kpi .v{font-size:24px;font-weight:800}.kpi .l{font-size:11px;color:var(--muted)}
+.card{background:#fff;border-radius:14px;padding:18px;border:1px solid #eef1f0;margin-bottom:16px}
+.card h3{font-size:15px;color:var(--teal);margin-bottom:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:9px 8px;text-align:left;border-bottom:1px solid #f0f0f0}
+th{font-size:11px;text-transform:uppercase;color:#999}
+label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px}
+input,select,textarea{width:100%;padding:9px;border:1.5px solid #eceeed;border-radius:9px;font-size:13px;font-family:inherit;background:#fcfdfc}
+.btn{border:none;border-radius:9px;padding:9px 14px;font-weight:700;cursor:pointer;font-size:13px;color:#fff;background:var(--coral)}
+.btn.teal{background:var(--teal)}.btn.ghost{background:#f0f3f2;color:var(--ink)}
+.badge{padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700}
+.flash{margin-bottom:14px}.flash div{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:6px}
+.flash .success{background:#e8f5e9;color:#2e7d32}.flash .warning{background:#fff8e1;color:#8a5a00}.flash .error{background:#fde8e8;color:#c53030}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top">
+    <div><strong style="font-size:18px">🏢 {{ e.raison_sociale }}</strong>
+        {% if approved %}<span class="badge" style="background:#fff;color:#2e7d32;margin-left:8px">✅ Validé</span>
+        {% else %}<span class="badge" style="background:#fff;color:#b8561f;margin-left:8px">⏳ En attente de validation</span>{% endif %}
+    </div>
+    <div class="links"><a href="/recruteur/candidatures">🗂️ Candidatures</a><a href="/emplois" target="_blank">🌐 Portail</a><a href="/recruteur/logout">Déconnexion</a></div>
+</div>
+<div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+    <div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
+    {% endif %}{% endwith %}
+
+    {% if not approved %}
+    <div class="banner warn">⏳ Votre compte est <strong>en attente de validation</strong> par l'administrateur. Vous pouvez préparer vos offres en <strong>brouillon</strong> ; la publication sera débloquée après validation.</div>
+    {% else %}
+    <div class="banner ok">✅ Votre compte est validé — vous pouvez publier vos offres et gérer vos candidatures.</div>
+    {% endif %}
+
+    <div class="kpis">
+        <div class="kpi"><div class="l">Offres</div><div class="v">{{ kpi.offres }}</div></div>
+        <div class="kpi"><div class="l">Offres actives</div><div class="v" style="color:#2e7d32">{{ kpi.actives }}</div></div>
+        <div class="kpi"><div class="l">Candidatures</div><div class="v" style="color:#1565c0">{{ kpi.candidatures }}</div></div>
+        <div class="kpi"><div class="l">Entretiens à venir</div><div class="v" style="color:#0277bd">{{ kpi.entretiens }}</div></div>
+    </div>
+
+    <div class="card">
+        <h3>➕ Publier une offre</h3>
+        <form method="post" action="/recruteur/offres/add">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <div class="grid2">
+                <div><label>Titre du poste *</label><input name="titre" required></div>
+                <div><label>Type de contrat</label><select name="type_contrat">{% for ct in contrats %}<option>{{ ct }}</option>{% endfor %}</select></div>
+            </div>
+            <label style="margin-top:8px">Description</label><textarea name="description" rows="2"></textarea>
+            <div class="grid2" style="margin-top:8px">
+                <div><label>Missions</label><textarea name="missions" rows="2"></textarea></div>
+                <div><label>Profil recherché</label><textarea name="profil_recherche" rows="2"></textarea></div>
+            </div>
+            <div class="grid2" style="margin-top:8px">
+                <div><label>Lieu de travail</label><input name="lieu_travail"></div>
+                <div><label>Niveau d'étude</label><input name="niveau_etude"></div>
+                <div><label>Expérience</label><input name="experience"></div>
+                <div><label>Date limite</label><input type="date" name="date_limite"></div>
+                <div><label>Salaire min (XOF)</label><input type="number" name="salaire_min" min="0"></div>
+                <div><label>Salaire max (XOF)</label><input type="number" name="salaire_max" min="0"></div>
+                <div><label>Nombre de postes</label><input type="number" name="nombre_postes" min="1" value="1"></div>
+                <label style="display:flex;align-items:center;gap:6px;margin-top:18px;font-size:13px"><input type="checkbox" name="teletravail" value="1" style="width:auto"> 🏠 Télétravail</label>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+                <button class="btn ghost" type="submit" name="action" value="brouillon">📝 Brouillon</button>
+                <button class="btn" type="submit" name="action" value="publier" {% if not approved %}title="Disponible après validation"{% endif %}>✅ Publier</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>📋 Mes offres ({{ offres|length }})</h3>
+        {% if offres %}
+        <table><thead><tr><th>Titre</th><th>Contrat</th><th>Candidatures</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
+        {% for o in offres %}{% set ol = offre_labels.get(o.statut, (o.statut,'#888','•')) %}
+        <tr>
+            <td><strong>{{ o.titre }}</strong><br><span style="font-size:10px;color:#999">{{ o.reference }}</span></td>
+            <td>{{ o.type_contrat or '—' }}</td>
+            <td><a href="/recruteur/candidatures" style="color:#1565c0;font-weight:700">{{ o.nb_cand }}</a></td>
+            <td><span class="badge" style="background:{{ ol[1] }}22;color:{{ ol[1] }}">{{ ol[2] }} {{ ol[0] }}</span></td>
+            <td style="white-space:nowrap">
+                {% if o.statut != 'publiee' %}<form method="post" action="/recruteur/offres/{{ o.id }}/statut/publiee" style="display:inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn teal" style="padding:4px 8px;font-size:11px" {% if not approved %}disabled title="Compte en attente"{% endif %}>Publier</button></form>{% endif %}
+                {% if o.statut == 'publiee' %}<form method="post" action="/recruteur/offres/{{ o.id }}/statut/suspendue" style="display:inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn ghost" style="padding:4px 8px;font-size:11px">Suspendre</button></form>{% endif %}
+                {% if o.statut != 'cloturee' %}<form method="post" action="/recruteur/offres/{{ o.id }}/statut/cloturee" style="display:inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn" style="padding:4px 8px;font-size:11px;background:#c53030">Clôturer</button></form>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody></table>
+        {% else %}<div style="padding:18px;text-align:center;color:#999">Aucune offre. Créez-en une ci-dessus.</div>{% endif %}
+    </div>
+</div>
+</body>
+</html>

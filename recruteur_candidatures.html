@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Candidatures — {{ e.raison_sociale }}</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:#f5f8f7;color:var(--ink)}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,#14564d,#0f5249);color:#fff;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.top a{color:#fff;background:rgba(255,255,255,.16);padding:8px 14px;border-radius:999px;font-size:13px}
+.wrap{max-width:1200px;margin:18px auto;padding:0 16px}
+.cols{display:grid;grid-template-columns:repeat({{ statuts|length }},minmax(190px,1fr));gap:10px;overflow-x:auto;padding-bottom:8px}
+.col{background:#eef2f1;border-radius:12px;padding:8px;min-height:200px}
+.col h4{font-size:12px;padding:4px 6px;display:flex;justify-content:space-between;align-items:center}
+.cardc{background:#fff;border-radius:9px;padding:9px;margin-top:6px;cursor:grab;border:1px solid #e6e6e6;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.badge{padding:1px 6px;border-radius:8px;font-size:10px;font-weight:800}
+.flash{max-width:1200px;margin:14px auto 0;padding:0 16px}.flash div{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:6px}
+.flash .success{background:#e8f5e9;color:#2e7d32}.flash .error{background:#fde8e8;color:#c53030}
+</style>
+</head>
+<body>
+<div class="top">
+    <strong style="font-size:17px">🗂️ Candidatures · {{ total }}</strong>
+    <div><a href="/recruteur/dashboard">← Mon espace</a></div>
+</div>
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+<div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
+{% endif %}{% endwith %}
+<div class="wrap">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Glissez une carte d'une colonne à l'autre pour faire évoluer la candidature (le candidat est notifié par email).</div>
+    <input type="hidden" id="csrf" value="{{ csrf_token() }}">
+    <div class="cols">
+        {% for s in statuts %}{% set lbl = cand_labels.get(s, (s,'#888','•')) %}
+        <div class="col" data-statut="{{ s }}" ondragover="event.preventDefault()" ondrop="drop(event,'{{ s }}')">
+            <h4 style="color:{{ lbl[1] }}"><span>{{ lbl[2] }} {{ lbl[0] }}</span><span class="badge" style="background:{{ lbl[1] }};color:#fff">{{ colonnes[s]|length }}</span></h4>
+            {% for c in colonnes[s] %}{% set ms = c.match_score or 0 %}{% set mc = '#2e7d32' if ms>=75 else ('#b8561f' if ms>=50 else '#c53030') %}
+            <div class="cardc" draggable="true" ondragstart="drag(event,{{ c.id }})">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:4px">
+                    <strong style="font-size:13px">{{ c.nom }} {{ c.prenoms or '' }}</strong>
+                    <span class="badge" style="background:{{ mc }}18;color:{{ mc }}" title="Compatibilité">{{ ms }}%</span>
+                </div>
+                <div style="font-size:10px;color:#888">{{ c.offre_titre or '—' }}</div>
+                {% if c.metier %}<div style="font-size:10px;color:#1565c0">{{ c.metier }}</div>{% endif %}
+                <div style="display:flex;gap:8px;margin-top:5px;flex-wrap:wrap">
+                    {% if c.cv_path %}<a href="/uploads/{{ c.cv_path }}" target="_blank" style="font-size:10px;color:#7b1fa2">📄 CV</a>{% endif %}
+                    {% if c.email %}<a href="mailto:{{ c.email }}" style="font-size:10px;color:#1565c0">✉️ Email</a>{% endif %}
+                    {% if c.telephone %}<span style="font-size:10px;color:#888">📞 {{ c.telephone }}</span>{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+<script>
+var _id=null;
+function drag(e,id){_id=id;e.dataTransfer.effectAllowed='move';}
+function drop(e,statut){e.preventDefault();if(!_id)return;var id=_id;_id=null;
+    var fd=new FormData();fd.append('_csrf',document.getElementById('csrf').value);
+    fetch('/recruteur/candidature/'+id+'/statut/'+statut+'?ajax=1',{method:'POST',headers:{'X-CSRFToken':document.getElementById('csrf').value},body:fd})
+    .then(function(r){return r.json();}).then(function(d){if(d&&d.ok){location.reload();}else{alert('Action refusée.');}})
+    .catch(function(){alert('Erreur réseau.');});}
+</script>
+</body>
+</html>

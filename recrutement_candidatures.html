@@ -26,7 +26,11 @@
         {% for c in colonnes[s] %}
         <div class="kanban-card" draggable="true" data-id="{{ c.id }}" ondragstart="kanbanDrag(event,{{ c.id }})"
              style="background:#fff;border:1px solid #e6e6e6;border-left:3px solid {{ lbl[1] }};border-radius:8px;padding:8px;cursor:grab;box-shadow:0 1px 2px rgba(0,0,0,0.05)">
-            <a href="/recrutement/candidature/{{ c.id }}" style="font-weight:700;font-size:13px;color:#1e1e2d;text-decoration:none">{{ c.nom }} {{ c.prenoms or '' }}</a>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:4px">
+                <a href="/recrutement/candidature/{{ c.id }}" style="font-weight:700;font-size:13px;color:#1e1e2d;text-decoration:none">{{ c.nom }} {{ c.prenoms or '' }}</a>
+                {% set ms = c.match_score or 0 %}{% set mc = '#2e7d32' if ms >= 75 else ('#b8561f' if ms >= 50 else '#c53030') %}
+                <span title="Compatibilité" style="background:{{ mc }}18;color:{{ mc }};font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;white-space:nowrap">{{ ms }}%</span>
+            </div>
             <div style="font-size:10px;color:#888;margin-top:2px">{{ c.offre_titre or '—' }}</div>
             {% if c.metier %}<div style="font-size:10px;color:#1565c0">{{ c.metier }}</div>{% endif %}
             <div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap">

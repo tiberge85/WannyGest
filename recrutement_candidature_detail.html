@@ -35,6 +35,12 @@
     </div>
 
     <div>
+        {% set ms = c.match_score or 0 %}{% set mc = '#2e7d32' if ms >= 75 else ('#b8561f' if ms >= 50 else '#c53030') %}
+        <div class="card" style="margin-bottom:14px;text-align:center;padding:16px;border-top:3px solid {{ mc }}">
+            <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:1px">🎯 Compatibilité avec l'offre</div>
+            <div style="font-size:40px;font-weight:900;color:{{ mc }};line-height:1.1;margin-top:4px">{{ ms }}%</div>
+            <div style="font-size:11px;color:#888">{{ '✅ Très bon profil' if ms >= 75 else ('🟠 Profil correct' if ms >= 50 else '🔴 Profil éloigné') }}</div>
+        </div>
         <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>Faire avancer</h3></div>
         <div class="card-body" style="display:flex;flex-wrap:wrap;gap:6px">
             {% for s in statuts %}

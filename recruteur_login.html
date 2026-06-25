@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Espace recruteur — RAMYA</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--teal-soft:#e7f3f0;--coral:#ef8f63}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#fbfaf8,#f1f6f4);color:var(--ink);min-height:100vh}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,#14564d,#0f5249);color:#fff;padding:26px 20px;text-align:center}
+.top a{color:#cfeae3;font-size:13px}
+.top h1{font-size:25px;margin-top:6px}
+.wrap{max-width:900px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:#fff;border-radius:16px;padding:24px;box-shadow:0 4px 18px rgba(20,86,77,.08);border:1px solid #eef1f0}
+.card h2{font-size:18px;color:var(--teal);margin-bottom:14px}
+label{font-size:12px;color:var(--muted);display:block;margin:8px 0 3px;font-weight:600}
+input{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:10px;font-size:14px;background:#fcfdfc}
+input:focus{outline:none;border-color:var(--teal);background:#fff}
+.btn{margin-top:14px;width:100%;border:none;border-radius:11px;padding:13px;font-weight:700;cursor:pointer;font-size:15px;color:#fff}
+.flash{max-width:900px;margin:14px auto 0;padding:0 16px}
+.flash div{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:6px}
+.flash .error{background:#fde8e8;color:#c53030}.flash .warning{background:#fff8e1;color:#8a5a00}.flash .success{background:#e8f5e9;color:#2e7d32}
+.note{max-width:900px;margin:16px auto 0;padding:0 16px;font-size:12.5px;color:var(--muted);text-align:center}
+@media(max-width:680px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top">
+    <a href="/emplois">← Portail emploi</a>
+    <h1>🏢 Espace recruteur</h1>
+    <p style="opacity:.9;font-size:14px">Publiez vos offres et gérez vos candidatures</p>
+</div>
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+<div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
+{% endif %}{% endwith %}
+<div class="wrap">
+    <div class="card">
+        <h2>🔑 Connexion entreprise</h2>
+        <form method="post" action="/recruteur/login">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label>Email</label><input type="email" name="email" required>
+            <label>Mot de passe</label><input type="password" name="password" required>
+            <button class="btn" style="background:var(--teal)" type="submit">Se connecter</button>
+        </form>
+    </div>
+    <div class="card">
+        <h2>✨ Créer un compte recruteur</h2>
+        <form method="post" action="/recruteur/register">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label>Raison sociale *</label><input name="raison_sociale" required>
+            <label>Secteur d'activité</label><input name="secteur_activite">
+            <label>Email *</label><input type="email" name="email" required>
+            <label>Téléphone</label><input name="telephone">
+            <label>Ville</label><input name="ville">
+            <label>Mot de passe * (4 car. min.)</label><input type="password" name="password" minlength="4" required>
+            <button class="btn" style="background:var(--coral)" type="submit">Créer mon compte</button>
+        </form>
+    </div>
+</div>
+<div class="note">🔒 Les comptes recruteurs sont validés par l'administrateur avant de pouvoir publier des offres.</div>
+</body>
+</html>

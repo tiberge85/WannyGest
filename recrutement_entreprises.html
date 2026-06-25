@@ -1,0 +1,36 @@
+{% extends "base.html" %}{% block title %}WannyGest — Entreprises recruteuses{% endblock %}{% block content %}
+<div class="page-header">
+    <div><h1>🏢 Entreprises recruteuses</h1><p style="color:#666;font-size:13px">{{ nb_pending }} en attente de validation</p></div>
+    <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if entreprises %}
+<div class="table-wrap"><table>
+    <thead><tr><th>Entreprise</th><th>Contact</th><th>Offres</th><th>Compte</th><th>Statut</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for e in entreprises %}
+    {% set st = e.account_status or 'approved' %}
+    <tr {% if st == 'pending' %}style="background:#fff8e1"{% endif %}>
+        <td><strong>{{ e.raison_sociale }}</strong>{% if e.secteur_activite %}<br><span style="font-size:10px;color:#888">{{ e.secteur_activite }}</span>{% endif %}</td>
+        <td style="font-size:12px">{{ e.email or '—' }}{% if e.telephone %}<br>{{ e.telephone }}{% endif %}{% if e.ville %}<br><span style="color:#888">{{ e.ville }}</span>{% endif %}</td>
+        <td style="text-align:center">{{ e.nb_offres }}</td>
+        <td style="font-size:11px">{% if e.created_by_self %}🔑 Auto-inscrit{% else %}Créé par admin{% endif %}{% if e.last_login %}<br><span style="color:#888">vu {{ e.last_login[:10] }}</span>{% endif %}</td>
+        <td>
+            {% if st == 'approved' %}<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">✅ Validé</span>
+            {% elif st == 'pending' %}<span style="background:#fff3e0;color:#b8561f;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">⏳ En attente</span>
+            {% else %}<span style="background:#fde8e8;color:#c53030;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">❌ Refusé</span>{% endif %}
+        </td>
+        <td style="white-space:nowrap">
+            {% if st != 'approved' %}<form method="post" action="/recrutement/entreprises/{{ e.id }}/valider/approve" style="display:inline"><button class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:11px;padding:4px 8px">✅ Valider</button></form>{% endif %}
+            {% if st == 'approved' %}<form method="post" action="/recrutement/entreprises/{{ e.id }}/valider/suspend" style="display:inline"><button class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:11px;padding:4px 8px">⏸️ Suspendre</button></form>{% endif %}
+            {% if st != 'rejected' %}<form method="post" action="/recrutement/entreprises/{{ e.id }}/valider/reject" style="display:inline" onsubmit="return confirm('Refuser cette entreprise ? Ses offres publiées seront suspendues.')"><button class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:11px;padding:4px 8px">❌ Refuser</button></form>{% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}<div style="padding:30px;text-align:center;color:#888">Aucune entreprise recruteuse pour l'instant.</div>{% endif %}
+</div></div>
+<p style="font-size:12px;color:#888;margin-top:10px">💡 Les entreprises s'inscrivent sur <a href="/recruteur" target="_blank" style="color:#1A7A6D">/recruteur</a>. Une fois validées, elles peuvent publier leurs offres (qui apparaissent sur le portail public).</p>
+{% endblock %}

@@ -65,6 +65,9 @@ input:focus,textarea:focus{outline:none;border-color:var(--teal);background:#fff
             {% if o.date_limite %}<div>⏳ <strong>Date limite :</strong> {{ o.date_limite }}</div>{% endif %}
             {% if o.reference %}<div style="color:#b3b8bd;font-size:12px;margin-top:6px">Réf. {{ o.reference }}</div>{% endif %}
         </div></div>
+        {% if qr %}<div class="card" style="text-align:center"><h2>📱 Partager cette offre</h2>
+            <img src="{{ qr }}" alt="QR code de l'offre" style="width:150px;height:150px">
+            <div style="font-size:12px;color:var(--muted);margin-top:4px">Scannez pour ouvrir l'offre sur mobile</div></div>{% endif %}
     </div>
     <div>
         <div class="card apply"><h2>📨 Postuler</h2>

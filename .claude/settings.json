@@ -38,7 +38,9 @@
       "Bash(git commit -q -m 'v163 : module Recrutement \\(ATS\\) Phase 1 — offres, candidatures Kanban, entretiens, portail public *)",
       "Bash(git commit -q -m 'v163b : Recrutement Phase 2 — espace candidat \\(compte + suivi\\) + emails candidats + accès admin uniquement *)",
       "Bash(git commit -q -m 'v163c : Recrutement — CVthèque + Statistiques + portail public redesign \\(doux & accueillant\\) *)",
-      "Bash(git commit -q -m 'v163d : profil candidat éditable + photo de profil *)"
+      "Bash(git commit -q -m 'v163d : profil candidat éditable + photo de profil *)",
+      "Bash(python3 -c \"import qrcode; print\\('qrcode OK', qrcode.__version__\\)\")",
+      "Bash(git commit -q -m 'v163e/f/g : espace entreprise \\(recruteur\\) + matching + QR + API REST + portail illustré *)"
     ]
   }
 }
