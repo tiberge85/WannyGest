@@ -42,7 +42,8 @@
       "Bash(python3 -c \"import qrcode; print\\('qrcode OK', qrcode.__version__\\)\")",
       "Bash(git commit -q -m 'v163e/f/g : espace entreprise \\(recruteur\\) + matching + QR + API REST + portail illustré *)",
       "Bash(git commit -q -m 'v163h-k : messagerie interne + CV/lettre PDF + signature électronique + partage social + espace stages *)",
-      "Bash(git commit -q -m 'v163l/m : recrutement réservé admin \\(vrai rôle, sans bypass RH\\) + correcteur orthographique global *)"
+      "Bash(git commit -q -m 'v163l/m : recrutement réservé admin \\(vrai rôle, sans bypass RH\\) + correcteur orthographique global *)",
+      "Bash(git commit -q -m 'v163m-fix : correcteur via proxy backend \\(corrige le « service indisponible » dû au CORS\\) *)"
     ]
   }
 }

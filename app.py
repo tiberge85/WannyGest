@@ -5044,6 +5044,7 @@ import secrets as _csrf_secrets
 # Routes exemptes de CSRF (pour les appels d'API JSON ou webhooks externes)
 CSRF_EXEMPT_PATHS = {
     '/api/notifications/count',
+    '/api/correcteur',
 }
 # Endpoints publics qui font POST avant que la session existe
 CSRF_BOOTSTRAP_ENDPOINTS = {'login', 'portail_login', 'portail_register'}
@@ -37850,6 +37851,31 @@ def api_job_detail(oid):
         o.pop(k, None)
     o['apply_url'] = request.url_root.rstrip('/') + f"/emplois/{oid}"
     return jsonify(o)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163m : CORRECTEUR orthographique/grammatical — proxy backend vers LanguageTool
+#         (évite les soucis CORS du navigateur ; renvoie la réponse telle quelle)
+# ════════════════════════════════════════════════════════════════════════════
+@app.route('/api/correcteur', methods=['POST'])
+def api_correcteur():
+    if 'user_id' not in session:
+        return jsonify({'matches': [], 'error': 'auth'}), 200
+    text = (request.form.get('text', '') or '').strip()
+    if not text:
+        return jsonify({'matches': []})
+    lang = request.form.get('language', 'fr') or 'fr'
+    try:
+        import requests as _rq
+        r = _rq.post('https://api.languagetool.org/v2/check',
+                     data={'language': lang, 'text': text[:20000]},
+                     headers={'Accept': 'application/json'}, timeout=12)
+        if r.status_code == 200:
+            return jsonify(r.json())
+        return jsonify({'matches': [], 'error': f'service {r.status_code}'}), 200
+    except Exception as e:
+        print(f"[v163m] correcteur err: {e}")
+        return jsonify({'matches': [], 'error': 'unreachable'}), 200
 
 
 # ════════════════════════════════════════════════════════════════════════════

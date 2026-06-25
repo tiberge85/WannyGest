@@ -1530,10 +1530,11 @@ function sortTable(tableId, colIndex, type){
         if(!lastEl || !(''+lastEl.value).trim()){ setBody('<div class="corr-loading">Placez le curseur dans un champ texte à corriger, puis recliquez sur ✍️.</div>'); return; }
         setBody('<div class="corr-loading">🔎 Analyse en cours…</div>');
         var text=lastEl.value;
-        fetch('https://api.languagetool.org/v2/check', {
+        fetch('/api/correcteur', {
             method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
             body:'language=fr&text='+encodeURIComponent(text)
         }).then(function(r){return r.json();}).then(function(d){
+            if(d && d.error==='unreachable'){ setBody('<div class="corr-loading">⚠️ Service de correction momentanément indisponible. Réessayez dans un instant.</div>'); return; }
             curMatches=(d.matches||[]);
             if(!curMatches.length){ setBody('<div class="corr-empty">✅ Aucune faute détectée. Beau travail !</div>'); return; }
             var h='';
