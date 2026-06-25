@@ -36836,6 +36836,22 @@ def _recrut_save_cv(file_storage, candidat_id):
     return f"recrutement_cv/{fname}"
 
 
+_RECRUT_IMG_EXT = ('.png', '.jpg', '.jpeg', '.webp', '.gif')
+
+def _recrut_save_photo(file_storage, candidat_id):
+    """Enregistre la photo de profil candidat (image uniquement). Retourne le chemin relatif ou ''."""
+    if not file_storage or not file_storage.filename:
+        return ''
+    ext = os.path.splitext(file_storage.filename)[1].lower()
+    if ext not in _RECRUT_IMG_EXT:
+        return ''
+    updir = os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_photos')
+    os.makedirs(updir, exist_ok=True)
+    fname = f"photo_{candidat_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    file_storage.save(os.path.join(updir, fname))
+    return f"recrutement_photos/{fname}"
+
+
 # ───────────────────────── DASHBOARD RH ─────────────────────────
 @app.route('/recrutement')
 @permission_required_any('recrutement_view', 'admin')
@@ -37366,6 +37382,55 @@ def candidat_dashboard():
     conn.close()
     return render_template('emplois_compte_dashboard.html', me=me, candidatures=candidatures,
         entretiens=entretiens, cand_labels=RECRUT_CAND_LABELS)
+
+
+@app.route('/emplois/compte/profil', methods=['GET', 'POST'])
+def candidat_profil():
+    cid = session.get('candidat_id')
+    if not cid:
+        return redirect('/emplois/compte')
+    conn = _gdb()
+    if not conn.execute("SELECT id FROM candidats WHERE id=?", (cid,)).fetchone():
+        conn.close(); session.pop('candidat_id', None); return redirect('/emplois/compte')
+    if request.method == 'POST':
+        nom = (request.form.get('nom', '') or '').strip()
+        if not nom:
+            conn.close(); flash("Le nom est obligatoire.", "error"); return redirect('/emplois/compte/profil')
+        # Photo (optionnelle)
+        photo_path = None
+        try:
+            photo_path = _recrut_save_photo(request.files.get('photo'), cid)
+        except Exception as _e:
+            print(f"[v163] photo upload err: {_e}")
+        conn.execute("""UPDATE candidats SET nom=?, prenoms=?, telephone=?, email=?, ville=?, adresse=?,
+            date_naissance=?, metier=?, niveau_etude=?, competences=?, linkedin=?, updated_at=datetime('now')
+            WHERE id=?""",
+            (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''),
+             (request.form.get('email', '') or '').strip(), request.form.get('ville', ''),
+             request.form.get('adresse', ''), request.form.get('date_naissance', ''),
+             request.form.get('metier', ''), request.form.get('niveau_etude', ''),
+             request.form.get('competences', ''), request.form.get('linkedin', ''), cid))
+        if photo_path:
+            conn.execute("UPDATE candidats SET photo=? WHERE id=?", (photo_path, cid))
+        # CV (optionnel, remplace l'ancien)
+        try:
+            cvp = _recrut_save_cv(request.files.get('cv'), cid)
+            if cvp:
+                conn.execute("UPDATE candidats SET cv_path=? WHERE id=?", (cvp, cid))
+        except Exception as _e:
+            print(f"[v163] cv upd err: {_e}")
+        conn.commit(); conn.close()
+        session['candidat_nom'] = nom
+        flash("✅ Profil mis à jour.", "success")
+        return redirect('/emplois/compte/dashboard')
+    me = dict(conn.execute("SELECT * FROM candidats WHERE id=?", (cid,)).fetchone())
+    conn.close()
+    return render_template('emplois_compte_profil.html', me=me)
+
+
+@app.route('/uploads/recrutement_photos/<path:filename>')
+def recrutement_photo_serve(filename):
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_photos'), filename)
 
 
 if __name__ == '__main__':

@@ -37,7 +37,8 @@
       "Bash(git commit -q -m 'v162 : décision facture — statut contrat en liste déroulante + bouton « Clients sous contrat » dans le tableau recouvrement *)",
       "Bash(git commit -q -m 'v163 : module Recrutement \\(ATS\\) Phase 1 — offres, candidatures Kanban, entretiens, portail public *)",
       "Bash(git commit -q -m 'v163b : Recrutement Phase 2 — espace candidat \\(compte + suivi\\) + emails candidats + accès admin uniquement *)",
-      "Bash(git commit -q -m 'v163c : Recrutement — CVthèque + Statistiques + portail public redesign \\(doux & accueillant\\) *)"
+      "Bash(git commit -q -m 'v163c : Recrutement — CVthèque + Statistiques + portail public redesign \\(doux & accueillant\\) *)",
+      "Bash(git commit -q -m 'v163d : profil candidat éditable + photo de profil *)"
     ]
   }
 }

@@ -24,8 +24,12 @@ th{font-size:11px;text-transform:uppercase;color:#888}
 </head>
 <body>
 <div class="top">
-    <div><strong style="font-size:18px">👤 Bonjour {{ me.nom }} {{ me.prenoms or '' }}</strong><div style="opacity:.85;font-size:13px">{{ me.email }}</div></div>
-    <div style="display:flex;gap:8px"><a href="/emplois">🔍 Offres</a><a href="/emplois/compte/logout">Déconnexion</a></div>
+    <div style="display:flex;align-items:center;gap:12px">
+        {% if me.photo %}<img src="/uploads/{{ me.photo }}" alt="photo" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.6)">
+        {% else %}<div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:24px">👤</div>{% endif %}
+        <div><strong style="font-size:18px">Bonjour {{ me.nom }} {{ me.prenoms or '' }}</strong><div style="opacity:.85;font-size:13px">{{ me.email }}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><a href="/emplois/compte/profil">✏️ Mon profil</a><a href="/emplois">🔍 Offres</a><a href="/emplois/compte/logout">Déconnexion</a></div>
 </div>
 {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
 <div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>

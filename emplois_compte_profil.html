@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mon profil — Espace candidat</title>
+<style>
+:root{--ink:#3a3f44;--muted:#8a8f96;--teal:#1A7A6D;--teal-soft:#e7f3f0;--coral:#ef8f63}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',-apple-system,Roboto,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#fbfaf8,#f6f8f7);color:var(--ink);line-height:1.55}
+a{text-decoration:none}
+.top{background:linear-gradient(135deg,var(--teal),#0f5249);color:#fff;padding:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.top a{color:#fff;background:rgba(255,255,255,.18);padding:7px 13px;border-radius:999px;font-size:13px}
+.wrap{max-width:760px;margin:22px auto;padding:0 16px}
+.card{background:#fff;border:1px solid #eef1f0;border-radius:18px;padding:24px;box-shadow:0 6px 20px rgba(26,122,109,.06)}
+h2{font-size:17px;color:var(--teal);margin-bottom:16px}
+.photo-row{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+.avatar{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid var(--teal-soft);background:var(--teal-soft);display:flex;align-items:center;justify-content:center;font-size:34px;flex:none}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+label{font-size:12.5px;color:var(--muted);display:block;margin:8px 0 4px;font-weight:600}
+input,textarea{width:100%;padding:11px;border:1.5px solid #eceeed;border-radius:11px;font-size:14px;font-family:inherit;background:#fcfdfc}
+input:focus,textarea:focus{outline:none;border-color:var(--teal);background:#fff}
+.btn{margin-top:18px;width:100%;background:var(--coral);color:#fff;border:none;border-radius:12px;padding:13px;font-weight:700;cursor:pointer;font-size:15px}
+.btn:hover{background:#e57c4d}
+.flash{max-width:760px;margin:14px auto 0;padding:0 16px}
+.flash div{padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:6px}
+.flash .success{background:#e8f5e9;color:#2e7d32}.flash .error{background:#fde8e8;color:#c53030}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top">
+    <strong style="font-size:17px">✏️ Mon profil</strong>
+    <div style="display:flex;gap:8px"><a href="/emplois/compte/dashboard">← Mon espace</a><a href="/emplois/compte/logout">Déconnexion</a></div>
+</div>
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+<div class="flash">{% for cat, m in messages %}<div class="{{ cat }}">{{ m }}</div>{% endfor %}</div>
+{% endif %}{% endwith %}
+<div class="wrap">
+    <div class="card">
+        <form method="post" action="/emplois/compte/profil" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <div class="photo-row">
+                {% if me.photo %}<img class="avatar" src="/uploads/{{ me.photo }}" alt="photo">
+                {% else %}<div class="avatar">👤</div>{% endif %}
+                <div style="flex:1">
+                    <label>Photo de profil (JPG, PNG, WEBP)</label>
+                    <input type="file" name="photo" accept=".png,.jpg,.jpeg,.webp,.gif">
+                </div>
+            </div>
+            <div class="grid">
+                <div><label>Nom *</label><input name="nom" required value="{{ me.nom or '' }}"></div>
+                <div><label>Prénoms</label><input name="prenoms" value="{{ me.prenoms or '' }}"></div>
+                <div><label>Email</label><input type="email" name="email" value="{{ me.email or '' }}"></div>
+                <div><label>Téléphone</label><input name="telephone" value="{{ me.telephone or '' }}"></div>
+                <div><label>Date de naissance</label><input type="date" name="date_naissance" value="{{ me.date_naissance or '' }}"></div>
+                <div><label>Ville</label><input name="ville" value="{{ me.ville or '' }}"></div>
+                <div style="grid-column:1/-1"><label>Adresse</label><input name="adresse" value="{{ me.adresse or '' }}"></div>
+                <div><label>Métier / poste</label><input name="metier" value="{{ me.metier or '' }}"></div>
+                <div><label>Niveau d'étude</label><input name="niveau_etude" value="{{ me.niveau_etude or '' }}"></div>
+                <div style="grid-column:1/-1"><label>Compétences clés</label><input name="competences" value="{{ me.competences or '' }}" placeholder="Ex: Java, gestion de projet…"></div>
+                <div style="grid-column:1/-1"><label>LinkedIn</label><input name="linkedin" value="{{ me.linkedin or '' }}" placeholder="https://…"></div>
+                <div style="grid-column:1/-1"><label>CV (PDF, DOCX ou image) — remplace l'actuel{% if me.cv_path %} · <a href="/uploads/{{ me.cv_path }}" target="_blank" style="color:var(--teal)">voir le CV actuel</a>{% endif %}</label>
+                    <input type="file" name="cv" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"></div>
+            </div>
+            <button class="btn" type="submit">💾 Enregistrer mon profil</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>
