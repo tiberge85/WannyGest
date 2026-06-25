@@ -1,0 +1,82 @@
+{% extends "base.html" %}{% block title %}WannyGest — Candidature{% endblock %}{% block content %}
+{% set lbl = cand_labels.get(c.statut, (c.statut,'#888','•')) %}
+<div class="page-header">
+    <div><h1>👤 {{ c.nom }} {{ c.prenoms or '' }}</h1>
+        <p style="color:#666;font-size:13px">Candidature à « {{ c.offre_titre or '—' }} »{% if c.offre_ref %} ({{ c.offre_ref }}){% endif %}</p></div>
+    <a href="/recrutement/candidatures" class="btn btn-outline btn-sm">← Pipeline</a>
+</div>
+
+<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px">
+    <div>
+        <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>Profil candidat</h3>
+            <span style="background:{{ lbl[1] }}22;color:{{ lbl[1] }};padding:3px 10px;border-radius:8px;font-size:12px;font-weight:700">{{ lbl[2] }} {{ lbl[0] }}</span></div>
+        <div class="card-body" style="font-size:13px;line-height:1.9">
+            <div>📧 {{ c.email or '—' }} &nbsp; 📞 {{ c.telephone or '—' }}</div>
+            <div>📍 {{ c.ville or '—' }}{% if c.metier %} · 💼 {{ c.metier }}{% endif %}{% if c.niveau_etude %} · 🎓 {{ c.niveau_etude }}{% endif %}</div>
+            {% if c.linkedin %}<div>🔗 <a href="{{ c.linkedin }}" target="_blank">{{ c.linkedin }}</a></div>{% endif %}
+            {% if c.competences %}<div style="margin-top:6px"><strong>Compétences :</strong> {{ c.competences }}</div>{% endif %}
+            {% if c.cv_path %}<div style="margin-top:8px"><a href="/uploads/{{ c.cv_path }}" target="_blank" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📄 Voir / télécharger le CV</a></div>{% endif %}
+        </div></div>
+
+        {% if c.lettre_motivation %}
+        <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>Lettre de motivation</h3></div>
+        <div class="card-body" style="font-size:13px;white-space:pre-wrap;color:#333">{{ c.lettre_motivation }}</div></div>
+        {% endif %}
+
+        <div class="card"><div class="card-header"><h3>📅 Entretiens</h3>
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('entModal').classList.add('active')">+ Planifier</button></div>
+        <div class="card-body" style="padding:0">
+        {% if entretiens %}
+        <table><thead><tr><th>Date</th><th>Heure</th><th>Type</th><th>Lieu</th></tr></thead><tbody>
+        {% for e in entretiens %}<tr><td>{{ e.date }}</td><td>{{ e.heure or '—' }}</td><td>{{ e.type }}</td><td>{{ e.lieu or '—' }}</td></tr>{% endfor %}
+        </tbody></table>
+        {% else %}<div style="padding:18px;text-align:center;color:#888">Aucun entretien planifié.</div>{% endif %}
+        </div></div>
+    </div>
+
+    <div>
+        <div class="card" style="margin-bottom:14px"><div class="card-header"><h3>Faire avancer</h3></div>
+        <div class="card-body" style="display:flex;flex-wrap:wrap;gap:6px">
+            {% for s in statuts %}
+            {% set sl = cand_labels.get(s, (s,'#888','•')) %}
+            <form method="post" action="/recrutement/candidature/{{ c.id }}/statut/{{ s }}" style="display:inline">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <button class="btn btn-sm" style="background:{% if c.statut == s %}{{ sl[1] }}{% else %}{{ sl[1] }}18{% endif %};color:{% if c.statut == s %}#fff{% else %}{{ sl[1] }}{% endif %};border:1px solid {{ sl[1] }}55;font-size:11px">{{ sl[2] }} {{ sl[0] }}</button>
+            </form>
+            {% endfor %}
+        </div></div>
+
+        <div class="card"><div class="card-header"><h3>Évaluation recruteur</h3></div>
+        <div class="card-body">
+        <form method="post" action="/recrutement/candidature/{{ c.id }}/note">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label style="font-size:11px;color:#888">Note (sur 20)</label>
+            <input type="number" name="note" min="0" max="20" value="{{ c.note or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:8px">
+            <label style="font-size:11px;color:#888">Commentaire</label>
+            <textarea name="commentaire_recruteur" rows="4" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:8px">{{ c.commentaire_recruteur or '' }}</textarea>
+            <button class="btn btn-primary btn-sm" style="width:100%">💾 Enregistrer l'évaluation</button>
+        </form>
+        </div></div>
+    </div>
+</div>
+
+<!-- Modal entretien -->
+<div class="modal-bg" id="entModal"><div class="modal" style="max-width:480px"><h3>📅 Planifier un entretien</h3>
+<form method="post" action="/recrutement/entretiens/add">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="candidature_id" value="{{ c.id }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888">Date *</label><input type="date" name="date" required value="{{ today_str }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888">Heure</label><input type="time" name="heure" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    </div>
+    <div style="margin-bottom:8px"><label style="font-size:11px;color:#888">Type</label>
+        <select name="type" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+            {% for t in entretien_types %}<option value="{{ t }}">{{ t|capitalize }}</option>{% endfor %}</select></div>
+    <div style="margin-bottom:8px"><label style="font-size:11px;color:#888">Lieu / lien</label><input name="lieu" placeholder="Bureau, n° tél, lien visio…" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div style="margin-bottom:8px"><label style="font-size:11px;color:#888">Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('entModal').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">📅 Planifier</button>
+    </div>
+</form></div></div>
+{% endblock %}

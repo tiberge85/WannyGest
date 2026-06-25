@@ -1,0 +1,108 @@
+{% extends "base.html" %}{% block title %}WannyGest — Offres d'emploi{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>📋 Offres d'emploi</h1>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('newOffreModal').classList.add('active')">+ Nouvelle offre</button>
+    </div>
+</div>
+
+<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+    <a href="/recrutement/offres" class="btn btn-sm {% if not statut_filter %}btn-primary{% else %}btn-outline{% endif %}">Toutes</a>
+    {% for s, lbl in offre_labels.items() %}
+    <a href="/recrutement/offres?statut={{ s }}" class="btn btn-sm {% if statut_filter == s %}btn-primary{% else %}btn-outline{% endif %}">{{ lbl[2] }} {{ lbl[0] }}</a>
+    {% endfor %}
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if offres %}
+<div class="table-wrap"><table>
+    <thead><tr><th>Référence</th><th>Titre</th><th>Contrat</th><th>Lieu</th><th>Candidatures</th><th>Statut</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for o in offres %}
+    {% set ol = offre_labels.get(o.statut, (o.statut,'#888','•')) %}
+    <tr>
+        <td style="font-family:monospace;font-size:11px">{{ o.reference }}</td>
+        <td><strong>{{ o.titre }}</strong>{% if o.entreprise_nom %}<br><span style="font-size:10px;color:#888">{{ o.entreprise_nom }}</span>{% endif %}</td>
+        <td style="font-size:12px">{{ o.type_contrat or '—' }}</td>
+        <td style="font-size:12px">{{ o.lieu_travail or '—' }}{% if o.teletravail %} 🏠{% endif %}</td>
+        <td><a href="/recrutement/candidatures?offre={{ o.id }}" style="color:#1565c0;font-weight:700">{{ o.nb_cand }}</a></td>
+        <td><span style="background:{{ ol[1] }}22;color:{{ ol[1] }};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">{{ ol[2] }} {{ ol[0] }}</span></td>
+        <td style="white-space:nowrap">
+            <button class="btn btn-sm" style="background:#e3f2fd;color:#1565c0;font-size:10px;padding:3px 6px" title="Modifier"
+                onclick='openEditOffre({{ o.id }}, {{ o.titre|tojson }}, {{ (o.description or "")|tojson }}, {{ (o.missions or "")|tojson }}, {{ (o.profil_recherche or "")|tojson }}, {{ (o.niveau_etude or "")|tojson }}, {{ (o.experience or "")|tojson }}, {{ (o.type_contrat or "")|tojson }}, {{ (o.salaire_min or 0) }}, {{ (o.salaire_max or 0) }}, {{ (o.lieu_travail or "")|tojson }}, {{ o.teletravail or 0 }}, {{ (o.date_limite or "")|tojson }}, {{ o.nombre_postes or 1 }}, {{ o.entreprise_id or 0 }})'>✏️</button>
+            {% if o.statut != 'publiee' %}<form method="post" action="/recrutement/offres/{{ o.id }}/statut/publiee" style="display:inline"><button class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32;font-size:10px;padding:3px 6px" title="Publier">✅</button></form>{% endif %}
+            {% if o.statut == 'publiee' %}<form method="post" action="/recrutement/offres/{{ o.id }}/statut/suspendue" style="display:inline"><button class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:10px;padding:3px 6px" title="Suspendre">⏸️</button></form>{% endif %}
+            {% if o.statut != 'cloturee' %}<form method="post" action="/recrutement/offres/{{ o.id }}/statut/cloturee" style="display:inline"><button class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:10px;padding:3px 6px" title="Clôturer">🔒</button></form>{% endif %}
+            <form method="post" action="/recrutement/offres/{{ o.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer définitivement cette offre et ses candidatures ?')"><button class="btn btn-sm" style="background:#fafafa;color:#999;font-size:10px;padding:3px 6px" title="Supprimer">🗑️</button></form>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}<div style="padding:30px;text-align:center;color:#888">Aucune offre. Cliquez sur « + Nouvelle offre ».</div>{% endif %}
+</div></div>
+
+<!-- Modal nouvelle offre -->
+<div class="modal-bg" id="newOffreModal"><div class="modal" style="max-width:760px"><h3 id="offreModalTitle">+ Nouvelle offre</h3>
+<form method="post" id="offreForm" action="/recrutement/offres/add">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888">Titre du poste *</label><input name="titre" id="of_titre" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888">Entreprise</label>
+            <select name="entreprise_id" id="of_ent" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                {% for e in entreprises %}<option value="{{ e.id }}">{{ e.raison_sociale }}</option>{% endfor %}
+            </select></div>
+    </div>
+    <div style="margin-bottom:8px"><label style="font-size:11px;color:#888">Description du poste</label><textarea name="description" id="of_desc" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888">Missions</label><textarea name="missions" id="of_miss" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></textarea></div>
+        <div><label style="font-size:11px;color:#888">Profil recherché</label><textarea name="profil_recherche" id="of_prof" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></textarea></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:8px">
+        <div><label style="font-size:11px;color:#888">Type de contrat</label>
+            <select name="type_contrat" id="of_contrat" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                {% for ct in contrats %}<option value="{{ ct }}">{{ ct }}</option>{% endfor %}</select></div>
+        <div><label style="font-size:11px;color:#888">Niveau d'étude</label><input name="niveau_etude" id="of_niv" placeholder="Bac+3…" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888">Expérience</label><input name="experience" id="of_exp" placeholder="2 ans…" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888">Lieu de travail</label><input name="lieu_travail" id="of_lieu" placeholder="Abidjan" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:8px;align-items:end">
+        <div><label style="font-size:11px;color:#888">Salaire min (XOF)</label><input type="number" name="salaire_min" id="of_smin" min="0" step="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888">Salaire max (XOF)</label><input type="number" name="salaire_max" id="of_smax" min="0" step="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888">Nombre de postes</label><input type="number" name="nombre_postes" id="of_nb" min="1" value="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <div><label style="font-size:11px;color:#888">Date limite</label><input type="date" name="date_limite" id="of_lim" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;padding:8px 0"><input type="checkbox" name="teletravail" id="of_tt" value="1"> 🏠 Télétravail</label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('newOffreModal').classList.remove('active')">Annuler</button>
+        <button type="submit" name="action" value="brouillon" class="btn btn-outline">📝 Brouillon</button>
+        <button type="submit" name="action" value="publier" class="btn btn-primary">✅ Publier</button>
+    </div>
+</form></div></div>
+
+<script>
+function openEditOffre(id,titre,desc,miss,prof,niv,exp,contrat,smin,smax,lieu,tt,lim,nb,ent){
+    var f=document.getElementById('offreForm');
+    f.action='/recrutement/offres/'+id+'/edit';
+    document.getElementById('offreModalTitle').textContent='✏️ Modifier l\'offre';
+    document.getElementById('of_titre').value=titre||'';
+    document.getElementById('of_desc').value=desc||'';
+    document.getElementById('of_miss').value=miss||'';
+    document.getElementById('of_prof').value=prof||'';
+    document.getElementById('of_niv').value=niv||'';
+    document.getElementById('of_exp').value=exp||'';
+    document.getElementById('of_contrat').value=contrat||'CDI';
+    document.getElementById('of_lieu').value=lieu||'';
+    document.getElementById('of_smin').value=smin||'';
+    document.getElementById('of_smax').value=smax||'';
+    document.getElementById('of_nb').value=nb||1;
+    document.getElementById('of_lim').value=lim||'';
+    document.getElementById('of_tt').checked=!!tt;
+    if(ent) document.getElementById('of_ent').value=ent;
+    // boutons : un seul « Enregistrer »
+    f.querySelectorAll('button[name=action]').forEach(function(b,i){ b.style.display = i===0 ? 'none':'inline-block'; if(i===1){b.textContent='💾 Enregistrer';b.removeAttribute('name');b.removeAttribute('value');} });
+    document.getElementById('newOffreModal').classList.add('active');
+}
+</script>
+{% endblock %}

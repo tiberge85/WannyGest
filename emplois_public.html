@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offres d'emploi — RAMYA / WannyGest</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f4f6f8;color:#222}
+.hero{background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;padding:40px 20px 60px;text-align:center}
+.hero h1{font-size:30px;margin-bottom:6px}
+.hero p{opacity:.9;font-size:15px}
+.wrap{max-width:1000px;margin:-36px auto 40px;padding:0 16px}
+.search{background:#fff;border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.10);padding:16px;display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px}
+.search input,.search select{padding:11px;border:1.5px solid #e0e0e0;border-radius:9px;font-size:14px;width:100%}
+.search button{background:#F29F2F;color:#fff;border:none;border-radius:9px;padding:0 22px;font-weight:700;cursor:pointer;font-size:14px}
+.count{margin:22px 4px 12px;font-size:13px;color:#666}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.job{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);display:flex;flex-direction:column;transition:transform .12s,box-shadow .12s;text-decoration:none;color:inherit}
+.job:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.10)}
+.job h3{font-size:16px;color:#1A7A6D;margin-bottom:4px}
+.tag{display:inline-block;background:#eaf4f1;color:#1A7A6D;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;margin:2px 4px 2px 0}
+.meta{font-size:12px;color:#777;margin:6px 0}
+.sal{font-weight:800;color:#0f5249;font-size:14px;margin-top:auto;padding-top:8px}
+.empty{background:#fff;border-radius:12px;padding:50px;text-align:center;color:#888}
+.foot{text-align:center;color:#999;font-size:12px;padding:24px}
+@media(max-width:680px){.search{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="hero">
+    <h1>🧑‍💼 Offres d'emploi</h1>
+    <p>Rejoignez les équipes qui recrutent — postulez en ligne en quelques clics</p>
+</div>
+<div class="wrap">
+    <form class="search" method="get">
+        <input type="text" name="q" value="{{ q }}" placeholder="🔍 Métier, mot-clé…">
+        <select name="ville"><option value="">📍 Toutes les villes</option>
+            {% for v in villes %}<option value="{{ v }}" {% if ville == v %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+        <select name="contrat"><option value="">📄 Tous contrats</option>
+            {% for ct in contrats %}<option value="{{ ct }}" {% if contrat == ct %}selected{% endif %}>{{ ct }}</option>{% endfor %}</select>
+        <button type="submit">Rechercher</button>
+    </form>
+
+    <div class="count">{{ offres|length }} offre(s) trouvée(s){% if q or ville or contrat %} · <a href="/emplois" style="color:#1A7A6D">réinitialiser</a>{% endif %}</div>
+
+    {% if offres %}
+    <div class="grid">
+        {% for o in offres %}
+        <a class="job" href="/emplois/{{ o.id }}">
+            <h3>{{ o.titre }}</h3>
+            <div style="font-size:12px;color:#555;font-weight:600">{{ o.entreprise_nom or 'Entreprise' }}</div>
+            <div style="margin:8px 0">
+                <span class="tag">{{ o.type_contrat or 'Emploi' }}</span>
+                {% if o.lieu_travail %}<span class="tag">📍 {{ o.lieu_travail }}</span>{% endif %}
+                {% if o.teletravail %}<span class="tag">🏠 Télétravail</span>{% endif %}
+            </div>
+            {% if o.experience %}<div class="meta">Expérience : {{ o.experience }}</div>{% endif %}
+            {% if o.niveau_etude %}<div class="meta">Niveau : {{ o.niveau_etude }}</div>{% endif %}
+            {% if o.salaire_min or o.salaire_max %}
+            <div class="sal">💰 {{ '{:,.0f}'.format(o.salaire_min or 0).replace(',', ' ') }}{% if o.salaire_max %} – {{ '{:,.0f}'.format(o.salaire_max or 0).replace(',', ' ') }}{% endif %} XOF</div>
+            {% else %}<div class="sal" style="color:#999;font-weight:600">Salaire à négocier</div>{% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">😕 Aucune offre ne correspond à votre recherche.<br><a href="/emplois" style="color:#1A7A6D">Voir toutes les offres</a></div>
+    {% endif %}
+</div>
+<div class="foot">Propulsé par WannyGest — RAMYA Technologie &amp; Innovation</div>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ o.titre }} — Offre d'emploi</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f4f6f8;color:#222;line-height:1.6}
+.top{background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;padding:24px 20px}
+.top a{color:#cfeae3;font-size:13px;text-decoration:none}
+.top h1{font-size:26px;margin:8px 0 4px}
+.wrap{max-width:880px;margin:18px auto 50px;padding:0 16px;display:grid;grid-template-columns:1.6fr 1fr;gap:18px}
+.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px}
+.card h2{font-size:16px;color:#1A7A6D;margin-bottom:8px;border-bottom:2px solid #eaf4f1;padding-bottom:5px}
+.tag{display:inline-block;background:#eaf4f1;color:#1A7A6D;font-size:12px;font-weight:700;padding:3px 11px;border-radius:20px;margin:2px 5px 2px 0}
+.txt{white-space:pre-wrap;font-size:14px;color:#333}
+label{font-size:12px;color:#666;display:block;margin-bottom:3px;font-weight:600}
+input,textarea{width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:10px;font-family:inherit}
+.btn{background:#F29F2F;color:#fff;border:none;border-radius:9px;padding:12px;font-weight:700;cursor:pointer;font-size:15px;width:100%}
+.apply{position:sticky;top:16px}
+@media(max-width:740px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top">
+    <a href="/emplois">← Toutes les offres</a>
+    <h1>{{ o.titre }}</h1>
+    <div style="opacity:.9">{{ o.entreprise_nom or 'Entreprise' }}{% if o.entreprise_ville %} · {{ o.entreprise_ville }}{% endif %}</div>
+    <div style="margin-top:8px">
+        <span class="tag" style="background:rgba(255,255,255,.2);color:#fff">{{ o.type_contrat or 'Emploi' }}</span>
+        {% if o.lieu_travail %}<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">📍 {{ o.lieu_travail }}</span>{% endif %}
+        {% if o.teletravail %}<span class="tag" style="background:rgba(255,255,255,.2);color:#fff">🏠 Télétravail</span>{% endif %}
+    </div>
+</div>
+<div class="wrap">
+    <div>
+        <div class="card">
+            <h2>Description du poste</h2>
+            <div class="txt">{{ o.description or 'Non précisée.' }}</div>
+        </div>
+        {% if o.missions %}<div class="card"><h2>Missions</h2><div class="txt">{{ o.missions }}</div></div>{% endif %}
+        {% if o.profil_recherche %}<div class="card"><h2>Profil recherché</h2><div class="txt">{{ o.profil_recherche }}</div></div>{% endif %}
+        <div class="card"><h2>Informations</h2>
+            <div style="font-size:14px">
+                {% if o.experience %}<div>🧭 <strong>Expérience :</strong> {{ o.experience }}</div>{% endif %}
+                {% if o.niveau_etude %}<div>🎓 <strong>Niveau :</strong> {{ o.niveau_etude }}</div>{% endif %}
+                {% if o.nombre_postes %}<div>👥 <strong>Postes :</strong> {{ o.nombre_postes }}</div>{% endif %}
+                {% if o.salaire_min or o.salaire_max %}<div>💰 <strong>Salaire :</strong> {{ '{:,.0f}'.format(o.salaire_min or 0).replace(',', ' ') }}{% if o.salaire_max %} – {{ '{:,.0f}'.format(o.salaire_max or 0).replace(',', ' ') }}{% endif %} XOF</div>{% endif %}
+                {% if o.date_limite %}<div>⏳ <strong>Date limite :</strong> {{ o.date_limite }}</div>{% endif %}
+                {% if o.reference %}<div style="color:#999;font-size:12px;margin-top:6px">Réf. {{ o.reference }}</div>{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <div class="card apply">
+            <h2>📨 Postuler à cette offre</h2>
+            <form method="post" action="/emplois/{{ o.id }}/postuler" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <label>Nom *</label><input name="nom" required>
+                <label>Prénoms</label><input name="prenoms">
+                <label>Email *</label><input type="email" name="email" required>
+                <label>Téléphone</label><input name="telephone">
+                <label>Ville</label><input name="ville">
+                <label>Métier / poste actuel</label><input name="metier">
+                <label>Niveau d'étude</label><input name="niveau_etude">
+                <label>Compétences clés</label><input name="competences" placeholder="Ex: Java, gestion de projet…">
+                <label>LinkedIn</label><input name="linkedin" placeholder="https://…">
+                <label>CV (PDF, DOCX ou image)</label><input type="file" name="cv" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp">
+                <label>Lettre de motivation</label><textarea name="lettre_motivation" rows="4" placeholder="Présentez votre motivation…"></textarea>
+                <button class="btn" type="submit">✅ Envoyer ma candidature</button>
+            </form>
+        </div>
+    </div>
+</div>
+</body>
+</html>

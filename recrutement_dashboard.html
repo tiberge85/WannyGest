@@ -1,0 +1,56 @@
+{% extends "base.html" %}{% block title %}WannyGest — Recrutement{% endblock %}{% block content %}
+<div class="page-header">
+    <div><h1>🧑‍💼 Recrutement</h1><p style="color:#666;font-size:13px">Offres · Candidatures · Entretiens · Portail emploi public</p></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <a href="/recrutement/offres" class="btn btn-outline btn-sm">📋 Offres</a>
+        <a href="/recrutement/candidatures" class="btn btn-outline btn-sm">🗂️ Candidatures</a>
+        <a href="/recrutement/entretiens" class="btn btn-outline btn-sm">📅 Entretiens</a>
+        <a href="/emplois" target="_blank" class="btn btn-sm" style="background:#1565c0;color:#fff">🌐 Portail public</a>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Offres publiées</div><div style="font-size:24px;font-weight:800;color:#1e1e2d">{{ kpi.offres_total }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Offres actives</div><div style="font-size:24px;font-weight:800;color:#2e7d32">{{ kpi.offres_actives }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Candidatures reçues</div><div style="font-size:24px;font-weight:800;color:#1565c0">{{ kpi.candidatures }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Entretiens à venir</div><div style="font-size:24px;font-weight:800;color:#0277bd">{{ kpi.entretiens }}</div></div>
+    <div class="card" style="padding:14px"><div style="font-size:11px;color:#888">Recrutements</div><div style="font-size:24px;font-weight:800;color:#7b1fa2">{{ kpi.recrutements }}</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px">
+    <div class="card"><div class="card-header"><h3>Candidatures récentes</h3><a href="/recrutement/candidatures" class="btn btn-outline btn-sm">Tout voir</a></div>
+    <div class="card-body" style="padding:0">
+    {% if recent_cand %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Candidat</th><th>Offre</th><th>Statut</th><th>Date</th></tr></thead>
+        <tbody>
+        {% for c in recent_cand %}
+        <tr>
+            <td><a href="/recrutement/candidature/{{ c.id }}" style="color:#1565c0;font-weight:600">{{ c.nom }} {{ c.prenoms or '' }}</a>{% if c.metier %}<br><span style="font-size:10px;color:#888">{{ c.metier }}</span>{% endif %}</td>
+            <td style="font-size:12px">{{ c.offre_titre or '—' }}</td>
+            {% set lbl = cand_labels.get(c.statut, (c.statut,'#888','•')) %}
+            <td><span style="background:{{ lbl[1] }}22;color:{{ lbl[1] }};padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700">{{ lbl[2] }} {{ lbl[0] }}</span></td>
+            <td style="font-size:11px;color:#888">{{ (c.created_at or '')[:10] }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<div style="padding:24px;text-align:center;color:#888">Aucune candidature pour l'instant.</div>{% endif %}
+    </div></div>
+
+    <div class="card"><div class="card-header"><h3>Offres récentes</h3></div><div class="card-body" style="padding:0">
+    {% if offres_recentes %}
+    {% for o in offres_recentes %}
+    {% set ol = offre_labels.get(o.statut, (o.statut,'#888','•')) %}
+    <div style="padding:10px 12px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div><strong style="font-size:13px">{{ o.titre }}</strong><br><span style="font-size:10px;color:#888">{{ o.type_contrat or '' }}{% if o.lieu_travail %} · {{ o.lieu_travail }}{% endif %}</span></div>
+        <div style="text-align:right;white-space:nowrap">
+            <span style="background:{{ ol[1] }}22;color:{{ ol[1] }};padding:2px 7px;border-radius:7px;font-size:10px;font-weight:700">{{ ol[2] }} {{ ol[0] }}</span><br>
+            <span style="font-size:10px;color:#1565c0">{{ o.nb_cand }} candidature(s)</span>
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}<div style="padding:24px;text-align:center;color:#888">Aucune offre. <a href="/recrutement/offres">Créez-en une</a>.</div>{% endif %}
+    </div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block title %}WannyGest — Entretiens{% endblock %}{% block content %}
+<div class="page-header">
+    <h1>📅 Entretiens</h1>
+    <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+</div>
+<div class="card"><div class="card-body" style="padding:0">
+{% if entretiens %}
+<div class="table-wrap"><table>
+    <thead><tr><th>Date</th><th>Heure</th><th>Candidat</th><th>Offre</th><th>Type</th><th>Lieu / lien</th></tr></thead>
+    <tbody>
+    {% for e in entretiens %}
+    <tr>
+        <td style="font-family:monospace;font-size:12px">{{ e.date }}</td>
+        <td>{{ e.heure or '—' }}</td>
+        <td><a href="/recrutement/candidature/{{ e.candidature_id }}" style="color:#1565c0;font-weight:600">{{ e.nom }} {{ e.prenoms or '' }}</a>{% if e.telephone %}<br><span style="font-size:10px;color:#888">📞 {{ e.telephone }}</span>{% endif %}</td>
+        <td style="font-size:12px">{{ e.offre_titre or '—' }}</td>
+        <td>{% if e.type == 'presentiel' %}🏢 Présentiel{% elif e.type == 'telephonique' %}📞 Téléphonique{% elif e.type == 'visio' %}💻 Visio{% else %}{{ e.type }}{% endif %}</td>
+        <td style="font-size:12px">{{ e.lieu or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table></div>
+{% else %}<div style="padding:30px;text-align:center;color:#888">Aucun entretien planifié. Planifiez-en un depuis une fiche candidature.</div>{% endif %}
+</div></div>
+{% endblock %}

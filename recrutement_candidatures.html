@@ -1,0 +1,58 @@
+{% extends "base.html" %}{% block title %}WannyGest — Candidatures{% endblock %}{% block content %}
+<div class="page-header">
+    <div><h1>🗂️ Candidatures</h1><p style="color:#666;font-size:13px">{{ total }} candidature(s) · glissez une carte d'une colonne à l'autre pour changer le statut</p></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <form method="get" style="display:flex;gap:6px">
+            <select name="offre" onchange="this.form.submit()" title="Filtrer par offre" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+                <option value="">Toutes les offres</option>
+                {% for o in offres %}<option value="{{ o.id }}" {% if offre_filter == o.id|string %}selected{% endif %}>{{ o.titre }}</option>{% endfor %}
+            </select>
+        </form>
+        <a href="/recrutement" class="btn btn-outline btn-sm">← Recrutement</a>
+    </div>
+</div>
+
+<input type="hidden" id="csrf" value="{{ csrf_token() }}">
+<div style="display:grid;grid-template-columns:repeat({{ statuts|length }},minmax(190px,1fr));gap:10px;overflow-x:auto;padding-bottom:8px">
+    {% for s in statuts %}
+    {% set lbl = cand_labels.get(s, (s,'#888','•')) %}
+    <div class="kanban-col" data-statut="{{ s }}" ondragover="event.preventDefault()" ondrop="kanbanDrop(event,'{{ s }}')"
+         style="background:#f6f8fa;border-radius:10px;padding:8px;min-height:200px">
+        <div style="font-size:12px;font-weight:800;color:{{ lbl[1] }};padding:4px 6px;display:flex;justify-content:space-between;align-items:center">
+            <span>{{ lbl[2] }} {{ lbl[0] }}</span>
+            <span style="background:{{ lbl[1] }};color:#fff;border-radius:10px;padding:1px 7px;font-size:11px">{{ colonnes[s]|length }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+        {% for c in colonnes[s] %}
+        <div class="kanban-card" draggable="true" data-id="{{ c.id }}" ondragstart="kanbanDrag(event,{{ c.id }})"
+             style="background:#fff;border:1px solid #e6e6e6;border-left:3px solid {{ lbl[1] }};border-radius:8px;padding:8px;cursor:grab;box-shadow:0 1px 2px rgba(0,0,0,0.05)">
+            <a href="/recrutement/candidature/{{ c.id }}" style="font-weight:700;font-size:13px;color:#1e1e2d;text-decoration:none">{{ c.nom }} {{ c.prenoms or '' }}</a>
+            <div style="font-size:10px;color:#888;margin-top:2px">{{ c.offre_titre or '—' }}</div>
+            {% if c.metier %}<div style="font-size:10px;color:#1565c0">{{ c.metier }}</div>{% endif %}
+            <div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap">
+                {% if c.cv_path %}<a href="/uploads/{{ c.cv_path }}" target="_blank" style="font-size:10px;color:#7b1fa2">📄 CV</a>{% endif %}
+                {% if c.telephone %}<span style="font-size:10px;color:#888">📞 {{ c.telephone }}</span>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+var _dragId = null;
+function kanbanDrag(e, id){ _dragId = id; e.dataTransfer.effectAllowed='move'; }
+function kanbanDrop(e, statut){
+    e.preventDefault();
+    if(!_dragId) return;
+    var id = _dragId; _dragId = null;
+    fetch('/recrutement/candidature/'+id+'/statut/'+statut+'?ajax=1', {
+        method:'POST', headers:{'X-CSRFToken': document.getElementById('csrf').value}
+    }).then(function(r){ return r.json(); }).then(function(d){
+        if(d && d.ok){ location.reload(); }
+        else { alert('Action refusée.'); }
+    }).catch(function(){ alert('Erreur réseau.'); });
+}
+</script>
+{% endblock %}

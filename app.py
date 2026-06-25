@@ -3821,6 +3821,12 @@ PERM_CATEGORIES = {
         ('client_users_approve', 'Valider comptes clients (portail)'),
     ],
     
+    '🧑‍💼 RECRUTEMENT (Section sidebar)': [
+        ('section_recrutement', 'Voir la section RECRUTEMENT dans la sidebar'),
+        ('recrutement_view', 'Voir le module recrutement (offres, candidatures, entretiens)'),
+        ('recrutement_edit', 'Gérer offres, candidatures, entretiens'),
+    ],
+
     '📁 GESTION DE PROJETS (Section sidebar)': [
         ('section_projets', 'Voir la section GESTION DE PROJETS dans la sidebar'),
         ('resp_projet', 'Resp. projet lecture'),
@@ -36685,6 +36691,466 @@ def tresorerie_rapprochement():
                           banque_filter=banque_filter, show_rapproche=show_rapproche,
                           solde_livre=solde_livre, solde_rapproche=solde_rapproche,
                           ecart=solde_livre - solde_rapproche)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# v163 : MODULE RECRUTEMENT (ATS) — Phase 1 cœur
+#   Offres d'emploi · Candidatures (pipeline Kanban) · Entretiens · Portail public
+# ════════════════════════════════════════════════════════════════════════════
+RECRUT_CONTRATS = ['CDI', 'CDD', 'Stage', 'Freelance', 'Intérim', 'Temps partiel', 'Temps plein', 'Consultant']
+RECRUT_OFFRE_STATUTS = ['brouillon', 'publiee', 'suspendue', 'cloturee']
+RECRUT_OFFRE_LABELS = {
+    'brouillon': ('Brouillon', '#888', '📝'), 'publiee': ('Publiée', '#2e7d32', '✅'),
+    'suspendue': ('Suspendue', '#b8561f', '⏸️'), 'cloturee': ('Clôturée', '#c53030', '🔒')}
+RECRUT_CAND_STATUTS = ['recu', 'analyse', 'preselection', 'entretien', 'retenu', 'refuse']
+RECRUT_CAND_LABELS = {
+    'recu': ('Reçu', '#1565c0', '📥'), 'analyse': ('En analyse', '#b8561f', '🔎'),
+    'preselection': ('Présélectionné', '#7b1fa2', '⭐'), 'entretien': ('Entretien', '#0277bd', '🗣️'),
+    'retenu': ('Retenu', '#2e7d32', '✅'), 'refuse': ('Refusé', '#c53030', '❌')}
+RECRUT_ENTRETIEN_TYPES = ['presentiel', 'telephonique', 'visio']
+_RECRUT_CV_EXT = ('.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.webp')
+
+# Le formulaire public de candidature poste sans session authentifiée
+CSRF_BOOTSTRAP_ENDPOINTS.add('emploi_postuler')
+
+
+def _recrut_migrate():
+    """v163 : crée les tables du module recrutement (idempotent)."""
+    try:
+        from models import get_db as _rdb
+        c = _rdb()
+        c.execute("""CREATE TABLE IF NOT EXISTS entreprises_recrutement (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, raison_sociale TEXT NOT NULL, logo TEXT,
+            secteur_activite TEXT, description TEXT, email TEXT, telephone TEXT, site_web TEXT,
+            adresse TEXT, ville TEXT, pays TEXT DEFAULT 'Côte d''Ivoire', statut TEXT DEFAULT 'actif',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS offres_emploi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, entreprise_id INTEGER, reference TEXT,
+            titre TEXT NOT NULL, description TEXT, missions TEXT, profil_recherche TEXT,
+            niveau_etude TEXT, experience TEXT, type_contrat TEXT, salaire_min REAL, salaire_max REAL,
+            lieu_travail TEXT, teletravail INTEGER DEFAULT 0, date_publication TEXT, date_limite TEXT,
+            nombre_postes INTEGER DEFAULT 1, statut TEXT DEFAULT 'brouillon',
+            created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS candidats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, photo TEXT, nom TEXT NOT NULL, prenoms TEXT,
+            date_naissance TEXT, telephone TEXT, email TEXT, adresse TEXT, ville TEXT, pays TEXT,
+            niveau_etude TEXT, metier TEXT, competences TEXT, linkedin TEXT, cv_path TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS candidatures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, offre_id INTEGER NOT NULL, candidat_id INTEGER NOT NULL,
+            lettre_motivation TEXT, cv TEXT, statut TEXT DEFAULT 'recu', note INTEGER,
+            commentaire_recruteur TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS entretiens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, candidature_id INTEGER, candidat_id INTEGER,
+            offre_id INTEGER, date TEXT, heure TEXT, lieu TEXT, type TEXT DEFAULT 'presentiel',
+            statut TEXT DEFAULT 'planifie', notes TEXT, created_by INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        # Entreprise par défaut (RAMYA) si aucune
+        if c.execute("SELECT COUNT(*) FROM entreprises_recrutement").fetchone()[0] == 0:
+            c.execute("""INSERT INTO entreprises_recrutement (raison_sociale, secteur_activite, ville, pays, statut)
+                VALUES ('RAMYA Technologie & Innovation','Technologie & Sécurité','Abidjan','Côte d''Ivoire','actif')""")
+        c.commit(); c.close()
+        print("[v163-Recrutement] Tables ATS OK", flush=True)
+    except Exception as _e:
+        print(f"[v163-Recrutement] migration err : {_e}", flush=True)
+
+
+def _recrut_grant_perms():
+    """v163 : accorde les permissions recrutement à admin/rh/dg (une seule fois)."""
+    try:
+        from models import get_db as _rdb
+        c = _rdb()
+        if not c.execute("SELECT value FROM app_settings WHERE key='v163_recrut_perms'").fetchone():
+            grants = {
+                'admin': ['section_recrutement', 'recrutement_view', 'recrutement_edit'],
+                'rh': ['section_recrutement', 'recrutement_view', 'recrutement_edit'],
+                'directrice_rh': ['section_recrutement', 'recrutement_view', 'recrutement_edit'],
+                'dg': ['section_recrutement', 'recrutement_view'],
+                'directeur': ['section_recrutement', 'recrutement_view'],
+            }
+            for role, perms in grants.items():
+                for p in perms:
+                    try: c.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?,?)", (role, p))
+                    except: pass
+            c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v163_recrut_perms','1',datetime('now'))")
+            c.commit()
+            print("[v163-Recrutement] Permissions accordées (admin/rh/dg)", flush=True)
+        c.close()
+    except Exception as _e:
+        print(f"[v163-Recrutement] perms err : {_e}", flush=True)
+
+
+_recrut_migrate()
+_recrut_grant_perms()
+
+
+def _recrut_status_label(kind, statut):
+    table = RECRUT_OFFRE_LABELS if kind == 'offre' else RECRUT_CAND_LABELS
+    return table.get(statut, (statut, '#888', '•'))
+
+
+def _recrut_save_cv(file_storage, candidat_id):
+    """Enregistre un CV (PDF/DOCX/image) dans le dossier persistant. Retourne le chemin relatif ou ''."""
+    if not file_storage or not file_storage.filename:
+        return ''
+    ext = os.path.splitext(file_storage.filename)[1].lower()
+    if ext not in _RECRUT_CV_EXT:
+        return ''
+    updir = os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_cv')
+    os.makedirs(updir, exist_ok=True)
+    fname = f"cv_{candidat_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    file_storage.save(os.path.join(updir, fname))
+    return f"recrutement_cv/{fname}"
+
+
+# ───────────────────────── DASHBOARD RH ─────────────────────────
+@app.route('/recrutement')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_dashboard():
+    conn = _gdb()
+    def _n(sql, p=()):
+        try: return conn.execute(sql, p).fetchone()[0] or 0
+        except Exception: return 0
+    today = datetime.now().strftime('%Y-%m-%d')
+    kpi = {
+        'offres_total': _n("SELECT COUNT(*) FROM offres_emploi"),
+        'offres_actives': _n("SELECT COUNT(*) FROM offres_emploi WHERE statut='publiee'"),
+        'candidatures': _n("SELECT COUNT(*) FROM candidatures"),
+        'entretiens': _n("SELECT COUNT(*) FROM entretiens WHERE date>=?", (today,)),
+        'recrutements': _n("SELECT COUNT(*) FROM candidatures WHERE statut='retenu'"),
+    }
+    recent_cand = [dict(r) for r in conn.execute("""
+        SELECT ca.id, ca.statut, ca.created_at, c.nom, c.prenoms, c.metier, o.titre AS offre_titre
+        FROM candidatures ca
+        LEFT JOIN candidats c ON c.id=ca.candidat_id
+        LEFT JOIN offres_emploi o ON o.id=ca.offre_id
+        ORDER BY ca.created_at DESC LIMIT 8""").fetchall()]
+    offres_recentes = [dict(r) for r in conn.execute("""
+        SELECT o.*, (SELECT COUNT(*) FROM candidatures WHERE offre_id=o.id) AS nb_cand
+        FROM offres_emploi o ORDER BY o.created_at DESC LIMIT 6""").fetchall()]
+    # Répartition par type de contrat (mini-stats)
+    par_contrat = [dict(r) for r in conn.execute(
+        "SELECT type_contrat, COUNT(*) AS n FROM offres_emploi GROUP BY type_contrat ORDER BY n DESC").fetchall()]
+    conn.close()
+    return render_template('recrutement_dashboard.html', page='recrutement',
+        kpi=kpi, recent_cand=recent_cand, offres_recentes=offres_recentes,
+        par_contrat=par_contrat, cand_labels=RECRUT_CAND_LABELS, offre_labels=RECRUT_OFFRE_LABELS)
+
+
+# ───────────────────────── OFFRES ─────────────────────────
+@app.route('/recrutement/offres')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_offres():
+    statut = request.args.get('statut', '').strip()
+    conn = _gdb()
+    where = "" if statut not in RECRUT_OFFRE_STATUTS else f"WHERE o.statut='{statut}'"
+    offres = [dict(r) for r in conn.execute(f"""
+        SELECT o.*, e.raison_sociale AS entreprise_nom,
+               (SELECT COUNT(*) FROM candidatures WHERE offre_id=o.id) AS nb_cand
+        FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
+        {where} ORDER BY o.created_at DESC""").fetchall()]
+    entreprises = [dict(r) for r in conn.execute(
+        "SELECT id, raison_sociale FROM entreprises_recrutement WHERE COALESCE(statut,'actif')='actif' ORDER BY raison_sociale").fetchall()]
+    conn.close()
+    return render_template('recrutement_offres.html', page='recrutement', offres=offres,
+        entreprises=entreprises, contrats=RECRUT_CONTRATS, statut_filter=statut,
+        offre_labels=RECRUT_OFFRE_LABELS, today_str=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/recrutement/offres/add', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_offre_add():
+    titre = (request.form.get('titre', '') or '').strip()
+    if not titre:
+        flash("Le titre de l'offre est obligatoire", "error"); return redirect('/recrutement/offres')
+    publier = request.form.get('action') == 'publier'
+    ref = f"OFF-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(2).upper()}"
+    conn = _gdb()
+    conn.execute("""INSERT INTO offres_emploi
+        (entreprise_id, reference, titre, description, missions, profil_recherche, niveau_etude,
+         experience, type_contrat, salaire_min, salaire_max, lieu_travail, teletravail,
+         date_publication, date_limite, nombre_postes, statut, created_by, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+        (int(request.form.get('entreprise_id', 0) or 0) or None, ref, titre,
+         request.form.get('description', ''), request.form.get('missions', ''),
+         request.form.get('profil_recherche', ''), request.form.get('niveau_etude', ''),
+         request.form.get('experience', ''), request.form.get('type_contrat', 'CDI'),
+         _num_fr(request.form.get('salaire_min')), _num_fr(request.form.get('salaire_max')),
+         request.form.get('lieu_travail', ''), 1 if request.form.get('teletravail') else 0,
+         datetime.now().strftime('%Y-%m-%d') if publier else None,
+         request.form.get('date_limite', '') or None,
+         int(request.form.get('nombre_postes', 1) or 1),
+         'publiee' if publier else 'brouillon', session.get('user_id')))
+    conn.commit(); conn.close()
+    flash(f"✅ Offre « {titre} » {'publiée' if publier else 'enregistrée en brouillon'} ({ref})", "success")
+    return redirect('/recrutement/offres')
+
+
+@app.route('/recrutement/offres/<int:oid>/edit', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_offre_edit(oid):
+    conn = _gdb()
+    if not conn.execute("SELECT id FROM offres_emploi WHERE id=?", (oid,)).fetchone():
+        conn.close(); flash("Offre introuvable", "error"); return redirect('/recrutement/offres')
+    conn.execute("""UPDATE offres_emploi SET titre=?, description=?, missions=?, profil_recherche=?,
+        niveau_etude=?, experience=?, type_contrat=?, salaire_min=?, salaire_max=?, lieu_travail=?,
+        teletravail=?, date_limite=?, nombre_postes=?, entreprise_id=?, updated_at=datetime('now') WHERE id=?""",
+        (request.form.get('titre', ''), request.form.get('description', ''), request.form.get('missions', ''),
+         request.form.get('profil_recherche', ''), request.form.get('niveau_etude', ''),
+         request.form.get('experience', ''), request.form.get('type_contrat', 'CDI'),
+         _num_fr(request.form.get('salaire_min')), _num_fr(request.form.get('salaire_max')),
+         request.form.get('lieu_travail', ''), 1 if request.form.get('teletravail') else 0,
+         request.form.get('date_limite', '') or None, int(request.form.get('nombre_postes', 1) or 1),
+         int(request.form.get('entreprise_id', 0) or 0) or None, oid))
+    conn.commit(); conn.close()
+    flash("✅ Offre modifiée", "success")
+    return redirect('/recrutement/offres')
+
+
+@app.route('/recrutement/offres/<int:oid>/statut/<statut>', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_offre_statut(oid, statut):
+    if statut not in RECRUT_OFFRE_STATUTS:
+        flash("Statut invalide", "error"); return redirect('/recrutement/offres')
+    conn = _gdb()
+    if statut == 'publiee':
+        conn.execute("UPDATE offres_emploi SET statut='publiee', date_publication=COALESCE(date_publication, ?), updated_at=datetime('now') WHERE id=?",
+            (datetime.now().strftime('%Y-%m-%d'), oid))
+    else:
+        conn.execute("UPDATE offres_emploi SET statut=?, updated_at=datetime('now') WHERE id=?", (statut, oid))
+    conn.commit(); conn.close()
+    lbl = _recrut_status_label('offre', statut)[0]
+    flash(f"✅ Offre : {lbl}", "success")
+    return redirect('/recrutement/offres')
+
+
+@app.route('/recrutement/offres/<int:oid>/delete', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_offre_delete(oid):
+    conn = _gdb()
+    conn.execute("DELETE FROM offres_emploi WHERE id=?", (oid,))
+    conn.commit(); conn.close()
+    flash("🗑️ Offre supprimée", "success")
+    return redirect('/recrutement/offres')
+
+
+# ───────────────────────── CANDIDATURES (pipeline) ─────────────────────────
+@app.route('/recrutement/candidatures')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_candidatures():
+    offre_id = request.args.get('offre', '').strip()
+    conn = _gdb()
+    where = "WHERE 1=1"; params = []
+    if offre_id.isdigit():
+        where += " AND ca.offre_id=?"; params.append(int(offre_id))
+    rows = [dict(r) for r in conn.execute(f"""
+        SELECT ca.*, c.nom, c.prenoms, c.metier, c.telephone, c.email, c.ville, c.cv_path,
+               o.titre AS offre_titre
+        FROM candidatures ca
+        LEFT JOIN candidats c ON c.id=ca.candidat_id
+        LEFT JOIN offres_emploi o ON o.id=ca.offre_id
+        {where} ORDER BY ca.created_at DESC""", params).fetchall()]
+    colonnes = {s: [] for s in RECRUT_CAND_STATUTS}
+    for r in rows:
+        colonnes.setdefault(r['statut'] or 'recu', []).append(r)
+    offres = [dict(r) for r in conn.execute(
+        "SELECT id, titre FROM offres_emploi ORDER BY created_at DESC").fetchall()]
+    conn.close()
+    return render_template('recrutement_candidatures.html', page='recrutement',
+        colonnes=colonnes, statuts=RECRUT_CAND_STATUTS, cand_labels=RECRUT_CAND_LABELS,
+        offres=offres, offre_filter=offre_id, total=len(rows))
+
+
+@app.route('/recrutement/candidature/<int:cid>/statut/<statut>', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_candidature_statut(cid, statut):
+    if statut not in RECRUT_CAND_STATUTS:
+        return (jsonify({'ok': False}), 400) if request.is_json or request.args.get('ajax') else redirect('/recrutement/candidatures')
+    conn = _gdb()
+    row = conn.execute("""SELECT ca.candidat_id, c.nom, c.prenoms, c.email, o.titre AS offre_titre
+        FROM candidatures ca LEFT JOIN candidats c ON c.id=ca.candidat_id
+        LEFT JOIN offres_emploi o ON o.id=ca.offre_id WHERE ca.id=?""", (cid,)).fetchone()
+    conn.execute("UPDATE candidatures SET statut=?, updated_at=datetime('now') WHERE id=?", (statut, cid))
+    conn.commit(); conn.close()
+    if request.args.get('ajax'):
+        return jsonify({'ok': True, 'statut': statut})
+    flash(f"✅ Candidature : {_recrut_status_label('cand', statut)[0]}", "success")
+    return redirect(request.referrer or '/recrutement/candidatures')
+
+
+@app.route('/recrutement/candidature/<int:cid>')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_candidature_detail(cid):
+    conn = _gdb()
+    cand = conn.execute("""SELECT ca.*, c.nom, c.prenoms, c.telephone, c.email, c.ville, c.metier,
+        c.niveau_etude, c.competences, c.linkedin, c.cv_path, c.photo, c.date_naissance,
+        o.titre AS offre_titre, o.reference AS offre_ref, o.id AS offre_id
+        FROM candidatures ca LEFT JOIN candidats c ON c.id=ca.candidat_id
+        LEFT JOIN offres_emploi o ON o.id=ca.offre_id WHERE ca.id=?""", (cid,)).fetchone()
+    if not cand:
+        conn.close(); flash("Candidature introuvable", "error"); return redirect('/recrutement/candidatures')
+    cand = dict(cand)
+    entretiens = [dict(r) for r in conn.execute(
+        "SELECT * FROM entretiens WHERE candidature_id=? ORDER BY date DESC, heure DESC", (cid,)).fetchall()]
+    conn.close()
+    return render_template('recrutement_candidature_detail.html', page='recrutement', c=cand,
+        entretiens=entretiens, statuts=RECRUT_CAND_STATUTS, cand_labels=RECRUT_CAND_LABELS,
+        entretien_types=RECRUT_ENTRETIEN_TYPES, today_str=datetime.now().strftime('%Y-%m-%d'))
+
+
+@app.route('/recrutement/candidature/<int:cid>/note', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_candidature_note(cid):
+    conn = _gdb()
+    conn.execute("UPDATE candidatures SET note=?, commentaire_recruteur=?, updated_at=datetime('now') WHERE id=?",
+        (int(request.form.get('note', 0) or 0) or None, request.form.get('commentaire_recruteur', ''), cid))
+    conn.commit(); conn.close()
+    flash("✅ Évaluation enregistrée", "success")
+    return redirect(f'/recrutement/candidature/{cid}')
+
+
+# ───────────────────────── ENTRETIENS ─────────────────────────
+@app.route('/recrutement/entretiens')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_entretiens():
+    conn = _gdb()
+    entretiens = [dict(r) for r in conn.execute("""
+        SELECT e.*, c.nom, c.prenoms, c.telephone, o.titre AS offre_titre
+        FROM entretiens e LEFT JOIN candidats c ON c.id=e.candidat_id
+        LEFT JOIN offres_emploi o ON o.id=e.offre_id
+        ORDER BY e.date DESC, e.heure DESC""").fetchall()]
+    conn.close()
+    return render_template('recrutement_entretiens.html', page='recrutement',
+        entretiens=entretiens, entretien_types=RECRUT_ENTRETIEN_TYPES)
+
+
+@app.route('/recrutement/entretiens/add', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_entretien_add():
+    cid = int(request.form.get('candidature_id', 0) or 0)
+    date = (request.form.get('date', '') or '').strip()
+    if not cid or not date:
+        flash("Candidature et date requises", "error"); return redirect('/recrutement/candidatures')
+    conn = _gdb()
+    ca = conn.execute("SELECT candidat_id, offre_id FROM candidatures WHERE id=?", (cid,)).fetchone()
+    if not ca:
+        conn.close(); flash("Candidature introuvable", "error"); return redirect('/recrutement/candidatures')
+    conn.execute("""INSERT INTO entretiens (candidature_id, candidat_id, offre_id, date, heure, lieu, type, statut, notes, created_by, created_at)
+        VALUES (?,?,?,?,?,?,?, 'planifie', ?, ?, datetime('now'))""",
+        (cid, ca['candidat_id'], ca['offre_id'], date, request.form.get('heure', ''),
+         request.form.get('lieu', ''), request.form.get('type', 'presentiel'),
+         request.form.get('notes', ''), session.get('user_id')))
+    # passer la candidature au statut « entretien »
+    conn.execute("UPDATE candidatures SET statut='entretien', updated_at=datetime('now') WHERE id=? AND statut NOT IN ('retenu','refuse')", (cid,))
+    conn.commit(); conn.close()
+    flash("📅 Entretien planifié", "success")
+    return redirect(f'/recrutement/candidature/{cid}')
+
+
+# ───────────────────────── ENTREPRISES (léger) ─────────────────────────
+@app.route('/recrutement/entreprises/add', methods=['POST'])
+@permission_required_any('recrutement_edit', 'admin')
+def recrutement_entreprise_add():
+    nom = (request.form.get('raison_sociale', '') or '').strip()
+    if not nom:
+        flash("Raison sociale requise", "error"); return redirect('/recrutement/offres')
+    conn = _gdb()
+    conn.execute("""INSERT INTO entreprises_recrutement (raison_sociale, secteur_activite, email, telephone, ville, pays, statut, created_at)
+        VALUES (?,?,?,?,?,?, 'actif', datetime('now'))""",
+        (nom, request.form.get('secteur_activite', ''), request.form.get('email', ''),
+         request.form.get('telephone', ''), request.form.get('ville', ''),
+         request.form.get('pays', 'Côte d\'Ivoire')))
+    conn.commit(); conn.close()
+    flash(f"✅ Entreprise « {nom} » ajoutée", "success")
+    return redirect('/recrutement/offres')
+
+
+@app.route('/uploads/recrutement_cv/<path:filename>')
+@permission_required_any('recrutement_view', 'admin')
+def recrutement_cv_serve(filename):
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'recrutement_cv'), filename)
+
+
+# ───────────────────────── PORTAIL PUBLIC /emplois ─────────────────────────
+@app.route('/emplois')
+def emplois_portail():
+    """Portail emploi public (sans authentification)."""
+    q = (request.args.get('q', '') or '').strip()
+    ville = (request.args.get('ville', '') or '').strip()
+    contrat = (request.args.get('contrat', '') or '').strip()
+    conn = _gdb()
+    where = ["o.statut='publiee'"]; params = []
+    if q:
+        where.append("(o.titre LIKE ? OR o.description LIKE ? OR o.profil_recherche LIKE ?)")
+        params += [f"%{q}%"] * 3
+    if ville:
+        where.append("o.lieu_travail LIKE ?"); params.append(f"%{ville}%")
+    if contrat in RECRUT_CONTRATS:
+        where.append("o.type_contrat=?"); params.append(contrat)
+    offres = [dict(r) for r in conn.execute(f"""
+        SELECT o.*, e.raison_sociale AS entreprise_nom, e.ville AS entreprise_ville
+        FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
+        WHERE {' AND '.join(where)} ORDER BY o.date_publication DESC, o.created_at DESC""", params).fetchall()]
+    villes = [r[0] for r in conn.execute(
+        "SELECT DISTINCT lieu_travail FROM offres_emploi WHERE statut='publiee' AND COALESCE(lieu_travail,'')!='' ORDER BY lieu_travail").fetchall()]
+    conn.close()
+    return render_template('emplois_public.html', offres=offres, q=q, ville=ville,
+        contrat=contrat, villes=villes, contrats=RECRUT_CONTRATS,
+        contrat_labels=RECRUT_OFFRE_LABELS)
+
+
+@app.route('/emplois/<int:oid>')
+def emploi_detail(oid):
+    conn = _gdb()
+    o = conn.execute("""SELECT o.*, e.raison_sociale AS entreprise_nom, e.secteur_activite,
+        e.ville AS entreprise_ville, e.description AS entreprise_desc
+        FROM offres_emploi o LEFT JOIN entreprises_recrutement e ON e.id=o.entreprise_id
+        WHERE o.id=? AND o.statut='publiee'""", (oid,)).fetchone()
+    conn.close()
+    if not o:
+        flash("Offre introuvable ou clôturée", "error"); return redirect('/emplois')
+    return render_template('emploi_detail.html', o=dict(o))
+
+
+@app.route('/emplois/<int:oid>/postuler', methods=['POST'])
+def emploi_postuler(oid):
+    """Candidature publique : crée le candidat + la candidature (CV optionnel)."""
+    conn = _gdb()
+    o = conn.execute("SELECT id, titre FROM offres_emploi WHERE id=? AND statut='publiee'", (oid,)).fetchone()
+    if not o:
+        conn.close(); flash("Cette offre n'est plus disponible.", "error"); return redirect('/emplois')
+    nom = (request.form.get('nom', '') or '').strip()
+    email = (request.form.get('email', '') or '').strip()
+    if not nom or not email:
+        conn.close(); flash("Nom et email sont obligatoires.", "error"); return redirect(f'/emplois/{oid}')
+    cur = conn.execute("""INSERT INTO candidats (nom, prenoms, telephone, email, ville, metier, niveau_etude, competences, linkedin, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?, datetime('now'))""",
+        (nom, request.form.get('prenoms', ''), request.form.get('telephone', ''), email,
+         request.form.get('ville', ''), request.form.get('metier', ''),
+         request.form.get('niveau_etude', ''), request.form.get('competences', ''),
+         request.form.get('linkedin', '')))
+    candidat_id = cur.lastrowid
+    cv_path = ''
+    try:
+        cv_path = _recrut_save_cv(request.files.get('cv'), candidat_id)
+        if cv_path:
+            conn.execute("UPDATE candidats SET cv_path=? WHERE id=?", (cv_path, candidat_id))
+    except Exception as _e:
+        print(f"[v163] CV upload err: {_e}")
+    conn.execute("""INSERT INTO candidatures (offre_id, candidat_id, lettre_motivation, cv, statut, created_at)
+        VALUES (?,?,?,?, 'recu', datetime('now'))""",
+        (oid, candidat_id, request.form.get('lettre_motivation', ''), cv_path))
+    conn.commit(); conn.close()
+    # Notifier les RH
+    try:
+        notify_roles(['rh', 'directrice_rh', 'admin', 'dg'],
+            title=f"🧑‍💼 Nouvelle candidature : {o['titre']}",
+            message=f"{nom} a postulé à l'offre « {o['titre']} ».",
+            link="/recrutement/candidatures", type='info', module='recrutement', icon='🧑‍💼', priority='normal')
+    except Exception as _e:
+        print(f"[v163] notif err: {_e}")
+    flash(f"✅ Votre candidature à « {o['titre']} » a bien été envoyée. Merci !", "success")
+    return redirect(f'/emplois/{oid}')
 
 
 if __name__ == '__main__':
