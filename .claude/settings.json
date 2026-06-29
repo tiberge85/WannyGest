@@ -55,7 +55,9 @@
       "Bash(git commit -q -m 'v163u-v : formations + suppression recruteur/paiement + correcteur déplacé + design soft *)",
       "Bash(git commit -q -m 'v163w : design moins blanc — fond coloré \\(dégradé + halos teal/pêche/lavande\\), en-têtes de cartes et de tables teintés, liseré coloré sur les cartes *)",
       "Bash(git commit -q -m 'v163x/y : design coloré limité au module Recrutement + coût facture auto depuis le contrat *)",
-      "Bash(git commit -q -m 'v163z : facturation à décider — champ montant masqué si client sous contrat \\(saisi uniquement sans contrat\\) ; bouton correcteur replacé au-dessus du bouton chat *)"
+      "Bash(git commit -q -m 'v163z : facturation à décider — champ montant masqué si client sous contrat \\(saisi uniquement sans contrat\\) ; bouton correcteur replacé au-dessus du bouton chat *)",
+      "Bash(git commit -q -m 'config : domaine par défaut des liens de notification -> https://wg.ramyaci.tech \\(au lieu de rapport-pointage\\) *)",
+      "Bash(git commit -q -m 'fix : TVA par défaut suit le réglage admin + onglet Clients sous contrat in-page \\(recouvreur\\) + montant masqué si sous contrat *)"
     ]
   }
 }

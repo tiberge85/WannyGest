@@ -15,10 +15,10 @@
         </label>
         <div id="tvaRateWrap" style="display:none;display:flex;align-items:center;gap:6px">
             <label style="font-size:12px">Taux :</label>
-            <input type="number" name="tva_rate" id="tvaRate" value="18" step="0.5" min="0" max="50" oninput="calcTTC()" style="width:70px;padding:5px">
+            <input type="number" name="tva_rate" id="tvaRate" value="{{ tva_default|default(18) }}" step="0.5" min="0" max="50" oninput="calcTTC()" style="width:70px;padding:5px">
             <span>%</span>
         </div>
-        <div style="flex:1;font-size:11px;color:#888">💡 TVA CI = 18%. Cochez pour l'ajouter au TTC.</div>
+        <div style="flex:1;font-size:11px;color:#888">💡 Taux par défaut : {{ tva_default|default(18) }} %. Cochez pour l'ajouter au TTC.</div>
     </div>
     
     <div class="form-row">
@@ -42,7 +42,7 @@ function toggleTVA(){
 function calcTTC(){
     var ht = parseFloat(document.getElementById('ht').value) || 0;
     var active = document.getElementById('tvaCheck').checked;
-    var rate = parseFloat(document.getElementById('tvaRate').value) || 18;
+    var rate = parseFloat(document.getElementById('tvaRate').value); if (isNaN(rate)) rate = {{ tva_default|default(18) }};
     var tva = active ? Math.round(ht * rate / 100) : 0;
     document.getElementById('tva').value = tva;
     var ttc = ht + tva;

@@ -216,9 +216,11 @@ function _decContractPick(id){
             inp.required = false; inp.value = '';
             if (hint) hint.innerHTML = '🔒 Montant repris automatiquement du contrat : <strong>' + rate.toLocaleString('fr-FR').replace(/ /g,' ') + ' XOF</strong> selon le contrat. Aucune saisie nécessaire.';
         } else {
-            // Sous contrat mais aucun tarif enregistré dans la gestion des contrats
-            if (wrap) wrap.style.display='block'; inp.required = true;
-            if (hint) hint.innerHTML = '⚠️ Client sous contrat mais aucun tarif enregistré dans la gestion des contrats — renseignez le montant ou ajoutez le tarif au contrat.';
+            // Sous contrat SANS tarif enregistré → on ne demande PAS de montant ;
+            // le tarif doit être défini dans la fiche contrat (Gestion des contrats).
+            if (wrap) wrap.style.display = 'none';
+            inp.required = false; inp.value = '';
+            if (hint) hint.innerHTML = '⚠️ Client sous contrat — aucun tarif enregistré dans la fiche contrat. Définissez le montant du contrat dans <strong>Gestion des contrats</strong> ; il sera appliqué automatiquement.';
         }
     } else {
         // Sans contrat → saisie manuelle par le DG

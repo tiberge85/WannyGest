@@ -4456,6 +4456,15 @@ def inject_globals():
             ctx['current_user'] = user
             ctx['permissions'] = perms
             ctx['user_role'] = user['role']
+            # v163 : taux de TVA par défaut configuré par l'admin (créances → paramètres)
+            try:
+                from models import get_db as _tvdb
+                _td = _tvdb()
+                _tr = _td.execute("SELECT param_value FROM creances_params WHERE param_key='tva_default'").fetchone()
+                _td.close()
+                ctx['tva_default'] = float(_tr['param_value']) if _tr and (_tr['param_value'] not in (None, '')) else 18.0
+            except Exception:
+                ctx['tva_default'] = 18.0
             ctx['can_edit'] = lambda module: (module + '_edit') in perms or 'admin' in perms
             ctx['pending_count'] = len(get_jobs_by_status('traite'))
             try: ctx['unread_messages'] = get_unread_count(user['id'])
@@ -21564,6 +21573,10 @@ def recouvrement_dashboard():
     elif tab == 'recouvrees':
         where_sql = "fri.status='paye'"
         order_by = "fri.payment_validated_at DESC"
+    elif tab == 'sous_contrat':
+        # v163 : factures des clients SOUS CONTRAT (in-page, plus de saut vers la page DG)
+        where_sql = "COALESCE(fr.sous_contrat,0)=1"
+        order_by = "fri.created_at DESC"
     else:  # nouvelles
         where_sql = "fri.status='facture_editee'"
         order_by = "fri.emitted_at"
@@ -21596,12 +21609,10 @@ def recouvrement_dashboard():
         'en_attente': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status IN ('en_recouvrement','caisse_choisie')").fetchone()[0],
         'recouvrees': conn.execute("SELECT COUNT(*) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
     }
-    # v162 : clients sous contrat visités ce mois (lien vers l'onglet dédié des décisions)
+    # v163 : factures des clients sous contrat (onglet in-page)
     try:
         counts['sous_contrat'] = conn.execute(
-            "SELECT COUNT(*) FROM field_reports WHERE sous_contrat=1 "
-            "AND strftime('%Y-%m', COALESCE(facturation_decided_at, executed_at, updated_at)) = strftime('%Y-%m','now')"
-        ).fetchone()[0]
+            "SELECT COUNT(*) FROM field_report_invoices fri JOIN field_reports fr ON fr.id=fri.field_report_id WHERE COALESCE(fr.sous_contrat,0)=1").fetchone()[0]
     except Exception:
         counts['sous_contrat'] = 0
     # v160 : solde (somme des montants) par catégorie — affiché en face de chaque onglet
@@ -21610,6 +21621,11 @@ def recouvrement_dashboard():
         'en_attente': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status IN ('en_recouvrement','caisse_choisie')").fetchone()[0],
         'recouvrees': conn.execute("SELECT COALESCE(SUM(amount),0) FROM field_report_invoices WHERE status='paye'").fetchone()[0],
     }
+    try:
+        totals['sous_contrat'] = conn.execute(
+            "SELECT COALESCE(SUM(fri.amount),0) FROM field_report_invoices fri JOIN field_reports fr ON fr.id=fri.field_report_id WHERE COALESCE(fr.sous_contrat,0)=1").fetchone()[0]
+    except Exception:
+        totals['sous_contrat'] = 0
 
     conn.close()
 

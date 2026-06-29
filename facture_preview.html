@@ -298,7 +298,7 @@
         <div class="inv-totals-box">
             {# v157 : TVA optionnelle — vérifier tva_apply #}
             {% set tva_active = (f.tva_apply if f.tva_apply is not none else 1) %}
-            {% set tva_rate = (f.tva_rate if f.tva_rate else 18) %}
+            {% set tva_rate = (f.tva_rate if f.tva_rate is not none else 18) %}
             {% if tva_active %}
                 {% set tva_div = 1 + (tva_rate / 100) %}
                 {% set ht = (f.amount / tva_div) %}
