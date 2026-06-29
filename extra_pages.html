@@ -1968,7 +1968,13 @@ function submitPointage(type) {
         <input type="number" id="rapportDaysRequired" min="0" max="31" placeholder="Ex: 22 (laisser vide = config par défaut)" style="width:100%;padding:8px;border:1.5px solid #f29f2f;border-radius:6px;font-weight:600">
         <p style="font-size:10px;color:#666;margin:4px 0 0">⚠️ Si renseigné, cette valeur s'applique à <strong>TOUS les employés</strong> du rapport (priorité sur les overrides individuels et le défaut système).</p>
     </div>
-    
+
+    <div style="margin-bottom:14px;background:#eaf3ff;border-left:4px solid #3a86ff;padding:10px;border-radius:6px">
+        <label style="font-size:11px;color:#1d4ed8;display:block;font-weight:700">🔢 Nombre de séances par jour (mode session, optionnel)</label>
+        <input type="number" id="rapportSpj" min="1" max="12" placeholder="Ex: 4 (laisser vide = défaut entreprise)" style="width:100%;padding:8px;border:1.5px solid #3a86ff;border-radius:6px;font-weight:600">
+        <p style="font-size:10px;color:#666;margin:4px 0 0">Séances obligatoires = jours obligatoires × séances/jour. Ex. une équipe à 3 séances/jour, une autre à 4.</p>
+    </div>
+
     <div style="margin-bottom:8px;font-size:11px;color:#888;font-weight:700">Choisissez :</div>
     <div style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto">
         <button type="button" class="rapport-ent-btn" data-cid="" style="text-align:left;padding:10px 12px;border:1.5px solid #1a7a6d;border-radius:8px;background:#e0f5f1;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -2017,11 +2023,15 @@ document.querySelectorAll('.rapport-ent-btn').forEach(function(btn){
         if (!month) { alert('Choisissez un mois'); return; }
         var cid = btn.getAttribute('data-cid') || '';
         var daysRequired = (document.getElementById('rapportDaysRequired').value || '').trim();
+        var spj = (document.getElementById('rapportSpj').value || '').trim();
         var url = '/admin/pointage/rapport-entreprise/' + month;
         var params = [];
         if (cid) params.push('company_id=' + encodeURIComponent(cid));
         if (daysRequired && /^\d+$/.test(daysRequired) && parseInt(daysRequired) > 0 && parseInt(daysRequired) <= 31) {
             params.push('days_required=' + encodeURIComponent(daysRequired));
+        }
+        if (spj && /^\d+$/.test(spj) && parseInt(spj) > 0) {
+            params.push('spj=' + encodeURIComponent(spj));
         }
         if (params.length) url += '?' + params.join('&');
         window.open(url, '_blank');

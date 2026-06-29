@@ -74,7 +74,8 @@
       "Bash(git commit -q -m 'v163af : graphique assiduité corrigé \\(mode session\\) + tableau présence jours vs séances \\(4/jour\\) + filtre équipe au planning *)",
       "Bash(git commit -q -m 'v164 : rapport pointage session corrigé + bouton retour en haut global *)",
       "Bash(git commit -q -m 'v164b : bouton retour-en-haut repositionné \\(à droite, visible\\) + séances/jour affiche la vraie valeur \\(4 / par équipe\\), pas le nb de jours *)",
-      "Bash(git commit -q -m 'v164c : séances/jour réglable globalement à l'\\\\''export \\(mode « Pour tous », param spj\\) *)"
+      "Bash(git commit -q -m 'v164c : séances/jour réglable globalement à l'\\\\''export \\(mode « Pour tous », param spj\\) *)",
+      "Bash(git commit -q -m 'v164d : champ « séances/jour » aussi dans la modale d'\\\\''export du Dashboard RH \\(rapportEntModal\\) *)"
     ]
   }
 }
