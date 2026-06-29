@@ -2645,6 +2645,7 @@ function getMyPos(){
         <a href="/admin/pointage/companies/{{ company.id }}/groupes" class="btn btn-sm" style="background:#1A7A6D;color:#fff">👥 Groupes{% if counts and counts.groupes %} <span style="background:rgba(255,255,255,0.3);padding:1px 6px;border-radius:8px;font-size:10px">{{ counts.groupes }}</span>{% endif %}</a>
         {% endif %}
         <a href="/admin/pointage/companies/{{ company.id }}/jours-repos" class="btn btn-sm" style="background:#f29f2f;color:#fff">🌴 Jours de repos{% if counts and counts.jours_repos %} <span style="background:rgba(255,255,255,0.3);padding:1px 6px;border-radius:8px;font-size:10px">{{ counts.jours_repos }}</span>{% endif %}</a>
+        <button type="button" class="btn btn-sm" style="background:#e8672a;color:#fff" onclick="document.getElementById('exportRapportModal').style.display='flex'">📊 Exporter le rapport</button>
         <a href="/pt/{{ company.slug }}" target="_blank" class="btn btn-outline btn-sm">🚪 Voir login employé</a>
         <a href="/admin/pointage/companies" class="btn btn-outline btn-sm">← Liste</a>
         <form method="post" action="/admin/pointage/companies/{{ company.id }}/delete" style="display:inline" onsubmit="return confirm('⚠️ ATTENTION ⚠️\n\nSupprimer DÉFINITIVEMENT l\'entreprise « {{ company.name }} » va effacer :\n• L\'entreprise elle-même\n• TOUS ses employés\n• TOUS leurs pointages\n• Toutes les alertes associées\n\nCette action est IRRÉVERSIBLE.\n\nÊtes-vous absolument sûr ?')">
@@ -2838,7 +2839,6 @@ function getMyPos(){
         <option value="continu">📍 Continu (Arrivée/Départ)</option>
         <option value="session">⏱️ Session</option>
     </select>
-    <button type="button" class="btn btn-orange btn-sm" style="font-size:11px" onclick="document.getElementById('exportRapportModal').style.display='flex'">📊 Exporter le rapport</button>
 </div>
 {% endif %}
 

@@ -814,11 +814,16 @@ def gen_individual_pages(story, emps, all_stats, S, provider_name, provider_info
 
 # ======================== PAGE : RAPPORT DE PRÉSENCE ========================
 
-def gen_rapport_presence(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, now):
+def gen_rapport_presence(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, now, subtitle=None):
+    # v163 : ne rien générer si aucun employé (évite un tableau vide)
+    if not emps:
+        return
     story.append(SmartPageBreak())
     story.append(make_header(S, provider_name, provider_info, client_name, client_info))
     story.append(Spacer(1, 6*mm))
     story.append(Paragraph("RAPPORT DE PRÉSENCE", S['big_ti']))
+    if subtitle:
+        story.append(Paragraph(subtitle, ParagraphStyle('rp_sub', fontName='Helvetica-Bold', fontSize=10, textColor=TEAL, alignment=TA_CENTER, leading=13)))
     story.append(Spacer(1, 4*mm))
     
     hdrs = ["N°","Employé","Jours<br/>obligat.","Jours de<br/>présence",

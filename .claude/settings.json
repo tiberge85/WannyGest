@@ -66,7 +66,8 @@
       "Bash(awk 'NR>=27097 && NR<=27560 && \\(/absence|présence|presence|classement|CLASSEMENT|jours_trav|jours_pres|taux|nb_jours|days_required|RAPPORT/\\)' app.py)",
       "Bash(git commit -q -m 'v163aa : devis/factures rattachés aux clients + rapport pointage entreprise inclut les employés en mode SESSION *)",
       "Bash(git commit -q -m 'diag : fiche entreprise pointage affiche par employé le mode \\(continu/session\\) + nb pointages/séances du mois \\(pour diagnostiquer 100% absence / une seule personne\\) *)",
-      "Bash(git commit -q -m 'v163ab : export rapport pointage entreprise — jours obligatoires ajustables \\(tous / par groupe / par personne\\) au moment de l'\\\\''export *)"
+      "Bash(git commit -q -m 'v163ab : export rapport pointage entreprise — jours obligatoires ajustables \\(tous / par groupe / par personne\\) au moment de l'\\\\''export *)",
+      "Bash(git commit -q -m 'v163ac : rapport présence en 2 tableaux \\(continu / session\\) + bouton Exporter aligné sur la barre d'\\\\''actions de la fiche entreprise *)"
     ]
   }
 }

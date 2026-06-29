@@ -27708,12 +27708,26 @@ def admin_pointage_rapport_entreprise(month):
                                            client_name, client_info, period, now)
             story.append(PageBreak())
         
-        # Section 2 : Rapport de présence global (TOUS les employés : continu + session)
+        # Section 2 : Rapport de présence — 2 tableaux séparés (continu / session)
         try:
-            rapport_core.gen_rapport_presence(story, emps_presence, all_stats, S,
-                                              provider_name, provider_info,
-                                              client_name, client_info, now)
-            story.append(PageBreak())
+            _n_cont = len(emps)
+            _stats_cont = all_stats[:_n_cont]
+            _emps_sess = emps_presence[_n_cont:]
+            _stats_sess = all_stats[_n_cont:]
+            # Tableau 1 : employés en pointage CONTINU
+            if emps:
+                rapport_core.gen_rapport_presence(story, emps, _stats_cont, S,
+                                                  provider_name, provider_info,
+                                                  client_name, client_info, now,
+                                                  subtitle="Employés en pointage continu")
+                story.append(PageBreak())
+            # Tableau 2 : employés en pointage par SESSION
+            if _emps_sess:
+                rapport_core.gen_rapport_presence(story, _emps_sess, _stats_sess, S,
+                                                  provider_name, provider_info,
+                                                  client_name, client_info, now,
+                                                  subtitle="Employés en pointage par session")
+                story.append(PageBreak())
         except Exception as e:
             print(f"gen_rapport_presence: {e}")
 
