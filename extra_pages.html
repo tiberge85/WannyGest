@@ -2864,7 +2864,9 @@ function getMyPos(){
 
     <div id="exp_tous">
         <label style="font-size:12px;color:#666">Jours obligatoires pour tous les employés</label>
-        <input type="number" id="exp_days_all" min="0" max="31" placeholder="(laisser vide = réglage par défaut)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        <input type="number" id="exp_days_all" min="0" max="31" placeholder="(laisser vide = réglage par défaut)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:10px">
+        <label style="font-size:12px;color:#666">Séances par jour pour tous les employés <span style="color:#999">(mode session)</span></label>
+        <input type="number" id="exp_spj_all" min="1" max="12" placeholder="(laisser vide = défaut entreprise : {{ company.sessions_per_jour or 4 }})" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
     </div>
 
     <div id="exp_groupe" style="display:none">
@@ -2918,6 +2920,8 @@ function expGenerate(cid){
     if(document.getElementById('exp_tous').style.display !== 'none'){
         var d = (document.getElementById('exp_days_all').value||'').trim();
         if(d && /^\d+$/.test(d)) params.push('days_required='+encodeURIComponent(d));
+        var sj = (document.getElementById('exp_spj_all').value||'').trim();
+        if(sj && /^\d+$/.test(sj)) params.push('spj='+encodeURIComponent(sj));
     } else if(document.getElementById('exp_groupe').style.display !== 'none'){
         document.querySelectorAll('.exp-grp').forEach(function(i){
             var v=(i.value||'').trim(); if(v && /^\d+$/.test(v)) params.push('dg_'+i.getAttribute('data-gid')+'='+encodeURIComponent(v));

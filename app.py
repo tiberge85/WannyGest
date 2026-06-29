@@ -27356,6 +27356,10 @@ def admin_pointage_rapport_entreprise(month):
             sessions_per_jour = int(comp['sessions_per_jour']) if comp['sessions_per_jour'] else 4
         except Exception:
             sessions_per_jour = 4
+        # v164 : surcharge globale du nb de séances/jour saisie à l'export (« Pour tous »)
+        _spj_raw = (request.args.get('spj', '') or '').strip()
+        if _spj_raw.isdigit() and int(_spj_raw) > 0:
+            sessions_per_jour = int(_spj_raw)
         if sessions_per_jour < 1: sessions_per_jour = 1
 
         # Récupérer les employés de cette entreprise
