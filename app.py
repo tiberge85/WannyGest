@@ -3543,7 +3543,7 @@ def notify_user(user_id, title, message, link=None, type='info', module=None,
         _outbox_add('email', user_email, title, message)
         body_text = f"{message}\n\n"
         if link:
-            base = get_notif_config('app_url', 'https://rapport-pointage.ramyaci.tech')
+            base = get_notif_config('app_url', 'https://wg.ramyaci.tech')
             full_link = link if link.startswith('http') else f"{base}{link}"
             body_text += f"Lien direct : {full_link}\n"
         body_text += "\n— WannyGest (RAMYA Technologie)"
@@ -3556,7 +3556,7 @@ def notify_user(user_id, title, message, link=None, type='info', module=None,
         _outbox_add('whatsapp', user_phone, title, message)
         full_msg = f"*{title}*\n{message}"
         if link:
-            base = get_notif_config('app_url', 'https://rapport-pointage.ramyaci.tech')
+            base = get_notif_config('app_url', 'https://wg.ramyaci.tech')
             full_link = link if link.startswith('http') else f"{base}{link}"
             full_msg += f"\n{full_link}"
         ok, err = _send_whatsapp_twilio(user_phone, full_msg)
