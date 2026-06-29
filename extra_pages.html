@@ -2764,14 +2764,21 @@ function getMyPos(){
 <div class="card"><div class="card-body" style="padding:0">
 {% if users %}
 <table>
-<thead><tr><th>Identifiant</th><th>Nom</th><th>Poste</th><th>Horaires</th><th>Dernière connexion</th><th>Actif</th><th>Actions</th></tr></thead>
+<thead><tr><th>Identifiant</th><th>Nom</th><th>Poste</th><th>Pointage (ce mois)</th><th>Dernière connexion</th><th>Actif</th><th>Actions</th></tr></thead>
 <tbody>
 {% for u in users %}
 <tr style="{% if not u.is_active %}background:#fafafa;color:#888{% endif %}">
     <td style="font-family:monospace">{{ u.username }}</td>
     <td><strong>{{ u.full_name }}</strong>{% if u.phone %}<br><span style="font-size:10px;color:#888">{{ u.phone }}</span>{% endif %}</td>
     <td style="font-size:11px">{{ u.poste or '-' }}</td>
-    <td style="font-family:monospace;font-size:11px">{{ u.heure_arrivee }}–{{ u.heure_depart }}</td>
+    <td style="font-size:11px">
+        {% if u.mode_pointage == 'session' %}<span style="background:#eef0fb;color:#5b62c4;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">🗓️ Session</span>
+        {% else %}<span style="background:#e7f3f0;color:#1A7A6D;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">⏱️ Continu</span>{% endif %}
+        <br>
+        {% set _n = (u.nb_sessions_mois if u.mode_pointage == 'session' else u.nb_records_mois) %}
+        {% if _n and _n > 0 %}<span style="color:#2e7d32;font-weight:700">{{ _n }}</span> {{ 'séance(s)' if u.mode_pointage == 'session' else 'pointage(s)' }}
+        {% else %}<span style="color:#c53030;font-weight:700">0 — aucun pointage ⚠️</span>{% endif %}
+    </td>
     <td style="font-size:10px">{{ u.last_login[:16] if u.last_login else '—' }}</td>
     <td style="text-align:center">{% if u.is_active %}✅{% else %}⏸️{% endif %}</td>
     <td>

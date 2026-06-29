@@ -64,7 +64,8 @@
       "Bash(awk 'NR>=27907 && NR<=28260 && /render_template/' app.py)",
       "Bash(awk -F: '$1>27907 && $1<28260')",
       "Bash(awk 'NR>=27097 && NR<=27560 && \\(/absence|présence|presence|classement|CLASSEMENT|jours_trav|jours_pres|taux|nb_jours|days_required|RAPPORT/\\)' app.py)",
-      "Bash(git commit -q -m 'v163aa : devis/factures rattachés aux clients + rapport pointage entreprise inclut les employés en mode SESSION *)"
+      "Bash(git commit -q -m 'v163aa : devis/factures rattachés aux clients + rapport pointage entreprise inclut les employés en mode SESSION *)",
+      "Bash(git commit -q -m 'diag : fiche entreprise pointage affiche par employé le mode \\(continu/session\\) + nb pointages/séances du mois \\(pour diagnostiquer 100% absence / une seule personne\\) *)"
     ]
   }
 }

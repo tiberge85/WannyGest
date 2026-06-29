@@ -28023,6 +28023,26 @@ def admin_pointage_company_detail(cid):
             "SELECT id, username, full_name, email, phone, poste, heure_arrivee, heure_depart, is_active, last_login FROM pointage_company_users WHERE company_id=? ORDER BY full_name",
             (cid,)).fetchall()]
     except: pass
+
+    # v163 : diagnostic par employé (mode + nb pointages/séances du mois) — aide à comprendre
+    # les rapports « 100% absence / une seule personne ».
+    try:
+        from models import get_user_pointage_mode as _gupm
+        _mois = datetime.now().strftime('%Y-%m')
+        for _u in users:
+            try:
+                _mode, _ = _gupm(_u['id'])
+            except Exception:
+                _mode = company.get('type_pointage', 'continu')
+            _u['mode_pointage'] = _mode
+            _u['nb_records_mois'] = conn.execute(
+                "SELECT COUNT(*) FROM pointage_company_records WHERE company_user_id=? AND date LIKE ?",
+                (_u['id'], f'{_mois}%')).fetchone()[0]
+            _u['nb_sessions_mois'] = conn.execute(
+                "SELECT COUNT(*) FROM pointage_sessions WHERE company_user_id=? AND date LIKE ?",
+                (_u['id'], f'{_mois}%')).fetchone()[0]
+    except Exception as _e:
+        print(f"[company_detail] diag err: {_e}", flush=True)
     
     # Pointages récents (v65 : inclure les SESSIONS aussi, augmenter la limite à 100)
     recent = []
