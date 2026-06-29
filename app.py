@@ -27585,15 +27585,36 @@ def admin_pointage_rapport_entreprise(month):
         company_default = None  # défaut entreprise pointage
         ramya_default = None    # défaut système RAMYA
         employee_overrides = {}  # name -> int
+        # v163 : ajustements des jours obligatoires AU MOMENT DE L'EXPORT
+        # (par personne du_<uid>, par groupe dg_<gid>) — priorité : personne > groupe > global.
+        export_overrides_by_name = {}
         if company_id and company_id.isdigit():
             cid_int = int(company_id)
             row = conn2.execute("SELECT days_required_default FROM pointage_companies WHERE id=?", (cid_int,)).fetchone()
             if row and row[0] is not None and row[0] > 0:
                 company_default = int(row[0])
-            # Overrides par employé
+            # Overrides par employé (stockés)
             for u in conn2.execute("SELECT id, full_name, days_required_override FROM pointage_company_users WHERE company_id=?", (cid_int,)).fetchall():
                 if u['days_required_override'] is not None and u['days_required_override'] > 0:
                     employee_overrides[u['full_name']] = int(u['days_required_override'])
+            # Export : par GROUPE (priorité basse)
+            for _k, _v in request.args.items():
+                if _k.startswith('dg_') and str(_v).strip().isdigit() and int(_v) > 0:
+                    try:
+                        _gid = int(_k[3:])
+                        for _m in conn2.execute("""SELECT pcu.full_name FROM pointage_groupe_membres pgm
+                            JOIN pointage_company_users pcu ON pcu.id=pgm.company_user_id
+                            WHERE pgm.groupe_id=?""", (_gid,)).fetchall():
+                            export_overrides_by_name[_m['full_name']] = int(_v)
+                    except Exception: pass
+            # Export : par PERSONNE (priorité haute — écrase le groupe)
+            for _k, _v in request.args.items():
+                if _k.startswith('du_') and str(_v).strip().isdigit() and int(_v) > 0:
+                    try:
+                        _uid = int(_k[3:])
+                        _ur = conn2.execute("SELECT full_name FROM pointage_company_users WHERE id=?", (_uid,)).fetchone()
+                        if _ur: export_overrides_by_name[_ur['full_name']] = int(_v)
+                    except Exception: pass
         else:
             # Mode RAMYA : récupérer overrides depuis users + défaut système RAMYA
             for u in conn2.execute("SELECT id, full_name, days_required_override FROM users WHERE COALESCE(is_active,1)=1").fetchall():
@@ -27636,11 +27657,12 @@ def admin_pointage_rapport_entreprise(month):
         # Calculer stats pour tous les employés (avec override jours obligatoires)
         all_stats = []
         for emp in emps_presence:
-            # Priorité MAXIMUM v45 : si saisi pour la période → s'applique à tous
-            if period_days_required is not None:
+            # v163 : priorité — export par personne/groupe > export global (days_required)
+            #        > override stocké > défaut entreprise/RAMYA > calcul auto.
+            override = export_overrides_by_name.get(emp['name'])
+            if override is None and period_days_required is not None:
                 override = period_days_required
-            else:
-                # Sinon : override individuel > défaut entreprise/RAMYA > calcul auto (None)
+            if override is None:
                 override = employee_overrides.get(emp['name'])
                 if override is None and company_default:
                     override = company_default
@@ -28115,10 +28137,24 @@ def admin_pointage_company_detail(cid):
             "SELECT COUNT(*) FROM pointage_jours_repos WHERE company_id=? AND COALESCE(is_active,1)=1", (cid,)).fetchone()[0]
     except: pass
     
+    # v163 : groupes (avec membres) pour l'export du rapport avec jours obligatoires par groupe
+    groupes_export = []
+    try:
+        groupes_export = [dict(r) for r in conn.execute(
+            "SELECT id, nom FROM pointage_groupes WHERE company_id=? AND COALESCE(is_active,1)=1 ORDER BY nom", (cid,)).fetchall()]
+        for _g in groupes_export:
+            _g['membres'] = [r['full_name'] for r in conn.execute(
+                """SELECT pcu.full_name FROM pointage_groupe_membres pgm
+                   JOIN pointage_company_users pcu ON pcu.id=pgm.company_user_id
+                   WHERE pgm.groupe_id=? AND COALESCE(pcu.is_active,1)=1 ORDER BY pcu.full_name""", (_g['id'],)).fetchall()]
+    except Exception as _e:
+        print(f"[company_detail] groupes_export err: {_e}", flush=True)
+
     conn.close()
     return render_template('extra_pages.html', page='pointage_company_detail',
                           company=company, users=users, recent=recent, counts=counts,
-                          total_records=total_records)
+                          total_records=total_records, groupes_export=groupes_export,
+                          export_month=datetime.now().strftime('%Y-%m'))
 
 
 @app.route('/admin/pointage/companies/<int:cid>/user/<int:uid>/reset', methods=['POST'])

@@ -2838,9 +2838,83 @@ function getMyPos(){
         <option value="continu">📍 Continu (Arrivée/Départ)</option>
         <option value="session">⏱️ Session</option>
     </select>
-    <a href="/admin/pointage/rapport-entreprise/{{ '2026-04' }}?company_id={{ company.id }}" class="btn btn-orange btn-sm" style="font-size:11px">📊 Rapport mensuel</a>
+    <button type="button" class="btn btn-orange btn-sm" style="font-size:11px" onclick="document.getElementById('exportRapportModal').style.display='flex'">📊 Exporter le rapport</button>
 </div>
 {% endif %}
+
+<!-- v163 : Modal export rapport avec jours obligatoires (tous / par groupe / par personne) -->
+<div id="exportRapportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:12px;padding:22px;max-width:560px;width:94%;max-height:88vh;overflow-y:auto">
+    <h3 style="margin:0 0 6px;color:#1a3a5c">📊 Exporter le rapport de pointage</h3>
+    <p style="font-size:12px;color:#666;margin:0 0 14px">Choisissez le mois et, si besoin, ajustez le <strong>nombre de jours obligatoires</strong>.</p>
+    <label style="font-size:12px;font-weight:600;color:#555">Mois</label>
+    <input type="month" id="exp_month" value="{{ export_month }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:14px">
+
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <button type="button" class="exp-mode-btn" data-mode="tous" onclick="expSetMode('tous')" style="flex:1;min-width:90px;padding:8px;border:1.5px solid #1a7a6d;border-radius:6px;background:#1a7a6d;color:#fff;font-size:12px;font-weight:700;cursor:pointer">👥 Pour tous</button>
+        <button type="button" class="exp-mode-btn" data-mode="groupe" onclick="expSetMode('groupe')" style="flex:1;min-width:90px;padding:8px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#555;font-size:12px;font-weight:700;cursor:pointer">🗂️ Par groupe</button>
+        <button type="button" class="exp-mode-btn" data-mode="personne" onclick="expSetMode('personne')" style="flex:1;min-width:90px;padding:8px;border:1.5px solid #ddd;border-radius:6px;background:#fff;color:#555;font-size:12px;font-weight:700;cursor:pointer">🧑 Par personne</button>
+    </div>
+
+    <div id="exp_tous">
+        <label style="font-size:12px;color:#666">Jours obligatoires pour tous les employés</label>
+        <input type="number" id="exp_days_all" min="0" max="31" placeholder="(laisser vide = réglage par défaut)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+    </div>
+
+    <div id="exp_groupe" style="display:none">
+        {% if groupes_export %}
+        {% for g in groupes_export %}
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f0f0">
+            <div style="flex:1"><strong style="font-size:13px">{{ g.nom }}</strong><br><span style="font-size:10px;color:#888">{{ g.membres|length }} membre(s)</span></div>
+            <input type="number" class="exp-grp" data-gid="{{ g.id }}" min="0" max="31" placeholder="jours" style="width:90px;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        {% endfor %}
+        {% else %}<p style="font-size:12px;color:#888">Aucun groupe défini. Créez des groupes pour cette entreprise.</p>{% endif %}
+    </div>
+
+    <div id="exp_personne" style="display:none">
+        {% for u in users %}{% if u.is_active %}
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f0f0">
+            <div style="flex:1"><strong style="font-size:13px">{{ u.full_name }}</strong></div>
+            <input type="number" class="exp-usr" data-uid="{{ u.id }}" min="0" max="31" placeholder="jours" style="width:90px;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+        </div>
+        {% endif %}{% endfor %}
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('exportRapportModal').style.display='none'">Annuler</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="expGenerate({{ company.id }})">📊 Générer le PDF</button>
+    </div>
+</div></div>
+<script>
+function expSetMode(m){
+    ['tous','groupe','personne'].forEach(function(x){ document.getElementById('exp_'+x).style.display = (x===m)?'block':'none'; });
+    document.querySelectorAll('.exp-mode-btn').forEach(function(b){
+        var on = b.getAttribute('data-mode')===m;
+        b.style.background = on ? '#1a7a6d' : '#fff'; b.style.color = on ? '#fff' : '#555'; b.style.borderColor = on ? '#1a7a6d' : '#ddd';
+    });
+}
+function expGenerate(cid){
+    var month = document.getElementById('exp_month').value;
+    if(!month){ alert('Choisissez un mois'); return; }
+    var params = ['company_id='+encodeURIComponent(cid)];
+    var mode = (document.querySelector('.exp-mode-btn[style*="rgb(26, 122, 109)"]')||{}).getAttribute ? null : null;
+    // déterminer le mode actif via l'affichage
+    if(document.getElementById('exp_tous').style.display !== 'none'){
+        var d = (document.getElementById('exp_days_all').value||'').trim();
+        if(d && /^\d+$/.test(d)) params.push('days_required='+encodeURIComponent(d));
+    } else if(document.getElementById('exp_groupe').style.display !== 'none'){
+        document.querySelectorAll('.exp-grp').forEach(function(i){
+            var v=(i.value||'').trim(); if(v && /^\d+$/.test(v)) params.push('dg_'+i.getAttribute('data-gid')+'='+encodeURIComponent(v));
+        });
+    } else {
+        document.querySelectorAll('.exp-usr').forEach(function(i){
+            var v=(i.value||'').trim(); if(v && /^\d+$/.test(v)) params.push('du_'+i.getAttribute('data-uid')+'='+encodeURIComponent(v));
+        });
+    }
+    window.open('/admin/pointage/rapport-entreprise/'+month+'?'+params.join('&'), '_blank');
+}
+</script>
 
 <div class="card"><div class="card-body" style="padding:0">
 {% if recent %}
