@@ -72,7 +72,8 @@
       "Bash(git commit -q -m 'v163ae : rapport présence session en SÉANCES \\(corrige présence > obligatoire\\) *)",
       "Bash(python3 -m py_compile app.py rapport_core.py models.py)",
       "Bash(git commit -q -m 'v163af : graphique assiduité corrigé \\(mode session\\) + tableau présence jours vs séances \\(4/jour\\) + filtre équipe au planning *)",
-      "Bash(git commit -q -m 'v164 : rapport pointage session corrigé + bouton retour en haut global *)"
+      "Bash(git commit -q -m 'v164 : rapport pointage session corrigé + bouton retour en haut global *)",
+      "Bash(git commit -q -m 'v164b : bouton retour-en-haut repositionné \\(à droite, visible\\) + séances/jour affiche la vraie valeur \\(4 / par équipe\\), pas le nb de jours *)"
     ]
   }
 }

@@ -27727,10 +27727,10 @@ def admin_pointage_rapport_entreprise(month):
             all_stats.append((enriched, stats))
 
         # v164 : Stats SESSION (en SÉANCES) — distingue JOURS et SÉANCES (chaque jour = N séances).
-        #   PAR DÉFAUT, séances obligatoires = séances RÉELLEMENT PLANIFIÉES dans le planning
-        #   (évite de gonfler l'absence : jours×4 surestimait quand toutes les séances ne sont pas saisies).
-        #   Si l'admin précise à l'export un nb de jours (du_/dg_) OU des séances/jour (sju_/sj_),
-        #   alors séances obligatoires = jours obligatoires × séances/jour de l'équipe.
+        #   Séances obligatoires = JOURS obligatoires × SÉANCES/JOUR.
+        #   - séances/jour : valeur par équipe saisie à l'export (sj_/sju_) sinon défaut entreprise (4).
+        #     (jamais dérivé du planning, sinon la colonne afficherait 1 et ressemblerait à des jours.)
+        #   - jours obligatoires : saisis à l'export (du_/dg_) sinon nb de jours distincts planifiés.
         sess_stats = []
         for _se in emps_sessions:
             _name = _se['name']
@@ -27739,17 +27739,9 @@ def admin_pointage_rapport_entreprise(month):
             jours_planifies = len(set(_s.get('date') for _s in _se.get('sessions', []) if _s.get('date')))
             _ov_jours = _resolve_required(_name)              # jours obligatoires saisis à l'export (ou None)
             _ov_sj = export_sj_by_name.get(_name)             # séances/jour saisies à l'export (ou None)
-            _has_override = (_ov_jours is not None and _ov_jours > 0) or (_ov_sj is not None and _ov_sj > 0)
-            if _has_override:
-                # Calcul piloté par l'admin : jours × séances/jour (de l'équipe)
-                spj_eff = _ov_sj if (_ov_sj is not None and _ov_sj > 0) else sessions_per_jour
-                jours_oblig = _ov_jours if (_ov_jours is not None and _ov_jours > 0) else jours_planifies
-                seances_oblig = jours_oblig * spj_eff
-            else:
-                # Défaut : on se base sur le planning réel (séances effectivement prévues)
-                seances_oblig = planifiees
-                jours_oblig = jours_planifies
-                spj_eff = round(planifiees / jours_planifies) if jours_planifies else sessions_per_jour
+            spj_eff = _ov_sj if (_ov_sj is not None and _ov_sj > 0) else sessions_per_jour
+            jours_oblig = _ov_jours if (_ov_jours is not None and _ov_jours > 0) else jours_planifies
+            seances_oblig = jours_oblig * spj_eff if jours_oblig else planifiees
             non_eff = max(0, seances_oblig - effectuees)
             taux = round(effectuees * 100.0 / seances_oblig, 0) if seances_oblig else 0
             if taux >= 90: obs = "Assidu"

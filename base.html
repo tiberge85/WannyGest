@@ -1557,15 +1557,16 @@ function sortTable(tableId, colIndex, type){
 
 <!-- Bouton « Revenir en haut » (global) -->
 <style>
-#backTopBtn{position:fixed;left:18px;bottom:18px;width:46px;height:46px;border:none;border-radius:50%;
-  background:#1A8F7E;color:#fff;font-size:22px;line-height:46px;text-align:center;cursor:pointer;
-  box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:9998;opacity:0;visibility:hidden;
+#backTopBtn{position:fixed;right:27px;bottom:150px;width:50px;height:50px;border:none;border-radius:50%;
+  background:linear-gradient(135deg,#3a86ff,#1d4ed8);color:#fff;font-size:24px;line-height:50px;text-align:center;cursor:pointer;
+  box-shadow:0 4px 14px rgba(29,78,216,.45);z-index:9998;opacity:0;visibility:hidden;
   transition:opacity .25s,visibility .25s,transform .15s}
-#backTopBtn:hover{background:#136b5e;transform:translateY(-2px)}
-#backTopBtn.show{opacity:.92;visibility:visible}
+#backTopBtn:hover{transform:translateY(-3px)}
+#backTopBtn.show{opacity:1;visibility:visible}
 @media print{#backTopBtn{display:none!important}}
+@media(max-width:768px){#backTopBtn{bottom:96px;right:18px;width:46px;height:46px;line-height:46px;font-size:22px}}
 </style>
-<button id="backTopBtn" title="Revenir en haut de la page" aria-label="Revenir en haut" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+<button type="button" id="backTopBtn" title="Revenir en haut de la page" aria-label="Revenir en haut" onclick="window.scrollTo({top:0,behavior:'smooth'});if(document.scrollingElement)document.scrollingElement.scrollTo({top:0,behavior:'smooth'})">↑</button>
 <script>
 (function(){
   var b=document.getElementById('backTopBtn');
