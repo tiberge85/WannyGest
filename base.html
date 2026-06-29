@@ -1563,8 +1563,8 @@ function sortTable(tableId, colIndex, type){
   transition:opacity .25s,visibility .25s,transform .15s}
 #backTopBtn:hover{transform:translateY(-3px)}
 #backTopBtn.show{opacity:1;visibility:visible}
-@media print{#backTopBtn{display:none!important}}
-@media(max-width:768px){#backTopBtn{bottom:96px;right:18px;width:46px;height:46px;line-height:46px;font-size:22px}}
+@media print{ #backTopBtn{display:none!important} }
+@media(max-width:768px){ #backTopBtn{bottom:96px;right:18px;width:46px;height:46px;line-height:46px;font-size:22px} }
 </style>
 <button type="button" id="backTopBtn" title="Revenir en haut de la page" aria-label="Revenir en haut" onclick="window.scrollTo({top:0,behavior:'smooth'});if(document.scrollingElement)document.scrollingElement.scrollTo({top:0,behavior:'smooth'})">↑</button>
 <script>

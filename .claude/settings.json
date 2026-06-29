@@ -75,7 +75,11 @@
       "Bash(git commit -q -m 'v164 : rapport pointage session corrigé + bouton retour en haut global *)",
       "Bash(git commit -q -m 'v164b : bouton retour-en-haut repositionné \\(à droite, visible\\) + séances/jour affiche la vraie valeur \\(4 / par équipe\\), pas le nb de jours *)",
       "Bash(git commit -q -m 'v164c : séances/jour réglable globalement à l'\\\\''export \\(mode « Pour tous », param spj\\) *)",
-      "Bash(git commit -q -m 'v164d : champ « séances/jour » aussi dans la modale d'\\\\''export du Dashboard RH \\(rapportEntModal\\) *)"
+      "Bash(git commit -q -m 'v164d : champ « séances/jour » aussi dans la modale d'\\\\''export du Dashboard RH \\(rapportEntModal\\) *)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); ast.parse\\(open\\('rapport_core.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(timeout 40 python3 -c \"import app; print\\('IMPORT OK'\\)\")",
+      "Bash(python3 -c \"import app; print\\('IMPORT OK'\\)\")",
+      "Bash(git commit -q -m 'fix : 500 sur toutes les pages — '\\\\''{#backTopBtn'\\\\'' dans @media était interprété comme commentaire Jinja \\(espace ajouté\\) *)"
     ]
   }
 }
