@@ -2868,21 +2868,30 @@ function getMyPos(){
     </div>
 
     <div id="exp_groupe" style="display:none">
+        <p style="font-size:11px;color:#888;margin:0 0 6px">Pour chaque équipe : <strong>jours obligatoires</strong> et, en mode session, <strong>séances/jour</strong> (ex. une équipe à 3 séances/jour, une autre à 4).</p>
         {% if groupes_export %}
+        <div style="display:flex;align-items:center;gap:8px;padding:0 0 4px;font-size:10px;color:#999;font-weight:700">
+            <div style="flex:1">Équipe</div><div style="width:90px;text-align:center">Jours</div><div style="width:90px;text-align:center">Séances/jour</div>
+        </div>
         {% for g in groupes_export %}
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f0f0">
             <div style="flex:1"><strong style="font-size:13px">{{ g.nom }}</strong><br><span style="font-size:10px;color:#888">{{ g.membres|length }} membre(s)</span></div>
             <input type="number" class="exp-grp" data-gid="{{ g.id }}" min="0" max="31" placeholder="jours" style="width:90px;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+            <input type="number" class="exp-grp-sj" data-gid="{{ g.id }}" min="1" max="12" placeholder="séances" style="width:90px;padding:7px;border:1.5px solid #ddd;border-radius:6px">
         </div>
         {% endfor %}
         {% else %}<p style="font-size:12px;color:#888">Aucun groupe défini. Créez des groupes pour cette entreprise.</p>{% endif %}
     </div>
 
     <div id="exp_personne" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px;padding:0 0 4px;font-size:10px;color:#999;font-weight:700">
+            <div style="flex:1">Employé</div><div style="width:90px;text-align:center">Jours</div><div style="width:90px;text-align:center">Séances/jour</div>
+        </div>
         {% for u in users %}{% if u.is_active %}
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0f0f0">
             <div style="flex:1"><strong style="font-size:13px">{{ u.full_name }}</strong></div>
             <input type="number" class="exp-usr" data-uid="{{ u.id }}" min="0" max="31" placeholder="jours" style="width:90px;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+            <input type="number" class="exp-usr-sj" data-uid="{{ u.id }}" min="1" max="12" placeholder="séances" style="width:90px;padding:7px;border:1.5px solid #ddd;border-radius:6px">
         </div>
         {% endif %}{% endfor %}
     </div>
@@ -2913,9 +2922,15 @@ function expGenerate(cid){
         document.querySelectorAll('.exp-grp').forEach(function(i){
             var v=(i.value||'').trim(); if(v && /^\d+$/.test(v)) params.push('dg_'+i.getAttribute('data-gid')+'='+encodeURIComponent(v));
         });
+        document.querySelectorAll('.exp-grp-sj').forEach(function(i){
+            var v=(i.value||'').trim(); if(v && /^\d+$/.test(v)) params.push('sj_'+i.getAttribute('data-gid')+'='+encodeURIComponent(v));
+        });
     } else {
         document.querySelectorAll('.exp-usr').forEach(function(i){
             var v=(i.value||'').trim(); if(v && /^\d+$/.test(v)) params.push('du_'+i.getAttribute('data-uid')+'='+encodeURIComponent(v));
+        });
+        document.querySelectorAll('.exp-usr-sj').forEach(function(i){
+            var v=(i.value||'').trim(); if(v && /^\d+$/.test(v)) params.push('sju_'+i.getAttribute('data-uid')+'='+encodeURIComponent(v));
         });
     }
     window.open('/admin/pointage/rapport-entreprise/'+month+'?'+params.join('&'), '_blank');

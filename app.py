@@ -27631,6 +27631,9 @@ def admin_pointage_rapport_entreprise(month):
         # v163 : ajustements des jours obligatoires AU MOMENT DE L'EXPORT
         # (par personne du_<uid>, par groupe dg_<gid>) — priorité : personne > groupe > global.
         export_overrides_by_name = {}
+        # v164 : séances/jour AU MOMENT DE L'EXPORT (mode session) — par équipe sj_<gid> / personne sju_<uid>.
+        # (une équipe peut avoir 3 séances/jour, une autre 4) — priorité : personne > groupe.
+        export_sj_by_name = {}
         if company_id and company_id.isdigit():
             cid_int = int(company_id)
             row = conn2.execute("SELECT days_required_default FROM pointage_companies WHERE id=?", (cid_int,)).fetchone()
@@ -27657,6 +27660,24 @@ def admin_pointage_rapport_entreprise(month):
                         _uid = int(_k[3:])
                         _ur = conn2.execute("SELECT full_name FROM pointage_company_users WHERE id=?", (_uid,)).fetchone()
                         if _ur: export_overrides_by_name[_ur['full_name']] = int(_v)
+                    except Exception: pass
+            # Export : SÉANCES/JOUR par GROUPE (priorité basse)
+            for _k, _v in request.args.items():
+                if _k.startswith('sj_') and str(_v).strip().isdigit() and int(_v) > 0:
+                    try:
+                        _gid = int(_k[3:])
+                        for _m in conn2.execute("""SELECT pcu.full_name FROM pointage_groupe_membres pgm
+                            JOIN pointage_company_users pcu ON pcu.id=pgm.company_user_id
+                            WHERE pgm.groupe_id=?""", (_gid,)).fetchall():
+                            export_sj_by_name[_m['full_name']] = int(_v)
+                    except Exception: pass
+            # Export : SÉANCES/JOUR par PERSONNE (priorité haute)
+            for _k, _v in request.args.items():
+                if _k.startswith('sju_') and str(_v).strip().isdigit() and int(_v) > 0:
+                    try:
+                        _uid = int(_k[4:])
+                        _ur = conn2.execute("SELECT full_name FROM pointage_company_users WHERE id=?", (_uid,)).fetchone()
+                        if _ur: export_sj_by_name[_ur['full_name']] = int(_v)
                     except Exception: pass
         else:
             # Mode RAMYA : récupérer overrides depuis users + défaut système RAMYA
@@ -27705,24 +27726,37 @@ def admin_pointage_rapport_entreprise(month):
                                                               period_total_days=period_total_days)
             all_stats.append((enriched, stats))
 
-        # v163 : Stats SESSION (en SÉANCES) — distingue JOURS et SÉANCES (chaque jour = N séances).
-        #   Jours obligatoires = override saisi sinon nb de jours distincts planifiés.
-        #   Séances obligatoires = jours obligatoires × séances/jour (config entreprise, défaut 4).
+        # v164 : Stats SESSION (en SÉANCES) — distingue JOURS et SÉANCES (chaque jour = N séances).
+        #   PAR DÉFAUT, séances obligatoires = séances RÉELLEMENT PLANIFIÉES dans le planning
+        #   (évite de gonfler l'absence : jours×4 surestimait quand toutes les séances ne sont pas saisies).
+        #   Si l'admin précise à l'export un nb de jours (du_/dg_) OU des séances/jour (sju_/sj_),
+        #   alors séances obligatoires = jours obligatoires × séances/jour de l'équipe.
         sess_stats = []
         for _se in emps_sessions:
+            _name = _se['name']
             planifiees = _se.get('total_sessions', 0) or 0
             effectuees = (_se.get('sessions_ok', 0) or 0) + (_se.get('sessions_retard', 0) or 0)
             jours_planifies = len(set(_s.get('date') for _s in _se.get('sessions', []) if _s.get('date')))
-            _ov = _resolve_required(_se['name'])
-            jours_oblig = _ov if (_ov is not None and _ov > 0) else jours_planifies
-            seances_oblig = jours_oblig * sessions_per_jour if jours_oblig else planifiees
+            _ov_jours = _resolve_required(_name)              # jours obligatoires saisis à l'export (ou None)
+            _ov_sj = export_sj_by_name.get(_name)             # séances/jour saisies à l'export (ou None)
+            _has_override = (_ov_jours is not None and _ov_jours > 0) or (_ov_sj is not None and _ov_sj > 0)
+            if _has_override:
+                # Calcul piloté par l'admin : jours × séances/jour (de l'équipe)
+                spj_eff = _ov_sj if (_ov_sj is not None and _ov_sj > 0) else sessions_per_jour
+                jours_oblig = _ov_jours if (_ov_jours is not None and _ov_jours > 0) else jours_planifies
+                seances_oblig = jours_oblig * spj_eff
+            else:
+                # Défaut : on se base sur le planning réel (séances effectivement prévues)
+                seances_oblig = planifiees
+                jours_oblig = jours_planifies
+                spj_eff = round(planifiees / jours_planifies) if jours_planifies else sessions_per_jour
             non_eff = max(0, seances_oblig - effectuees)
             taux = round(effectuees * 100.0 / seances_oblig, 0) if seances_oblig else 0
             if taux >= 90: obs = "Assidu"
             elif taux >= 70: obs = "Moyennement assidu"
             else: obs = "Non assidu"
             sess_stats.append({
-                'name': _se['name'], 'jours_obligatoires': jours_oblig, 'seances_par_jour': sessions_per_jour,
+                'name': _name, 'jours_obligatoires': jours_oblig, 'seances_par_jour': spj_eff,
                 'obligatoires': seances_oblig, 'effectuees': effectuees,
                 'taux': taux, 'retard': _se.get('sessions_retard', 0) or 0,
                 'ok': _se.get('sessions_ok', 0) or 0, 'non_effectuees': non_eff, 'observation': obs,
@@ -27781,12 +27815,15 @@ def admin_pointage_rapport_entreprise(month):
         except Exception as e:
             print(f"gen_rapport_presence: {e}")
 
-        # Section 3 : Classement par degré de retard / absence (employés continu)
+        # Section 3 : Classement par degré de retard / absence
+        # v164 : inclut AUSSI les employés en mode session (séances en retard / non effectuées),
+        # sinon seuls les employés continu apparaissaient (« pourquoi elle seule »).
         try:
-            if emps:
+            if emps or sess_stats:
                 rapport_core.gen_classement(story, emps, all_stats, S,
                                             provider_name, provider_info,
-                                            client_name, client_info, now)
+                                            client_name, client_info, now,
+                                            sess_stats=sess_stats)
                 story.append(PageBreak())
         except Exception as e:
             print(f"gen_classement: {e}")
@@ -27799,11 +27836,13 @@ def admin_pointage_rapport_entreprise(month):
             if sess_stats:
                 _up = sum(s['days_present'] for _, s in all_stats) + sum(st['effectuees'] for st in sess_stats)
                 _ur = sum(s['days_required'] for _, s in all_stats) + sum(st['obligatoires'] for st in sess_stats)
+                # Libellé adapté : séances pures si aucun continu, sinon mixte jours+séances
+                _ulabel = "séance(s)" if not emps else "jour(s)/séance(s)"
                 rapport_core.gen_graphique(story, emps, all_stats, S,
                                            provider_name, provider_info,
                                            client_name, client_info, now, logo_path=logo_path,
                                            unit_present=_up, unit_required=_ur,
-                                           unit_label="jour(s)/séance(s)")
+                                           unit_label=_ulabel)
             else:
                 rapport_core.gen_graphique(story, emps, all_stats, S,
                                            provider_name, provider_info,

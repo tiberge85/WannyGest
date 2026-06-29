@@ -920,57 +920,76 @@ def gen_rapport_presence_session(story, sess_stats, S, provider_name, provider_i
 
 # ======================== PAGE : CLASSEMENT RETARDS & ABSENCES ========================
 
-def gen_classement(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, now):
+def _classement_table(story, S, title, headers, rows, colWidths):
+    """Titre + tableau de classement (affiche un message si aucune ligne)."""
+    story.append(Paragraph(title, S['med_ti']))
+    if not rows:
+        story.append(Paragraph("Aucune donnée pour ce classement.", S.get('cell', S['rv'])))
+        story.append(Spacer(1, 6*mm))
+        return
+    hdrs = [Paragraph(h, S['rh']) for h in headers]
+    td = [hdrs]
+    for i, r in enumerate(rows, 1):
+        td.append([Paragraph(str(i), S['rv']), Paragraph(r[0], S['rvb'])] +
+                  [Paragraph(str(c), S['rv']) for c in r[1:]])
+    t = Table(td, colWidths=colWidths)
+    t.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),TEAL),
+        ('GRID',(0,0),(-1,-1),0.4,colors.grey),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3)]))
+    story.append(t)
+    story.append(Spacer(1, 8*mm))
+
+
+def gen_classement(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, now, sess_stats=None):
+    sess_stats = sess_stats or []
     story.append(SmartPageBreak())
     story.append(make_header(S, provider_name, provider_info, client_name, client_info))
     story.append(Spacer(1, 6*mm))
     story.append(Paragraph("CLASSEMENT PAR DEGRÉ DE RETARDS ET D'ABSENCES", S['big_ti']))
     story.append(Spacer(1, 6*mm))
-    
-    # Classement par retards
-    retards = [(emp['name'], stats['total_late_mins']) 
-               for emp, (_, stats) in zip(emps, all_stats) if stats['total_late_mins'] > 0]
-    retards.sort(key=lambda x: -x[1])
-    
-    story.append(Paragraph("Classement par Retards", S['med_ti']))
-    hdrs = [Paragraph(h, S['rh']) for h in ["Rang","Nom Employé","Total heure de retard"]]
-    td_r = [hdrs]
-    for i, (name, mins) in enumerate(retards[:10], 1):
-        td_r.append([Paragraph(str(i), S['rv']), Paragraph(name, S['rvb']),
-                     Paragraph(m2h(mins), S['rv'])])
-    
-    if len(td_r) > 1:
-        tr = Table(td_r, colWidths=[15*mm, 80*mm, 40*mm])
-        tr.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,0),TEAL),
-            ('GRID',(0,0),(-1,-1),0.4,colors.grey),
-            ('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-            ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3)]))
-        story.append(tr)
-    
-    story.append(Spacer(1, 8*mm))
-    
-    # Classement par absences
-    absences = [(emp['name'], stats['days_absent'])
-                for emp, (_, stats) in zip(emps, all_stats) if stats['days_absent'] > 0]
-    absences.sort(key=lambda x: -x[1])
-    
-    story.append(Paragraph("Classement par Absences", S['med_ti']))
-    hdrs2 = [Paragraph(h, S['rh']) for h in ["Rang","Nom Employé","Nombre de jours d'absence"]]
-    td_a = [hdrs2]
-    for i, (name, days) in enumerate(absences[:10], 1):
-        td_a.append([Paragraph(str(i), S['rv']), Paragraph(name, S['rvb']),
-                     Paragraph(str(days), S['rv'])])
-    
-    if len(td_a) > 1:
-        ta = Table(td_a, colWidths=[15*mm, 80*mm, 45*mm])
-        ta.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,0),TEAL),
-            ('GRID',(0,0),(-1,-1),0.4,colors.grey),
-            ('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-            ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3)]))
-        story.append(ta)
-    
+
+    _sub = S.get('small_ti', S['med_ti'])
+
+    # ---- Employés en pointage CONTINU (en jours / heures) ----
+    if emps:
+        if sess_stats:
+            story.append(Paragraph("Pointage continu (en jours)", _sub))
+            story.append(Spacer(1, 2*mm))
+        retards = [(emp['name'], stats['total_late_mins'])
+                   for emp, (_, stats) in zip(emps, all_stats) if stats['total_late_mins'] > 0]
+        retards.sort(key=lambda x: -x[1])
+        _classement_table(story, S, "Classement par Retards",
+                          ["Rang","Nom Employé","Total heure de retard"],
+                          [(n, m2h(mn)) for n, mn in retards[:10]],
+                          [15*mm, 80*mm, 40*mm])
+        absences = [(emp['name'], stats['days_absent'])
+                    for emp, (_, stats) in zip(emps, all_stats) if stats['days_absent'] > 0]
+        absences.sort(key=lambda x: -x[1])
+        _classement_table(story, S, "Classement par Absences",
+                          ["Rang","Nom Employé","Nombre de jours d'absence"],
+                          [(n, d) for n, d in absences[:10]],
+                          [15*mm, 80*mm, 45*mm])
+
+    # ---- Employés en pointage par SESSION (en séances) ----
+    if sess_stats:
+        story.append(Spacer(1, 2*mm))
+        story.append(Paragraph("Pointage par session (en séances)", _sub))
+        story.append(Spacer(1, 2*mm))
+        s_retards = [(st['name'], st.get('retard', 0)) for st in sess_stats if st.get('retard', 0) > 0]
+        s_retards.sort(key=lambda x: -x[1])
+        _classement_table(story, S, "Classement par Retards (séances)",
+                          ["Rang","Nom Employé","Séances en retard"],
+                          [(n, r) for n, r in s_retards[:10]],
+                          [15*mm, 80*mm, 45*mm])
+        s_abs = [(st['name'], st.get('non_effectuees', 0)) for st in sess_stats if st.get('non_effectuees', 0) > 0]
+        s_abs.sort(key=lambda x: -x[1])
+        _classement_table(story, S, "Classement par Absences (séances)",
+                          ["Rang","Nom Employé","Séances non effectuées"],
+                          [(n, d) for n, d in s_abs[:10]],
+                          [15*mm, 80*mm, 45*mm])
+
     story.extend([Spacer(1,4*mm), Paragraph(f"Généré le {now}", S['ft'])])
 
 # ======================== PRÉPARATION LOGO ========================
