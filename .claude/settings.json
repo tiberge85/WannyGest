@@ -67,7 +67,11 @@
       "Bash(git commit -q -m 'v163aa : devis/factures rattachés aux clients + rapport pointage entreprise inclut les employés en mode SESSION *)",
       "Bash(git commit -q -m 'diag : fiche entreprise pointage affiche par employé le mode \\(continu/session\\) + nb pointages/séances du mois \\(pour diagnostiquer 100% absence / une seule personne\\) *)",
       "Bash(git commit -q -m 'v163ab : export rapport pointage entreprise — jours obligatoires ajustables \\(tous / par groupe / par personne\\) au moment de l'\\\\''export *)",
-      "Bash(git commit -q -m 'v163ac : rapport présence en 2 tableaux \\(continu / session\\) + bouton Exporter aligné sur la barre d'\\\\''actions de la fiche entreprise *)"
+      "Bash(git commit -q -m 'v163ac : rapport présence en 2 tableaux \\(continu / session\\) + bouton Exporter aligné sur la barre d'\\\\''actions de la fiche entreprise *)",
+      "Bash(git commit -q -m 'v163ad : WhatsApp — normalisation des numéros en E.164 \\(+225 par défaut\\) + bouton Test WhatsApp *)",
+      "Bash(git commit -q -m 'v163ae : rapport présence session en SÉANCES \\(corrige présence > obligatoire\\) *)",
+      "Bash(python3 -m py_compile app.py rapport_core.py models.py)",
+      "Bash(git commit -q -m 'v163af : graphique assiduité corrigé \\(mode session\\) + tableau présence jours vs séances \\(4/jour\\) + filtre équipe au planning *)"
     ]
   }
 }

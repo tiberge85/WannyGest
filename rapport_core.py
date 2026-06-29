@@ -879,11 +879,10 @@ def gen_rapport_presence_session(story, sess_stats, S, provider_name, provider_i
         story.append(Paragraph(subtitle, ParagraphStyle('rps_sub', fontName='Helvetica-Bold', fontSize=10, textColor=TEAL, alignment=TA_CENTER, leading=13)))
     story.append(Spacer(1, 4*mm))
 
-    hdrs = ["N°", "Employé", "Séances<br/>obligat.", "Séances<br/>effectuées",
-            "Taux<br/>réalisation", "Séances<br/>en retard", "Séances<br/>à l'heure",
-            "Séances<br/>non effect.", "Observation"]
+    hdrs = ["N°", "Employé", "Jours<br/>obligat.", "Séances<br/>/ jour", "Séances<br/>obligat.", "Séances<br/>effectuées",
+            "Taux<br/>réalisation", "Séances<br/>en retard", "Séances<br/>non effect.", "Observation"]
     hrow = [Paragraph(h, S['rh']) for h in hdrs]
-    cw = [8*mm, 30*mm, 16*mm, 16*mm, 16*mm, 16*mm, 16*mm, 16*mm, 28*mm]
+    cw = [7*mm, 28*mm, 14*mm, 13*mm, 15*mm, 16*mm, 16*mm, 15*mm, 16*mm, 26*mm]
 
     td = [hrow]
     for i, st in enumerate(sess_stats, 1):
@@ -897,11 +896,12 @@ def gen_rapport_presence_session(story, sess_stats, S, provider_name, provider_i
         td.append([
             Paragraph(str(i), S['rv']),
             Paragraph(st['name'], S['rvb']),
+            Paragraph(f"{st.get('jours_obligatoires', '-')} j", S['rv']),
+            Paragraph(f"{st.get('seances_par_jour', '-')}", S['rv']),
             Paragraph(f"{st['obligatoires']}", S['rv']),
             Paragraph(f"{st['effectuees']}", S['rv']),
             Paragraph(f"{st['taux']:.0f}%", S['rv']),
             Paragraph(f"{st['retard']}", S['rv']),
-            Paragraph(f"{st['ok']}", S['rv']),
             Paragraph(f"{st['non_effectuees']}", S['rv']),
             Paragraph(obs, obs_style),
         ])
@@ -1206,18 +1206,24 @@ def _generate_chart_image(pct_presence, pct_absence, logo_path=None, work_dir=No
         return None
 
 
-def gen_graphique(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, now, logo_path=None, work_dir=None):
+def gen_graphique(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, now, logo_path=None, work_dir=None, unit_present=None, unit_required=None, unit_label=None):
     story.append(SmartPageBreak())
     story.append(make_header(S, provider_name, provider_info, client_name, client_info))
     story.append(Spacer(1, 6*mm))
     story.append(Paragraph("GRAPHIQUE D'ASSIDUITÉ DU MOIS", S['big_ti']))
     story.append(Spacer(1, 8*mm))
-    
-    # Calculs globaux
-    total_presence = sum(s['total_worked'] for _, s in all_stats)
-    total_required = sum(s['total_required'] for _, s in all_stats)
+
+    # v163 : si des unités sont fournies (jours+séances), on s'en sert (gère le mode session) ;
+    # sinon on calcule en heures comme avant.
+    use_units = (unit_present is not None and unit_required is not None)
+    if use_units:
+        total_presence = unit_present
+        total_required = unit_required
+    else:
+        total_presence = sum(s['total_worked'] for _, s in all_stats)
+        total_required = sum(s['total_required'] for _, s in all_stats)
     total_absence = max(0, total_required - total_presence)
-    
+
     if total_required > 0:
         # NOUVEAU v53 : cap à 100% (cas où des heures sup font dépasser le total obligatoire)
         pct_presence = min((total_presence / total_required) * 100, 100.0)
@@ -1238,21 +1244,28 @@ def gen_graphique(story, emps, all_stats, S, provider_name, provider_info, clien
     
     story.append(Spacer(1, 2*mm))
     
+    # v163 : formatage selon le mode (heures ou unités séances/jours)
+    _ul = unit_label or 'séance(s)'
+    def _fmtv(v):
+        return f"{int(round(v))} {_ul}" if use_units else m2h(v)
+    _lbl_pres = f"Total {_ul} de présence" if use_units else "Total heure de présence"
+    _lbl_abs = f"Total {_ul} d'absence" if use_units else "Total heure d'absence"
+
     # Légendes texte
     story.append(Paragraph(
-        f"<font color='#E85D4A'><b>Absence ({m2h(total_absence)} - {pct_absence:.0f}%)</b></font>",
+        f"<font color='#E85D4A'><b>Absence ({_fmtv(total_absence)} - {pct_absence:.0f}%)</b></font>",
         ParagraphStyle('la', fontSize=10, alignment=TA_RIGHT, spaceAfter=2)))
     story.append(Paragraph(
-        f"<font color='#1A7A6D'><b>Présence ({m2h(total_presence)} - {pct_presence:.0f}%)</b></font>",
+        f"<font color='#1A7A6D'><b>Présence ({_fmtv(total_presence)} - {pct_presence:.0f}%)</b></font>",
         ParagraphStyle('lp', fontSize=10, alignment=TA_LEFT, spaceAfter=4)))
-    
+
     story.append(Spacer(1, 2*mm))
-    
+
     # Légende en bas
     leg = Table([[
-        Paragraph(f"<font color='#1A7A6D'><b>■</b></font>  Total heure de présence: {m2h(total_presence)}", 
+        Paragraph(f"<font color='#1A7A6D'><b>■</b></font>  {_lbl_pres}: {_fmtv(total_presence)}",
                   ParagraphStyle('l1', fontSize=9)),
-        Paragraph(f"<font color='#E85D4A'><b>■</b></font>  <font color='#E85D4A'>Total heure d'absence: {m2h(total_absence)}</font>",
+        Paragraph(f"<font color='#E85D4A'><b>■</b></font>  <font color='#E85D4A'>{_lbl_abs}: {_fmtv(total_absence)}</font>",
                   ParagraphStyle('l2', fontSize=9)),
     ]], colWidths=[95*mm, 95*mm])
     leg.setStyle(TableStyle([('BOX',(0,0),(-1,-1),0.5,colors.grey),

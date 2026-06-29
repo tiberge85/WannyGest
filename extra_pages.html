@@ -2698,7 +2698,13 @@ function getMyPos(){
                     </div>
                 </label>
             </div>
-            {% if company.type_pointage == 'session' %}<p style="font-size:11px;color:#7b1fa2;margin:6px 0 0">📅 <a href="/admin/pointage/companies/{{ company.id }}/planning" style="color:#7b1fa2;font-weight:700">Gérer le planning des sessions →</a></p>{% endif %}
+            {% if company.type_pointage == 'session' %}
+            <div style="margin-top:8px">
+                <label style="font-size:11px;color:#7b1fa2;display:block;font-weight:600">🔢 Séances par jour (mode session)</label>
+                <input type="number" name="sessions_per_jour" value="{{ company.sessions_per_jour or 4 }}" min="1" max="20" style="width:120px;padding:7px;border:1.5px solid #ddd;border-radius:6px">
+                <span style="font-size:10px;color:#888">Séances obligatoires = jours obligatoires × ce nombre.</span>
+            </div>
+            <p style="font-size:11px;color:#7b1fa2;margin:6px 0 0">📅 <a href="/admin/pointage/companies/{{ company.id }}/planning" style="color:#7b1fa2;font-weight:700">Gérer le planning des sessions →</a></p>{% endif %}
         </div>
         <div style="grid-column:1/-1">
             <label style="font-size:11px;color:#888;display:block">Message de bienvenue (s'affiche à chaque connexion)</label>
@@ -4342,6 +4348,11 @@ function openEditPurchase(id, desc, cat, mt, date, ech, dept, notes, ctr) {
             <option value="semaine" {% if view=='semaine' %}selected{% endif %}>📅 Semaine</option>
             <option value="mois" {% if view=='mois' %}selected{% endif %}>🗓️ Mois</option>
             <option value="calendrier" {% if view=='calendrier' %}selected{% endif %}>📅 Calendrier visuel</option>
+        </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">👥 Équipe</label>
+        <select name="groupe" onchange="this.form.submit()" style="padding:7px;border:1.5px solid #ddd;border-radius:6px">
+            <option value="">Toutes les équipes</option>
+            {% for g in groupes %}<option value="{{ g.id }}" {% if groupe_filter == g.id|string %}selected{% endif %}>{{ g.nom }}{% if g.nb_membres %} ({{ g.nb_membres }}){% endif %}</option>{% endfor %}
         </select></div>
     <div style="flex:1"></div>
     <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('newPlanModal').style.display='flex'">+ Planifier une session</button>

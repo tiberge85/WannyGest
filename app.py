@@ -27340,7 +27340,8 @@ def admin_pointage_rapport_entreprise(month):
     print(f"[rapport_entreprise] month={month}, company_id_param='{company_id}', days_required={period_days_required}")
     
     conn = _gdb()
-    
+    sessions_per_jour = 4  # défaut (mode session) — surchargé par l'entreprise
+
     if company_id and company_id.isdigit():
         # Rapport pour une entreprise pointage spécifique
         cid = int(company_id)
@@ -27351,7 +27352,12 @@ def admin_pointage_rapport_entreprise(month):
             return redirect(url_for('admin_pointage_dashboard'))
         company_name = comp['name']
         company_subtitle = f"Espace pointage — slug: {comp['slug']}"
-        
+        try:
+            sessions_per_jour = int(comp['sessions_per_jour']) if comp['sessions_per_jour'] else 4
+        except Exception:
+            sessions_per_jour = 4
+        if sessions_per_jour < 1: sessions_per_jour = 1
+
         # Récupérer les employés de cette entreprise
         users = [dict(r) for r in conn.execute("""
             SELECT id, username, full_name, poste as department, '' as role,
@@ -27699,21 +27705,25 @@ def admin_pointage_rapport_entreprise(month):
                                                               period_total_days=period_total_days)
             all_stats.append((enriched, stats))
 
-        # v163 : Stats SESSION (en SÉANCES, pas en jours) — corrige « présence > obligatoire »
-        # Séances obligatoires = override saisi sinon nb de séances planifiées du mois.
+        # v163 : Stats SESSION (en SÉANCES) — distingue JOURS et SÉANCES (chaque jour = N séances).
+        #   Jours obligatoires = override saisi sinon nb de jours distincts planifiés.
+        #   Séances obligatoires = jours obligatoires × séances/jour (config entreprise, défaut 4).
         sess_stats = []
         for _se in emps_sessions:
             planifiees = _se.get('total_sessions', 0) or 0
             effectuees = (_se.get('sessions_ok', 0) or 0) + (_se.get('sessions_retard', 0) or 0)
+            jours_planifies = len(set(_s.get('date') for _s in _se.get('sessions', []) if _s.get('date')))
             _ov = _resolve_required(_se['name'])
-            obligatoires = _ov if (_ov is not None and _ov > 0) else planifiees
-            non_eff = max(0, obligatoires - effectuees)
-            taux = round(effectuees * 100.0 / obligatoires, 0) if obligatoires else 0
+            jours_oblig = _ov if (_ov is not None and _ov > 0) else jours_planifies
+            seances_oblig = jours_oblig * sessions_per_jour if jours_oblig else planifiees
+            non_eff = max(0, seances_oblig - effectuees)
+            taux = round(effectuees * 100.0 / seances_oblig, 0) if seances_oblig else 0
             if taux >= 90: obs = "Assidu"
             elif taux >= 70: obs = "Moyennement assidu"
             else: obs = "Non assidu"
             sess_stats.append({
-                'name': _se['name'], 'obligatoires': obligatoires, 'effectuees': effectuees,
+                'name': _se['name'], 'jours_obligatoires': jours_oblig, 'seances_par_jour': sessions_per_jour,
+                'obligatoires': seances_oblig, 'effectuees': effectuees,
                 'taux': taux, 'retard': _se.get('sessions_retard', 0) or 0,
                 'ok': _se.get('sessions_ok', 0) or 0, 'non_effectuees': non_eff, 'observation': obs,
             })
@@ -27781,13 +27791,23 @@ def admin_pointage_rapport_entreprise(month):
         except Exception as e:
             print(f"gen_classement: {e}")
         
-        # Section 4 : Graphique avec donut + logo RAMYA centré
+        # Section 4 : Graphique d'assiduité (donut). v163 : tient compte des employés SESSION
+        # (sinon 100% absence pour une entreprise en mode session). Unité = jours (continu) + séances (session).
         try:
             logo_path = os.path.join(BASE_DIR, 'logo_ramya.png')
             if not os.path.exists(logo_path): logo_path = None
-            rapport_core.gen_graphique(story, emps, all_stats, S,
-                                       provider_name, provider_info,
-                                       client_name, client_info, now, logo_path=logo_path)
+            if sess_stats:
+                _up = sum(s['days_present'] for _, s in all_stats) + sum(st['effectuees'] for st in sess_stats)
+                _ur = sum(s['days_required'] for _, s in all_stats) + sum(st['obligatoires'] for st in sess_stats)
+                rapport_core.gen_graphique(story, emps, all_stats, S,
+                                           provider_name, provider_info,
+                                           client_name, client_info, now, logo_path=logo_path,
+                                           unit_present=_up, unit_required=_ur,
+                                           unit_label="jour(s)/séance(s)")
+            else:
+                rapport_core.gen_graphique(story, emps, all_stats, S,
+                                           provider_name, provider_info,
+                                           client_name, client_info, now, logo_path=logo_path)
         except Exception as e:
             print(f"gen_graphique: {e}")
         
@@ -28015,15 +28035,17 @@ def admin_pointage_company_detail(cid):
                 if tp not in ('continu','session'): tp = 'continu'
                 drd_raw = (request.form.get('days_required_default', '') or '').strip()
                 drd = int(drd_raw) if drd_raw.isdigit() and int(drd_raw) > 0 else None
+                spj_raw = (request.form.get('sessions_per_jour', '') or '').strip()
+                spj = int(spj_raw) if spj_raw.isdigit() and int(spj_raw) > 0 else 4
                 conn.execute("""UPDATE pointage_companies SET
                     name=?, welcome_message=?, primary_color=?,
                     penalty_per_minute=?, grace_minutes=?, type_pointage=?,
-                    days_required_default=?
+                    days_required_default=?, sessions_per_jour=?
                     WHERE id=?""",
                     (request.form.get('name'), request.form.get('welcome_message'),
                      request.form.get('primary_color', '#1a7a6d'),
                      float(request.form.get('penalty_per_minute', '0') or 0),
-                     int(request.form.get('grace_minutes', '10') or 10), tp, drd, cid))
+                     int(request.form.get('grace_minutes', '10') or 10), tp, drd, spj, cid))
                 conn.commit()
                 flash("✅ Entreprise mise à jour", "success")
             except Exception as e:
@@ -29621,15 +29643,22 @@ def admin_pointage_company_planning(cid):
     else:
         start = end = d
     
-    plannings = [dict(r) for r in conn.execute("""
+    # v163 : filtre par ÉQUIPE (groupe)
+    groupe_filter = (request.args.get('groupe', '') or '').strip()
+    _grp_sql = ""
+    _grp_params = []
+    if groupe_filter.isdigit():
+        _grp_sql = " AND pps.company_user_id IN (SELECT company_user_id FROM pointage_groupe_membres WHERE groupe_id=?)"
+        _grp_params = [int(groupe_filter)]
+    plannings = [dict(r) for r in conn.execute(f"""
         SELECT pps.*, pcu.full_name as user_name,
                pee.nom as externe_nom, pee.adresse as externe_adresse
         FROM pointage_planning_sessions pps
         LEFT JOIN pointage_company_users pcu ON pps.company_user_id = pcu.id
         LEFT JOIN pointage_entreprises_externes pee ON pps.entreprise_externe_id = pee.id
-        WHERE pps.company_id=? AND pps.date BETWEEN ? AND ? AND COALESCE(pps.is_active,1)=1
+        WHERE pps.company_id=? AND pps.date BETWEEN ? AND ? AND COALESCE(pps.is_active,1)=1{_grp_sql}
         ORDER BY pps.date, pps.heure_prevue""",
-        (cid, start.isoformat(), end.isoformat())).fetchall()]
+        tuple([cid, start.isoformat(), end.isoformat()] + _grp_params)).fetchall()]
     
     # Sessions réalisées sur la plage
     sessions_real = [dict(r) for r in conn.execute("""
@@ -29674,7 +29703,8 @@ def admin_pointage_company_planning(cid):
                           view=view, range_start=start.isoformat(), range_end=end.isoformat(),
                           externes=externes, groupes=groupes,
                           nb_employees_total=nb_employees_total,
-                          show_doublons=show_doublons, doublons=doublons)
+                          show_doublons=show_doublons, doublons=doublons,
+                          groupe_filter=groupe_filter)
 
 
 @app.route('/pt/<slug>/session/start/<int:planning_id>', methods=['GET', 'POST'])

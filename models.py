@@ -4272,6 +4272,9 @@ def migrate_v65():
     # Niveau entreprise
     try: conn.execute("ALTER TABLE pointage_companies ADD COLUMN days_required_default INTEGER")
     except: pass
+    # v163 : nombre de séances par jour (mode session) — défaut 4
+    try: conn.execute("ALTER TABLE pointage_companies ADD COLUMN sessions_per_jour INTEGER DEFAULT 4")
+    except: pass
     
     # Niveau employé (override individuel)
     try: conn.execute("ALTER TABLE pointage_company_users ADD COLUMN days_required_override INTEGER")
