@@ -864,6 +864,60 @@ def gen_rapport_presence(story, emps, all_stats, S, provider_name, provider_info
     story.extend([t, Spacer(1,4*mm),
         Paragraph(f"Généré le {now} | {safe(client_name)} - Rapport de Présence", S['ft'])])
 
+# ======================== PAGE : RAPPORT DE PRÉSENCE (SESSIONS) ========================
+
+def gen_rapport_presence_session(story, sess_stats, S, provider_name, provider_info, client_name, client_info, now, subtitle=None):
+    """v163 : rapport de présence pour les employés en mode SESSION — mesuré en SÉANCES
+    (séances obligatoires / effectuées), pas en jours."""
+    if not sess_stats:
+        return
+    story.append(SmartPageBreak())
+    story.append(make_header(S, provider_name, provider_info, client_name, client_info))
+    story.append(Spacer(1, 6*mm))
+    story.append(Paragraph("RAPPORT DE PRÉSENCE", S['big_ti']))
+    if subtitle:
+        story.append(Paragraph(subtitle, ParagraphStyle('rps_sub', fontName='Helvetica-Bold', fontSize=10, textColor=TEAL, alignment=TA_CENTER, leading=13)))
+    story.append(Spacer(1, 4*mm))
+
+    hdrs = ["N°", "Employé", "Séances<br/>obligat.", "Séances<br/>effectuées",
+            "Taux<br/>réalisation", "Séances<br/>en retard", "Séances<br/>à l'heure",
+            "Séances<br/>non effect.", "Observation"]
+    hrow = [Paragraph(h, S['rh']) for h in hdrs]
+    cw = [8*mm, 30*mm, 16*mm, 16*mm, 16*mm, 16*mm, 16*mm, 16*mm, 28*mm]
+
+    td = [hrow]
+    for i, st in enumerate(sess_stats, 1):
+        obs = st['observation']
+        if obs == "Non assidu":
+            obs_style = S['rvo']
+        elif obs == "Moyennement assidu":
+            obs_style = ParagraphStyle('rvblue2', fontName='Helvetica-Bold', fontSize=7, textColor=BLUE, alignment=TA_CENTER, leading=9)
+        else:
+            obs_style = ParagraphStyle('rvgreen2', fontName='Helvetica-Bold', fontSize=7, textColor=GREEN, alignment=TA_CENTER, leading=9)
+        td.append([
+            Paragraph(str(i), S['rv']),
+            Paragraph(st['name'], S['rvb']),
+            Paragraph(f"{st['obligatoires']}", S['rv']),
+            Paragraph(f"{st['effectuees']}", S['rv']),
+            Paragraph(f"{st['taux']:.0f}%", S['rv']),
+            Paragraph(f"{st['retard']}", S['rv']),
+            Paragraph(f"{st['ok']}", S['rv']),
+            Paragraph(f"{st['non_effectuees']}", S['rv']),
+            Paragraph(obs, obs_style),
+        ])
+
+    t = Table(td, colWidths=cw, repeatRows=1)
+    sc = [('BACKGROUND',(0,0),(-1,0),TEAL),
+          ('GRID',(0,0),(-1,-1),0.4,colors.grey),
+          ('ALIGN',(0,0),(-1,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+          ('TOPPADDING',(0,0),(-1,-1),2),('BOTTOMPADDING',(0,0),(-1,-1),2)]
+    for i in range(2, len(td), 2):
+        sc.append(('BACKGROUND',(0,i),(-1,i),LGRAY))
+    t.setStyle(TableStyle(sc))
+    story.extend([t, Spacer(1,4*mm),
+        Paragraph(f"Généré le {now} | {safe(client_name)} - Rapport de Présence (séances)", S['ft'])])
+
+
 # ======================== PAGE : CLASSEMENT RETARDS & ABSENCES ========================
 
 def gen_classement(story, emps, all_stats, S, provider_name, provider_info, client_name, client_info, now):

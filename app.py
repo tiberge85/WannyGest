@@ -27677,39 +27677,46 @@ def admin_pointage_rapport_entreprise(month):
         
         # v163 : inclure aussi les employés en mode SESSION dans la présence/classement/graphique
         # (auparavant seuls les employés « continu » y figuraient → une seule personne + 100% absence)
-        emps_presence = list(emps)
-        for _se in emps_sessions:
-            _recs = []
-            for _s in _se.get('sessions', []):
-                _recs.append({
-                    'date': _s.get('date'),
-                    'sched_start': _s.get('heure_prevue') or '08:00',
-                    'sched_end': _s.get('heure_fin') or '17:00',
-                    'arrival': _s.get('heure_debut') or '',     # vide = séance non effectuée (absence)
-                    'departure': _s.get('heure_fin') or '',
-                    'duration': '', 'pause_start': '', 'pause_end': '',
-                })
-            emps_presence.append({'name': _se['name'], 'ref': _se['ref'], 'records': _recs})
+        def _resolve_required(name):
+            ov = export_overrides_by_name.get(name)
+            if ov is None and period_days_required is not None:
+                ov = period_days_required
+            if ov is None:
+                ov = employee_overrides.get(name)
+                if ov is None and company_default:
+                    ov = company_default
+                if ov is None and ramya_default:
+                    ov = ramya_default
+            return ov
 
-        # Calculer stats pour tous les employés (avec override jours obligatoires)
+        # Stats CONTINU (en jours) — un par employé continu
         all_stats = []
-        for emp in emps_presence:
-            # v163 : priorité — export par personne/groupe > export global (days_required)
-            #        > override stocké > défaut entreprise/RAMYA > calcul auto.
-            override = export_overrides_by_name.get(emp['name'])
-            if override is None and period_days_required is not None:
-                override = period_days_required
-            if override is None:
-                override = employee_overrides.get(emp['name'])
-                if override is None and company_default:
-                    override = company_default
-                if override is None and ramya_default:
-                    override = ramya_default
+        for emp in emps:
+            override = _resolve_required(emp['name'])
             enriched, stats = rapport_core.calc_employee_stats(emp, hp=8, hp_weekend=0,
                                                               hourly_cost=0, rest_days=[5, 6],
                                                               days_required_override=override,
                                                               period_total_days=period_total_days)
             all_stats.append((enriched, stats))
+
+        # v163 : Stats SESSION (en SÉANCES, pas en jours) — corrige « présence > obligatoire »
+        # Séances obligatoires = override saisi sinon nb de séances planifiées du mois.
+        sess_stats = []
+        for _se in emps_sessions:
+            planifiees = _se.get('total_sessions', 0) or 0
+            effectuees = (_se.get('sessions_ok', 0) or 0) + (_se.get('sessions_retard', 0) or 0)
+            _ov = _resolve_required(_se['name'])
+            obligatoires = _ov if (_ov is not None and _ov > 0) else planifiees
+            non_eff = max(0, obligatoires - effectuees)
+            taux = round(effectuees * 100.0 / obligatoires, 0) if obligatoires else 0
+            if taux >= 90: obs = "Assidu"
+            elif taux >= 70: obs = "Moyennement assidu"
+            else: obs = "Non assidu"
+            sess_stats.append({
+                'name': _se['name'], 'obligatoires': obligatoires, 'effectuees': effectuees,
+                'taux': taux, 'retard': _se.get('sessions_retard', 0) or 0,
+                'ok': _se.get('sessions_ok', 0) or 0, 'non_effectuees': non_eff, 'observation': obs,
+            })
         
         S = rapport_core.make_styles()
         
@@ -27745,35 +27752,32 @@ def admin_pointage_rapport_entreprise(month):
                                            client_name, client_info, period, now)
             story.append(PageBreak())
         
-        # Section 2 : Rapport de présence — 2 tableaux séparés (continu / session)
+        # Section 2 : Rapport de présence — 2 tableaux séparés (continu en JOURS / session en SÉANCES)
         try:
-            _n_cont = len(emps)
-            _stats_cont = all_stats[:_n_cont]
-            _emps_sess = emps_presence[_n_cont:]
-            _stats_sess = all_stats[_n_cont:]
-            # Tableau 1 : employés en pointage CONTINU
+            # Tableau 1 : employés en pointage CONTINU (jours)
             if emps:
-                rapport_core.gen_rapport_presence(story, emps, _stats_cont, S,
+                rapport_core.gen_rapport_presence(story, emps, all_stats, S,
                                                   provider_name, provider_info,
                                                   client_name, client_info, now,
-                                                  subtitle="Employés en pointage continu")
+                                                  subtitle="Employés en pointage continu (en jours)")
                 story.append(PageBreak())
-            # Tableau 2 : employés en pointage par SESSION
-            if _emps_sess:
-                rapport_core.gen_rapport_presence(story, _emps_sess, _stats_sess, S,
+            # Tableau 2 : employés en pointage par SESSION (en séances)
+            if sess_stats:
+                rapport_core.gen_rapport_presence_session(story, sess_stats, S,
                                                   provider_name, provider_info,
                                                   client_name, client_info, now,
-                                                  subtitle="Employés en pointage par session")
+                                                  subtitle="Employés en pointage par session (en séances)")
                 story.append(PageBreak())
         except Exception as e:
             print(f"gen_rapport_presence: {e}")
 
-        # Section 3 : Classement par degré de retard / absence (TOUS les employés)
+        # Section 3 : Classement par degré de retard / absence (employés continu)
         try:
-            rapport_core.gen_classement(story, emps_presence, all_stats, S,
-                                        provider_name, provider_info,
-                                        client_name, client_info, now)
-            story.append(PageBreak())
+            if emps:
+                rapport_core.gen_classement(story, emps, all_stats, S,
+                                            provider_name, provider_info,
+                                            client_name, client_info, now)
+                story.append(PageBreak())
         except Exception as e:
             print(f"gen_classement: {e}")
         
