@@ -129,9 +129,18 @@
     <input type="text" name="twilio_whatsapp_from" value="{{ cfg.twilio_whatsapp_from }}" placeholder="whatsapp:+14155238886"
         style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px">
     <p style="font-size:11px;color:#666;margin-top:8px">
-        💡 Format : <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">whatsapp:+225XXXXXXXX</code>. 
+        💡 Format : <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">whatsapp:+225XXXXXXXX</code>.
         Pour les tests, utilisez le numéro Sandbox Twilio (whatsapp:+14155238886).
     </p>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;background:#f4faf8;padding:10px;border-radius:8px">
+        <input type="text" id="testWa" placeholder="0700000000 ou +225..."
+            style="padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;flex:1">
+        <button type="button" class="btn btn-sm" style="background:#25d366;color:#fff"
+            onclick="var w=document.getElementById('testWa').value; if(w){ var f=document.createElement('form'); f.method='post'; f.action='/admin/notifications-config/test-whatsapp'; var i=document.createElement('input'); i.type='hidden'; i.name='to'; i.value=w; f.appendChild(i); document.body.appendChild(f); f.submit(); }">
+            💬 Test WhatsApp
+        </button>
+    </div>
+    <p style="font-size:11px;color:#b8561f;margin-top:6px">⚠️ En <strong>Sandbox</strong> Twilio, le téléphone test doit d'abord envoyer le code <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">join &lt;mot&gt;</code> au numéro Sandbox.</p>
 </div></div>
 
 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">

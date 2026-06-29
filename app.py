@@ -3439,6 +3439,25 @@ def _send_push_fcm(user_id, title, body, link=None):
         return False, str(e)
 
 
+def _normalize_phone_e164(phone, default_cc=None):
+    """v163 : met un numéro au format international E.164 (+indicatif…).
+    default_cc lu dans la config (whatsapp_default_cc) ou 225 (Côte d'Ivoire)."""
+    import re as _re
+    if not phone:
+        return ''
+    cc = (default_cc or get_notif_config('whatsapp_default_cc', '225') or '225').lstrip('+')
+    p = _re.sub(r'[^\d+]', '', str(phone))
+    if not p:
+        return ''
+    if p.startswith('+'):
+        return p
+    if p.startswith('00'):
+        return '+' + p[2:]
+    if p.startswith(cc):
+        return '+' + p
+    return '+' + cc + p
+
+
 def _send_whatsapp_twilio(to_phone, body):
     """v129 : Envoi WhatsApp via Twilio API. Préparation — nécessite compte Twilio.
     Configuration : twilio_sid, twilio_token, twilio_whatsapp_from (ex: 'whatsapp:+14155238886')."""
@@ -3450,7 +3469,8 @@ def _send_whatsapp_twilio(to_phone, body):
     try:
         import urllib.request, urllib.parse, base64
         if not to_phone.startswith('whatsapp:'):
-            to_phone = f'whatsapp:{to_phone}'
+            # v163 : normaliser au format international avant l'envoi
+            to_phone = f'whatsapp:{_normalize_phone_e164(to_phone)}'
         data = urllib.parse.urlencode({'From': from_num, 'To': to_phone, 'Body': body}).encode('utf-8')
         auth = base64.b64encode(f'{sid}:{token}'.encode()).decode()
         req = urllib.request.Request(
@@ -16691,6 +16711,23 @@ def admin_test_email():
         flash(f"✅ Email test envoyé à {to}", "success")
     else:
         flash(f"❌ Échec envoi : {err}", "error")
+    return redirect('/admin/notifications-config')
+
+
+@app.route('/admin/notifications-config/test-whatsapp', methods=['POST'])
+@permission_required('admin')
+def admin_test_whatsapp():
+    """v163 : Test rapide d'envoi WhatsApp via Twilio."""
+    to = (request.form.get('to', '') or '').strip()
+    if not to:
+        flash("⚠️ Numéro destinataire requis", "error")
+        return redirect('/admin/notifications-config')
+    norm = _normalize_phone_e164(to)
+    ok, err = _send_whatsapp_twilio(to, "✅ Test WhatsApp WannyGest. Si vous recevez ce message, la configuration Twilio fonctionne.")
+    if ok:
+        flash(f"✅ Message WhatsApp test envoyé à {norm}. Vérifiez le téléphone.", "success")
+    else:
+        flash(f"❌ Échec ({norm}) : {err}. (Sandbox : le destinataire doit d'abord envoyer le code « join … » au numéro Twilio.)", "error")
     return redirect('/admin/notifications-config')
 
 
