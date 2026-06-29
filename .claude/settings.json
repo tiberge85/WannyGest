@@ -57,7 +57,14 @@
       "Bash(git commit -q -m 'v163x/y : design coloré limité au module Recrutement + coût facture auto depuis le contrat *)",
       "Bash(git commit -q -m 'v163z : facturation à décider — champ montant masqué si client sous contrat \\(saisi uniquement sans contrat\\) ; bouton correcteur replacé au-dessus du bouton chat *)",
       "Bash(git commit -q -m 'config : domaine par défaut des liens de notification -> https://wg.ramyaci.tech \\(au lieu de rapport-pointage\\) *)",
-      "Bash(git commit -q -m 'fix : TVA par défaut suit le réglage admin + onglet Clients sous contrat in-page \\(recouvreur\\) + montant masqué si sous contrat *)"
+      "Bash(git commit -q -m 'fix : TVA par défaut suit le réglage admin + onglet Clients sous contrat in-page \\(recouvreur\\) + montant masqué si sous contrat *)",
+      "Bash(awk -F'[:]' '$1>16500 && $1<16640')",
+      "Bash(git commit -q -m 'fix : ne pas écraser le token Twilio \\(WhatsApp\\) avec '\\\\''***'\\\\'' lors de l'\\\\''enregistrement de la config notifications *)",
+      "Bash(awk 'NR>=28010 && NR<=28200 && \\(/presence|absence|retard|classement|stats|graph|by_day|pointage_company_records|pointage_sessions|jours_travailles|taux/\\)' app.py)",
+      "Bash(awk 'NR>=27907 && NR<=28260 && /render_template/' app.py)",
+      "Bash(awk -F: '$1>27907 && $1<28260')",
+      "Bash(awk 'NR>=27097 && NR<=27560 && \\(/absence|présence|presence|classement|CLASSEMENT|jours_trav|jours_pres|taux|nb_jours|days_required|RAPPORT/\\)' app.py)",
+      "Bash(git commit -q -m 'v163aa : devis/factures rattachés aux clients + rapport pointage entreprise inclut les employés en mode SESSION *)"
     ]
   }
 }

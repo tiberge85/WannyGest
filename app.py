@@ -2619,6 +2619,23 @@ try:
 except Exception as _e: print(f"[v162d-Perms] Err : {_e}", flush=True)
 
 
+# v163z : rattacher rétroactivement devis/factures à leur client (par nom) quand client_id manque.
+try:
+    from models import get_db as _v163bf
+    _bf = _v163bf()
+    for _tbl in ('devis', 'invoices'):
+        try:
+            _bf.execute(f"""UPDATE {_tbl} SET client_id=(
+                SELECT c.id FROM clients c WHERE LOWER(TRIM(c.name))=LOWER(TRIM({_tbl}.client_name)) LIMIT 1)
+                WHERE COALESCE(client_id,0)=0 AND COALESCE(client_name,'')<>''
+                  AND EXISTS (SELECT 1 FROM clients c WHERE LOWER(TRIM(c.name))=LOWER(TRIM({_tbl}.client_name)))""")
+        except Exception as _e2:
+            print(f"[v163bf] {_tbl}: {_e2}", flush=True)
+    _bf.commit(); _bf.close()
+    print("[v163bf] Rattachement devis/factures aux clients OK", flush=True)
+except Exception as _e: print(f"[v163bf] Err : {_e}", flush=True)
+
+
 # v162e : FUSION des rôles comptable / comptabilite (identiques). On aligne les deux sur l'UNION
 # de leurs permissions actuelles (une seule fois). Ensuite la matrice (colonne « comptable »)
 # pilote les deux et les garde synchronisés.
@@ -6405,11 +6422,16 @@ def client_profile(cid):
     # Notes
     try: data['notes'] = [dict(r) for r in conn.execute("SELECT n.*, u.full_name as author FROM client_notes n LEFT JOIN users u ON n.created_by=u.id WHERE n.client_id=? ORDER BY n.created_at DESC", (cid,)).fetchall()]
     except: data['notes'] = []
-    # Devis
-    try: data['devis'] = [dict(r) for r in conn.execute("SELECT * FROM devis WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
+    # Devis (par client_id OU par nom si client_id manquant — rattachement tolérant)
+    _cname = client.get('name') or ''
+    try: data['devis'] = [dict(r) for r in conn.execute(
+        "SELECT * FROM devis WHERE client_id=? OR (COALESCE(client_id,0)=0 AND LOWER(TRIM(client_name))=LOWER(TRIM(?))) ORDER BY created_at DESC",
+        (cid, _cname)).fetchall()]
     except: data['devis'] = []
-    # Factures
-    try: data['factures'] = [dict(r) for r in conn.execute("SELECT * FROM invoices WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
+    # Factures (idem)
+    try: data['factures'] = [dict(r) for r in conn.execute(
+        "SELECT * FROM invoices WHERE client_id=? OR (COALESCE(client_id,0)=0 AND LOWER(TRIM(client_name))=LOWER(TRIM(?))) ORDER BY created_at DESC",
+        (cid, _cname)).fetchall()]
     except: data['factures'] = []
     # Contrats
     try: data['contrats'] = [dict(r) for r in conn.execute("SELECT * FROM achats_contrats WHERE fournisseur_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
@@ -27595,9 +27617,25 @@ def admin_pointage_rapport_entreprise(month):
         except:
             period_total_days = 30
         
+        # v163 : inclure aussi les employés en mode SESSION dans la présence/classement/graphique
+        # (auparavant seuls les employés « continu » y figuraient → une seule personne + 100% absence)
+        emps_presence = list(emps)
+        for _se in emps_sessions:
+            _recs = []
+            for _s in _se.get('sessions', []):
+                _recs.append({
+                    'date': _s.get('date'),
+                    'sched_start': _s.get('heure_prevue') or '08:00',
+                    'sched_end': _s.get('heure_fin') or '17:00',
+                    'arrival': _s.get('heure_debut') or '',     # vide = séance non effectuée (absence)
+                    'departure': _s.get('heure_fin') or '',
+                    'duration': '', 'pause_start': '', 'pause_end': '',
+                })
+            emps_presence.append({'name': _se['name'], 'ref': _se['ref'], 'records': _recs})
+
         # Calculer stats pour tous les employés (avec override jours obligatoires)
         all_stats = []
-        for emp in emps:
+        for emp in emps_presence:
             # Priorité MAXIMUM v45 : si saisi pour la période → s'applique à tous
             if period_days_required is not None:
                 override = period_days_required
@@ -27636,7 +27674,7 @@ def admin_pointage_rapport_entreprise(month):
         
         # Section 1 : Rapports individuels (un par employé en mode CONTINU)
         if emps:
-            rapport_core.gen_individual_pages(story, emps, all_stats, S,
+            rapport_core.gen_individual_pages(story, emps, all_stats[:len(emps)], S,
                                               provider_name, provider_info,
                                               client_name, client_info, period, now)
             story.append(PageBreak())
@@ -27648,18 +27686,18 @@ def admin_pointage_rapport_entreprise(month):
                                            client_name, client_info, period, now)
             story.append(PageBreak())
         
-        # Section 2 : Rapport de présence global
+        # Section 2 : Rapport de présence global (TOUS les employés : continu + session)
         try:
-            rapport_core.gen_rapport_presence(story, emps, all_stats, S,
+            rapport_core.gen_rapport_presence(story, emps_presence, all_stats, S,
                                               provider_name, provider_info,
                                               client_name, client_info, now)
             story.append(PageBreak())
         except Exception as e:
             print(f"gen_rapport_presence: {e}")
-        
-        # Section 3 : Classement par degré de retard / absence
+
+        # Section 3 : Classement par degré de retard / absence (TOUS les employés)
         try:
-            rapport_core.gen_classement(story, emps, all_stats, S,
+            rapport_core.gen_classement(story, emps_presence, all_stats, S,
                                         provider_name, provider_info,
                                         client_name, client_info, now)
             story.append(PageBreak())
