@@ -16619,8 +16619,8 @@ def admin_notifications_config():
                     'fcm_server_key', 'twilio_sid', 'twilio_token', 'twilio_whatsapp_from',
                     'app_url'):
             val = (request.form.get(key, '') or '').strip()
-            # Ne pas écraser le mot de passe SMTP s'il est vide (UI affiche '***')
-            if key == 'smtp_password' and val in ('', '***'):
+            # Ne pas écraser les secrets s'ils sont vides ou masqués (UI affiche '***')
+            if key in ('smtp_password', 'twilio_token') and val in ('', '***'):
                 continue
             set_notif_config(key, val)
         flash("✅ Configuration enregistrée", "success")
