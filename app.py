@@ -15707,14 +15707,19 @@ def interventions_list():
     client_filter = request.args.get('client', '').strip()
     sort = request.args.get('sort', 'date_desc').strip()  # date_desc / date_asc / created_desc
     
+    # v166 : statuts réels = ('planifiee','en_cours','travaux_termines','controle_qualite','livre','annulee').
+    # « Déjà exécutées » = travaux terminés / livrés (+ anciens libellés pour compat).
+    DONE_STATUSES = ('travaux_termines', 'livre', 'termine', 'cloturee', 'close')
+    _done_sql = "(" + ",".join("'%s'" % s for s in DONE_STATUSES) + ")"
+
     # Construction WHERE
     where_clauses = []
     params = []
-    
+
     if tab == 'en_cours':
-        where_clauses.append("status NOT IN ('cloturee','annulee','close','termine')")
+        where_clauses.append(f"status NOT IN {_done_sql} AND status <> 'annulee'")
     elif tab == 'executees':
-        where_clauses.append("status IN ('termine','cloturee','close')")
+        where_clauses.append(f"status IN {_done_sql}")
     elif tab == 'annulees':
         where_clauses.append("status='annulee'")
     # tab='toutes' → pas de filtre statut
@@ -15750,10 +15755,10 @@ def interventions_list():
         f"SELECT * FROM interventions WHERE {where_sql} ORDER BY {order_by} LIMIT 200",
         params).fetchall()]
     
-    # Compteurs par onglet (pour les badges)
+    # Compteurs par onglet (pour les badges) — mêmes règles que les filtres ci-dessus
     counts = {
-        'en_cours': conn.execute("SELECT COUNT(*) FROM interventions WHERE status NOT IN ('cloturee','annulee','close','termine')").fetchone()[0],
-        'executees': conn.execute("SELECT COUNT(*) FROM interventions WHERE status IN ('termine','cloturee','close')").fetchone()[0],
+        'en_cours': conn.execute(f"SELECT COUNT(*) FROM interventions WHERE status NOT IN {_done_sql} AND status <> 'annulee'").fetchone()[0],
+        'executees': conn.execute(f"SELECT COUNT(*) FROM interventions WHERE status IN {_done_sql}").fetchone()[0],
         'annulees': conn.execute("SELECT COUNT(*) FROM interventions WHERE status='annulee'").fetchone()[0],
         'toutes': conn.execute("SELECT COUNT(*) FROM interventions").fetchone()[0],
     }
