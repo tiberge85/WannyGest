@@ -3212,6 +3212,23 @@ def migrate_v49():
             )
         """)
     except: pass
+    # v166 : demandes de transfert d'une tâche vers un autre technicien, validées par le gestionnaire de projet
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS intervention_transfers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                intervention_id INTEGER NOT NULL,
+                from_tech_id INTEGER, from_tech_name TEXT,
+                to_tech_id INTEGER NOT NULL, to_tech_name TEXT,
+                reason TEXT,
+                status TEXT DEFAULT 'en_attente',   -- en_attente / approuve / refuse
+                requested_by INTEGER, requested_by_name TEXT, requested_by_role TEXT,
+                decided_by INTEGER, decided_by_name TEXT, decision_note TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                decided_at TEXT
+            )
+        """)
+    except: pass
     # Permissions
     new_perms = {
         'admin':        ['controle_qualite', 'livraison_intervention'],

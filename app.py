@@ -12878,8 +12878,24 @@ def intervention_fiche(iid):
     equips = []
     if inter.get('client_id'):
         equips = [dict(r) for r in conn.execute("SELECT * FROM tech_center WHERE client_id=?", (inter['client_id'],)).fetchall()]
+    # v166 : affectation / transfert
+    _user = get_user_by_id(session['user_id'])
+    user_role = _user['role'] if _user else ''
+    can_affect = user_role in _ROLES_AFFECT
+    can_validate_transfert = user_role in _ROLES_VALID_TRANSFERT
+    is_assigned_tech = bool(inter.get('technician_id')) and _user and int(inter['technician_id']) == int(_user['id'])
+    can_request_transfert = is_assigned_tech or user_role in ('responsable_technique', 'admin', 'dg')
+    technicians_assign = _assignable_technicians(conn)
+    pending_transfer = conn.execute(
+        "SELECT * FROM intervention_transfers WHERE intervention_id=? AND status='en_attente' ORDER BY id DESC LIMIT 1",
+        (iid,)).fetchone()
+    pending_transfer = dict(pending_transfer) if pending_transfer else None
     conn.close()
-    return render_template('extra_pages.html', page='fiche_intervention', inter=inter, equips=equips, now_str=datetime.now().strftime('%d/%m/%Y %H:%M'))
+    return render_template('extra_pages.html', page='fiche_intervention', inter=inter, equips=equips,
+                           now_str=datetime.now().strftime('%d/%m/%Y %H:%M'),
+                           technicians_assign=technicians_assign, pending_transfer=pending_transfer,
+                           can_affect=can_affect, can_validate_transfert=can_validate_transfert,
+                           can_request_transfert=can_request_transfert)
 
 
 
@@ -15998,6 +16014,211 @@ def intervention_status(iid, status):
     try: _sync_remontee_status_from_intervention(iid)
     except: pass
     return redirect(request.referrer or '/interventions')
+
+
+# ======================== v166 : AFFECTATION & TRANSFERT DE TÂCHES ========================
+# Rôles : gestionnaire de projet = valide les transferts ; responsable technique = affecte.
+_ROLES_AFFECT = ('admin', 'dg', 'responsable_technique', 'gestionnaire_projet', 'resp_projet')
+_ROLES_VALID_TRANSFERT = ('admin', 'dg', 'gestionnaire_projet', 'resp_projet')
+
+def _assignable_technicians(conn):
+    return [dict(r) for r in conn.execute(
+        "SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 AND "
+        "role IN ('technicien','tech_chef','chef_chantier','centre_technique','informatique','responsable_technique') "
+        "ORDER BY full_name").fetchall()]
+
+
+@app.route('/interventions/a-affecter')
+@login_required
+def interventions_a_affecter():
+    """File des tâches sans technicien (le responsable technique / gestionnaire les affecte)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in _ROLES_AFFECT:
+        flash("Accès réservé au responsable technique / gestionnaire de projet.", "error")
+        return redirect('/interventions')
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM interventions WHERE (technician_id IS NULL OR technician_id=0) "
+        "AND status NOT IN ('annulee','travaux_termines','livre','termine','cloturee','close') "
+        "ORDER BY scheduled_date ASC, id DESC LIMIT 200").fetchall()]
+    technicians = _assignable_technicians(conn)
+    conn.close()
+    return render_template('extra_pages.html', page='interventions_a_affecter',
+                           interventions=rows, technicians=technicians)
+
+
+@app.route('/interventions/<int:iid>/assign', methods=['POST'])
+@login_required
+def intervention_assign(iid):
+    """Affecte (ou réaffecte directement) un technicien — responsable technique / gestionnaire / admin."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in _ROLES_AFFECT:
+        flash("Vous n'avez pas le droit d'affecter un technicien.", "error")
+        return redirect(request.referrer or '/interventions')
+    tech_id = int(request.form.get('technician_id', 0) or 0)
+    if not tech_id:
+        flash("Sélectionnez un technicien.", "error")
+        return redirect(request.referrer or f'/interventions/{iid}/fiche')
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    tu = conn.execute("SELECT full_name FROM users WHERE id=?", (tech_id,)).fetchone()
+    if not inter or not tu:
+        conn.close(); flash("Intervention ou technicien introuvable.", "error")
+        return redirect('/interventions')
+    inter = dict(inter)
+    tech_name = tu['full_name']
+    conn.execute("UPDATE interventions SET technician_id=?, technician_name=? WHERE id=?",
+                 (tech_id, tech_name, iid))
+    conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+        (tech_id, 'intervention', f"🔧 Tâche affectée — {inter.get('client_name','')}",
+         f"Vous avez été affecté à : {inter.get('title','')} (prévu {inter.get('scheduled_date','')})",
+         '/interventions/tech'))
+    try:
+        _timeline_add(conn, iid, 'affectation', "Technicien affecté",
+                      f"{tech_name} affecté par {user['full_name']}",
+                      actor_id=user['id'], actor_name=user['full_name'], actor_role=user['role'])
+    except: pass
+    conn.commit(); conn.close()
+    flash(f"✅ Tâche affectée à {tech_name}.", "success")
+    return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
+
+@app.route('/interventions/<int:iid>/transfer/request', methods=['POST'])
+@login_required
+def intervention_transfer_request(iid):
+    """Demande de transfert vers un autre technicien — par le technicien assigné OU le responsable technique.
+    La demande reste EN ATTENTE jusqu'à validation du gestionnaire de projet."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter:
+        conn.close(); flash("Intervention introuvable.", "error"); return redirect('/interventions')
+    inter = dict(inter)
+    # Qui peut demander : technicien assigné, responsable technique, admin/dg
+    is_assigned = user and inter.get('technician_id') and int(inter['technician_id']) == int(user['id'])
+    can_request = user and (is_assigned or user['role'] in ('responsable_technique', 'admin', 'dg'))
+    if not can_request:
+        conn.close()
+        flash("Seul le technicien assigné ou le responsable technique peut demander un transfert.", "error")
+        return redirect(request.referrer or f'/interventions/{iid}/fiche')
+    to_tech_id = int(request.form.get('to_technician_id', 0) or 0)
+    reason = (request.form.get('reason', '') or '').strip()
+    if not to_tech_id or to_tech_id == (inter.get('technician_id') or 0):
+        conn.close(); flash("Choisissez un technicien différent de l'actuel.", "error")
+        return redirect(request.referrer or f'/interventions/{iid}/fiche')
+    # éviter les doublons en attente
+    dup = conn.execute("SELECT id FROM intervention_transfers WHERE intervention_id=? AND status='en_attente'", (iid,)).fetchone()
+    if dup:
+        conn.close(); flash("Une demande de transfert est déjà en attente pour cette tâche.", "error")
+        return redirect(request.referrer or f'/interventions/{iid}/fiche')
+    to_tu = conn.execute("SELECT full_name FROM users WHERE id=?", (to_tech_id,)).fetchone()
+    to_name = to_tu['full_name'] if to_tu else ''
+    conn.execute("""INSERT INTO intervention_transfers
+        (intervention_id, from_tech_id, from_tech_name, to_tech_id, to_tech_name, reason,
+         status, requested_by, requested_by_name, requested_by_role)
+        VALUES (?,?,?,?,?,?, 'en_attente', ?,?,?)""",
+        (iid, inter.get('technician_id'), inter.get('technician_name', ''), to_tech_id, to_name, reason,
+         user['id'], user['full_name'], user['role']))
+    # Notifier les gestionnaires de projet
+    for v in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND role IN ('gestionnaire_projet','resp_projet','admin','dg')").fetchall():
+        conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+            (v['id'], 'transfert', "🔁 Transfert de tâche à valider",
+             f"{user['full_name']} demande de transférer « {inter.get('title','')} » vers {to_name}.",
+             '/interventions/transferts'))
+    try:
+        _timeline_add(conn, iid, 'transfert_demande', "Demande de transfert",
+                      f"Vers {to_name} — motif : {reason or '(non précisé)'} (demandé par {user['full_name']})",
+                      actor_id=user['id'], actor_name=user['full_name'], actor_role=user['role'])
+    except: pass
+    conn.commit(); conn.close()
+    flash("📨 Demande de transfert envoyée au gestionnaire de projet pour validation.", "success")
+    return redirect(request.referrer or f'/interventions/{iid}/fiche')
+
+
+@app.route('/interventions/transferts')
+@login_required
+def interventions_transferts():
+    """Liste des demandes de transfert à valider — gestionnaire de projet."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in _ROLES_VALID_TRANSFERT:
+        flash("Accès réservé au gestionnaire de projet.", "error")
+        return redirect('/interventions')
+    conn = _gdb()
+    pending = [dict(r) for r in conn.execute("""
+        SELECT t.*, i.title AS inter_title, i.reference AS inter_ref, i.client_name AS inter_client,
+               i.scheduled_date AS inter_date
+        FROM intervention_transfers t JOIN interventions i ON i.id=t.intervention_id
+        WHERE t.status='en_attente' ORDER BY t.created_at ASC""").fetchall()]
+    history = [dict(r) for r in conn.execute("""
+        SELECT t.*, i.title AS inter_title, i.reference AS inter_ref
+        FROM intervention_transfers t JOIN interventions i ON i.id=t.intervention_id
+        WHERE t.status<>'en_attente' ORDER BY t.decided_at DESC LIMIT 30""").fetchall()]
+    conn.close()
+    return render_template('extra_pages.html', page='interventions_transferts',
+                           pending=pending, history=history)
+
+
+@app.route('/interventions/transfert/<int:tid>/decide', methods=['POST'])
+@login_required
+def intervention_transfer_decide(tid):
+    """Validation/refus d'un transfert par le gestionnaire de projet."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in _ROLES_VALID_TRANSFERT:
+        flash("Seul le gestionnaire de projet peut valider un transfert.", "error")
+        return redirect(request.referrer or '/interventions/transferts')
+    decision = (request.form.get('decision', '') or '').strip()  # approuver / refuser
+    note = (request.form.get('note', '') or '').strip()
+    conn = _gdb()
+    tr = conn.execute("SELECT * FROM intervention_transfers WHERE id=?", (tid,)).fetchone()
+    if not tr or tr['status'] != 'en_attente':
+        conn.close(); flash("Demande introuvable ou déjà traitée.", "error")
+        return redirect('/interventions/transferts')
+    tr = dict(tr)
+    iid = tr['intervention_id']
+    _ir = conn.execute("SELECT title FROM interventions WHERE id=?", (iid,)).fetchone()
+    inter_title = (_ir['title'] if _ir else '') or 'tâche'
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if decision == 'approuver':
+        conn.execute("UPDATE interventions SET technician_id=?, technician_name=? WHERE id=?",
+                     (tr['to_tech_id'], tr['to_tech_name'], iid))
+        conn.execute("""UPDATE intervention_transfers SET status='approuve', decided_by=?, decided_by_name=?,
+                        decision_note=?, decided_at=? WHERE id=?""",
+                     (user['id'], user['full_name'], note, now, tid))
+        # Notifier nouveau technicien + demandeur
+        conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+            (tr['to_tech_id'], 'intervention', "🔧 Tâche transférée vers vous",
+             f"La tâche « {inter_title} » vous a été affectée (transfert validé).", '/interventions/tech'))
+        if tr.get('requested_by'):
+            conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+                (tr['requested_by'], 'transfert', "✅ Transfert approuvé",
+                 f"Le transfert vers {tr['to_tech_name']} a été approuvé.", f'/interventions/{iid}/fiche'))
+        try:
+            _timeline_add(conn, iid, 'transfert_approuve', "Transfert approuvé",
+                          f"Vers {tr['to_tech_name']} — validé par {user['full_name']}"
+                          + (f" — note : {note}" if note else ""),
+                          actor_id=user['id'], actor_name=user['full_name'], actor_role=user['role'])
+        except: pass
+        flash(f"✅ Transfert approuvé — tâche affectée à {tr['to_tech_name']}.", "success")
+    elif decision == 'refuser':
+        conn.execute("""UPDATE intervention_transfers SET status='refuse', decided_by=?, decided_by_name=?,
+                        decision_note=?, decided_at=? WHERE id=?""",
+                     (user['id'], user['full_name'], note, now, tid))
+        if tr.get('requested_by'):
+            conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+                (tr['requested_by'], 'transfert', "❌ Transfert refusé",
+                 f"Le transfert vers {tr['to_tech_name']} a été refusé." + (f" Motif : {note}" if note else ""),
+                 f'/interventions/{iid}/fiche'))
+        try:
+            _timeline_add(conn, iid, 'transfert_refuse', "Transfert refusé",
+                          f"Vers {tr['to_tech_name']} — refusé par {user['full_name']}"
+                          + (f" — note : {note}" if note else ""),
+                          actor_id=user['id'], actor_name=user['full_name'], actor_role=user['role'])
+        except: pass
+        flash("Transfert refusé.", "success")
+    else:
+        conn.close(); flash("Décision invalide.", "error"); return redirect('/interventions/transferts')
+    conn.commit(); conn.close()
+    return redirect(request.referrer or '/interventions/transferts')
 
 @app.route('/interventions/<int:iid>/rapport', methods=['POST'])
 @login_required

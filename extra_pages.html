@@ -950,6 +950,90 @@ function toggleDetail() {
     </div>
 </div></div></div>
 
+{% elif page == 'interventions_a_affecter' %}
+<div class="page-header"><h1>📋 Tâches à affecter</h1>
+<a href="/interventions" class="btn btn-outline btn-sm">← Interventions</a></div>
+<div class="card"><div class="card-body" style="padding:0">
+{% if interventions %}
+<div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="background:#f5f5f5;text-align:left">
+  <th style="padding:10px">Réf.</th><th style="padding:10px">Titre</th><th style="padding:10px">Client</th>
+  <th style="padding:10px">Date prévue</th><th style="padding:10px">Affecter à</th></tr></thead>
+<tbody>
+{% for i in interventions %}
+<tr style="border-top:1px solid #eee">
+  <td style="padding:10px"><a href="/interventions/{{ i.id }}/fiche">{{ i.reference }}</a></td>
+  <td style="padding:10px">{{ i.title }}</td>
+  <td style="padding:10px">{{ i.client_name }}</td>
+  <td style="padding:10px">{{ i.scheduled_date or '—' }}</td>
+  <td style="padding:10px">
+    <form method="post" action="/interventions/{{ i.id }}/assign" style="display:flex;gap:6px;align-items:center">
+      <select name="technician_id" required style="padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+        <option value="">— Technicien —</option>
+        {% for t in technicians %}<option value="{{ t.id }}">{{ t.full_name }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm" style="background:#1A8F7E;color:#fff">✅ Affecter</button>
+    </form>
+  </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div style="padding:30px;text-align:center;color:#888">✅ Aucune tâche en attente d'affectation.</div>
+{% endif %}
+</div></div>
+
+{% elif page == 'interventions_transferts' %}
+<div class="page-header"><h1>🔁 Transferts à valider</h1>
+<a href="/interventions" class="btn btn-outline btn-sm">← Interventions</a></div>
+<div class="card"><div class="card-header"><h3>En attente ({{ pending|length }})</h3></div><div class="card-body" style="padding:0">
+{% if pending %}
+<div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="background:#f5f5f5;text-align:left">
+  <th style="padding:10px">Tâche</th><th style="padding:10px">De → Vers</th><th style="padding:10px">Demandé par</th>
+  <th style="padding:10px">Motif</th><th style="padding:10px">Décision</th></tr></thead>
+<tbody>
+{% for t in pending %}
+<tr style="border-top:1px solid #eee">
+  <td style="padding:10px"><a href="/interventions/{{ t.intervention_id }}/fiche">{{ t.inter_ref }}</a><br><span style="font-size:11px;color:#666">{{ t.inter_title }}</span></td>
+  <td style="padding:10px">{{ t.from_tech_name or '—' }} → <strong>{{ t.to_tech_name }}</strong></td>
+  <td style="padding:10px">{{ t.requested_by_name }}</td>
+  <td style="padding:10px">{{ t.reason or '—' }}</td>
+  <td style="padding:10px">
+    <form method="post" action="/interventions/transfert/{{ t.id }}/decide" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+      <input type="text" name="note" placeholder="Note" style="width:110px;padding:5px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+      <button type="submit" name="decision" value="approuver" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅</button>
+      <button type="submit" name="decision" value="refuser" class="btn btn-sm" style="background:#c62828;color:#fff">❌</button>
+    </form>
+  </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div style="padding:30px;text-align:center;color:#888">Aucune demande de transfert en attente.</div>
+{% endif %}
+</div></div>
+
+{% if history %}
+<div class="card"><div class="card-header"><h3>Historique récent</h3></div><div class="card-body" style="padding:0">
+<div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+<thead><tr style="background:#f5f5f5;text-align:left">
+  <th style="padding:8px">Tâche</th><th style="padding:8px">Vers</th><th style="padding:8px">Statut</th>
+  <th style="padding:8px">Décidé par</th><th style="padding:8px">Note</th></tr></thead>
+<tbody>
+{% for t in history %}
+<tr style="border-top:1px solid #eee">
+  <td style="padding:8px">{{ t.inter_ref }}</td>
+  <td style="padding:8px">{{ t.to_tech_name }}</td>
+  <td style="padding:8px">{% if t.status == 'approuve' %}<span style="color:#2e7d32;font-weight:700">✅ Approuvé</span>{% else %}<span style="color:#c62828;font-weight:700">❌ Refusé</span>{% endif %}</td>
+  <td style="padding:8px">{{ t.decided_by_name or '—' }}</td>
+  <td style="padding:8px">{{ t.decision_note or '—' }}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+</div></div>
+{% endif %}
+
 {% elif page == 'fiche_intervention' %}
 <style>
 @media print {
@@ -975,6 +1059,72 @@ function toggleDetail() {
 <button class="btn btn-sm no-print" style="background:#25d366;color:#fff" onclick="document.getElementById('sendWaModal').style.display='flex'">💬 Envoyer (WhatsApp)</button>
 {% endif %}
 </div></div>
+
+<!-- v166 : Affectation & Transfert de technicien -->
+{% if inter.status not in ('annulee','livre','termine','travaux_termines','cloturee','close') %}
+<div class="card no-print" style="margin-bottom:16px;border-left:4px solid #1A8F7E">
+  <div class="card-body" style="padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <strong style="color:#1A7A6D">👷 Technicien :</strong>
+      {% if inter.technician_id %}<span style="font-weight:700">{{ inter.technician_name or '—' }}</span>
+      {% else %}<span style="background:#fff3cd;color:#b8561f;padding:3px 9px;border-radius:5px;font-size:12px;font-weight:700">⏳ À affecter</span>{% endif %}
+    </div>
+
+    {% if pending_transfer %}
+    <div style="background:#eaf3ff;border:1px solid #3a86ff;border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="font-size:13px"><strong>🔁 Transfert en attente</strong> → <strong>{{ pending_transfer.to_tech_name }}</strong></div>
+      <div style="font-size:11px;color:#555;margin-top:2px">Demandé par {{ pending_transfer.requested_by_name }}{% if pending_transfer.reason %} — motif : {{ pending_transfer.reason }}{% endif %}</div>
+      {% if can_validate_transfert %}
+      <form method="post" action="/interventions/transfert/{{ pending_transfer.id }}/decide" style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="text" name="note" placeholder="Note (optionnel)" style="flex:1;min-width:140px;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+        <button type="submit" name="decision" value="approuver" class="btn btn-sm" style="background:#2e7d32;color:#fff">✅ Approuver</button>
+        <button type="submit" name="decision" value="refuser" class="btn btn-sm" style="background:#c62828;color:#fff">❌ Refuser</button>
+      </form>
+      {% else %}
+      <div style="font-size:11px;color:#888;margin-top:4px">En attente de validation par le gestionnaire de projet.</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      {% if can_affect and not inter.technician_id %}
+      <form method="post" action="/interventions/{{ inter.id }}/assign" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select name="technician_id" required style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+          <option value="">— Choisir un technicien —</option>
+          {% for t in technicians_assign %}<option value="{{ t.id }}">{{ t.full_name }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm" style="background:#1A8F7E;color:#fff">✅ Affecter</button>
+      </form>
+      {% endif %}
+
+      {% if can_request_transfert and inter.technician_id and not pending_transfer %}
+      <button type="button" class="btn btn-sm" style="background:#3a86ff;color:#fff" onclick="document.getElementById('transferModal').style.display='flex'">🔁 Transférer à un autre technicien</button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if can_request_transfert and inter.technician_id %}
+<div id="transferModal" class="no-print" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+<div style="background:#fff;border-radius:10px;padding:20px;max-width:480px;width:92%">
+  <h3 style="margin:0 0 6px;color:#1d4ed8">🔁 Demander un transfert</h3>
+  <p style="font-size:12px;color:#666;margin:0 0 12px">La demande sera transmise au <strong>gestionnaire de projet</strong> pour validation avant prise d'effet.</p>
+  <form method="post" action="/interventions/{{ inter.id }}/transfer/request">
+    <label style="font-size:11px;color:#888;display:block">Nouveau technicien</label>
+    <select name="to_technician_id" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:10px">
+      <option value="">— Choisir —</option>
+      {% for t in technicians_assign %}{% if t.id != inter.technician_id %}<option value="{{ t.id }}">{{ t.full_name }}</option>{% endif %}{% endfor %}
+    </select>
+    <label style="font-size:11px;color:#888;display:block">Motif</label>
+    <textarea name="reason" rows="2" placeholder="Ex : indisponible, en congé, surcharge…" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;margin-bottom:12px"></textarea>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('transferModal').style.display='none'">Annuler</button>
+      <button type="submit" class="btn btn-sm" style="background:#3a86ff;color:#fff">📨 Envoyer la demande</button>
+    </div>
+  </form>
+</div></div>
+{% endif %}
+{% endif %}
 
 <!-- Modal Email -->
 <div id="sendMailModal" class="no-print" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
@@ -7058,7 +7208,15 @@ function showTab(id){
 </style>
 
 <div class="page-header"><h1>🔧 Interventions</h1>
-<button class="btn btn-primary btn-sm" onclick="document.getElementById('addIntM').classList.add('active')">+ Intervention</button></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+{% if current_user and current_user.role in ('admin','dg','responsable_technique','gestionnaire_projet','resp_projet') %}
+<a href="/interventions/a-affecter" class="btn btn-sm" style="background:#1A8F7E;color:#fff">📋 À affecter</a>
+{% endif %}
+{% if current_user and current_user.role in ('admin','dg','gestionnaire_projet','resp_projet') %}
+<a href="/interventions/transferts" class="btn btn-sm" style="background:#3a86ff;color:#fff">🔁 Transferts</a>
+{% endif %}
+<button class="btn btn-primary btn-sm" onclick="document.getElementById('addIntM').classList.add('active')">+ Intervention</button>
+</div></div>
 
 <!-- v147 : ONGLETS -->
 <div class="int-tabs">
