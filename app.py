@@ -45,6 +45,26 @@ from models import (init_db, create_user, authenticate_user, get_user_by_id,
                     update_devis_status, get_devis_stats)
 from rapport_core import generate_devis_pdf
 
+# === MONITORING D'ERREURS (Sentry) ===
+# No-op tant que la variable d'env SENTRY_DSN n'est pas définie (aucun risque en local).
+# Une fois le DSN renseigné sur Render, chaque erreur 500 est capturée avec sa trace exacte.
+_SENTRY_DSN = os.environ.get('SENTRY_DSN', '').strip()
+if _SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.flask import FlaskIntegration
+        sentry_sdk.init(
+            dsn=_SENTRY_DSN,
+            integrations=[FlaskIntegration()],
+            environment=os.environ.get('SENTRY_ENV', 'production'),
+            traces_sample_rate=0.0,      # pas de profiling perf (gratuit/léger)
+            send_default_pii=False,      # ne pas envoyer d'infos personnelles
+            release=os.environ.get('RENDER_GIT_COMMIT', '')[:12] or None,
+        )
+        print("[Sentry] monitoring d'erreurs activé")
+    except Exception as _se:
+        print(f"[Sentry] init échouée (ignorée): {_se}")
+
 app = Flask(__name__, template_folder=BASE_DIR, static_folder=BASE_DIR, static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 8  # 8 heures
@@ -3397,6 +3417,130 @@ def _send_email_smtp(to_email, subject, body, html=None):
         return False, str(e)
 
 
+def _send_email_with_attachment(to_email, subject, body, filepath, attach_name=None):
+    """Envoie un email avec une pièce jointe (utilisé pour la sauvegarde hors-serveur).
+    Retourne (success: bool, error: str|None)."""
+    smtp_host = get_notif_config('smtp_host')
+    if not smtp_host:
+        return False, 'SMTP non configuré'
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.application import MIMEApplication
+        port = int(get_notif_config('smtp_port', '587') or '587')
+        user = get_notif_config('smtp_user', '')
+        pwd = get_notif_config('smtp_password', '')
+        from_addr = get_notif_config('smtp_from', user or 'noreply@ramyaci.tech')
+        use_tls = get_notif_config('smtp_tls', '1') == '1'
+
+        msg = MIMEMultipart()
+        msg['Subject'] = subject
+        msg['From'] = from_addr
+        msg['To'] = to_email
+        msg.attach(MIMEText(body or '', 'plain', 'utf-8'))
+        with open(filepath, 'rb') as f:
+            part = MIMEApplication(f.read(), Name=(attach_name or os.path.basename(filepath)))
+        part['Content-Disposition'] = f'attachment; filename="{attach_name or os.path.basename(filepath)}"'
+        msg.attach(part)
+
+        with smtplib.SMTP(smtp_host, port, timeout=30) as s:
+            if use_tls:
+                s.starttls()
+            if user and pwd:
+                s.login(user, pwd)
+            s.send_message(msg)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+# Throttle en mémoire : ne consulter la base qu'une fois par heure et par worker
+_last_backup_check_ts = [0.0]
+
+def _run_daily_backup_if_due():
+    """Sauvegarde quotidienne automatique, déclenchée par le trafic (survit au spin-down Render).
+    - Au plus 1 fois/jour (verrou atomique en base, OK même avec plusieurs workers gunicorn).
+    - Copie locale (30 dernières) + envoi par e-mail HORS-SERVEUR (indispensable si disque éphémère).
+    Best-effort : ne lève jamais d'exception vers la requête.
+    """
+    try:
+        now_ts = time.time()
+        # throttle process-local : éviter une requête SQL à chaque hit
+        if now_ts - _last_backup_check_ts[0] < 3600:
+            return
+        _last_backup_check_ts[0] = now_ts
+
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        conn = _gdb()
+        try:
+            conn.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('last_auto_backup_date','')")
+            cur = conn.execute(
+                "UPDATE app_settings SET value=? WHERE key='last_auto_backup_date' AND value<>?",
+                (today, today))
+            conn.commit()
+            claimed = cur.rowcount and cur.rowcount > 0
+        finally:
+            conn.close()
+        if not claimed:
+            return  # un autre worker / un jour déjà fait
+
+        # 1) Copie locale
+        from models import DB_PATH
+        import shutil, gzip
+        backup_dir = os.path.join(PERSISTENT_DIR, 'backups')
+        os.makedirs(backup_dir, exist_ok=True)
+        stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        dst = os.path.join(backup_dir, f"ramya-{stamp}.db")
+        shutil.copy2(DB_PATH, dst)
+        # purge : garder 30
+        allb = sorted([f for f in os.listdir(backup_dir) if f.startswith('ramya-') and f.endswith('.db')])
+        for old in allb[:-30]:
+            try: os.remove(os.path.join(backup_dir, old))
+            except: pass
+
+        # 2) Compresser pour l'e-mail
+        gz_path = dst + '.gz'
+        try:
+            with open(dst, 'rb') as fin, gzip.open(gz_path, 'wb') as fout:
+                shutil.copyfileobj(fin, fout)
+        except Exception:
+            gz_path = None
+
+        # 3) Envoi e-mail hors-serveur (best-effort)
+        recipients = (get_notif_config('backup_email', '') or get_notif_config('smtp_user', '') or '').strip()
+        emailed = False
+        err = None
+        if recipients and gz_path:
+            size_mb = os.path.getsize(gz_path) / (1024 * 1024)
+            if size_mb <= 24:  # limite pièce jointe SMTP usuelle
+                ok, err = _send_email_with_attachment(
+                    recipients,
+                    f"[WannyGest] Sauvegarde du {today}",
+                    f"Sauvegarde automatique de la base ({stamp}).\nTaille compressée : {size_mb:.1f} Mo.\n\nConservez ce fichier en lieu sûr.",
+                    gz_path, attach_name=f"ramya-{stamp}.db.gz")
+                emailed = bool(ok)
+            else:
+                err = f"fichier trop volumineux pour e-mail ({size_mb:.1f} Mo)"
+        elif not recipients:
+            err = 'aucun destinataire (configurer backup_email ou SMTP)'
+        # le .gz est temporaire : toujours le supprimer
+        if gz_path and os.path.exists(gz_path):
+            try: os.remove(gz_path)
+            except: pass
+
+        try:
+            from models import log_security_event
+            log_security_event('backup_daily', details=f"local={os.path.basename(dst)} emailed={emailed} err={err}",
+                               severity='info')
+        except: pass
+    except Exception as e:
+        try:
+            print(f"[backup_daily] erreur (ignorée): {e}")
+        except: pass
+
+
 def _send_push_fcm(user_id, title, body, link=None):
     """v129 : Envoi d'une notification push via Firebase Cloud Messaging.
     Récupère les tokens actifs de l'utilisateur depuis notif_fcm_tokens.
@@ -5064,6 +5208,11 @@ def check_reminder_notifications():
     except Exception as e:
         try: conn.close()
         except: pass
+
+@app.before_request
+def _daily_backup_hook():
+    """Déclenche au plus 1 sauvegarde/jour (best-effort, ne bloque jamais la requête)."""
+    _run_daily_backup_if_due()
 
 @app.before_request
 def check_session_timeout():
