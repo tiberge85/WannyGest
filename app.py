@@ -5209,6 +5209,33 @@ def check_reminder_notifications():
         try: conn.close()
         except: pass
 
+import re as _re_csrf_mod
+# Routes GET « mutatives » à protéger (suppression / bascule / remise à zéro / restauration…)
+_CSRF_GET_PATTERN = _re_csrf_mod.compile(
+    r'/(delete|supprimer|remove|toggle|reset|reset-zero|archive|restore|hard-delete|annuler|cancel)(/|$|-)',
+    _re_csrf_mod.IGNORECASE)
+
+@app.before_request
+def _block_cross_site_get_mutations():
+    """Défense CSRF : refuse une action MUTATIVE en GET initiée depuis un AUTRE site.
+    S'appuie sur l'en-tête navigateur Sec-Fetch-Site (same-origin/same-site/none = OK,
+    cross-site = bloqué). Aucun template à modifier ; complète SameSite=Lax (qui couvre déjà les POST).
+    Fail-open si l'en-tête est absent (vieux navigateurs, outils) pour ne rien casser."""
+    if request.method != 'GET':
+        return
+    path = request.path or ''
+    if not _CSRF_GET_PATTERN.search(path):
+        return
+    site = (request.headers.get('Sec-Fetch-Site', '') or '').lower()
+    if site in ('cross-site', 'cross-origin'):
+        try:
+            from models import log_security_event
+            log_security_event('csrf_get_blocked', ip=request.remote_addr,
+                               path=path, severity='warning')
+        except Exception:
+            pass
+        abort(403)
+
 @app.before_request
 def _daily_backup_hook():
     """Déclenche au plus 1 sauvegarde/jour (best-effort, ne bloque jamais la requête)."""
