@@ -832,7 +832,19 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
             <div>
                 <div style="font-size:15px;font-weight:700;color:#1a3a5c">{{ i.title }}</div>
-                <div style="font-size:12px;color:#888">{{ i.reference or '' }} · {% if i.type=='depannage' %}🚨{% elif i.type=='installation' %}📦{% else %}🔧{% endif %} {{ i.type }} · {{ i.scheduled_time or '' }}</div>
+                <div style="font-size:12px;color:#888">{{ i.reference or '' }} · {{ i.scheduled_time or '' }}</div>
+                {# v168 : (re)catégoriser la tâche — déplace entre Entretien / Dépannage / Projet neuf #}
+                {% set _t = (i.type or '')|lower|trim %}
+                <div style="margin-top:5px;display:flex;align-items:center;gap:5px">
+                    <span style="font-size:10px;color:#888">Catégorie :</span>
+                    <form method="post" action="/interventions/{{ i.id }}/set-type" style="display:inline">
+                        <select name="type" onchange="this.form.submit()" style="font-size:11px;padding:3px 6px;border:1.5px solid #1A7A6D;border-radius:6px;font-weight:600">
+                            <option value="entretien" {% if _t in ('entretien','maintenance') %}selected{% endif %}>🔧 Entretien</option>
+                            <option value="depannage" {% if _t in ('depannage','depanage','panne','dépannage') %}selected{% endif %}>🚨 Dépannage</option>
+                            <option value="projet_neuf" {% if _t not in ('entretien','maintenance','depannage','depanage','panne','dépannage') %}selected{% endif %}>🏗️ Projet neuf</option>
+                        </select>
+                    </form>
+                </div>
             </div>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
                 <a href="/interventions/{{ i.id }}/fiche" class="btn btn-outline btn-sm" style="font-size:9px" target="_blank">📄 Fiche</a>
@@ -7304,7 +7316,7 @@ function showTab(id){
 <form method="post" action="/interventions/add"><input type="hidden" name="redirect" value="/interventions">
 <div class="form-group"><label>Titre *</label><input type="text" name="title" required placeholder="Installation caméras, Maintenance préventive..."></div>
 <div class="form-row">
-    <div class="form-group"><label>Type</label><select name="type"><option value="maintenance">🔧 Maintenance</option><option value="depannage">🚨 Dépannage</option><option value="installation">📦 Installation</option><option value="audit">📋 Audit</option></select></div>
+    <div class="form-group"><label>Catégorie</label><select name="type"><option value="entretien">🔧 Entretien</option><option value="depannage">🚨 Dépannage</option><option value="projet_neuf">🏗️ Projet neuf</option></select></div>
     <div class="form-group"><label>Priorité</label><select name="priority"><option value="normale">Normale</option><option value="haute">Haute</option><option value="urgente">Urgente</option></select></div>
 </div>
 <div class="form-row">

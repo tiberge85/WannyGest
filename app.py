@@ -16117,6 +16117,28 @@ def intervention_status(iid, status):
 _ROLES_AFFECT = ('admin', 'dg', 'responsable_technique', 'gestionnaire_projet', 'resp_projet')
 _ROLES_VALID_TRANSFERT = ('admin', 'dg', 'gestionnaire_projet', 'resp_projet')
 
+
+@app.route('/interventions/<int:iid>/set-type', methods=['POST'])
+@login_required
+def intervention_set_type(iid):
+    """v168 : (re)catégoriser une tâche lors de la planification du programme du jour :
+    entretien / depannage / projet_neuf. Change le type de l'intervention (déplace la tâche
+    entre les 3 tableaux de la fiche journalière)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'dg', 'gestionnaire_projet', 'resp_projet', 'responsable_technique', 'coordinateur'):
+        flash("Vous n'avez pas le droit de recatégoriser cette tâche.", "error")
+        return redirect(request.referrer or '/interventions/programme')
+    new_type = (request.form.get('type', '') or '').strip().lower()
+    if new_type not in ('entretien', 'depannage', 'projet_neuf'):
+        flash("Catégorie invalide.", "error")
+        return redirect(request.referrer or '/interventions/programme')
+    conn = _gdb()
+    conn.execute("UPDATE interventions SET type=? WHERE id=?", (new_type, iid))
+    conn.commit(); conn.close()
+    _labels = {'entretien': '🔧 Entretien', 'depannage': '🚨 Dépannage', 'projet_neuf': '🏗️ Projet neuf'}
+    flash(f"✅ Tâche classée dans « {_labels[new_type]} ».", "success")
+    return redirect(request.referrer or '/interventions/programme')
+
 def _assignable_technicians(conn):
     return [dict(r) for r in conn.execute(
         "SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 AND "
