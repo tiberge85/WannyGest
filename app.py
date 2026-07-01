@@ -12632,7 +12632,7 @@ def admin_client_requests():
     conn = _gdb()
     requests_list = [dict(r) for r in conn.execute(
         "SELECT cr.*, c.name as client_name FROM client_requests cr LEFT JOIN clients c ON cr.client_id=c.id ORDER BY cr.created_at DESC").fetchall()]
-    technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin') AND is_active=1").fetchall()]
+    technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin','responsable_technique') AND is_active=1").fetchall()]
     conn.close()
     return render_template('extra_pages.html', page='client_requests', requests_list=requests_list, technicians=technicians)
 
@@ -15796,7 +15796,7 @@ def interventions_list():
     
     projects = [dict(r) for r in conn.execute("SELECT id, name FROM projects ORDER BY name").fetchall()]
     clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
-    technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin','tech_chef','chef_chantier','centre_technique','informatique') ORDER BY full_name").fetchall()]
+    technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin','tech_chef','chef_chantier','centre_technique','informatique','responsable_technique') ORDER BY full_name").fetchall()]
     
     try:
         conn.execute("UPDATE users SET last_interventions_seen=? WHERE id=?",
@@ -21307,8 +21307,8 @@ def field_report_detail(rid):
     technicians = []
     try:
         technicians = [dict(r) for r in conn.execute(
-            """SELECT id, full_name, role FROM users 
-            WHERE role IN ('technicien','tech_chef','centre_technique','informatique') 
+            """SELECT id, full_name, role FROM users
+            WHERE role IN ('technicien','tech_chef','chef_chantier','centre_technique','informatique','responsable_technique')
             AND COALESCE(is_active,1)=1 ORDER BY full_name""").fetchall()]
     except: pass
     
@@ -25159,7 +25159,7 @@ def project_detail(pid):
     conn = _gdb()
     available_techs = [dict(r) for r in conn.execute(
         "SELECT id, full_name, username, role FROM users "
-        "WHERE role IN ('technicien','tech_chef','chef_chantier') "
+        "WHERE role IN ('technicien','tech_chef','chef_chantier','responsable_technique') "
         "AND COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
     # v103 : utiliser mg_stock_articles (catalogue RAMYA 196 articles) au lieu de mg_equipements vide
     mg_equips_raw = conn.execute(
