@@ -323,6 +323,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <button class="btn btn-sm" style="background:#e3f2fd;color:#1565c0" onclick="focusInstall({{ inst.id }})" title="Localiser sur la carte">🗺️</button>
             <button class="btn btn-sm" style="background:#fff3e0;color:#b8561f" onclick="openGps({{ inst.id }}, '{{ inst.site_name|replace("'","") }}', {{ inst.latitude or 'null' }}, {{ inst.longitude or 'null' }}, '{{ (inst.zone or '')|replace("'","") }}')" title="Renseigner / corriger la position GPS">📍</button>
             <button class="btn btn-outline btn-sm" onclick="openInt({{ inst.id }}, '{{ inst.site_name|replace("'","") }}')" title="Ajouter intervention">🛠️</button>
+            <button class="btn btn-sm" style="background:#e8f5e9;color:#2e7d32" onclick='openEdit({{ inst|tojson }})' title="Modifier l'installation">✏️</button>
             <a href="/installations/{{ inst.id }}/delete" class="btn btn-sm" style="color:#c53030" onclick="return confirm('Supprimer cette installation et toutes ses interventions ?')">🗑️</a>
         </td>
     </tr>
@@ -343,10 +344,15 @@ document.addEventListener('DOMContentLoaded', function() {
 <form method="post" action="/installations/add">
     <div class="form-row">
         <div class="form-group"><label>Nom du site *</label><input type="text" name="site_name" required placeholder="Ex: Pharmacie Cocody Plateau"></div>
-        <div class="form-group"><label>Client</label>
-            <select name="client_id"><option value="">-- Aucun --</option>
+        <div class="form-group"><label>Client existant</label>
+            <select name="client_id"><option value="">-- Aucun / nouveau --</option>
             {% for cl in clients %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}
             </select></div>
+    </div>
+    <div class="form-group"><label>… ou saisir le nom du client</label>
+        <input type="text" name="client_name" list="clientsDL" placeholder="Ex: Pharmacie du Plateau (si absent de la liste)">
+        <datalist id="clientsDL">{% for cl in clients %}<option value="{{ cl.name }}"></option>{% endfor %}</datalist>
+        <span style="font-size:10px;color:#888">Si un client est choisi dans la liste, son nom est utilisé ; sinon on prend le nom saisi ici.</span>
     </div>
     <div class="form-row">
         <div class="form-group"><label>Zone</label><input type="text" name="zone" placeholder="Ex: Cocody, Plateau, Yopougon..."></div>
@@ -372,6 +378,40 @@ document.addEventListener('DOMContentLoaded', function() {
     <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('addM').classList.remove('active')">Annuler</button>
         <button type="submit" class="btn btn-primary">✅ Enregistrer</button>
+    </div>
+</form>
+</div></div>
+
+<!-- Modal édition installation (v168) -->
+<div class="modal-bg" id="editM"><div class="modal" style="max-width:600px"><h3>✏️ Modifier l'installation</h3>
+<form method="post" id="editForm">
+    <div class="form-row">
+        <div class="form-group"><label>Nom du site *</label><input type="text" name="site_name" id="e_site" required></div>
+        <div class="form-group"><label>Client existant</label>
+            <select name="client_id" id="e_client_id"><option value="">-- Aucun / nouveau --</option>
+            {% for cl in clients %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}
+            </select></div>
+    </div>
+    <div class="form-group"><label>… ou saisir le nom du client</label>
+        <input type="text" name="client_name" id="e_client_name" list="clientsDL" placeholder="Nom du client">
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Zone</label><input type="text" name="zone" id="e_zone"></div>
+        <div class="form-group"><label>Date d'installation</label><input type="date" name="install_date" id="e_date"></div>
+    </div>
+    <div class="form-group"><label>Adresse</label><input type="text" name="address" id="e_address"></div>
+    <div class="form-row">
+        <div class="form-group"><label>Latitude</label><input type="number" step="0.000001" name="latitude" id="e_lat"></div>
+        <div class="form-group"><label>Longitude</label><input type="number" step="0.000001" name="longitude" id="e_lng"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Nombre d'équipements</label><input type="number" name="equipment_count" id="e_eqc" min="0"></div>
+        <div class="form-group"><label>Type équipement</label><input type="text" name="equipment_type" id="e_eqt"></div>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea name="notes" id="e_notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editM').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Enregistrer les modifications</button>
     </div>
 </form>
 </div></div>
@@ -435,6 +475,22 @@ function useMyPosition() {
     }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
 }
 
+function openEdit(inst) {
+    document.getElementById('editForm').action = '/installations/' + inst.id + '/edit';
+    function _v(id, val){ var el=document.getElementById(id); if(el) el.value = (val===null||val===undefined)?'':val; }
+    _v('e_site', inst.site_name);
+    _v('e_client_id', inst.client_id);
+    _v('e_client_name', inst.client_name);
+    _v('e_zone', inst.zone);
+    _v('e_date', inst.install_date);
+    _v('e_address', inst.address);
+    _v('e_lat', inst.latitude);
+    _v('e_lng', inst.longitude);
+    _v('e_eqc', inst.equipment_count);
+    _v('e_eqt', inst.equipment_type);
+    _v('e_notes', inst.notes);
+    document.getElementById('editM').classList.add('active');
+}
 function openGps(id, name, lat, lng, zone) {
     document.getElementById('gpsForm').action = '/installations/' + id + '/edit-gps';
     document.getElementById('gpsSite').textContent = name;

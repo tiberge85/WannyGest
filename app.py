@@ -24794,11 +24794,12 @@ def installations_add():
         return redirect('/installations')
     conn = _gdb()
     client_id = request.form.get('client_id') or None
-    client_name = ''
+    # v168 : nom du client saisi librement (si aucun client existant sélectionné)
+    client_name = (request.form.get('client_name', '') or '').strip()
     if client_id:
         row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
-        if row: client_name = row['name']
-    
+        if row: client_name = row['name']  # un client sélectionné prime sur la saisie libre
+
     def _f(v, default=0.0):
         try: return float(v)
         except: return default
@@ -24851,6 +24852,43 @@ def installations_edit_gps(iid):
         conn.execute("UPDATE installations SET latitude=?, longitude=? WHERE id=?", (lat, lng, iid))
     conn.commit(); conn.close()
     flash("📍 Position du site mise à jour", "success")
+    return redirect('/installations')
+
+
+@app.route('/installations/<int:iid>/edit', methods=['POST'])
+@permission_required_any('clients', 'centre_technique', 'admin')
+def installations_edit(iid):
+    """v168 : édition complète d'une installation déjà enregistrée
+    (nom du site, client, zone, adresse, GPS, équipements, notes)."""
+    name = (request.form.get('site_name', '') or '').strip()
+    if not name:
+        flash("Nom du site requis", "error")
+        return redirect('/installations')
+    def _f(v):
+        try: return float(str(v).replace(',', '.'))
+        except: return None
+    conn = _gdb()
+    client_id = request.form.get('client_id') or None
+    client_name = (request.form.get('client_name', '') or '').strip()
+    if client_id:
+        row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
+        if row: client_name = row['name']
+    conn.execute("""UPDATE installations SET
+        client_id=?, client_name=?, site_name=?, zone=?, address=?,
+        latitude=?, longitude=?, install_date=?, equipment_count=?, equipment_type=?, notes=?
+        WHERE id=?""",
+        (client_id, client_name, name,
+         (request.form.get('zone', '') or '').strip(),
+         (request.form.get('address', '') or '').strip(),
+         _f(request.form.get('latitude')) if request.form.get('latitude') else None,
+         _f(request.form.get('longitude')) if request.form.get('longitude') else None,
+         (request.form.get('install_date', '') or '').strip() or None,
+         int(request.form.get('equipment_count', 0) or 0),
+         (request.form.get('equipment_type', '') or '').strip(),
+         (request.form.get('notes', '') or '').strip(),
+         iid))
+    conn.commit(); conn.close()
+    flash(f"Installation « {name} » mise à jour", "success")
     return redirect('/installations')
 
 
