@@ -22964,7 +22964,11 @@ def field_report_transform(rid):
     notes = request.form.get('decision_notes', '').strip()
     technician_id = request.form.get('technician_id', '').strip()
     scheduled_date = request.form.get('scheduled_date', '').strip()
-    
+    # v168 : catégorie de la tâche créée (entretien / depannage / projet_neuf)
+    inter_type = (request.form.get('intervention_type', '') or '').strip().lower()
+    if inter_type not in ('entretien', 'depannage', 'projet_neuf'):
+        inter_type = 'depannage'  # défaut : une remontée terrain est le plus souvent un dépannage
+
     if decision not in ('projet', 'intervention', 'opportunite', 'classer'):
         flash("Décision invalide", "error")
         return redirect(f'/field-reports/{rid}')
@@ -23010,7 +23014,7 @@ def field_report_transform(rid):
                  technician_id, technician_name, scheduled_date, status, priority,
                  description, created_by, created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,'planifiee',?,?,?,datetime('now'))""",
-                (int_ref, int_title, 'curative',
+                (int_ref, int_title, inter_type,
                  report.get('client_id'), report['client_name'], report.get('site_address') or report.get('site_name'),
                  technician_id, tech_row['full_name'],
                  scheduled_date or datetime.now().strftime('%Y-%m-%d'),

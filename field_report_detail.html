@@ -305,6 +305,16 @@
                                 <input type="date" name="scheduled_date" id="schedDate" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">
                             </div>
                         </div>
+                        {# v168 : catégorie de la tâche (classe la remontée en Entretien / Dépannage / Projet neuf) #}
+                        <div class="form-group">
+                            <label style="font-weight:600">Catégorie de la tâche</label>
+                            <select name="intervention_type" style="width:100%;padding:8px;border:1.5px solid #e8672a;border-radius:7px;font-weight:600">
+                                <option value="depannage">🚨 Dépannage</option>
+                                <option value="entretien">🔧 Entretien</option>
+                                <option value="projet_neuf">🏗️ Projet neuf</option>
+                            </select>
+                            <span style="font-size:10px;color:#7a4a00">Projet neuf → passe par le contrôle qualité ; entretien/dépannage → clôture directe.</span>
+                        </div>
                         <p style="font-size:11px;color:#7a4a00;margin:6px 0 0">
                             ℹ️ Le technicien sera notifié immédiatement (notif interne + push/email/WhatsApp selon ses préférences).
                             La remontée passera en statut <strong>« En cours d'exécution »</strong> jusqu'à la fin de l'intervention.
