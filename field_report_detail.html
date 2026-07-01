@@ -101,7 +101,28 @@
             </div>
         </div>
         {% endif %}
-        
+
+        {# v166 : Mettre « À faire » → file du responsable technique (qui affecte à un technicien) #}
+        {% if is_open and report.statut != 'a_affecter' and ('field_report_transform' in permissions or 'field_report_close' in permissions or 'admin' in permissions) %}
+        <div class="card" style="margin-bottom:14px;border:2px solid #e8672a">
+            <div class="card-header" style="background:#e8672a;color:#fff"><h3 style="margin:0;color:#fff;font-size:14px">📋 Mettre « À faire » (à affecter au technicien)</h3></div>
+            <div class="card-body">
+                <p style="font-size:12px;color:#666;margin-bottom:10px">
+                    Envoie la remontée dans la file du <strong>responsable technique</strong>, qui l'affectera à un technicien.
+                    Vous pouvez aussi l'affecter vous-même directement via « Transformer → Intervention » ci-dessous.
+                </p>
+                <form method="post" action="/field-reports/{{ report.id }}/mark-afaire">
+                    <div class="form-group">
+                        <label>Instruction / note pour le responsable technique (optionnel)</label>
+                        <textarea name="note" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"
+                            placeholder="Ex: Prioritaire, intervenir avant vendredi, prévoir 2 techniciens..."></textarea>
+                    </div>
+                    <button type="submit" class="btn" style="background:#e8672a;color:#fff;font-weight:700;padding:10px 20px">📋 Mettre à faire → Responsable technique</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
         {# v142 : Technicien marque la remontée comme exécutée → DG/RH notifié pour décision facturation #}
         {% if report.statut in ('en_execution','transformee_intervention') and ('field_report_execute' in permissions or 'admin' in permissions) and not report.executed_at %}
         <div class="card" style="margin-bottom:14px;border:2px solid #5e35b1">

@@ -835,6 +835,8 @@ try:
         'directeur':        ['field_report_view_all', 'field_report_analyze'],
         'gestionnaire_projet': ['field_report_create', 'field_report_view_all', 'field_report_analyze', 'field_report_transform', 'field_report_close'],
         # v102 : 'coordinateur' et 'resp_projet' sont fusionnés dans 'gestionnaire_projet' — ne plus ajouter ici
+        # v166 : le responsable technique voit et AFFECTE (transforme en intervention) les remontées mises « à faire »
+        'responsable_technique': ['field_report_create', 'field_report_view_all', 'field_report_transform'],
         'commercial':       ['field_report_create', 'field_report_view_all'],
         'technicien':       ['field_report_create', 'field_report_view_mine'],
         'tech_chef':        ['field_report_create', 'field_report_view_all'],
@@ -866,6 +868,19 @@ try:
     _v99b_conn.close()
 except Exception as _e:
     print(f"[v99-Field] Erreur : {_e}", flush=True)
+
+# v166 : garantir (rejouable) les permissions Remontées du responsable technique,
+# même si le seeding v99 a déjà eu lieu (flag posé) — sinon il ne verrait/affecterait pas.
+try:
+    from models import get_db as _v166_db
+    _v166c = _v166_db()
+    for _p in ('field_report_create', 'field_report_view_all', 'field_report_transform'):
+        try: _v166c.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('responsable_technique', ?)", (_p,))
+        except: pass
+    _v166c.commit(); _v166c.close()
+    print("[v166] Permissions Remontées responsable_technique OK", flush=True)
+except Exception as _e:
+    print(f"[v166] err perms responsable_technique : {_e}", flush=True)
 
 
 # ==================== v100 : Fusion rôles vers gestionnaire_projet + Validation Compta MG ====================
@@ -20742,6 +20757,7 @@ FIELD_REPORT_DEPARTEMENTS = {
 
 FIELD_REPORT_STATUTS = {
     'recue': ('📥 Reçue', '#1976d2'),
+    'a_affecter': ('📋 À faire — à affecter', '#e8672a'),  # v166 : mise « à faire » par le gestionnaire
     'en_analyse': ('🔍 En analyse', '#7b1fa2'),
     'en_execution': ('⏳ En cours d\'exécution', '#f29f2f'),  # v131 : technicien assigné, en attente fin
     'executee': ('🛠️ Exécutée (en attente facturation)', '#5e35b1'),  # v142 : technicien a terminé
@@ -20904,6 +20920,7 @@ def field_reports_list():
     in_execution_statuts = ('en_execution', 'transformee_intervention')  # technicien assigné
     treated_statuts = ('traitee', 'transformee_projet', 'transformee_opportunite', 'classee')
     a_traiter = [r for r in filtered if r.get('statut') in to_treat_statuts]
+    a_affecter = [r for r in filtered if r.get('statut') == 'a_affecter']  # v166 : file du responsable technique
     en_execution = [r for r in filtered if r.get('statut') in in_execution_statuts]
     # v159 : Le technicien a terminé (statut 'executee') → en attente de décision facturation.
     #        Une fois la décision prise (facturable renseigné), la remontée rejoint "Déjà exécutées".
@@ -20912,7 +20929,7 @@ def field_reports_list():
                       or (r.get('statut') == 'executee' and r.get('facturable') is not None)]
 
     # Enrichir affichage
-    for lst in (a_traiter, en_execution, facturation_a_decider, deja_executees):
+    for lst in (a_traiter, a_affecter, en_execution, facturation_a_decider, deja_executees):
         for r in lst:
             sl = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))
             pl = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))
@@ -20965,7 +20982,7 @@ def field_reports_list():
     conn.close()
     
     return render_template('field_reports_dashboard.html', page='field_reports',
-        a_traiter=a_traiter, en_execution=en_execution,
+        a_traiter=a_traiter, a_affecter=a_affecter, en_execution=en_execution,
         facturation_a_decider=facturation_a_decider, deja_executees=deja_executees,
         stats=stats, stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
         top_auteurs=top_auteurs,
@@ -21355,6 +21372,37 @@ def field_report_mark_traitee(rid):
         try: _field_report_notify(rid, 'traitee')
         except: pass
         flash("✅ Remontée marquée comme Traitée. Elle apparaît dans « Déjà exécutées ».", "success")
+    except Exception as e:
+        flash(f"Erreur : {e}", "error")
+    return redirect(f'/field-reports/{rid}')
+
+
+@app.route('/field-reports/<int:rid>/mark-afaire', methods=['POST'])
+@permission_required_any('field_report_transform', 'field_report_close', 'admin')
+def field_report_mark_afaire(rid):
+    """v166 : le gestionnaire met la remontée « À faire » → file du responsable technique,
+    qui l'affecte à un technicien (en la transformant en intervention). Le gestionnaire peut aussi affecter."""
+    note = (request.form.get('note', '') or '').strip()
+    try:
+        conn = _gdb()
+        row = conn.execute("SELECT reference, description, statut FROM field_reports WHERE id=?", (rid,)).fetchone()
+        if not row:
+            conn.close(); flash("Remontée introuvable", "error"); return redirect('/field-reports')
+        titre = (row['reference'] or (row['description'] or '')[:60] or f"Remontée #{rid}")
+        user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+        user_name = user['full_name'] if user else 'Système'
+        conn.execute("""UPDATE field_reports SET statut='a_affecter', updated_at=datetime('now') WHERE id=?""", (rid,))
+        # Notifier les responsables techniques (et gestionnaires/admin)
+        for v in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND role IN ('responsable_technique','gestionnaire_projet','admin','dg')").fetchall():
+            if v['id'] == session.get('user_id'):
+                continue
+            conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+                (v['id'], 'remontees', "📋 Remontée à affecter",
+                 f"{user_name} a mis « {titre} » à faire — à affecter à un technicien." + (f" Note : {note}" if note else ""),
+                 f'/field-reports/{rid}'))
+        conn.commit(); conn.close()
+        _field_report_log(rid, 'Mise à faire (à affecter)', note[:200] or 'À affecter par le responsable technique')
+        flash("📋 Remontée mise « À faire ». Le responsable technique va l'affecter à un technicien.", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect(f'/field-reports/{rid}')
