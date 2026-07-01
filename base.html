@@ -303,6 +303,11 @@
             {% if 'field_report_create' in permissions or 'field_report_view_all' in permissions or 'field_report_view_mine' in permissions or 'admin' in permissions %}
             <a href="/field-reports" class="{% if page == 'field_reports' %}active{% endif %}" style="background:linear-gradient(135deg,#7b1fa2,#4a148c);color:#fff !important;font-weight:600">📢 Remontées d'informations</a>
             {% endif %}
+            {# v166 : section dédiée au responsable technique (accès Interventions + file à affecter) #}
+            {% if user_role == 'responsable_technique' %}
+            <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}" style="position:relative">🔧 Interventions{% if new_interventions_count and new_interventions_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_interventions_count }}</span>{% endif %}</a>
+            <a href="/interventions/a-affecter" class="{% if page == 'interventions_a_affecter' %}active{% endif %}" style="background:linear-gradient(135deg,#1A8F7E,#0f5249);color:#fff !important;font-weight:600">📋 Tâches à affecter</a>
+            {% endif %}
             {# v115 : Roadmap juste après Remontées pour TOUS les profils #}
             {% if 'roadmap_view' in permissions or 'admin' in permissions %}
             <a href="/projects" class="{% if page == 'projects' %}active{% endif %}" style="background:linear-gradient(135deg,#1976d2,#0d47a1);color:#fff !important;font-weight:600;position:relative">🗺️ Roadmap projets{% if my_projects_action_required and my_projects_action_required > 0 %} <span style="background:#fff;color:#1976d2;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:800;margin-left:4px">{{ my_projects_action_required }}</span>{% endif %}</a>
