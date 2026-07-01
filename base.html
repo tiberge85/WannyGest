@@ -307,7 +307,6 @@
             {% if user_role == 'responsable_technique' %}
             <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}" style="position:relative">🔧 Interventions{% if new_interventions_count and new_interventions_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_interventions_count }}</span>{% endif %}</a>
             <a href="/interventions/a-affecter" class="{% if page == 'interventions_a_affecter' %}active{% endif %}" style="background:linear-gradient(135deg,#1A8F7E,#0f5249);color:#fff !important;font-weight:600">📋 Tâches à affecter</a>
-            <a href="/interventions/programme" class="{% if page == 'programme_jour' %}active{% endif %}">📋 Programme du jour</a>
             {% endif %}
             {# v115 : Roadmap juste après Remontées pour TOUS les profils #}
             {% if 'roadmap_view' in permissions or 'admin' in permissions %}
@@ -354,8 +353,9 @@
                     <a href="/kanban" class="{% if page == 'kanban' %}active{% endif %}">📋 Tâches (Kanban)</a>
                     <a href="/resp-projet/planning" class="{% if page == 'resp_planning' %}active{% endif %}">📅 Planning</a>
                     <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}" style="position:relative">🔧 Interventions{% if new_interventions_count and new_interventions_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_interventions_count }}</span>{% endif %}</a>
-                    {# v166 : Programme du jour accessible au gestionnaire de projet (était réservé au Centre Technique) #}
+                    {# v166 : Programme du jour + Cartographie accessibles au gestionnaire de projet (étaient réservés au Centre Technique) #}
                     <a href="/interventions/programme" class="{% if page == 'programme_jour' %}active{% endif %}">📋 Programme du jour</a>
+                    <a href="/installations" class="{% if page == 'installations' %}active{% endif %}">🗺️ Cartographie</a>
                     {% if 'centre_technique' in permissions or 'controle_qualite' in permissions or 'livraison_intervention' in permissions or 'admin' in permissions %}
                     <a href="/centre-technique/mes-interventions" class="{% if page == 'tech_my_interventions' %}active{% endif %}">📜 Historique &amp; filtres</a>
                     {% endif %}
@@ -634,9 +634,10 @@
             {# v116 : ancien bloc dupliqué BUDGET supprimé — un seul bloc BUDGETS unifié #}
             
             {# v116 : Section CENTRE TECHNIQUE — permission 'section_tech' OU 'centre_technique' #}
-            {% if 'section_tech' in permissions or 'centre_technique' in permissions or 'admin' in permissions %}
+            {# v166 : le responsable technique a les mêmes accès que les techniciens #}
+            {% if 'section_tech' in permissions or 'centre_technique' in permissions or 'admin' in permissions or user_role == 'responsable_technique' %}
             <!-- Centre Technique -->
-            <div class="nav-section" id="sec-tech" {% if user_role in ('technicien', 'tech_chef', 'centre_technique') %}data-primary="true"{% endif %}>
+            <div class="nav-section" id="sec-tech" {% if user_role in ('technicien', 'tech_chef', 'centre_technique', 'responsable_technique') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-tech')">🔧 CENTRE TECHNIQUE <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     {# v89 : Lien Roadmap projets accessible au centre technique #}

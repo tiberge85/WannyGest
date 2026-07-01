@@ -882,6 +882,46 @@ try:
 except Exception as _e:
     print(f"[v166] err perms responsable_technique : {_e}", flush=True)
 
+# v167 : garantir (rejouable) que le RESPONSABLE TECHNIQUE dispose de TOUT ce que le
+# technicien a (menu Centre technique + interventions), et que le GESTIONNAIRE DE PROJET
+# voie la CARTOGRAPHIE (section_tech). Le backfill v116 était à usage unique (flag posé)
+# et n'incluait même pas 'responsable_technique' → ces rôles restaient bridés.
+# INSERT OR IGNORE : n'écrase JAMAIS les réglages faits par l'admin, ajoute seulement le manquant.
+try:
+    from models import get_db as _v167_db
+    _v167c = _v167_db()
+    _V167_PERMS = {
+        # Le responsable technique est affectable comme technicien (v166d) : il lui faut
+        # le même accès opérationnel pour démarrer/terminer ses interventions + son commentaire.
+        'responsable_technique': [
+            'section_tech', 'section_calendrier', 'dashboard',
+            'centre_technique', 'centre_technique_edit',
+            'visites', 'visites_edit',
+            'roadmap_view', 'project_progress', 'project_report',
+            'controle_qualite', 'livraison_intervention', 'gps_itineraire',
+            'clients', 'stock_view', 'rapports_j', 'chat',
+        ],
+        # Le gestionnaire de projet doit voir la Cartographie (dans la section Centre technique)
+        # et le suivi des interventions/roadmap, en plus de sa section Projets.
+        'gestionnaire_projet': [
+            'section_tech', 'section_projets', 'section_calendrier',
+            'centre_technique', 'clients',
+            'roadmap_view', 'project_progress', 'project_report',
+        ],
+    }
+    _v167_added = 0
+    for _role, _perms in _V167_PERMS.items():
+        for _p in _perms:
+            try:
+                _cur = _v167c.execute(
+                    "INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (_role, _p))
+                _v167_added += _cur.rowcount or 0
+            except: pass
+    _v167c.commit(); _v167c.close()
+    print(f"[v167] Permissions responsable_technique / gestionnaire_projet OK (+{_v167_added})", flush=True)
+except Exception as _e:
+    print(f"[v167] err perms v167 : {_e}", flush=True)
+
 
 # ==================== v100 : Fusion rôles vers gestionnaire_projet + Validation Compta MG ====================
 try:

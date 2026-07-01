@@ -7365,7 +7365,7 @@ function showTab(id){
         <div style="display:flex;gap:4px">
             <a href="/interventions/{{ i.id }}/fiche" class="btn btn-outline btn-sm" style="font-size:9px" target="_blank">📄 Fiche</a>
             <span style="padding:2px 8px;border-radius:8px;font-size:10px;background:#e3f2fd;color:#1A7A6D">En cours</span>
-        <a href="/interventions/{{ i.id }}/status/travaux_termines" class="btn btn-sm" style="background:#7b1fa2;color:#fff;font-size:9px" onclick="return confirm('Signaler travaux terminés ?')">🏗️ Travaux finis</a>
+        <a href="#" onclick="var c=prompt('Rapport de clôture (obligatoire, min. 5 caractères) :'); if(c!==null){ c=c.trim(); if(c.length<5){ alert('Un commentaire d\'au moins 5 caractères est obligatoire pour terminer.'); } else { window.location='/interventions/{{ i.id }}/status/travaux_termines?commentaire='+encodeURIComponent(c); } } return false;" class="btn btn-sm" style="background:#7b1fa2;color:#fff;font-size:9px">🏗️ Travaux finis</a>
         </div>
     </div>
     
