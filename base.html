@@ -307,6 +307,7 @@
             {% if user_role == 'responsable_technique' %}
             <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}" style="position:relative">🔧 Interventions{% if new_interventions_count and new_interventions_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_interventions_count }}</span>{% endif %}</a>
             <a href="/interventions/a-affecter" class="{% if page == 'interventions_a_affecter' %}active{% endif %}" style="background:linear-gradient(135deg,#1A8F7E,#0f5249);color:#fff !important;font-weight:600">📋 Tâches à affecter</a>
+            <a href="/interventions/programme" class="{% if page == 'programme_jour' %}active{% endif %}">📋 Programme du jour</a>
             {% endif %}
             {# v115 : Roadmap juste après Remontées pour TOUS les profils #}
             {% if 'roadmap_view' in permissions or 'admin' in permissions %}
@@ -353,6 +354,8 @@
                     <a href="/kanban" class="{% if page == 'kanban' %}active{% endif %}">📋 Tâches (Kanban)</a>
                     <a href="/resp-projet/planning" class="{% if page == 'resp_planning' %}active{% endif %}">📅 Planning</a>
                     <a href="/interventions" class="{% if page == 'interventions' %}active{% endif %}" style="position:relative">🔧 Interventions{% if new_interventions_count and new_interventions_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ new_interventions_count }}</span>{% endif %}</a>
+                    {# v166 : Programme du jour accessible au gestionnaire de projet (était réservé au Centre Technique) #}
+                    <a href="/interventions/programme" class="{% if page == 'programme_jour' %}active{% endif %}">📋 Programme du jour</a>
                     {% if 'centre_technique' in permissions or 'controle_qualite' in permissions or 'livraison_intervention' in permissions or 'admin' in permissions %}
                     <a href="/centre-technique/mes-interventions" class="{% if page == 'tech_my_interventions' %}active{% endif %}">📜 Historique &amp; filtres</a>
                     {% endif %}
