@@ -24744,15 +24744,47 @@ def installations_page():
         int_params = [d_start.strftime('%Y-%m-%d'), d_end.strftime('%Y-%m-%d')]
     int_sql += " ORDER BY intervention_date DESC"
     interventions = [dict(r) for r in conn.execute(int_sql, int_params).fetchall()]
-    
+
+    # v168 : interventions PLANIFIÉES du module principal (table interventions) concernant un site
+    # déjà cartographié → à inclure dans le compteur d'interventions de l'installation.
+    main_int_sql = "SELECT id, client_id, client_name, site_address, title, description FROM interventions"
+    main_params = []
+    if d_start and d_end:
+        main_int_sql += " WHERE scheduled_date >= ? AND scheduled_date <= ?"
+        main_params = [d_start.strftime('%Y-%m-%d'), d_end.strftime('%Y-%m-%d')]
+    main_interventions = [dict(r) for r in conn.execute(main_int_sql, main_params).fetchall()]
+
     conn.close()
-    
+
     # Compteurs par zone
     zones_count = {}
     interventions_by_install = {}
     for it in interventions:
         interventions_by_install[it['installation_id']] = interventions_by_install.get(it['installation_id'], 0) + 1
-    
+
+    # v168 : rattacher les interventions du module principal aux installations (par client + site)
+    def _inter_matches_install(it, inst):
+        cok = False
+        try:
+            if inst.get('client_id') and it.get('client_id') and int(inst['client_id']) == int(it['client_id']):
+                cok = True
+        except Exception:
+            cok = False
+        if not cok and inst.get('client_name') and it.get('client_name') \
+                and inst['client_name'].strip().lower() == it['client_name'].strip().lower():
+            cok = True
+        if not cok:
+            return False
+        sn = (inst.get('site_name') or '').strip().lower()
+        if not sn:
+            return True  # pas de nom de site → le client suffit
+        hay = ' '.join([(it.get('site_address') or ''), (it.get('title') or ''), (it.get('description') or '')]).lower()
+        return sn in hay
+    for it in main_interventions:
+        for inst in installations:
+            if _inter_matches_install(it, inst):
+                interventions_by_install[inst['id']] = interventions_by_install.get(inst['id'], 0) + 1
+
     # Compteur d'équipements + zones
     total_equipements = 0
     zones_stats = {}  # zone -> {'installations': N, 'equipements': N, 'interventions': N}
@@ -24781,6 +24813,7 @@ def installations_page():
         total_equipements=total_equipements,
         nb_installations=len(installations), nb_interventions=len(interventions),
         nb_zones=len(zones_stats),
+        int_count=interventions_by_install,
         periode=periode, libelle=libelle, clients=get_all_clients())
 
 
@@ -24794,16 +24827,31 @@ def installations_add():
         return redirect('/installations')
     conn = _gdb()
     client_id = request.form.get('client_id') or None
-    # v168 : nom du client saisi librement (si aucun client existant sélectionné)
+    # v168 : nom du client saisi librement (recherche/saisie) → on relie au client existant si le nom correspond
     client_name = (request.form.get('client_name', '') or '').strip()
+    if not client_id and client_name:
+        _m = conn.execute("SELECT id FROM clients WHERE LOWER(name)=LOWER(?)", (client_name,)).fetchone()
+        if _m: client_id = _m['id']
     if client_id:
         row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
-        if row: client_name = row['name']  # un client sélectionné prime sur la saisie libre
+        if row: client_name = row['name']
+
+    # v168 : anti-doublon — un site ne doit pas être cartographié 2x avec les MÊMES équipements
+    equip_type = (request.form.get('equipment_type', '') or '').strip()
+    dup = conn.execute(
+        "SELECT id FROM installations WHERE LOWER(TRIM(site_name))=LOWER(TRIM(?)) "
+        "AND LOWER(TRIM(COALESCE(equipment_type,'')))=LOWER(TRIM(?))",
+        (name, equip_type)).fetchone()
+    if dup:
+        conn.close()
+        flash(f"⚠️ Le site « {name} » est déjà cartographié avec ces mêmes équipements. "
+              f"Modifiez l'installation existante au lieu d'en créer un doublon.", "error")
+        return redirect('/installations')
 
     def _f(v, default=0.0):
         try: return float(v)
         except: return default
-    
+
     conn.execute("""INSERT INTO installations
         (client_id, client_name, site_name, zone, address, latitude, longitude,
          install_date, equipment_count, equipment_type, status, notes, created_by)
@@ -24870,9 +24918,22 @@ def installations_edit(iid):
     conn = _gdb()
     client_id = request.form.get('client_id') or None
     client_name = (request.form.get('client_name', '') or '').strip()
+    if not client_id and client_name:
+        _m = conn.execute("SELECT id FROM clients WHERE LOWER(name)=LOWER(?)", (client_name,)).fetchone()
+        if _m: client_id = _m['id']
     if client_id:
         row = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
         if row: client_name = row['name']
+    # anti-doublon (hors installation courante)
+    equip_type = (request.form.get('equipment_type', '') or '').strip()
+    dup = conn.execute(
+        "SELECT id FROM installations WHERE id<>? AND LOWER(TRIM(site_name))=LOWER(TRIM(?)) "
+        "AND LOWER(TRIM(COALESCE(equipment_type,'')))=LOWER(TRIM(?))",
+        (iid, name, equip_type)).fetchone()
+    if dup:
+        conn.close()
+        flash(f"⚠️ Un autre site « {name} » avec ces mêmes équipements existe déjà.", "error")
+        return redirect('/installations')
     conn.execute("""UPDATE installations SET
         client_id=?, client_name=?, site_name=?, zone=?, address=?,
         latitude=?, longitude=?, install_date=?, equipment_count=?, equipment_type=?, notes=?
