@@ -7294,8 +7294,8 @@ function showTab(id){
 <td style="white-space:nowrap">
 <a href="/interventions/{{ i.id }}/fiche" class="btn btn-sm btn-outline" style="font-size:9px">👁️ Fiche</a>
 {% if i.status=='planifiee' %}<a href="/interventions/{{ i.id }}/status/en_cours" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px">▶ Démarrer</a>{% endif %}
-{% if i.status=='en_cours' %}<a href="/interventions/{{ i.id }}/status/terminee" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅ Terminer</a>{% endif %}
-{% if i.status!='terminee' and i.status!='annulee' and i.status not in ('termine','cloturee','close') %}<a href="/interventions/{{ i.id }}/status/annulee" class="btn btn-sm" style="color:#c53030;font-size:9px">❌</a>{% endif %}
+{% if i.status=='en_cours' %}<a href="#" onclick="var c=prompt('Rapport de clôture (obligatoire, min. 5 caractères) :'); if(c!==null){ c=c.trim(); if(c.length<5){ alert('Un commentaire d\'au moins 5 caractères est obligatoire pour terminer.'); } else { window.location='/interventions/{{ i.id }}/status/travaux_termines?commentaire='+encodeURIComponent(c); } } return false;" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅ Terminer</a>{% endif %}
+{% if i.status not in ('travaux_termines','controle_qualite','livre','annulee','termine','cloturee','close') %}<a href="/interventions/{{ i.id }}/status/annulee" class="btn btn-sm" style="color:#c53030;font-size:9px">❌</a>{% endif %}
 </td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune intervention pour ces critères</p>{% endif %}
 </div></div>

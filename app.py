@@ -15974,7 +15974,10 @@ def intervention_status(iid, status):
         commentaire = (request.form.get('commentaire','') or request.args.get('commentaire','') or '').strip()
         if len(commentaire) < 5:
             # Si pas de commentaire, demander via formulaire
-            from flask import Markup
+            try:
+                from markupsafe import Markup
+            except ImportError:
+                from flask import Markup
             flash(Markup("⚠️ Un commentaire est OBLIGATOIRE pour terminer une tâche.<br>"
                   "Retournez sur la fiche intervention et utilisez le formulaire 'Rapport de clôture' "
                   "pour saisir vos observations avant de terminer."), "error")
