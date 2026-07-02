@@ -28130,7 +28130,11 @@ def taches_ia_suggest():
     api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
     if not api_key:
         return jsonify({'ok': False, 'error': "FOUATI n'est pas encore activé (clé API manquante). L'assistant heuristique reste disponible."})
-    import requests as _rq, json as _json
+    try:
+        import requests as _rq
+    except ImportError:
+        return jsonify({'ok': False, 'error': "Module 'requests' non installé sur le serveur (pip install requests / redéploiement requirements)."})
+    import json as _json
     model = os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001')
     cats = ", ".join(TACHE_CATEGORIES)
     sys = ("Tu es FOUATI, l'assistant RH de WannyGest qui rédige des tâches professionnelles claires et actionnables en français. "
@@ -40385,7 +40389,10 @@ def api_correcteur():
     if lt_user and lt_key:
         data['username'] = lt_user
         data['apiKey'] = lt_key
-    import requests as _rq
+    try:
+        import requests as _rq
+    except ImportError:
+        return jsonify({'matches': [], 'error': 'no_requests'}), 200
     # v167b : 1 retry sur échec transitoire (timeout / réseau) + gestion explicite du 429.
     last_err = 'unreachable'
     for _attempt in range(2):
