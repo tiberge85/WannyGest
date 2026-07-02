@@ -21912,8 +21912,42 @@ def field_report_decide_facturation(rid):
             flash("📁 Remontée marquée non facturable et classée", "info")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
-    
+
     return redirect(f'/field-reports/{rid}')
+
+
+@app.route('/field-reports/<int:rid>/edit-facturation-motif', methods=['POST'])
+@permission_required_any('facturation_decision', 'admin')
+def field_report_edit_facturation_motif(rid):
+    """v168 : modifier le commentaire (motif) laissé par le DG lors de la décision de facturation,
+    APRÈS validation. Met à jour la remontée + la facture liée (le cas échéant)."""
+    user = get_user_by_id(session['user_id'])
+    if not user: return redirect('/login')
+    motif = (request.form.get('motif', '') or '').strip()
+    if len(motif) < 5:
+        flash("⚠️ Le commentaire doit contenir au moins 5 caractères.", "error")
+        return redirect(request.referrer or f'/field-reports/{rid}')
+    conn = _gdb()
+    row = conn.execute("SELECT facturation_decided_at FROM field_reports WHERE id=?", (rid,)).fetchone()
+    if not row:
+        conn.close(); flash("Remontée introuvable.", "error"); return redirect('/field-reports')
+    if not row['facturation_decided_at']:
+        conn.close()
+        flash("Aucune décision de facturation à modifier pour cette remontée.", "error")
+        return redirect(request.referrer or f'/field-reports/{rid}')
+    conn.execute("UPDATE field_reports SET facturation_motif=?, updated_at=datetime('now') WHERE id=?", (motif, rid))
+    # Répercuter sur la facture liée (decision_motif) si elle existe
+    try:
+        conn.execute("UPDATE field_report_invoices SET decision_motif=?, updated_at=datetime('now') WHERE field_report_id=?", (motif, rid))
+    except Exception:
+        pass
+    conn.commit(); conn.close()
+    try:
+        _field_report_log(rid, 'Motif de facturation modifié', motif[:200])
+    except Exception:
+        pass
+    flash("✅ Commentaire de la décision de facturation mis à jour.", "success")
+    return redirect(request.referrer or f'/field-reports/{rid}')
 
 
 # ============= COMPTABILITÉ : Éditer la facture =============

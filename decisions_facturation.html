@@ -113,7 +113,16 @@
         {% endif %}
         {% if it.facturation_motif %}
         <div style="font-size:11px;color:#555;background:rgba(255,255,255,0.7);padding:6px;border-radius:5px;margin-bottom:6px">
-            <strong>📝 Motif :</strong> {{ it.facturation_motif }}
+            <strong>📝 Motif :</strong> <span>{{ it.facturation_motif }}</span>
+            {% if can_decide and it.facturation_decided_at %}
+            <details style="margin-top:5px">
+                <summary style="cursor:pointer;color:#1565c0;font-weight:700">✏️ Modifier le commentaire</summary>
+                <form method="post" action="/field-reports/{{ it.id }}/edit-facturation-motif" style="margin-top:5px;display:flex;gap:5px;align-items:flex-start">
+                    <textarea name="motif" rows="2" required minlength="5" style="flex:1;padding:6px;border:1.5px solid #1565c0;border-radius:6px;font-size:11px">{{ it.facturation_motif }}</textarea>
+                    <button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:10px;white-space:nowrap">💾 Enregistrer</button>
+                </form>
+            </details>
+            {% endif %}
         </div>
         {% endif %}
         
