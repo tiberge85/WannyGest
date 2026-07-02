@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Tâche{% endblock %}
+{% block content %}
+<style>
+.td-pill{display:inline-block;padding:3px 11px;border-radius:12px;font-size:11px;font-weight:800;color:#fff}
+.td-act{border:none;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;color:#fff;font-size:13px}
+.td-grid{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+@media(max-width:820px){.td-grid{grid-template-columns:1fr}}
+.td-file{display:inline-block;margin:4px;border:1px solid #eee;border-radius:8px;overflow:hidden;vertical-align:top}
+.td-ev{font-size:11px;color:#555;padding:6px 0;border-bottom:1px solid #f2f2f2}
+</style>
+
+<div class="page-header"><h1>✅ {{ t.titre }}</h1>
+<a href="{% if can_manage %}/gestion-taches{% else %}/mes-taches{% endif %}" class="btn btn-outline btn-sm">← Retour</a></div>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <span class="td-pill" style="background:{{ t.prio_color }}">🚩 {{ t.prio_label }}</span>
+    <span class="td-pill" style="background:{{ t.stat_color }}">{{ t.stat_label }}</span>
+    {% if t.is_late %}<span class="td-pill" style="background:#c53030">⏰ En retard</span>{% endif %}
+    {% if t.validated_at %}<span class="td-pill" style="background:#2e7d32">✔️ Validée par {{ t.validated_by_name }}</span>{% endif %}
+</div>
+
+<div class="td-grid">
+  <div>
+    <div class="card"><div class="card-body">
+        {% if t.description %}<p style="white-space:pre-wrap;color:#333">{{ t.description }}</p>{% endif %}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;color:#555;margin-top:8px">
+            {% if t.categorie %}<div>🗂️ <strong>{{ t.categorie }}</strong></div>{% endif %}
+            {% if t.departement %}<div>🏢 {{ t.departement }}</div>{% endif %}
+            {% if t.date_limite %}<div>📅 Échéance : <strong>{{ t.date_limite }} {{ t.heure_limite or '' }}</strong></div>{% endif %}
+            {% if t.temps_estime %}<div>⏱️ Estimé : {{ t.temps_estime }}</div>{% endif %}
+            {% if t.localisation %}<div>📍 {{ t.localisation }}</div>{% endif %}
+            <div>👤 Créée par {{ t.created_by_name }}</div>
+        </div>
+    </div></div>
+
+    {# Actions employé #}
+    {% if my_assignee %}
+    <div class="card" style="border-left:4px solid #1A7A6D"><div class="card-body">
+        <strong style="color:#1A7A6D">Mon statut : {{ my_assignee.statut }}</strong>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+            {% if t.statut not in ('terminee','annulee','refusee') %}
+            {% if my_assignee.statut in ('nouvelle',) %}
+                <form method="post" action="/gestion-taches/{{ t.id }}/action"><input type="hidden" name="action" value="accepter"><button class="td-act" style="background:#1565c0">✔️ Accepter</button></form>{% endif %}
+            {% if my_assignee.statut in ('nouvelle','acceptee','pause') %}
+                <form method="post" action="/gestion-taches/{{ t.id }}/action"><input type="hidden" name="action" value="{% if my_assignee.statut=='pause' %}reprendre{% else %}commencer{% endif %}"><button class="td-act" style="background:#e8672a">▶ {% if my_assignee.statut=='pause' %}Reprendre{% else %}Commencer{% endif %}</button></form>{% endif %}
+            {% if my_assignee.statut=='en_cours' %}
+                <form method="post" action="/gestion-taches/{{ t.id }}/action"><input type="hidden" name="action" value="pause"><button class="td-act" style="background:#f29f2f">⏸ Pause</button></form>
+                <form method="post" action="/gestion-taches/{{ t.id }}/action"><input type="hidden" name="action" value="terminer"><button class="td-act" style="background:#2e7d32">✅ Marquer terminée</button></form>{% endif %}
+            {% endif %}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            <button type="button" class="td-act" style="background:#c53030" onclick="document.getElementById('pbForm').style.display='block'">⚠️ Signaler un problème</button>
+            <button type="button" class="td-act" style="background:#7b1fa2" onclick="document.getElementById('asForm').style.display='block'">🆘 Demander de l'aide</button>
+        </div>
+        <form id="pbForm" method="post" action="/gestion-taches/{{ t.id }}/action" style="display:none;margin-top:8px">
+            <input type="hidden" name="action" value="probleme">
+            <textarea name="note" rows="2" required placeholder="Décrivez le problème…" style="width:100%;padding:8px;border:1.5px solid #c53030;border-radius:8px"></textarea>
+            <button class="btn btn-sm" style="background:#c53030;color:#fff;margin-top:5px">Envoyer</button>
+        </form>
+        <form id="asForm" method="post" action="/gestion-taches/{{ t.id }}/action" style="display:none;margin-top:8px">
+            <input type="hidden" name="action" value="assistance">
+            <textarea name="note" rows="2" required placeholder="Quelle aide vous faut-il ?" style="width:100%;padding:8px;border:1.5px solid #7b1fa2;border-radius:8px"></textarea>
+            <button class="btn btn-sm" style="background:#7b1fa2;color:#fff;margin-top:5px">Envoyer</button>
+        </form>
+    </div></div>
+    {% endif %}
+
+    {# Validation manager #}
+    {% if can_manage %}
+    <div class="card" style="border-left:4px solid #5e35b1"><div class="card-body">
+        <strong style="color:#5e35b1">🛡️ Validation (manager)</strong>
+        <form method="post" action="/gestion-taches/{{ t.id }}/action" style="margin-top:8px">
+            <textarea name="note" rows="2" placeholder="Commentaire (optionnel)…" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></textarea>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+                <button name="action" value="valider" class="td-act" style="background:#2e7d32">✅ Valider</button>
+                <button name="action" value="correction" class="td-act" style="background:#e8672a">✏️ Demander correction</button>
+                <button name="action" value="refuser" class="td-act" style="background:#c53030">❌ Refuser</button>
+                <button name="action" value="annuler" class="td-act" style="background:#888">🚫 Annuler</button>
+            </div>
+        </form>
+    </div></div>
+    {% endif %}
+
+    {# Commentaires + pièces jointes (avec capture mobile) #}
+    <div class="card"><div class="card-header"><h3>💬 Commentaires & pièces jointes</h3></div><div class="card-body">
+        {% for c in comments %}
+        <div style="padding:8px 0;border-bottom:1px solid #f2f2f2"><strong>{{ c.user_name }}</strong> <span style="color:#999;font-size:10px">{{ c.created_at[:16] }}</span><div style="font-size:13px;color:#333">{{ c.comment }}</div></div>
+        {% else %}<p style="color:#999;font-size:12px">Aucun commentaire.</p>{% endfor %}
+        <form method="post" action="/gestion-taches/{{ t.id }}/commentaire" enctype="multipart/form-data" style="margin-top:10px">
+            <textarea name="comment" rows="2" placeholder="Ajouter un commentaire…" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></textarea>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
+                <label class="btn btn-outline btn-sm" style="margin:0">📎 Fichiers<input type="file" name="fichiers" multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx" style="display:none"></label>
+                <label class="btn btn-outline btn-sm" style="margin:0">📷 Photo<input type="file" name="fichiers" accept="image/*" capture="environment" style="display:none"></label>
+                <label class="btn btn-outline btn-sm" style="margin:0">🎥 Vidéo<input type="file" name="fichiers" accept="video/*" capture="environment" style="display:none"></label>
+                <button type="button" class="btn btn-outline btn-sm" onclick="tkGeo(this)">📍 Ma position</button>
+                <button type="submit" class="btn btn-primary btn-sm" style="margin-left:auto">Envoyer</button>
+            </div>
+        </form>
+    </div></div>
+
+    {% if files %}
+    <div class="card"><div class="card-header"><h3>📎 Pièces jointes ({{ files|length }})</h3></div><div class="card-body">
+        {% for f in files %}
+        <a href="/gestion-taches/fichier/{{ f.id }}" target="_blank" class="td-file" style="text-decoration:none">
+            {% if f.filetype=='image' %}<img src="/gestion-taches/fichier/{{ f.id }}" style="width:90px;height:70px;object-fit:cover;display:block">
+            {% else %}<div style="width:90px;height:70px;display:flex;align-items:center;justify-content:center;font-size:26px;background:#f5f5f5">{% if f.filetype=='video' %}🎥{% else %}📄{% endif %}</div>{% endif %}
+            <div style="font-size:9px;padding:3px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555">{{ f.filename }}</div>
+        </a>
+        {% endfor %}
+    </div></div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card"><div class="card-header"><h3>👥 Assignés</h3></div><div class="card-body">
+        {% for a in assignees %}
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f2f2f2;font-size:12px">
+            <strong>{{ a.user_name }}</strong>
+            <span style="color:#666">{{ a.statut }}{% if a.on_time==1 %} ⏱️✔{% elif a.on_time==0 and a.done_at %} ⏱️✗{% endif %}</span>
+        </div>
+        {% endfor %}
+    </div></div>
+
+    <div class="card"><div class="card-header"><h3>🕓 Historique</h3></div><div class="card-body" style="max-height:420px;overflow:auto">
+        {% for e in events %}
+        <div class="td-ev"><strong>{{ e.user_name }}</strong> — {{ e.action }}{% if e.detail %} : {{ e.detail }}{% endif %}
+            <div style="color:#999;font-size:10px">{{ e.created_at[:16] }}{% if e.device %} · {{ e.device }}{% endif %}{% if e.ip %} · {{ e.ip }}{% endif %}</div>
+        </div>
+        {% else %}<p style="color:#999;font-size:12px">—</p>{% endfor %}
+    </div></div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('input[type=file]').forEach(function(i){i.addEventListener('change',function(){if(i.files.length){var f=i.closest('form');var b=f.querySelector('button[type=submit]');if(b)b.textContent='Envoyer ('+i.files.length+' fichier)';}});});
+function tkGeo(btn){if(!navigator.geolocation){alert('Géolocalisation non supportée');return;}btn.textContent='📍 …';navigator.geolocation.getCurrentPosition(function(p){var ta=btn.closest('form').querySelector('textarea');ta.value=(ta.value?ta.value+' ':'')+'📍 '+p.coords.latitude.toFixed(5)+','+p.coords.longitude.toFixed(5);btn.textContent='📍 Position ajoutée';},function(){btn.textContent='📍 Ma position';alert('Position indisponible');});}
+</script>
+{% endblock %}

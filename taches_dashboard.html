@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Gestion des tâches{% endblock %}
+{% block content %}
+<style>
+.tk-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.tk-card{background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-top:3px solid #1A7A6D}
+.tk-num{font-size:26px;font-weight:800;color:#1a3a5c}
+.tk-lbl{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px}
+.tk-filters{background:#fff;border-radius:12px;padding:12px;margin-bottom:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;align-items:end;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.tk-filters input,.tk-filters select{width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px}
+.tk-task{background:#fff;border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:5px solid #ddd;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;transition:transform .1s}
+.tk-task:hover{transform:translateX(2px)}
+.tk-pill{display:inline-block;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:800;color:#fff}
+.tk-late{background:#fde8e8;color:#c53030;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:800}
+.modal-bg2{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:flex-start;justify-content:center;overflow:auto;padding:20px}
+.modal-bg2.open{display:flex}
+.tk-modal{background:#fff;border-radius:14px;padding:22px;max-width:640px;width:100%;margin:auto}
+.tk-modal label{font-size:11px;color:#555;font-weight:600;display:block;margin:8px 0 3px}
+.tk-modal input,.tk-modal select,.tk-modal textarea{width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px;font-size:13px}
+.tk-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+</style>
+
+<div class="page-header"><h1>✅ Gestion des tâches</h1>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/gestion-taches/calendrier" class="btn btn-outline btn-sm">📅 Calendrier</a>
+    <a href="/gestion-taches/classement" class="btn btn-outline btn-sm">🏆 Classement</a>
+    <div style="position:relative;display:inline-block">
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('expMenu').classList.toggle('show2')">⬇️ Exporter</button>
+        <div id="expMenu" style="display:none;position:absolute;right:0;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:20;min-width:120px">
+            <a href="/gestion-taches/export.pdf" style="display:block;padding:8px 12px;font-size:12px;color:#333;text-decoration:none">📄 PDF</a>
+            <a href="/gestion-taches/export.xlsx" style="display:block;padding:8px 12px;font-size:12px;color:#333;text-decoration:none">📊 Excel</a>
+            <a href="/gestion-taches/export.csv" style="display:block;padding:8px 12px;font-size:12px;color:#333;text-decoration:none">📑 CSV</a>
+        </div>
+    </div>
+    {% if can_manage %}<button class="btn btn-primary btn-sm" onclick="document.getElementById('newTacheM').classList.add('open')">+ Nouvelle tâche</button>{% endif %}
+</div></div>
+
+<div class="tk-kpi">
+    <div class="tk-card"><div class="tk-num">{{ stats.total }}</div><div class="tk-lbl">Tâches créées</div></div>
+    <div class="tk-card" style="border-top-color:#2e7d32"><div class="tk-num" style="color:#2e7d32">{{ stats.terminees }}</div><div class="tk-lbl">✅ Terminées</div></div>
+    <div class="tk-card" style="border-top-color:#c53030"><div class="tk-num" style="color:#c53030">{{ stats.en_retard }}</div><div class="tk-lbl">⏰ En retard</div></div>
+    <div class="tk-card" style="border-top-color:#e8672a"><div class="tk-num" style="color:#e8672a">{{ stats.taux }}%</div><div class="tk-lbl">Taux d'exécution</div></div>
+</div>
+
+<form method="get" action="/gestion-taches" class="tk-filters">
+    <div><label style="font-size:11px;color:#666">🔍 Recherche</label><input type="text" name="q" value="{{ q }}" placeholder="Titre, description…"></div>
+    <div><label style="font-size:11px;color:#666">👤 Employé</label><select name="employe"><option value="">Tous</option>{% for e in employes %}<option value="{{ e.id }}" {% if f_emp==e.id|string %}selected{% endif %}>{{ e.full_name }}</option>{% endfor %}</select></div>
+    <div><label style="font-size:11px;color:#666">🏢 Département</label><select name="departement"><option value="">Tous</option>{% for d in departements %}<option value="{{ d }}" {% if f_dep==d %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></div>
+    <div><label style="font-size:11px;color:#666">🚩 Priorité</label><select name="priorite"><option value="">Toutes</option>{% for k,v in priorites.items() %}<option value="{{ k }}" {% if f_prio==k %}selected{% endif %}>{{ v[0] }}</option>{% endfor %}</select></div>
+    <div><label style="font-size:11px;color:#666">📌 Statut</label><select name="statut"><option value="">Tous</option>{% for k,v in statuts.items() %}<option value="{{ k }}" {% if f_stat==k %}selected{% endif %}>{{ v[0] }}</option>{% endfor %}</select></div>
+    <div><label style="font-size:11px;color:#666">🗂️ Catégorie</label><select name="categorie"><option value="">Toutes</option>{% for c in categories %}<option value="{{ c }}" {% if f_cat==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
+    <div><label style="font-size:11px;color:#666">📅 Échéance</label><input type="date" name="date" value="{{ f_date }}"></div>
+    <div style="display:flex;gap:6px"><button type="submit" class="btn btn-primary btn-sm" style="flex:1">Filtrer</button><a href="/gestion-taches" class="btn btn-outline btn-sm">↺</a></div>
+</form>
+
+{% for t in taches %}
+<div class="tk-task" style="border-left-color:{{ t.prio_color }}">
+    <div style="flex:1;min-width:220px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <a href="/gestion-taches/{{ t.id }}" style="font-weight:700;color:#1a3a5c;text-decoration:none;font-size:15px">{{ t.titre }}</a>
+            <span class="tk-pill" style="background:{{ t.prio_color }}">{{ t.prio_label }}</span>
+            <span class="tk-pill" style="background:{{ t.stat_color }}">{{ t.stat_label }}</span>
+            {% if t.is_late %}<span class="tk-late">⏰ En retard</span>{% endif %}
+        </div>
+        <div style="font-size:11px;color:#888;margin-top:4px">
+            {% if t.categorie %}🗂️ {{ t.categorie }} · {% endif %}{% if t.departement %}🏢 {{ t.departement }} · {% endif %}
+            👥 {% for a in t.assignees %}{{ a.user_name }}{% if not loop.last %}, {% endif %}{% endfor %}
+            {% if t.date_limite %} · 📅 {{ t.date_limite }}{% if t.heure_limite %} {{ t.heure_limite }}{% endif %}{% endif %}
+        </div>
+    </div>
+    <div style="align-self:center"><a href="/gestion-taches/{{ t.id }}" class="btn btn-outline btn-sm">Ouvrir →</a></div>
+</div>
+{% else %}
+<div style="background:#fff;border-radius:12px;padding:40px;text-align:center;color:#999">Aucune tâche. {% if can_manage %}Créez-en une avec « + Nouvelle tâche ».{% endif %}</div>
+{% endfor %}
+
+{% if can_manage %}
+<div class="modal-bg2" id="newTacheM">
+<div class="tk-modal">
+    <h3 style="margin:0 0 10px;color:#1a3a5c">✅ Nouvelle tâche</h3>
+    <form method="post" action="/gestion-taches/creer" enctype="multipart/form-data">
+        <label>Titre *</label><input type="text" name="titre" required placeholder="Ex : Vérifier les caméras du site X">
+        <label>Description</label><textarea name="description" rows="3" placeholder="Détails, consignes…"></textarea>
+        <div class="tk-row2">
+            <div><label>Priorité</label><select name="priorite">{% for k,v in priorites.items() %}<option value="{{ k }}" {% if k=='normale' %}selected{% endif %}>{{ v[0] }}</option>{% endfor %}</select></div>
+            <div><label>Catégorie</label><select name="categorie"><option value="">—</option>{% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="tk-row2">
+            <div><label>Date limite</label><input type="date" name="date_limite"></div>
+            <div><label>Heure limite</label><input type="time" name="heure_limite"></div>
+        </div>
+        <div class="tk-row2">
+            <div><label>Temps estimé</label><input type="text" name="temps_estime" placeholder="Ex : 2h"></div>
+            <div><label>Points (délai respecté)</label><input type="number" name="points" value="10" min="0"></div>
+        </div>
+        <label>📍 Localisation (optionnelle)</label><input type="text" name="localisation" placeholder="Site, adresse, GPS…">
+        <hr style="margin:12px 0;border:none;border-top:1px solid #eee">
+        <label>👥 Assigner à (un ou plusieurs employés — Ctrl/Cmd pour multi)</label>
+        <select name="user_ids" multiple size="6" style="height:auto">
+            {% for e in employes %}<option value="{{ e.id }}">{{ e.full_name }}{% if e.department %} — {{ e.department }}{% endif %}</option>{% endfor %}
+        </select>
+        <label>🏢 …ou assigner tout un département</label>
+        <select name="assign_departement"><option value="">— Aucun —</option>{% for d in departements %}<option value="{{ d }}">{{ d }} (toute l'équipe)</option>{% endfor %}</select>
+        <label>📎 Pièces jointes (photos, vidéos, documents)</label>
+        <input type="file" name="fichiers" multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx">
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('newTacheM').classList.remove('open')">Annuler</button>
+            <button type="submit" class="btn btn-primary">✅ Créer la tâche</button>
+        </div>
+    </form>
+</div></div>
+{% endif %}
+<script>
+document.addEventListener('click',function(e){var m=document.getElementById('expMenu');if(m&&!e.target.closest('#expMenu')&&!(e.target.textContent||'').includes('Exporter'))m.style.display='none';else if(m&&(e.target.textContent||'').includes('Exporter'))m.style.display=m.style.display==='block'?'none':'block';});
+</script>
+{% endblock %}

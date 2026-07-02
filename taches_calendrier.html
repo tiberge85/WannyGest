@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Calendrier des tâches{% endblock %}
+{% block content %}
+<style>
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-h{font-size:11px;font-weight:800;color:#666;text-align:center;padding:4px}
+.cal-d{background:#fff;border-radius:8px;min-height:92px;padding:5px;box-shadow:0 1px 2px rgba(0,0,0,.05);font-size:11px}
+.cal-d.empty{background:transparent;box-shadow:none}
+.cal-num{font-weight:700;color:#888;font-size:11px}
+.cal-t{display:block;color:#fff;border-radius:5px;padding:1px 5px;margin-top:2px;font-size:9px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none}
+</style>
+<div class="page-header"><h1>📅 Calendrier des tâches</h1>
+<div style="display:flex;gap:6px;align-items:center">
+    <form method="get" style="display:flex;gap:6px"><input type="month" name="mois" value="{{ mois }}" style="padding:6px;border:1.5px solid #ddd;border-radius:6px"><button class="btn btn-outline btn-sm">Voir</button></form>
+    <a href="/gestion-taches" class="btn btn-outline btn-sm">← Liste</a>
+</div></div>
+
+<div style="font-size:11px;color:#666;margin-bottom:8px">Couleurs = priorité : {% for k,v in priorites.items() %}<span style="background:{{ v[1] }};color:#fff;padding:1px 8px;border-radius:8px;font-weight:700;margin-right:4px">{{ v[0] }}</span>{% endfor %}</div>
+
+<div class="cal">
+    {% for d in ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'] %}<div class="cal-h">{{ d }}</div>{% endfor %}
+    {% for _ in range(first_wd) %}<div class="cal-d empty"></div>{% endfor %}
+    {% for day in range(1, ndays+1) %}
+    {% set ds = '%04d-%02d-%02d'|format(year, month, day) %}
+    <div class="cal-d">
+        <div class="cal-num">{{ day }}</div>
+        {% for t in by_day.get(ds, []) %}
+        <a class="cal-t" style="background:{{ t.prio_color }}" href="/gestion-taches/{{ t.id }}" title="{{ t.titre }}">{{ t.heure_limite or '' }} {{ t.titre }}</a>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

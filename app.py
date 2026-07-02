@@ -923,6 +923,60 @@ except Exception as _e:
     print(f"[v167] err perms v167 : {_e}", flush=True)
 
 
+# ==================== v169 : MODULE GESTION DES TÂCHES ====================
+try:
+    from models import get_db as _v169_db
+    _v169 = _v169_db()
+    _v169.execute("""CREATE TABLE IF NOT EXISTS taches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titre TEXT NOT NULL, description TEXT,
+        departement TEXT, categorie TEXT, priorite TEXT DEFAULT 'normale',
+        statut TEXT DEFAULT 'nouvelle',
+        date_limite TEXT, heure_limite TEXT,
+        temps_estime TEXT, localisation TEXT,
+        cible_type TEXT,                    -- personne / groupe / departement / multiple
+        created_by INTEGER, created_by_name TEXT,
+        validated_by INTEGER, validated_by_name TEXT, validated_at TEXT,
+        points INTEGER DEFAULT 10,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    _v169.execute("""CREATE TABLE IF NOT EXISTS tache_assignees (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tache_id INTEGER NOT NULL, user_id INTEGER NOT NULL, user_name TEXT,
+        statut TEXT DEFAULT 'nouvelle',     -- statut individuel
+        accepted_at TEXT, started_at TEXT, paused_at TEXT, done_at TEXT,
+        on_time INTEGER,                    -- 1 si terminé avant l'échéance
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    _v169.execute("""CREATE TABLE IF NOT EXISTS tache_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tache_id INTEGER NOT NULL, user_id INTEGER, user_name TEXT,
+        action TEXT, detail TEXT, ip TEXT, device TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    _v169.execute("""CREATE TABLE IF NOT EXISTS tache_commentaires (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tache_id INTEGER NOT NULL, user_id INTEGER, user_name TEXT,
+        comment TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    _v169.execute("""CREATE TABLE IF NOT EXISTS tache_fichiers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tache_id INTEGER NOT NULL, filename TEXT, stored_name TEXT,
+        filetype TEXT, uploaded_by INTEGER, uploaded_by_name TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    # Permissions : accès réservé RH / DG / admin (le manager crée pour son équipe via 'taches_manage')
+    for _role in ('admin', 'dg', 'rh', 'directrice_rh', 'directeur'):
+        for _p in ('taches_view', 'taches_manage'):
+            try: _v169.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (_role, _p))
+            except: pass
+    _v169.commit(); _v169.close()
+    print("[v169] Module Gestion des tâches — tables + permissions OK", flush=True)
+except Exception as _e:
+    print(f"[v169] err module taches : {_e}", flush=True)
+
+
 # ==================== v100 : Fusion rôles vers gestionnaire_projet + Validation Compta MG ====================
 try:
     from models import get_db as _v100_db
@@ -26721,16 +26775,6 @@ def kanban():
     user_map = {u['id']: u['full_name'] for u in users}
     return render_template('kanban.html', page='kanban', by_status=by_status, users=users, user_map=user_map)
 
-@app.route('/taches')
-@login_required
-def taches_list():
-    return redirect(url_for('kanban'))
-
-@app.route('/taches/new')
-@login_required
-def taches_new():
-    return redirect('/resp-projet/projets')
-
 @app.route('/kanban/move/<int:tid>/<status>')
 @login_required
 def kanban_move(tid, status):
@@ -27203,6 +27247,513 @@ def historique():
     return render_template('historique.html', page='historique', trail=trail, logs=logs,
         facets=facets, q=q, f_user=f_user, f_action=f_action, date_from=date_from, date_to=date_to,
         filter_table=request.args.get('table',''))
+
+
+# ======================== v169 : MODULE GESTION DES TÂCHES ========================
+TACHE_PRIORITES = {
+    'faible':  ('Faible', '#64748b'), 'normale': ('Normale', '#1A7A6D'),
+    'haute':   ('Haute', '#e8672a'),  'urgente': ('Urgente', '#c53030'),
+}
+TACHE_CATEGORIES = ['Maintenance', 'Informatique', 'RH', 'Commercial', 'Finance',
+                    'Logistique', 'Production', 'Administration']
+TACHE_STATUTS = {
+    'nouvelle': ('Nouvelle', '#1565c0'), 'en_cours': ('En cours', '#e8672a'),
+    'en_attente': ('En attente', '#f29f2f'), 'terminee': ('Terminée', '#2e7d32'),
+    'refusee': ('Refusée', '#c53030'), 'annulee': ('Annulée', '#888'),
+}
+TACHE_MANAGER_ROLES = ('admin', 'dg', 'rh', 'directrice_rh', 'directeur')
+
+def _tache_can_manage(user):
+    if not user: return False
+    if user['role'] in TACHE_MANAGER_ROLES: return True
+    try: return 'taches_manage' in get_role_permissions(user['role'])
+    except: return False
+
+def _tache_device():
+    ua = (request.headers.get('User-Agent', '') or '').lower()
+    if 'android' in ua: d = 'Android'
+    elif 'iphone' in ua or 'ipad' in ua: d = 'iOS'
+    elif 'windows' in ua: d = 'Windows'
+    elif 'mac' in ua: d = 'Mac'
+    elif 'linux' in ua: d = 'Linux'
+    else: d = 'Autre'
+    return d + (' · mobile' if 'mobile' in ua else '')
+
+def _tache_log(conn, tache_id, action, detail=''):
+    u = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    conn.execute("""INSERT INTO tache_events (tache_id,user_id,user_name,action,detail,ip,device)
+        VALUES (?,?,?,?,?,?,?)""",
+        (tache_id, session.get('user_id'), u['full_name'] if u else '?', action, detail,
+         request.remote_addr, _tache_device()))
+
+def _tache_deadline_dt(t):
+    try:
+        dl = (t.get('date_limite') or '').strip()
+        if not dl: return None
+        hh = (t.get('heure_limite') or '23:59').strip() or '23:59'
+        return datetime.strptime(f"{dl} {hh[:5]}", '%Y-%m-%d %H:%M')
+    except Exception:
+        return None
+
+def _tache_is_late(t):
+    dl = _tache_deadline_dt(t)
+    return bool(dl and datetime.now() > dl and t.get('statut') not in ('terminee', 'annulee', 'refusee'))
+
+def _tache_recompute(conn, tid):
+    row = conn.execute("SELECT statut FROM taches WHERE id=?", (tid,)).fetchone()
+    if not row or row['statut'] in ('refusee', 'annulee'):
+        return
+    sts = [r['statut'] for r in conn.execute("SELECT statut FROM tache_assignees WHERE tache_id=?", (tid,)).fetchall()]
+    if not sts: return
+    if all(s == 'terminee' for s in sts): new = 'terminee'
+    elif any(s == 'en_cours' for s in sts): new = 'en_cours'
+    elif any(s == 'pause' for s in sts): new = 'en_attente'
+    else: new = 'nouvelle'
+    conn.execute("UPDATE taches SET statut=?, updated_at=datetime('now') WHERE id=?", (new, tid))
+
+def _tache_save_files(conn, tid, field='fichiers'):
+    saved = 0
+    try:
+        files = request.files.getlist(field)
+    except Exception:
+        files = []
+    if not files: return 0
+    u = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    d = os.path.join(app.config['FILES_FOLDER'], 'taches', str(tid))
+    os.makedirs(d, exist_ok=True)
+    for f in files:
+        if not f or not f.filename: continue
+        orig = secure_filename(f.filename)
+        stored = f"{uuid.uuid4().hex[:8]}_{orig}"
+        ext = (orig.rsplit('.', 1)[-1].lower() if '.' in orig else '')
+        if ext in ('png', 'jpg', 'jpeg', 'gif', 'webp', 'heic'): ftype = 'image'
+        elif ext in ('mp4', 'mov', 'avi', 'webm', 'mkv'): ftype = 'video'
+        else: ftype = 'document'
+        try:
+            f.save(os.path.join(d, stored))
+            conn.execute("""INSERT INTO tache_fichiers (tache_id,filename,stored_name,filetype,uploaded_by,uploaded_by_name)
+                VALUES (?,?,?,?,?,?)""", (tid, orig, stored, ftype, session.get('user_id'), u['full_name'] if u else '?'))
+            saved += 1
+        except Exception as _e:
+            print(f"[v169] upload err: {_e}", flush=True)
+    return saved
+
+
+@app.route('/gestion-taches')
+@permission_required_any('taches_view', 'taches_manage', 'admin')
+def taches_dashboard():
+    """Tableau de bord RH/manager des tâches (liste + filtres + KPIs)."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    # Filtres multicritères
+    q = (request.args.get('q', '') or '').strip()
+    f_emp = (request.args.get('employe', '') or '').strip()
+    f_dep = (request.args.get('departement', '') or '').strip()
+    f_prio = (request.args.get('priorite', '') or '').strip()
+    f_stat = (request.args.get('statut', '') or '').strip()
+    f_cat = (request.args.get('categorie', '') or '').strip()
+    f_date = (request.args.get('date', '') or '').strip()
+
+    where, params = [], []
+    if q:
+        where.append("(t.titre LIKE ? OR t.description LIKE ?)"); params += [f"%{q}%", f"%{q}%"]
+    if f_dep: where.append("t.departement = ?"); params.append(f_dep)
+    if f_prio: where.append("t.priorite = ?"); params.append(f_prio)
+    if f_stat: where.append("t.statut = ?"); params.append(f_stat)
+    if f_cat: where.append("t.categorie = ?"); params.append(f_cat)
+    if f_date: where.append("t.date_limite = ?"); params.append(f_date)
+    if f_emp and f_emp.isdigit():
+        where.append("t.id IN (SELECT tache_id FROM tache_assignees WHERE user_id=?)"); params.append(int(f_emp))
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    taches = [dict(r) for r in conn.execute(
+        f"SELECT t.* FROM taches t{wsql} ORDER BY t.created_at DESC LIMIT 300", params).fetchall()]
+    for t in taches:
+        t['assignees'] = [dict(r) for r in conn.execute(
+            "SELECT user_id,user_name,statut FROM tache_assignees WHERE tache_id=?", (t['id'],)).fetchall()]
+        t['is_late'] = _tache_is_late(t)
+        pl = TACHE_PRIORITES.get(t['priorite'], (t['priorite'], '#888')); t['prio_label'], t['prio_color'] = pl
+        sl = TACHE_STATUTS.get(t['statut'], (t['statut'], '#888')); t['stat_label'], t['stat_color'] = sl
+
+    # KPIs (globaux, non filtrés)
+    total = conn.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
+    terminees = conn.execute("SELECT COUNT(*) FROM taches WHERE statut='terminee'").fetchone()[0]
+    all_open = [dict(r) for r in conn.execute("SELECT id,date_limite,heure_limite,statut FROM taches").fetchall()]
+    en_retard = sum(1 for t in all_open if _tache_is_late(t))
+    taux = round(terminees * 100.0 / total, 1) if total else 0
+    # Employés (pour filtre + attribution)
+    employes = [dict(r) for r in conn.execute(
+        "SELECT id, full_name, COALESCE(department,'') as department FROM users WHERE COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
+    departements = sorted({e['department'] for e in employes if e['department']})
+    conn.close()
+    return render_template('taches_dashboard.html', page='taches', taches=taches,
+        employes=employes, departements=departements, categories=TACHE_CATEGORIES,
+        priorites=TACHE_PRIORITES, statuts=TACHE_STATUTS,
+        stats={'total': total, 'terminees': terminees, 'en_retard': en_retard, 'taux': taux},
+        can_manage=_tache_can_manage(user),
+        q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date)
+
+
+@app.route('/gestion-taches/creer', methods=['POST'])
+@permission_required_any('taches_manage', 'admin')
+def tache_creer():
+    user = get_user_by_id(session['user_id'])
+    if not _tache_can_manage(user):
+        flash("Accès réservé.", "error"); return redirect('/gestion-taches')
+    titre = (request.form.get('titre', '') or '').strip()
+    if not titre:
+        flash("Le titre est obligatoire.", "error"); return redirect('/gestion-taches')
+    prio = (request.form.get('priorite', 'normale') or 'normale').strip()
+    if prio not in TACHE_PRIORITES: prio = 'normale'
+    departement = (request.form.get('departement', '') or '').strip()
+    conn = _gdb()
+    try:
+        points = int(request.form.get('points', 10) or 10)
+    except Exception:
+        points = 10
+    cur = conn.execute("""INSERT INTO taches
+        (titre, description, departement, categorie, priorite, statut,
+         date_limite, heure_limite, temps_estime, localisation, cible_type,
+         created_by, created_by_name, points)
+        VALUES (?,?,?,?,?, 'nouvelle', ?,?,?,?,?,?,?,?)""",
+        (titre, (request.form.get('description', '') or '').strip(), departement,
+         (request.form.get('categorie', '') or '').strip(), prio,
+         (request.form.get('date_limite', '') or '').strip(),
+         (request.form.get('heure_limite', '') or '').strip(),
+         (request.form.get('temps_estime', '') or '').strip(),
+         (request.form.get('localisation', '') or '').strip(),
+         '', user['id'], user['full_name'], points))
+    tid = cur.lastrowid
+    # Cibles : utilisateurs sélectionnés + option « tout le département »
+    target_ids = set()
+    for uid in request.form.getlist('user_ids'):
+        if str(uid).isdigit(): target_ids.add(int(uid))
+    assign_dep = (request.form.get('assign_departement', '') or '').strip()
+    if assign_dep:
+        for r in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND department=?", (assign_dep,)).fetchall():
+            target_ids.add(r['id'])
+    if not target_ids:
+        conn.execute("DELETE FROM taches WHERE id=?", (tid,)); conn.commit(); conn.close()
+        flash("Sélectionnez au moins un employé ou un département.", "error"); return redirect('/gestion-taches')
+    cible = 'personne' if len(target_ids) == 1 else ('departement' if assign_dep else 'multiple')
+    conn.execute("UPDATE taches SET cible_type=? WHERE id=?", (cible, tid))
+    for uid in target_ids:
+        ur = conn.execute("SELECT full_name FROM users WHERE id=?", (uid,)).fetchone()
+        conn.execute("INSERT INTO tache_assignees (tache_id,user_id,user_name,statut) VALUES (?,?,?, 'nouvelle')",
+                     (tid, uid, ur['full_name'] if ur else '?'))
+    _tache_save_files(conn, tid, 'fichiers')
+    _tache_log(conn, tid, 'creation', f"Tâche créée et assignée à {len(target_ids)} employé(s)")
+    conn.commit(); conn.close()
+    # Notifications aux assignés
+    _dl = (request.form.get('date_limite', '') or '').strip()
+    for uid in target_ids:
+        try:
+            notify_user(uid, f"🆕 Nouvelle tâche : {titre}",
+                        f"Priorité {TACHE_PRIORITES[prio][0]}." + (f" Échéance : {_dl}." if _dl else ""),
+                        link=f"/gestion-taches/{tid}", type='tache', module='taches',
+                        priority='high' if prio in ('haute', 'urgente') else 'normal', icon='✅')
+        except Exception: pass
+    flash(f"✅ Tâche « {titre} » créée et assignée.", "success")
+    return redirect(f'/gestion-taches/{tid}')
+
+
+@app.route('/gestion-taches/<int:tid>')
+@login_required
+def tache_detail(tid):
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    t = conn.execute("SELECT * FROM taches WHERE id=?", (tid,)).fetchone()
+    if not t:
+        conn.close(); flash("Tâche introuvable.", "error"); return redirect('/gestion-taches')
+    t = dict(t)
+    assignees = [dict(r) for r in conn.execute("SELECT * FROM tache_assignees WHERE tache_id=? ORDER BY user_name", (tid,)).fetchall()]
+    is_assignee = any(a['user_id'] == user['id'] for a in assignees)
+    can_manage = _tache_can_manage(user)
+    if not can_manage and not is_assignee:
+        conn.close(); flash("Accès refusé.", "error"); return redirect('/mes-taches')
+    comments = [dict(r) for r in conn.execute("SELECT * FROM tache_commentaires WHERE tache_id=? ORDER BY id", (tid,)).fetchall()]
+    files = [dict(r) for r in conn.execute("SELECT * FROM tache_fichiers WHERE tache_id=? ORDER BY id DESC", (tid,)).fetchall()]
+    events = [dict(r) for r in conn.execute("SELECT * FROM tache_events WHERE tache_id=? ORDER BY id DESC", (tid,)).fetchall()]
+    conn.close()
+    my_assignee = next((a for a in assignees if a['user_id'] == user['id']), None)
+    pl = TACHE_PRIORITES.get(t['priorite'], (t['priorite'], '#888')); t['prio_label'], t['prio_color'] = pl
+    sl = TACHE_STATUTS.get(t['statut'], (t['statut'], '#888')); t['stat_label'], t['stat_color'] = sl
+    t['is_late'] = _tache_is_late(t)
+    return render_template('tache_detail.html', page='taches', t=t, assignees=assignees,
+        comments=comments, files=files, events=events, can_manage=can_manage,
+        is_assignee=is_assignee, my_assignee=my_assignee, statuts=TACHE_STATUTS)
+
+
+@app.route('/gestion-taches/<int:tid>/action', methods=['POST'])
+@login_required
+def tache_action(tid):
+    user = get_user_by_id(session['user_id'])
+    action = (request.form.get('action', '') or '').strip()
+    note = (request.form.get('note', '') or '').strip()
+    conn = _gdb()
+    t = conn.execute("SELECT * FROM taches WHERE id=?", (tid,)).fetchone()
+    if not t:
+        conn.close(); flash("Tâche introuvable.", "error"); return redirect('/gestion-taches')
+    t = dict(t)
+    my = conn.execute("SELECT * FROM tache_assignees WHERE tache_id=? AND user_id=?", (tid, user['id'])).fetchone()
+    can_manage = _tache_can_manage(user)
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # --- Actions EMPLOYÉ (assigné) ---
+    emp_actions = {'accepter': 'acceptee', 'commencer': 'en_cours', 'pause': 'pause',
+                   'reprendre': 'en_cours', 'terminer': 'terminee'}
+    if action in emp_actions and my:
+        new_st = emp_actions[action]
+        sets = {'statut': new_st}
+        if action == 'accepter': sets['accepted_at'] = now
+        if action == 'commencer': sets['started_at'] = now
+        if action == 'pause': sets['paused_at'] = now
+        if action == 'terminer':
+            sets['done_at'] = now
+            sets['on_time'] = 1 if not _tache_is_late(t) else 0
+        setclause = ', '.join(f"{k}=?" for k in sets)
+        conn.execute(f"UPDATE tache_assignees SET {setclause} WHERE id=?", (*sets.values(), my['id']))
+        _tache_recompute(conn, tid)
+        _tache_log(conn, tid, action, note)
+        conn.commit()
+        if action == 'terminer':
+            # Notifier le créateur/manager pour validation
+            try:
+                notify_user(t['created_by'], f"✅ Tâche terminée : {t['titre']}",
+                            f"{user['full_name']} a terminé la tâche. À valider.",
+                            link=f"/gestion-taches/{tid}", type='tache', module='taches', priority='high', icon='✅')
+            except Exception: pass
+        conn.close()
+        flash("Action enregistrée.", "success")
+        return redirect(f'/gestion-taches/{tid}')
+
+    if action in ('probleme', 'assistance') and my:
+        conn.execute("INSERT INTO tache_commentaires (tache_id,user_id,user_name,comment) VALUES (?,?,?,?)",
+                     (tid, user['id'], user['full_name'],
+                      ("⚠️ Problème signalé : " if action == 'probleme' else "🆘 Assistance demandée : ") + (note or '')))
+        _tache_log(conn, tid, action, note)
+        conn.commit(); conn.close()
+        try:
+            notify_user(t['created_by'], f"{'⚠️ Problème' if action=='probleme' else '🆘 Assistance'} — {t['titre']}",
+                        f"{user['full_name']} : {note}", link=f"/gestion-taches/{tid}", type='tache', module='taches', priority='high')
+        except Exception: pass
+        flash("Signalement envoyé au responsable.", "success")
+        return redirect(f'/gestion-taches/{tid}')
+
+    # --- Actions MANAGER (validation) ---
+    if can_manage and action in ('valider', 'refuser', 'correction', 'annuler'):
+        if action == 'valider':
+            conn.execute("""UPDATE taches SET statut='terminee', validated_by=?, validated_by_name=?,
+                validated_at=?, updated_at=datetime('now') WHERE id=?""",
+                (user['id'], user['full_name'], now, tid))
+            # Points aux assignés ayant terminé à temps
+            for a in conn.execute("SELECT user_id,user_name,on_time FROM tache_assignees WHERE tache_id=? AND statut='terminee'", (tid,)).fetchall():
+                try:
+                    notify_user(a['user_id'], f"🎉 Tâche validée : {t['titre']}",
+                                f"Votre tâche a été validée." + (" +{} points".format(t.get('points') or 0) if a['on_time'] else ""),
+                                link=f"/gestion-taches/{tid}", type='tache', module='taches', icon='🎉')
+                except Exception: pass
+            _tache_log(conn, tid, 'validation', note)
+            flash("✅ Tâche validée.", "success")
+        elif action == 'refuser':
+            conn.execute("UPDATE taches SET statut='refusee', updated_at=datetime('now') WHERE id=?", (tid,))
+            _tache_log(conn, tid, 'refus', note)
+            for a in conn.execute("SELECT user_id FROM tache_assignees WHERE tache_id=?", (tid,)).fetchall():
+                try: notify_user(a['user_id'], f"❌ Tâche refusée : {t['titre']}", note or "Tâche refusée par le manager.", link=f"/gestion-taches/{tid}", type='tache', module='taches', priority='high')
+                except Exception: pass
+            flash("Tâche refusée.", "success")
+        elif action == 'correction':
+            conn.execute("UPDATE tache_assignees SET statut='en_cours', done_at=NULL WHERE tache_id=?", (tid,))
+            conn.execute("UPDATE taches SET statut='en_cours', updated_at=datetime('now') WHERE id=?", (tid,))
+            _tache_log(conn, tid, 'demande_correction', note)
+            for a in conn.execute("SELECT user_id FROM tache_assignees WHERE tache_id=?", (tid,)).fetchall():
+                try: notify_user(a['user_id'], f"✏️ Correction demandée : {t['titre']}", note or "Le manager demande une correction.", link=f"/gestion-taches/{tid}", type='tache', module='taches', priority='high')
+                except Exception: pass
+            flash("Correction demandée.", "success")
+        elif action == 'annuler':
+            conn.execute("UPDATE taches SET statut='annulee', updated_at=datetime('now') WHERE id=?", (tid,))
+            _tache_log(conn, tid, 'annulation', note)
+            flash("Tâche annulée.", "success")
+        conn.commit(); conn.close()
+        return redirect(f'/gestion-taches/{tid}')
+
+    conn.close()
+    flash("Action non autorisée.", "error")
+    return redirect(f'/gestion-taches/{tid}')
+
+
+@app.route('/gestion-taches/<int:tid>/commentaire', methods=['POST'])
+@login_required
+def tache_commentaire(tid):
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    t = conn.execute("SELECT id FROM taches WHERE id=?", (tid,)).fetchone()
+    if not t:
+        conn.close(); flash("Tâche introuvable.", "error"); return redirect('/gestion-taches')
+    is_assignee = conn.execute("SELECT 1 FROM tache_assignees WHERE tache_id=? AND user_id=?", (tid, user['id'])).fetchone()
+    if not (_tache_can_manage(user) or is_assignee):
+        conn.close(); flash("Accès refusé.", "error"); return redirect('/mes-taches')
+    comment = (request.form.get('comment', '') or '').strip()
+    nfiles = _tache_save_files(conn, tid, 'fichiers')
+    if comment:
+        conn.execute("INSERT INTO tache_commentaires (tache_id,user_id,user_name,comment) VALUES (?,?,?,?)",
+                     (tid, user['id'], user['full_name'], comment))
+    if comment or nfiles:
+        _tache_log(conn, tid, 'commentaire', comment[:120] + (f" (+{nfiles} fichier(s))" if nfiles else ''))
+    conn.commit(); conn.close()
+    flash("Commentaire ajouté.", "success")
+    return redirect(f'/gestion-taches/{tid}')
+
+
+@app.route('/gestion-taches/fichier/<int:fid>')
+@login_required
+def tache_fichier(fid):
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    f = conn.execute("SELECT * FROM tache_fichiers WHERE id=?", (fid,)).fetchone()
+    if not f:
+        conn.close(); abort(404)
+    f = dict(f)
+    is_assignee = conn.execute("SELECT 1 FROM tache_assignees WHERE tache_id=? AND user_id=?", (f['tache_id'], user['id'])).fetchone()
+    conn.close()
+    if not (_tache_can_manage(user) or is_assignee):
+        abort(403)
+    d = os.path.join(app.config['FILES_FOLDER'], 'taches', str(f['tache_id']))
+    return send_from_directory(d, f['stored_name'], as_attachment=False, download_name=f['filename'])
+
+
+@app.route('/mes-taches')
+@login_required
+def mes_taches():
+    """Vue employé : ses tâches (aujourd'hui / à venir / en retard)."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute("""
+        SELECT t.*, a.statut AS my_statut, a.accepted_at, a.started_at, a.done_at
+        FROM taches t JOIN tache_assignees a ON a.tache_id=t.id
+        WHERE a.user_id=? ORDER BY t.date_limite IS NULL, t.date_limite, t.heure_limite""",
+        (user['id'],)).fetchall()]
+    conn.close()
+    today = datetime.now().strftime('%Y-%m-%d')
+    du_jour, a_venir, en_retard, terminees = [], [], [], []
+    for t in rows:
+        pl = TACHE_PRIORITES.get(t['priorite'], (t['priorite'], '#888')); t['prio_label'], t['prio_color'] = pl
+        t['is_late'] = _tache_is_late(t)
+        if t['statut'] in ('terminee', 'annulee', 'refusee'):
+            terminees.append(t)
+        elif t['is_late']:
+            en_retard.append(t)
+        elif (t.get('date_limite') or '') == today:
+            du_jour.append(t)
+        else:
+            a_venir.append(t)
+    return render_template('mes_taches.html', page='mes_taches',
+        du_jour=du_jour, a_venir=a_venir, en_retard=en_retard, terminees=terminees[:30])
+
+
+@app.route('/gestion-taches/calendrier')
+@permission_required_any('taches_view', 'taches_manage', 'admin')
+def taches_calendrier():
+    conn = _gdb()
+    mois = (request.args.get('mois', '') or datetime.now().strftime('%Y-%m')).strip()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id,titre,priorite,statut,date_limite,heure_limite FROM taches WHERE date_limite LIKE ? ORDER BY date_limite,heure_limite",
+        (mois + '%',)).fetchall()]
+    conn.close()
+    by_day = {}
+    for t in rows:
+        pl = TACHE_PRIORITES.get(t['priorite'], (t['priorite'], '#888')); t['prio_color'] = pl[1]
+        by_day.setdefault(t['date_limite'], []).append(t)
+    from calendar import monthrange
+    try:
+        y, m = int(mois[:4]), int(mois[5:7]); ndays = monthrange(y, m)[1]; first_wd = datetime(y, m, 1).weekday()
+    except Exception:
+        y, m, ndays, first_wd = datetime.now().year, datetime.now().month, 30, 0
+    return render_template('taches_calendrier.html', page='taches', mois=mois, by_day=by_day,
+        ndays=ndays, first_wd=first_wd, year=y, month=m, priorites=TACHE_PRIORITES)
+
+
+@app.route('/gestion-taches/classement')
+@permission_required_any('taches_view', 'taches_manage', 'admin')
+def taches_classement():
+    """Classement mensuel + badges (points sur tâches validées terminées à temps)."""
+    conn = _gdb()
+    mois = (request.args.get('mois', '') or datetime.now().strftime('%Y-%m')).strip()
+    rows = [dict(r) for r in conn.execute("""
+        SELECT a.user_id, a.user_name, a.on_time, t.points, t.statut, t.validated_at
+        FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+        WHERE a.statut='terminee' AND t.statut='terminee'
+          AND strftime('%Y-%m', COALESCE(t.validated_at, a.done_at, t.updated_at)) = ?""", (mois,)).fetchall()]
+    conn.close()
+    board = {}
+    for r in rows:
+        b = board.setdefault(r['user_id'], {'user_id': r['user_id'], 'name': r['user_name'], 'points': 0, 'done': 0, 'on_time': 0})
+        b['done'] += 1
+        if r['on_time']:
+            b['on_time'] += 1
+            b['points'] += (r['points'] or 0)
+        else:
+            b['points'] += max(1, int((r['points'] or 0) * 0.4))
+    ranking = sorted(board.values(), key=lambda x: (-x['points'], -x['on_time']))
+    # Badges
+    for i, b in enumerate(ranking):
+        b['badges'] = []
+        if i == 0 and b['points'] > 0: b['badges'].append('⭐ Employé du mois')
+        if b['on_time'] >= 10: b['badges'].append('🏆 Expert')
+        if b['done'] and b['on_time'] == b['done'] and b['done'] >= 5: b['badges'].append('💎 Excellence')
+        if b['on_time'] >= 5: b['badges'].append('🔥 Série')
+    return render_template('taches_classement.html', page='taches', mois=mois, ranking=ranking)
+
+
+@app.route('/gestion-taches/export.<fmt>')
+@permission_required_any('taches_view', 'taches_manage', 'admin')
+def taches_export(fmt):
+    import io
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute("""
+        SELECT t.id,t.titre,t.departement,t.categorie,t.priorite,t.statut,
+               t.date_limite,t.heure_limite,t.created_by_name,t.created_at,
+               (SELECT GROUP_CONCAT(user_name,', ') FROM tache_assignees WHERE tache_id=t.id) AS assignes
+        FROM taches t ORDER BY t.created_at DESC""").fetchall()]
+    conn.close()
+    headers = ['ID', 'Titre', 'Département', 'Catégorie', 'Priorité', 'Statut',
+               'Date limite', 'Heure limite', 'Assigné(s)', 'Créé par', 'Créé le']
+    def _row(t):
+        return [t['id'], t['titre'], t['departement'] or '', t['categorie'] or '',
+                TACHE_PRIORITES.get(t['priorite'], (t['priorite'],))[0],
+                TACHE_STATUTS.get(t['statut'], (t['statut'],))[0],
+                t['date_limite'] or '', t['heure_limite'] or '', t['assignes'] or '',
+                t['created_by_name'] or '', (t['created_at'] or '')[:16]]
+    if fmt == 'csv':
+        import csv, io as _io
+        sio = _io.StringIO(); w = csv.writer(sio); w.writerow(headers)
+        for t in rows: w.writerow(_row(t))
+        return Response('﻿' + sio.getvalue(), mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=taches.csv'})
+    if fmt == 'xlsx':
+        from openpyxl import Workbook
+        wb = Workbook(); ws = wb.active; ws.title = 'Tâches'; ws.append(headers)
+        for t in rows: ws.append(_row(t))
+        bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': 'attachment; filename=taches.xlsx'})
+    if fmt == 'pdf':
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors as _c
+        bio = io.BytesIO()
+        doc = SimpleDocTemplate(bio, pagesize=landscape(A4), leftMargin=10 * mm, rightMargin=10 * mm)
+        S = getSampleStyleSheet(); story = [Paragraph("Rapport des tâches", S['Title']), Spacer(1, 6 * mm)]
+        data = [headers] + [[str(x) for x in _row(t)] for t in rows]
+        tb = Table(data, repeatRows=1)
+        tb.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), _c.HexColor('#1A7A6D')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), _c.white), ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ('GRID', (0, 0), (-1, -1), 0.3, _c.grey), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+        story.append(tb); doc.build(story); bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/pdf',
+            headers={'Content-Disposition': 'attachment; filename=taches.pdf'})
+    flash("Format non supporté.", "error"); return redirect('/gestion-taches')
 
 
 # ======================== TABLEAU DE BORD EXÉCUTIF ========================
