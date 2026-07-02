@@ -28098,10 +28098,15 @@ def taches_performance():
 
 
 @app.route('/gestion-taches/ia-suggest', methods=['POST'])
-@permission_required_any('taches_manage', 'admin')
+@login_required
 def taches_ia_suggest():
     """v169c : assistant IA (Anthropic) — rédige une tâche à partir d'un besoin en langage naturel.
-    Best-effort : nécessite ANTHROPIC_API_KEY. Retourne titre/description/priorite/categorie/temps_estime."""
+    Best-effort : nécessite ANTHROPIC_API_KEY. Retourne titre/description/priorite/categorie/temps_estime.
+    v169e : contrôle de permission EN JSON (le décorateur redirigeait en HTML → « FOUATI indisponible »)."""
+    _u = get_user_by_id(session['user_id'])
+    _uperms = get_role_permissions(_u['role']) if _u else []
+    if not (_u and (_u['role'] == 'admin' or 'taches_manage' in _uperms or _rh_bypass(_u, 'taches_manage'))):
+        return jsonify({'ok': False, 'error': "Accès refusé : votre rôle n'a pas la permission « taches_manage »."}), 200
     brief = (request.form.get('brief', '') or '').strip()
     if not brief:
         return jsonify({'ok': False, 'error': 'Décrivez le besoin.'})

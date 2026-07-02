@@ -152,7 +152,18 @@
 </div></div>
 {% endif %}
 <script>
-function tkIaSuggest(btn){var b=document.getElementById('iaBrief').value.trim();var msg=document.getElementById('iaMsg');if(!b){msg.textContent='Décrivez d’abord le besoin.';return;}btn.disabled=true;msg.textContent='✨ Génération…';var fd=new FormData();fd.append('brief',b);fetch('/gestion-taches/ia-suggest',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{btn.disabled=false;if(!d.ok){msg.textContent='⚠️ '+(d.error||'Erreur');return;}var f=document.querySelector('#newTacheM form');if(d.titre)f.titre.value=d.titre;if(d.description)f.description.value=d.description;if(d.priorite)f.priorite.value=d.priorite;if(d.categorie)f.categorie.value=d.categorie;if(d.temps_estime)f.temps_estime.value=d.temps_estime;msg.textContent='✅ FOUATI a rempli la tâche — ajustez puis assignez.';}).catch(()=>{btn.disabled=false;msg.textContent='⚠️ FOUATI indisponible.';});}
+function tkIaSuggest(btn){var b=document.getElementById('iaBrief').value.trim();var msg=document.getElementById('iaMsg');if(!b){msg.textContent='Décrivez d’abord le besoin.';return;}btn.disabled=true;msg.textContent='✨ Génération…';var fd=new FormData();fd.append('brief',b);
+fetch('/gestion-taches/ia-suggest',{method:'POST',body:fd}).then(function(r){return r.text().then(function(t){var d;try{d=JSON.parse(t);}catch(e){d=null;}return {status:r.status,ok:r.ok,data:d,raw:t};});}).then(function(res){btn.disabled=false;
+  if(!res.data){ // réponse non-JSON = 500 / redirection permission / page HTML
+    if(res.status===403||res.status===401){msg.textContent='⚠️ Accès refusé : votre rôle n’a pas le droit « taches_manage ».';}
+    else if(res.status>=500){msg.textContent='⚠️ Erreur serveur ('+res.status+') sur FOUATI — voir les logs serveur.';}
+    else if(res.status===0){msg.textContent='⚠️ FOUATI injoignable (réseau / serveur non redémarré ?).';}
+    else{msg.textContent='⚠️ FOUATI indisponible (HTTP '+res.status+').';}
+    return;}
+  var d=res.data;
+  if(!d.ok){msg.textContent='⚠️ '+(d.error||'Erreur');return;}
+  var f=document.querySelector('#newTacheM form');if(d.titre)f.titre.value=d.titre;if(d.description)f.description.value=d.description;if(d.priorite)f.priorite.value=d.priorite;if(d.categorie)f.categorie.value=d.categorie;if(d.temps_estime)f.temps_estime.value=d.temps_estime;msg.textContent='✅ FOUATI a rempli la tâche — ajustez puis assignez.';
+}).catch(function(e){btn.disabled=false;msg.textContent='⚠️ FOUATI injoignable (réseau / serveur non redémarré ?).';});}
 var TK_EST={{ estimations|tojson if estimations else '{}' }};
 (function(){var sel=document.querySelector('#newTacheM select[name=categorie]');var hint=document.getElementById('tkEstHint');var inp=document.getElementById('tkTempsEst');if(sel){sel.addEventListener('change',function(){var v=TK_EST[sel.value];if(v){hint.textContent='🤖 ~'+v+'h en moyenne';if(inp&&!inp.value)inp.value=v+'h';}else{hint.textContent='';}});}})();
 document.addEventListener('click',function(e){var m=document.getElementById('expMenu');if(m&&!e.target.closest('#expMenu')&&!(e.target.textContent||'').includes('Exporter'))m.style.display='none';else if(m&&(e.target.textContent||'').includes('Exporter'))m.style.display=m.style.display==='block'?'none':'block';});
