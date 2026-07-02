@@ -4770,6 +4770,11 @@ def _get_my_active_projects(user_id, user_role):
         return []
 
 
+# v170 : cache court (TTL) des variables globales (badges/compteurs) par utilisateur —
+# le context processor ouvrait ~17 connexions SQLite À CHAQUE page, cause majeure de lenteur.
+_CTX_CACHE = {}
+_CTX_TTL = 20  # secondes
+
 @app.context_processor
 def inject_globals():
     """Injecte les variables globales dans tous les templates."""
@@ -4787,6 +4792,13 @@ def inject_globals():
             ctx['current_user'] = user
             ctx['permissions'] = perms
             ctx['user_role'] = user['role']
+            ctx['can_edit'] = lambda module: (module + '_edit') in perms or 'admin' in perms
+            # v170 : servir les badges/compteurs depuis le cache si récent (évite ~17 connexions)
+            _now_ctx = time.time()
+            _cc = _CTX_CACHE.get(user['id'])
+            if _cc and _cc[0] > _now_ctx and not request.args.get('_nocache'):
+                ctx.update(_cc[1])
+                return ctx
             # v163 : taux de TVA par défaut configuré par l'admin (créances → paramètres)
             try:
                 from models import get_db as _tvdb
@@ -28057,32 +28069,51 @@ def taches_ia_suggest():
     api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
     if not api_key:
         return jsonify({'ok': False, 'error': "FOUATI n'est pas encore activé (clé API manquante). L'assistant heuristique reste disponible."})
-    try:
-        import requests as _rq, json as _json
-        model = os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001')
-        cats = ", ".join(TACHE_CATEGORIES)
-        sys = ("Tu es FOUATI, l'assistant RH de WannyGest qui rédige des tâches professionnelles claires et actionnables en français. "
-               "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour, avec les clés : "
-               "titre (court), description (consignes concrètes), priorite (faible|normale|haute|urgente), "
-               f"categorie (une parmi: {cats}), temps_estime (ex: '2h').")
-        r = _rq.post('https://api.anthropic.com/v1/messages',
-            headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
-            data=_json.dumps({'model': model, 'max_tokens': 600,
-                'system': sys, 'messages': [{'role': 'user', 'content': brief[:2000]}]}), timeout=25)
-        if r.status_code != 200:
-            return jsonify({'ok': False, 'error': f"FOUATI indisponible ({r.status_code})."})
-        txt = ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text').strip()
-        # extraire le JSON
-        import re as _re2
-        m = _re2.search(r'\{.*\}', txt, _re2.S)
-        obj = _json.loads(m.group(0)) if m else {}
-        prio = (obj.get('priorite') or 'normale').lower()
-        if prio not in TACHE_PRIORITES: prio = 'normale'
-        return jsonify({'ok': True, 'titre': obj.get('titre', ''), 'description': obj.get('description', ''),
-            'priorite': prio, 'categorie': obj.get('categorie', ''), 'temps_estime': obj.get('temps_estime', '')})
-    except Exception as _e:
-        print(f"[v169] ia err: {_e}", flush=True)
-        return jsonify({'ok': False, 'error': "Erreur de FOUATI (assistant IA)."})
+    import requests as _rq, json as _json
+    model = os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001')
+    cats = ", ".join(TACHE_CATEGORIES)
+    sys = ("Tu es FOUATI, l'assistant RH de WannyGest qui rédige des tâches professionnelles claires et actionnables en français. "
+           "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour, avec les clés : "
+           "titre (court), description (consignes concrètes), priorite (faible|normale|haute|urgente), "
+           f"categorie (une parmi: {cats}), temps_estime (ex: '2h').")
+    payload = _json.dumps({'model': model, 'max_tokens': 600,
+        'system': sys, 'messages': [{'role': 'user', 'content': brief[:2000]}]})
+    # v169d : 1 retry sur échec réseau transitoire + message d'erreur DIAGNOSTIQUE
+    # (le message générique masquait la vraie cause : clé invalide, crédit épuisé, réseau bloqué...).
+    last_err = None
+    for _attempt in range(2):
+        try:
+            r = _rq.post('https://api.anthropic.com/v1/messages',
+                headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+                data=payload, timeout=30)
+            if r.status_code != 200:
+                # Remonter le détail de l'API Anthropic (type d'erreur) sans exposer la clé.
+                _detail = ''
+                try: _detail = (r.json().get('error', {}) or {}).get('message', '')[:160]
+                except: _detail = (r.text or '')[:160]
+                print(f"[v169] FOUATI HTTP {r.status_code}: {_detail}", flush=True)
+                _hint = {401: "clé API invalide", 400: "requête refusée", 429: "quota/limite atteint",
+                         529: "service surchargé"}.get(r.status_code, "")
+                return jsonify({'ok': False, 'error': f"FOUATI indisponible (HTTP {r.status_code}{' — '+_hint if _hint else ''}). {_detail}".strip()})
+            txt = ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text').strip()
+            import re as _re2
+            m = _re2.search(r'\{.*\}', txt, _re2.S)
+            obj = _json.loads(m.group(0)) if m else {}
+            prio = (obj.get('priorite') or 'normale').lower()
+            if prio not in TACHE_PRIORITES: prio = 'normale'
+            return jsonify({'ok': True, 'titre': obj.get('titre', ''), 'description': obj.get('description', ''),
+                'priorite': prio, 'categorie': obj.get('categorie', ''), 'temps_estime': obj.get('temps_estime', '')})
+        except _rq.exceptions.Timeout:
+            last_err = "délai dépassé (le service met trop de temps à répondre)"
+            continue
+        except _rq.exceptions.ConnectionError:
+            last_err = "connexion impossible à api.anthropic.com (réseau/pare-feu du serveur)"
+            continue
+        except Exception as _e:
+            last_err = str(_e)[:160]
+            print(f"[v169] ia err: {_e}", flush=True)
+            break
+    return jsonify({'ok': False, 'error': f"Erreur de FOUATI : {last_err}" if last_err else "Erreur de FOUATI (assistant IA)."})
 
 
 @app.route('/gestion-taches/export.<fmt>')
