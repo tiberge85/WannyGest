@@ -27553,12 +27553,26 @@ def taches_dashboard():
         if est: estimations[cat] = est
     absents = _tache_users_absents_aujourdhui(conn)
     conn.close()
+
+    # v169d : rangement PAR MOIS (par échéance, sinon date de création) — sections repliables
+    _MOIS_FR = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août',
+                'Septembre', 'Octobre', 'Novembre', 'Décembre']
+    def _mlabel(k):
+        try: y, m = k.split('-'); return f"{_MOIS_FR[int(m)]} {y}"
+        except Exception: return "Sans échéance"
+    _grp = {}
+    for t in taches:
+        k = (t.get('date_limite') or t.get('created_at') or '')[:7]
+        _grp.setdefault(k, []).append(t)
+    taches_by_month = [(_mlabel(k), rs) for k, rs in sorted(_grp.items(), key=lambda kv: kv[0], reverse=True)]
+
     return render_template('taches_dashboard.html', page='taches', taches=taches,
+        taches_by_month=taches_by_month,
         employes=employes, departements=departements, categories=TACHE_CATEGORIES,
         priorites=TACHE_PRIORITES, statuts=TACHE_STATUTS, estimations=estimations,
         a_risque=a_risque[:12], absents=list(absents),
         stats={'total': total, 'terminees': terminees, 'en_retard': en_retard, 'taux': taux},
-        can_manage=_tache_can_manage(user),
+        can_manage=_tache_can_manage(user), can_edit=_tache_can_edit(user),
         q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date, f_retard=f_retard)
 
 
@@ -27658,6 +27672,76 @@ def tache_creer():
     return redirect(f'/gestion-taches/{tid}')
 
 
+# v169d : modifier / supprimer une tâche — réservé ADMIN / DG / RH
+_TACHE_EDIT_ROLES = ('admin', 'dg', 'rh', 'directrice_rh', 'directeur')
+
+def _tache_can_edit(user):
+    return bool(user) and user['role'] in _TACHE_EDIT_ROLES
+
+
+@app.route('/gestion-taches/<int:tid>/modifier', methods=['POST'])
+@login_required
+def tache_modifier(tid):
+    user = get_user_by_id(session['user_id'])
+    if not _tache_can_edit(user):
+        flash("⛔ Seuls l'admin, le DG et la RH peuvent modifier une tâche.", "error")
+        return redirect(f'/gestion-taches/{tid}')
+    titre = (request.form.get('titre', '') or '').strip()
+    if not titre:
+        flash("Le titre est obligatoire.", "error"); return redirect(f'/gestion-taches/{tid}')
+    prio = (request.form.get('priorite', 'normale') or 'normale').strip()
+    if prio not in TACHE_PRIORITES: prio = 'normale'
+    try: points = int(request.form.get('points', 10) or 10)
+    except Exception: points = 10
+    conn = _gdb()
+    if not conn.execute("SELECT 1 FROM taches WHERE id=?", (tid,)).fetchone():
+        conn.close(); flash("Tâche introuvable.", "error"); return redirect('/gestion-taches')
+    conn.execute("""UPDATE taches SET titre=?, description=?, departement=?, categorie=?, priorite=?,
+        date_limite=?, heure_limite=?, temps_estime=?, localisation=?, points=?, updated_at=datetime('now')
+        WHERE id=?""",
+        (titre, (request.form.get('description', '') or '').strip(),
+         (request.form.get('departement', '') or '').strip(),
+         (request.form.get('categorie', '') or '').strip(), prio,
+         (request.form.get('date_limite', '') or '').strip(),
+         (request.form.get('heure_limite', '') or '').strip(),
+         (request.form.get('temps_estime', '') or '').strip(),
+         (request.form.get('localisation', '') or '').strip(), points, tid))
+    _tache_log(conn, tid, 'modification', f"Tâche modifiée par {user['full_name']}")
+    conn.commit(); conn.close()
+    flash("✅ Tâche modifiée.", "success")
+    return redirect(f'/gestion-taches/{tid}')
+
+
+@app.route('/gestion-taches/<int:tid>/supprimer', methods=['POST'])
+@login_required
+def tache_supprimer(tid):
+    user = get_user_by_id(session['user_id'])
+    if not _tache_can_edit(user):
+        flash("⛔ Seuls l'admin, le DG et la RH peuvent supprimer une tâche.", "error")
+        return redirect(f'/gestion-taches/{tid}')
+    conn = _gdb()
+    row = conn.execute("SELECT titre FROM taches WHERE id=?", (tid,)).fetchone()
+    if not row:
+        conn.close(); flash("Tâche introuvable.", "error"); return redirect('/gestion-taches')
+    titre = row['titre']
+    for tb in ('tache_events', 'tache_assignees', 'tache_commentaires', 'tache_fichiers'):
+        try: conn.execute(f"DELETE FROM {tb} WHERE tache_id=?", (tid,))
+        except Exception: pass
+    conn.execute("DELETE FROM taches WHERE id=?", (tid,))
+    conn.commit(); conn.close()
+    # supprimer les fichiers du disque
+    try:
+        import shutil as _sh
+        _d = os.path.join(app.config['FILES_FOLDER'], 'taches', str(tid))
+        if os.path.isdir(_d): _sh.rmtree(_d, ignore_errors=True)
+    except Exception: pass
+    try:
+        log_activity(session['user_id'], user['full_name'], 'Tache', f"Tâche supprimée : {titre}", request.remote_addr)
+    except Exception: pass
+    flash(f"🗑️ Tâche « {titre} » supprimée.", "success")
+    return redirect('/gestion-taches')
+
+
 @app.route('/gestion-taches/<int:tid>')
 @login_required
 def tache_detail(tid):
@@ -27682,7 +27766,8 @@ def tache_detail(tid):
     t['is_late'] = _tache_is_late(t)
     return render_template('tache_detail.html', page='taches', t=t, assignees=assignees,
         comments=comments, files=files, events=events, can_manage=can_manage,
-        is_assignee=is_assignee, my_assignee=my_assignee, statuts=TACHE_STATUTS)
+        is_assignee=is_assignee, my_assignee=my_assignee, statuts=TACHE_STATUTS,
+        can_edit=_tache_can_edit(user), priorites=TACHE_PRIORITES, categories=TACHE_CATEGORIES)
 
 
 @app.route('/gestion-taches/<int:tid>/action', methods=['POST'])
@@ -27971,12 +28056,12 @@ def taches_ia_suggest():
         return jsonify({'ok': False, 'error': 'Décrivez le besoin.'})
     api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
     if not api_key:
-        return jsonify({'ok': False, 'error': "IA non configurée (ANTHROPIC_API_KEY manquante). L'assistant heuristique reste disponible."})
+        return jsonify({'ok': False, 'error': "FOUATI n'est pas encore activé (clé API manquante). L'assistant heuristique reste disponible."})
     try:
         import requests as _rq, json as _json
         model = os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001')
         cats = ", ".join(TACHE_CATEGORIES)
-        sys = ("Tu es un assistant RH qui rédige des tâches professionnelles claires et actionnables en français. "
+        sys = ("Tu es FOUATI, l'assistant RH de WannyGest qui rédige des tâches professionnelles claires et actionnables en français. "
                "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour, avec les clés : "
                "titre (court), description (consignes concrètes), priorite (faible|normale|haute|urgente), "
                f"categorie (une parmi: {cats}), temps_estime (ex: '2h').")
@@ -27985,7 +28070,7 @@ def taches_ia_suggest():
             data=_json.dumps({'model': model, 'max_tokens': 600,
                 'system': sys, 'messages': [{'role': 'user', 'content': brief[:2000]}]}), timeout=25)
         if r.status_code != 200:
-            return jsonify({'ok': False, 'error': f"IA indisponible ({r.status_code})."})
+            return jsonify({'ok': False, 'error': f"FOUATI indisponible ({r.status_code})."})
         txt = ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text').strip()
         # extraire le JSON
         import re as _re2
@@ -27997,7 +28082,7 @@ def taches_ia_suggest():
             'priorite': prio, 'categorie': obj.get('categorie', ''), 'temps_estime': obj.get('temps_estime', '')})
     except Exception as _e:
         print(f"[v169] ia err: {_e}", flush=True)
-        return jsonify({'ok': False, 'error': "Erreur de l'assistant IA."})
+        return jsonify({'ok': False, 'error': "Erreur de FOUATI (assistant IA)."})
 
 
 @app.route('/gestion-taches/export.<fmt>')

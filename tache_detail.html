@@ -11,7 +11,40 @@
 </style>
 
 <div class="page-header"><h1>✅ {{ t.titre }}</h1>
-<a href="{% if can_manage %}/gestion-taches{% else %}/mes-taches{% endif %}" class="btn btn-outline btn-sm">← Retour</a></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+{% if can_edit %}
+<button class="btn btn-sm" style="background:#1565c0;color:#fff" onclick="document.getElementById('editTacheM').style.display='flex'">✏️ Modifier</button>
+<form method="post" action="/gestion-taches/{{ t.id }}/supprimer" onsubmit="return confirm('Supprimer définitivement cette tâche et son historique ?')" style="display:inline"><button class="btn btn-sm" style="background:#c53030;color:#fff">🗑️ Supprimer</button></form>
+{% endif %}
+<a href="{% if can_manage %}/gestion-taches{% else %}/mes-taches{% endif %}" class="btn btn-outline btn-sm">← Retour</a>
+</div></div>
+
+{% if can_edit %}
+<div id="editTacheM" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:flex-start;justify-content:center;overflow:auto;padding:20px">
+<div style="background:#fff;border-radius:14px;padding:22px;max-width:600px;width:100%;margin:auto">
+    <h3 style="margin:0 0 10px;color:#1a3a5c">✏️ Modifier la tâche</h3>
+    <form method="post" action="/gestion-taches/{{ t.id }}/modifier">
+        <label style="font-size:11px;font-weight:600;color:#555">Titre *</label>
+        <input type="text" name="titre" value="{{ t.titre }}" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px">
+        <label style="font-size:11px;font-weight:600;color:#555;display:block;margin-top:8px">Description</label>
+        <textarea name="description" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px">{{ t.description or '' }}</textarea>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+            <div><label style="font-size:11px;font-weight:600;color:#555">Priorité</label><select name="priorite" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px">{% for k,v in priorites.items() %}<option value="{{ k }}" {% if t.priorite==k %}selected{% endif %}>{{ v[0] }}</option>{% endfor %}</select></div>
+            <div><label style="font-size:11px;font-weight:600;color:#555">Catégorie</label><select name="categorie" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"><option value="">—</option>{% for c in categories %}<option value="{{ c }}" {% if t.categorie==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
+            <div><label style="font-size:11px;font-weight:600;color:#555">Département</label><input type="text" name="departement" value="{{ t.departement or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></div>
+            <div><label style="font-size:11px;font-weight:600;color:#555">Points</label><input type="number" name="points" value="{{ t.points or 10 }}" min="0" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></div>
+            <div><label style="font-size:11px;font-weight:600;color:#555">Date limite</label><input type="date" name="date_limite" value="{{ t.date_limite or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></div>
+            <div><label style="font-size:11px;font-weight:600;color:#555">Heure limite</label><input type="time" name="heure_limite" value="{{ t.heure_limite or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></div>
+            <div><label style="font-size:11px;font-weight:600;color:#555">Temps estimé</label><input type="text" name="temps_estime" value="{{ t.temps_estime or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></div>
+            <div><label style="font-size:11px;font-weight:600;color:#555">Localisation</label><input type="text" name="localisation" value="{{ t.localisation or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px"></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('editTacheM').style.display='none'">Annuler</button>
+            <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
+        </div>
+    </form>
+</div></div>
+{% endif %}
 
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
     <span class="td-pill" style="background:{{ t.prio_color }}">🚩 {{ t.prio_label }}</span>
