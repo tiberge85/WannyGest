@@ -10,6 +10,23 @@
 </style>
 <div class="page-header"><h1>✅ Mes tâches</h1></div>
 
+{% if ma_perf %}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px">
+    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-top:3px solid #1A7A6D;text-align:center">
+        <div style="font-size:22px;font-weight:800;color:{% if ma_perf.taux>=80 %}#2e7d32{% elif ma_perf.taux>=50 %}#e8672a{% else %}#c53030{% endif %}">{{ ma_perf.taux }}%</div>
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Taux réalisation</div></div>
+    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#1a3a5c">{{ ma_perf.done }}</div>
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Terminées</div></div>
+    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ ma_perf.taux_delai }}%</div>
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Dans les délais</div></div>
+    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#7b1fa2">{{ ma_perf.points }}</div>
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Points</div></div>
+</div>
+{% endif %}
+
 {% macro card(t) %}
 <div class="mt-card" style="border-left-color:{{ t.prio_color }}">
     <div style="flex:1;min-width:200px">

@@ -971,6 +971,11 @@ try:
         for _p in ('taches_view', 'taches_manage'):
             try: _v169.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, ?)", (_role, _p))
             except: pass
+    # v169b : récurrence + objectif de performance
+    for _col, _ddl in [('recurrence', "TEXT DEFAULT 'aucune'"), ('recurrence_jusqu', "TEXT"),
+                       ('is_template', "INTEGER DEFAULT 0"), ('recurrence_parent', "INTEGER")]:
+        try: _v169.execute(f"ALTER TABLE taches ADD COLUMN {_col} {_ddl}")
+        except: pass
     _v169.commit(); _v169.close()
     print("[v169] Module Gestion des tâches — tables + permissions OK", flush=True)
 except Exception as _e:
@@ -5368,6 +5373,8 @@ def _block_cross_site_get_mutations():
 def _daily_backup_hook():
     """Déclenche au plus 1 sauvegarde/jour (best-effort, ne bloque jamais la requête)."""
     _run_daily_backup_if_due()
+    try: _taches_generer_recurrentes()  # v169b : génère les tâches récurrentes du jour
+    except Exception: pass
 
 @app.before_request
 def check_session_timeout():
@@ -27339,6 +27346,127 @@ def _tache_save_files(conn, tid, field='fichiers'):
     return saved
 
 
+# ---- Phase 2 : SMS best-effort (Twilio) ----
+def _tache_send_sms(user_id, body):
+    try:
+        sid = get_notif_config('twilio_sid', ''); token = get_notif_config('twilio_token', '')
+        frm = get_notif_config('twilio_sms_from', '') or get_notif_config('sms_from', '')
+        if not (sid and token and frm):
+            return False
+        conn = _gdb(); ur = conn.execute("SELECT phone FROM users WHERE id=?", (user_id,)).fetchone(); conn.close()
+        to = _normalize_phone_e164(ur['phone']) if ur and ur['phone'] else ''
+        if not to:
+            return False
+        import urllib.request, urllib.parse, base64
+        data = urllib.parse.urlencode({'From': frm, 'To': to, 'Body': body[:300]}).encode()
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+        req = urllib.request.Request(url, data=data)
+        req.add_header('Authorization', 'Basic ' + base64.b64encode(f"{sid}:{token}".encode()).decode())
+        urllib.request.urlopen(req, timeout=8)
+        return True
+    except Exception as _e:
+        print(f"[v169] sms err: {_e}", flush=True)
+        return False
+
+
+# ---- Phase 2 : lien présence — un employé absent (congé/absence approuvé) aujourd'hui ----
+def _tache_users_absents_aujourdhui(conn):
+    """Retourne l'ensemble des user_id absents aujourd'hui (via table absences, matché par nom d'employé)."""
+    absents = set()
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        rows = conn.execute("""SELECT e.first_name||' '||e.last_name AS nom
+            FROM absences a JOIN employees e ON e.id=a.employee_id
+            WHERE a.date=? AND LOWER(COALESCE(a.status,'')) IN ('approuve','approuvee','validee','valide','approved','')""",
+            (today,)).fetchall()
+        noms = {(_r['nom'] or '').strip().lower() for _r in rows if _r['nom']}
+        if noms:
+            for u in conn.execute("SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1").fetchall():
+                if (u['full_name'] or '').strip().lower() in noms:
+                    absents.add(u['id'])
+    except Exception:
+        pass
+    return absents
+
+
+# ---- Phase 2 : estimation de durée (moyenne historique par catégorie) ----
+def _tache_estimation(conn, categorie):
+    try:
+        rows = conn.execute("""SELECT a.started_at, a.done_at FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+            WHERE t.categorie=? AND a.started_at IS NOT NULL AND a.done_at IS NOT NULL""", (categorie,)).fetchall()
+        durs = []
+        for r in rows:
+            try:
+                d = (datetime.strptime(r['done_at'][:19], '%Y-%m-%d %H:%M:%S') - datetime.strptime(r['started_at'][:19], '%Y-%m-%d %H:%M:%S')).total_seconds() / 3600.0
+                if 0 < d < 240: durs.append(d)
+            except Exception: pass
+        if len(durs) >= 3:
+            return round(sum(durs) / len(durs), 1)
+    except Exception: pass
+    return None
+
+
+# ---- Phase 2 : génération des instances de tâches récurrentes (1x/jour) ----
+_taches_recur_check = [0.0]
+def _taches_generer_recurrentes():
+    try:
+        now_ts = time.time()
+        if now_ts - _taches_recur_check[0] < 3600:
+            return
+        _taches_recur_check[0] = now_ts
+        from datetime import date as _date
+        today = _date.today(); today_s = today.isoformat()
+        conn = _gdb()
+        try:
+            conn.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('taches_recur_date','')")
+            cur = conn.execute("UPDATE app_settings SET value=? WHERE key='taches_recur_date' AND value<>?", (today_s, today_s))
+            conn.commit()
+            if not (cur.rowcount and cur.rowcount > 0):
+                conn.close(); return
+            templates = [dict(r) for r in conn.execute(
+                "SELECT * FROM taches WHERE COALESCE(is_template,0)=1 AND COALESCE(recurrence,'aucune') IN ('quotidienne','hebdomadaire','mensuelle')").fetchall()]
+            for tpl in templates:
+                if tpl.get('recurrence_jusqu') and tpl['recurrence_jusqu'] < today_s:
+                    continue
+                anchor = None
+                try: anchor = datetime.strptime((tpl.get('date_limite') or tpl['created_at'][:10]), '%Y-%m-%d')
+                except Exception:
+                    try: anchor = datetime.strptime(tpl['created_at'][:10], '%Y-%m-%d')
+                    except Exception: anchor = datetime.now()
+                rec = tpl['recurrence']
+                match = (rec == 'quotidienne') or (rec == 'hebdomadaire' and today.weekday() == anchor.weekday()) or (rec == 'mensuelle' and today.day == anchor.day)
+                if not match:
+                    continue
+                if tpl.get('date_limite') == today_s:
+                    continue  # le modèle sert lui-même d'occurrence pour son propre jour
+                if conn.execute("SELECT 1 FROM taches WHERE recurrence_parent=? AND date_limite=?", (tpl['id'], today_s)).fetchone():
+                    continue
+                curi = conn.execute("""INSERT INTO taches
+                    (titre, description, departement, categorie, priorite, statut, date_limite, heure_limite,
+                     temps_estime, localisation, cible_type, created_by, created_by_name, points,
+                     recurrence, is_template, recurrence_parent)
+                    VALUES (?,?,?,?,?, 'nouvelle', ?,?,?,?,?,?,?,?, 'aucune', 0, ?)""",
+                    (tpl['titre'], tpl['description'], tpl['departement'], tpl['categorie'], tpl['priorite'],
+                     today_s, tpl.get('heure_limite'), tpl.get('temps_estime'), tpl.get('localisation'),
+                     tpl.get('cible_type'), tpl.get('created_by'), tpl.get('created_by_name'), tpl.get('points') or 10, tpl['id']))
+                new_id = curi.lastrowid
+                for a in conn.execute("SELECT user_id,user_name FROM tache_assignees WHERE tache_id=?", (tpl['id'],)).fetchall():
+                    conn.execute("INSERT INTO tache_assignees (tache_id,user_id,user_name,statut) VALUES (?,?,?, 'nouvelle')",
+                                 (new_id, a['user_id'], a['user_name']))
+                    try:
+                        notify_user(a['user_id'], f"🔁 Tâche récurrente : {tpl['titre']}",
+                                    "Nouvelle occurrence à réaliser aujourd'hui.", link=f"/gestion-taches/{new_id}",
+                                    type='tache', module='taches', icon='🔁')
+                    except Exception: pass
+                conn.execute("INSERT INTO tache_events (tache_id,user_id,user_name,action,detail) VALUES (?,?,?,?,?)",
+                             (new_id, tpl.get('created_by'), tpl.get('created_by_name'), 'recurrence', f"Générée depuis le modèle #{tpl['id']}"))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as _e:
+        print(f"[v169] recur gen err: {_e}", flush=True)
+
+
 @app.route('/gestion-taches')
 @permission_required_any('taches_view', 'taches_manage', 'admin')
 def taches_dashboard():
@@ -27377,17 +27505,38 @@ def taches_dashboard():
     # KPIs (globaux, non filtrés)
     total = conn.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
     terminees = conn.execute("SELECT COUNT(*) FROM taches WHERE statut='terminee'").fetchone()[0]
-    all_open = [dict(r) for r in conn.execute("SELECT id,date_limite,heure_limite,statut FROM taches").fetchall()]
+    all_open = [dict(r) for r in conn.execute("SELECT id,titre,date_limite,heure_limite,statut FROM taches").fetchall()]
     en_retard = sum(1 for t in all_open if _tache_is_late(t))
     taux = round(terminees * 100.0 / total, 1) if total else 0
-    # Employés (pour filtre + attribution)
+
+    # v169b : ASSISTANT — tâches à risque (en retard OU échéance < 24h et pas encore terminées)
+    a_risque = []
+    _now = datetime.now()
+    for t in all_open:
+        if t['statut'] in ('terminee', 'annulee', 'refusee'):
+            continue
+        dl = _tache_deadline_dt(t)
+        if not dl:
+            continue
+        h = (dl - _now).total_seconds() / 3600.0
+        if h < 24:  # déjà en retard (h<0) ou imminent
+            a_risque.append({'id': t['id'], 'titre': t['titre'], 'heures': round(h, 1), 'late': h < 0})
+    a_risque.sort(key=lambda x: x['heures'])
+
+    # Employés (pour filtre + attribution) + estimations par catégorie (assistant durée)
     employes = [dict(r) for r in conn.execute(
         "SELECT id, full_name, COALESCE(department,'') as department FROM users WHERE COALESCE(is_active,1)=1 ORDER BY full_name").fetchall()]
     departements = sorted({e['department'] for e in employes if e['department']})
+    estimations = {}
+    for cat in TACHE_CATEGORIES:
+        est = _tache_estimation(conn, cat)
+        if est: estimations[cat] = est
+    absents = _tache_users_absents_aujourdhui(conn)
     conn.close()
     return render_template('taches_dashboard.html', page='taches', taches=taches,
         employes=employes, departements=departements, categories=TACHE_CATEGORIES,
-        priorites=TACHE_PRIORITES, statuts=TACHE_STATUTS,
+        priorites=TACHE_PRIORITES, statuts=TACHE_STATUTS, estimations=estimations,
+        a_risque=a_risque[:12], absents=list(absents),
         stats={'total': total, 'terminees': terminees, 'en_retard': en_retard, 'taux': taux},
         can_manage=_tache_can_manage(user),
         q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date)
@@ -27410,18 +27559,24 @@ def tache_creer():
         points = int(request.form.get('points', 10) or 10)
     except Exception:
         points = 10
+    # v169b : récurrence
+    recurrence = (request.form.get('recurrence', 'aucune') or 'aucune').strip()
+    if recurrence not in ('aucune', 'quotidienne', 'hebdomadaire', 'mensuelle'):
+        recurrence = 'aucune'
+    recurrence_jusqu = (request.form.get('recurrence_jusqu', '') or '').strip() or None
+    is_template = 1 if recurrence != 'aucune' else 0
     cur = conn.execute("""INSERT INTO taches
         (titre, description, departement, categorie, priorite, statut,
          date_limite, heure_limite, temps_estime, localisation, cible_type,
-         created_by, created_by_name, points)
-        VALUES (?,?,?,?,?, 'nouvelle', ?,?,?,?,?,?,?,?)""",
+         created_by, created_by_name, points, recurrence, recurrence_jusqu, is_template)
+        VALUES (?,?,?,?,?, 'nouvelle', ?,?,?,?,?,?,?,?,?,?,?)""",
         (titre, (request.form.get('description', '') or '').strip(), departement,
          (request.form.get('categorie', '') or '').strip(), prio,
          (request.form.get('date_limite', '') or '').strip(),
          (request.form.get('heure_limite', '') or '').strip(),
          (request.form.get('temps_estime', '') or '').strip(),
          (request.form.get('localisation', '') or '').strip(),
-         '', user['id'], user['full_name'], points))
+         '', user['id'], user['full_name'], points, recurrence, recurrence_jusqu, is_template))
     tid = cur.lastrowid
     # Cibles : utilisateurs sélectionnés + option « tout le département »
     target_ids = set()
@@ -27441,9 +27596,14 @@ def tache_creer():
         conn.execute("INSERT INTO tache_assignees (tache_id,user_id,user_name,statut) VALUES (?,?,?, 'nouvelle')",
                      (tid, uid, ur['full_name'] if ur else '?'))
     _tache_save_files(conn, tid, 'fichiers')
-    _tache_log(conn, tid, 'creation', f"Tâche créée et assignée à {len(target_ids)} employé(s)")
+    _tache_log(conn, tid, 'creation', f"Tâche créée et assignée à {len(target_ids)} employé(s)"
+               + (f" · récurrence {recurrence}" if recurrence != 'aucune' else ''))
+    # v169b : alerte présence — employés absents aujourd'hui
+    absents = _tache_users_absents_aujourdhui(conn)
+    noms_absents = [conn.execute("SELECT full_name FROM users WHERE id=?", (u,)).fetchone()['full_name']
+                    for u in target_ids if u in absents]
     conn.commit(); conn.close()
-    # Notifications aux assignés
+    # Notifications aux assignés (interne/push/email + SMS best-effort)
     _dl = (request.form.get('date_limite', '') or '').strip()
     for uid in target_ids:
         try:
@@ -27452,7 +27612,12 @@ def tache_creer():
                         link=f"/gestion-taches/{tid}", type='tache', module='taches',
                         priority='high' if prio in ('haute', 'urgente') else 'normal', icon='✅')
         except Exception: pass
-    flash(f"✅ Tâche « {titre} » créée et assignée.", "success")
+        try: _tache_send_sms(uid, f"WannyGest — Nouvelle tache: {titre}." + (f" Echeance {_dl}." if _dl else ""))
+        except Exception: pass
+    if noms_absents:
+        flash("⚠️ Attention : ces employés sont notés ABSENTS aujourd'hui — pensez à réaffecter : "
+              + ", ".join(noms_absents), "error")
+    flash(f"✅ Tâche « {titre} » créée et assignée{' (récurrente)' if recurrence != 'aucune' else ''}.", "success")
     return redirect(f'/gestion-taches/{tid}')
 
 
@@ -27632,6 +27797,9 @@ def mes_taches():
         FROM taches t JOIN tache_assignees a ON a.tache_id=t.id
         WHERE a.user_id=? ORDER BY t.date_limite IS NULL, t.date_limite, t.heure_limite""",
         (user['id'],)).fetchall()]
+    # v169b : tableau de bord personnel de performance
+    _mp = _tache_perf_stats(conn, "AND a.user_id=?", (user['id'],))
+    ma_perf = _mp[0] if _mp else {'assignees': 0, 'done': 0, 'on_time': 0, 'late': 0, 'points': 0, 'taux': 0, 'taux_delai': 0, 'temps_moyen': None}
     conn.close()
     today = datetime.now().strftime('%Y-%m-%d')
     du_jour, a_venir, en_retard, terminees = [], [], [], []
@@ -27647,7 +27815,7 @@ def mes_taches():
         else:
             a_venir.append(t)
     return render_template('mes_taches.html', page='mes_taches',
-        du_jour=du_jour, a_venir=a_venir, en_retard=en_retard, terminees=terminees[:30])
+        du_jour=du_jour, a_venir=a_venir, en_retard=en_retard, terminees=terminees[:30], ma_perf=ma_perf)
 
 
 @app.route('/gestion-taches/calendrier')
@@ -27702,6 +27870,58 @@ def taches_classement():
         if b['done'] and b['on_time'] == b['done'] and b['done'] >= 5: b['badges'].append('💎 Excellence')
         if b['on_time'] >= 5: b['badges'].append('🔥 Série')
     return render_template('taches_classement.html', page='taches', mois=mois, ranking=ranking)
+
+
+def _tache_perf_stats(conn, where_extra='', params=()):
+    """Calcule les indicateurs de performance par employé (pour KPI RH / entretiens)."""
+    rows = [dict(r) for r in conn.execute(f"""
+        SELECT a.user_id, a.user_name, a.statut AS a_statut, a.on_time, a.started_at, a.done_at,
+               t.statut AS t_statut, t.points, t.validated_at, t.created_at
+        FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+        WHERE 1=1 {where_extra}""", params).fetchall()]
+    perf = {}
+    for r in rows:
+        p = perf.setdefault(r['user_id'], {'user_id': r['user_id'], 'name': r['user_name'],
+            'assignees': 0, 'done': 0, 'on_time': 0, 'late': 0, 'points': 0, '_durs': []})
+        p['assignees'] += 1
+        if r['a_statut'] == 'terminee':
+            p['done'] += 1
+            if r['on_time'] == 1:
+                p['on_time'] += 1; p['points'] += (r['points'] or 0)
+            elif r['on_time'] == 0:
+                p['late'] += 1
+            if r['started_at'] and r['done_at']:
+                try:
+                    d = (datetime.strptime(r['done_at'][:19], '%Y-%m-%d %H:%M:%S') - datetime.strptime(r['started_at'][:19], '%Y-%m-%d %H:%M:%S')).total_seconds() / 3600.0
+                    if 0 < d < 240: p['_durs'].append(d)
+                except Exception: pass
+    out = []
+    for p in perf.values():
+        p['taux'] = round(p['done'] * 100.0 / p['assignees'], 1) if p['assignees'] else 0
+        p['taux_delai'] = round(p['on_time'] * 100.0 / p['done'], 1) if p['done'] else 0
+        p['temps_moyen'] = round(sum(p['_durs']) / len(p['_durs']), 1) if p['_durs'] else None
+        del p['_durs']
+        out.append(p)
+    out.sort(key=lambda x: (-x['taux'], -x['done']))
+    return out
+
+
+@app.route('/gestion-taches/performance')
+@permission_required_any('taches_view', 'taches_manage', 'admin')
+def taches_performance():
+    """KPIs RH avancés par employé (utilisables lors des entretiens annuels)."""
+    conn = _gdb()
+    periode = (request.args.get('periode', '') or 'mois').strip()
+    now = datetime.now()
+    if periode == 'annee':
+        wx, pr, lbl = "AND strftime('%Y', COALESCE(t.validated_at, t.created_at))=?", (now.strftime('%Y'),), f"Année {now.strftime('%Y')}"
+    elif periode == 'tout':
+        wx, pr, lbl = "", (), "Depuis le début"
+    else:
+        wx, pr, lbl = "AND strftime('%Y-%m', COALESCE(t.validated_at, t.created_at))=?", (now.strftime('%Y-%m'),), f"Mois {now.strftime('%Y-%m')}"
+    perf = _tache_perf_stats(conn, wx, pr)
+    conn.close()
+    return render_template('taches_performance.html', page='taches', perf=perf, periode=periode, libelle=lbl)
 
 
 @app.route('/gestion-taches/export.<fmt>')

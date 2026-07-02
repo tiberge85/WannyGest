@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Performance des tâches{% endblock %}
+{% block content %}
+<div class="page-header"><h1>📊 Performance & KPIs RH</h1>
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <a href="/gestion-taches/performance?periode=mois" class="btn btn-sm {% if periode=='mois' %}btn-primary{% else %}btn-outline{% endif %}">Mois</a>
+    <a href="/gestion-taches/performance?periode=annee" class="btn btn-sm {% if periode=='annee' %}btn-primary{% else %}btn-outline{% endif %}">Année</a>
+    <a href="/gestion-taches/performance?periode=tout" class="btn btn-sm {% if periode=='tout' %}btn-primary{% else %}btn-outline{% endif %}">Tout</a>
+    <a href="/gestion-taches" class="btn btn-outline btn-sm">← Liste</a>
+</div></div>
+<p style="font-size:12px;color:#666;margin:-4px 0 12px">Indicateurs utilisables lors des entretiens annuels — {{ libelle }}.</p>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if perf %}
+<div class="table-wrap"><table style="width:100%;font-size:13px">
+<thead><tr style="background:#1A7A6D;color:#fff">
+    <th style="padding:10px;text-align:left">Employé</th>
+    <th style="text-align:center">Assignées</th><th style="text-align:center">Terminées</th>
+    <th style="text-align:center">Taux réalisation</th><th style="text-align:center">Dans les délais</th>
+    <th style="text-align:center">En retard</th><th style="text-align:center">Temps moyen</th><th style="text-align:center">Points</th>
+</tr></thead>
+<tbody>
+{% for p in perf %}
+<tr style="border-bottom:1px solid #f0f0f0">
+    <td style="padding:10px"><strong>{{ p.name }}</strong></td>
+    <td style="padding:10px;text-align:center">{{ p.assignees }}</td>
+    <td style="padding:10px;text-align:center">{{ p.done }}</td>
+    <td style="padding:10px;text-align:center"><span style="font-weight:800;color:{% if p.taux>=80 %}#2e7d32{% elif p.taux>=50 %}#e8672a{% else %}#c53030{% endif %}">{{ p.taux }}%</span></td>
+    <td style="padding:10px;text-align:center">{{ p.taux_delai }}%</td>
+    <td style="padding:10px;text-align:center;color:#c53030">{{ p.late }}</td>
+    <td style="padding:10px;text-align:center">{% if p.temps_moyen %}{{ p.temps_moyen }}h{% else %}—{% endif %}</td>
+    <td style="padding:10px;text-align:center;font-weight:800;color:#1A7A6D">{{ p.points }}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<div style="padding:40px;text-align:center;color:#999">Aucune donnée de performance pour cette période.</div>
+{% endif %}
+</div></div>
+{% endblock %}

@@ -24,6 +24,7 @@
 <div style="display:flex;gap:6px;flex-wrap:wrap">
     <a href="/gestion-taches/calendrier" class="btn btn-outline btn-sm">📅 Calendrier</a>
     <a href="/gestion-taches/classement" class="btn btn-outline btn-sm">🏆 Classement</a>
+    <a href="/gestion-taches/performance" class="btn btn-outline btn-sm">📊 Performance</a>
     <div style="position:relative;display:inline-block">
         <button class="btn btn-outline btn-sm" onclick="document.getElementById('expMenu').classList.toggle('show2')">⬇️ Exporter</button>
         <div id="expMenu" style="display:none;position:absolute;right:0;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:20;min-width:120px">
@@ -41,6 +42,20 @@
     <div class="tk-card" style="border-top-color:#c53030"><div class="tk-num" style="color:#c53030">{{ stats.en_retard }}</div><div class="tk-lbl">⏰ En retard</div></div>
     <div class="tk-card" style="border-top-color:#e8672a"><div class="tk-num" style="color:#e8672a">{{ stats.taux }}%</div><div class="tk-lbl">Taux d'exécution</div></div>
 </div>
+
+{% if a_risque %}
+<div style="background:#fff8e1;border:1.5px solid #f29f2f;border-radius:12px;padding:12px 14px;margin-bottom:14px">
+    <strong style="color:#b8561f">🤖 Assistant — tâches à risque ({{ a_risque|length }})</strong>
+    <div style="font-size:11px;color:#7a4a00;margin:4px 0 8px">En retard ou échéance imminente (&lt; 24h) et non terminées.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+        {% for r in a_risque %}
+        <a href="/gestion-taches/{{ r.id }}" style="text-decoration:none;background:{% if r.late %}#fde8e8;color:#c53030{% else %}#fff3e0;color:#b8561f{% endif %};border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700">
+            {{ r.titre[:34] }} · {% if r.late %}⏰ retard {{ (-r.heures)|round(0) }}h{% else %}⏳ {{ r.heures|round(0) }}h{% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 <form method="get" action="/gestion-taches" class="tk-filters">
     <div><label style="font-size:11px;color:#666">🔍 Recherche</label><input type="text" name="q" value="{{ q }}" placeholder="Titre, description…"></div>
@@ -60,6 +75,7 @@
             <a href="/gestion-taches/{{ t.id }}" style="font-weight:700;color:#1a3a5c;text-decoration:none;font-size:15px">{{ t.titre }}</a>
             <span class="tk-pill" style="background:{{ t.prio_color }}">{{ t.prio_label }}</span>
             <span class="tk-pill" style="background:{{ t.stat_color }}">{{ t.stat_label }}</span>
+            {% if t.recurrence and t.recurrence != 'aucune' %}<span class="tk-pill" style="background:#7b1fa2">🔁 {{ t.recurrence }}</span>{% endif %}
             {% if t.is_late %}<span class="tk-late">⏰ En retard</span>{% endif %}
         </div>
         <div style="font-size:11px;color:#888;margin-top:4px">
@@ -90,8 +106,12 @@
             <div><label>Heure limite</label><input type="time" name="heure_limite"></div>
         </div>
         <div class="tk-row2">
-            <div><label>Temps estimé</label><input type="text" name="temps_estime" placeholder="Ex : 2h"></div>
+            <div><label>Temps estimé</label><input type="text" name="temps_estime" id="tkTempsEst" placeholder="Ex : 2h"><span id="tkEstHint" style="font-size:10px;color:#1A7A6D;font-weight:700"></span></div>
             <div><label>Points (délai respecté)</label><input type="number" name="points" value="10" min="0"></div>
+        </div>
+        <div class="tk-row2">
+            <div><label>🔁 Récurrence</label><select name="recurrence"><option value="aucune">Aucune</option><option value="quotidienne">Quotidienne</option><option value="hebdomadaire">Hebdomadaire</option><option value="mensuelle">Mensuelle</option></select></div>
+            <div><label>…jusqu'au (optionnel)</label><input type="date" name="recurrence_jusqu"></div>
         </div>
         <label>📍 Localisation (optionnelle)</label><input type="text" name="localisation" placeholder="Site, adresse, GPS…">
         <hr style="margin:12px 0;border:none;border-top:1px solid #eee">
@@ -111,6 +131,8 @@
 </div></div>
 {% endif %}
 <script>
+var TK_EST={{ estimations|tojson if estimations else '{}' }};
+(function(){var sel=document.querySelector('#newTacheM select[name=categorie]');var hint=document.getElementById('tkEstHint');var inp=document.getElementById('tkTempsEst');if(sel){sel.addEventListener('change',function(){var v=TK_EST[sel.value];if(v){hint.textContent='🤖 ~'+v+'h en moyenne';if(inp&&!inp.value)inp.value=v+'h';}else{hint.textContent='';}});}})();
 document.addEventListener('click',function(e){var m=document.getElementById('expMenu');if(m&&!e.target.closest('#expMenu')&&!(e.target.textContent||'').includes('Exporter'))m.style.display='none';else if(m&&(e.target.textContent||'').includes('Exporter'))m.style.display=m.style.display==='block'?'none':'block';});
 </script>
 {% endblock %}
