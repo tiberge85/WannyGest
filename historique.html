@@ -25,10 +25,12 @@
 </div></div>
 <div class="card"><div class="card-header"><h3>📋 Journal d'activité ({{ logs|length }}{% if q or f_user or f_action or date_from or date_to %} — filtré{% endif %})</h3></div><div class="card-body" style="padding:0">
 {% if logs %}
-<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchLogs" placeholder="🔍 Filtrer l'affichage…" onkeyup="filterTable('searchLogs','logsTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div>
-<div class="table-wrap"><table id="logsTable">
+{% for label, rows in logs_by_month %}
+<details {% if loop.first %}open{% endif %} style="border-bottom:1px solid #eee">
+<summary style="cursor:pointer;font-weight:800;color:#1A7A6D;padding:10px 14px;user-select:none">📅 {{ label }} <span style="background:#1A7A6D;color:#fff;border-radius:10px;padding:1px 9px;font-size:11px">{{ rows|length }}</span></summary>
+<div class="table-wrap"><table>
 <thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th><th>IP</th></tr></thead>
-<tbody>{% for l in logs %}<tr>
+<tbody>{% for l in rows %}<tr>
 <td style="font-size:11px;white-space:nowrap">{{ l.created_at[:16] if l.created_at else '-' }}</td>
 <td><strong>{{ l.user_name or '-' }}</strong></td>
 <td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;
@@ -42,15 +44,20 @@
 <td style="font-size:11px;max-width:350px;overflow:hidden;text-overflow:ellipsis">{{ l.detail or '-' }}</td>
 <td style="font-size:10px;color:#888">{{ l.ip_address or '-' }}</td>
 </tr>{% endfor %}</tbody></table></div>
+</details>
+{% endfor %}
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune activité enregistrée. Les actions (connexion, ajout employé, création bulletin, etc.) apparaîtront ici.</p>{% endif %}
 </div></div>
 
 {% if trail %}
 <!-- AUDIT TRAIL -->
 <div class="card" style="margin-top:14px"><div class="card-header"><h3>📝 Modifications de données</h3></div><div class="card-body" style="padding:0">
+{% for label, rows in trail_by_month %}
+<details {% if loop.first %}open{% endif %} style="border-bottom:1px solid #eee">
+<summary style="cursor:pointer;font-weight:800;color:#7b1fa2;padding:10px 14px;user-select:none">📅 {{ label }} <span style="background:#7b1fa2;color:#fff;border-radius:10px;padding:1px 9px;font-size:11px">{{ rows|length }}</span></summary>
 <div class="table-wrap"><table>
 <thead><tr><th>Date</th><th>Utilisateur</th><th>Table</th><th>Action</th><th>Champ</th><th>Avant</th><th>Après</th></tr></thead>
-<tbody>{% for t in trail %}<tr>
+<tbody>{% for t in rows %}<tr>
 <td style="font-size:11px">{{ t.created_at[:16] if t.created_at else '-' }}</td>
 <td><strong>{{ t.user_name or '-' }}</strong></td>
 <td><span style="padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;background:#f0f4f8;color:#1a3a5c">{{ t.table_name }}</span></td>
@@ -59,6 +66,8 @@
 <td style="font-size:11px;color:#c53030;text-decoration:line-through">{{ (t.old_value or '-')[:40] }}</td>
 <td style="font-size:11px;color:#2e7d32;font-weight:600">{{ (t.new_value or '-')[:40] }}</td>
 </tr>{% endfor %}</tbody></table></div>
+</details>
+{% endfor %}
 </div></div>
 {% endif %}
 {% endblock %}

@@ -7383,6 +7383,21 @@ def admin_tender_toggle(tid):
 
 # ======================== LOGS D'ACTIVITÉ ========================
 
+_MOIS_FR_G = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août',
+              'Septembre', 'Octobre', 'Novembre', 'Décembre']
+
+def _group_by_month(rows, key='created_at'):
+    """v170b : regroupe des enregistrements par mois (récent d'abord) → [(label, rows)]."""
+    g = {}
+    for r in rows:
+        k = (r.get(key) or '')[:7]
+        g.setdefault(k, []).append(r)
+    def _lbl(k):
+        try: y, m = k.split('-'); return f"{_MOIS_FR_G[int(m)]} {y}"
+        except Exception: return "Sans date"
+    return [(_lbl(k), rs) for k, rs in sorted(g.items(), key=lambda kv: kv[0], reverse=True)]
+
+
 @app.route('/logs')
 @permission_required('logs')
 def logs_page():
@@ -7400,6 +7415,7 @@ def logs_page():
         logs = get_activity_logs(500)
     facets = get_activity_log_facets()
     return render_template('logs.html', page='logs', logs=logs, facets=facets,
+        logs_by_month=_group_by_month(logs),
         q=q, f_user=f_user, f_action=f_action, date_from=date_from, date_to=date_to)
 
 
@@ -27316,10 +27332,11 @@ def historique():
     facets = get_activity_log_facets()
     conn = _gdb()
     try:
-        trail = [dict(r) for r in conn.execute("SELECT * FROM audit_trail ORDER BY created_at DESC LIMIT 100").fetchall()]
+        trail = [dict(r) for r in conn.execute("SELECT * FROM audit_trail ORDER BY created_at DESC LIMIT 300").fetchall()]
     except: trail = []
     conn.close()
     return render_template('historique.html', page='historique', trail=trail, logs=logs,
+        logs_by_month=_group_by_month(logs), trail_by_month=_group_by_month(trail),
         facets=facets, q=q, f_user=f_user, f_action=f_action, date_from=date_from, date_to=date_to,
         filter_table=request.args.get('table',''))
 
@@ -28129,7 +28146,7 @@ def taches_ia_suggest():
         try:
             r = _rq.post('https://api.anthropic.com/v1/messages',
                 headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
-                data=payload, timeout=30)
+                data=payload, timeout=20)  # v169e : < timeout worker Gunicorn (30s) pour éviter un 502 HTML
             if r.status_code != 200:
                 # Remonter le détail de l'API Anthropic (type d'erreur) sans exposer la clé.
                 _detail = ''

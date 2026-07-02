@@ -39,31 +39,34 @@
     </div>
     <div class="card-body">
         {% if logs %}
-        <div class="table-wrap">
-            <div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Filtrer l'affichage…" onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
-                <thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th><th>IP</th></tr></thead>
-                <tbody>
-                {% for log in logs %}
-                <tr>
-                    <td style="white-space:nowrap;font-size:12px">{{ log.created_at[:19] }}</td>
-                    <td><strong>{{ log.user_name or '-' }}</strong></td>
-                    <td>
-                        {% if log.action == 'Connexion' %}<span class="badge-status" style="background:#e3f2fd;color:#1A7A6D">🔐 {{ log.action }}</span>
-                        {% elif log.action == 'Traitement' %}<span class="badge-status" style="background:#e8f5e9;color:#2e7d32">⚙️ {{ log.action }}</span>
-                        {% elif log.action == 'Envoi' %}<span class="badge-status sent">✅ {{ log.action }}</span>
-                        {% elif log.action == 'Réinitialisation' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">🚨 {{ log.action }}</span>
-                        {% elif log.action == 'Commentaire' %}<span class="badge-status" style="background:#fff8e1;color:#f57f17">💬 {{ log.action }}</span>
-                        {% elif log.action == 'Sauvegarde' %}<span class="badge-status" style="background:#e0f5f1;color:#1a7a6d">💾 {{ log.action }}</span>
-                        {% else %}<span class="badge-status" style="background:#f0f0f0;color:#666">{{ log.action }}</span>
-                        {% endif %}
-                    </td>
-                    <td style="font-size:13px;color:#555">{{ log.detail or '-' }}</td>
-                    <td style="font-size:11px;color:#999">{{ log.ip_address or '-' }}</td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        {% for label, rows in logs_by_month %}
+        <details {% if loop.first %}open{% endif %} style="margin-bottom:8px">
+            <summary style="cursor:pointer;font-weight:800;color:#1A7A6D;padding:8px 4px;user-select:none">📅 {{ label }} <span style="background:#1A7A6D;color:#fff;border-radius:10px;padding:1px 9px;font-size:11px">{{ rows|length }}</span></summary>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th><th>IP</th></tr></thead>
+            <tbody>
+            {% for log in rows %}
+            <tr>
+                <td style="white-space:nowrap;font-size:12px">{{ log.created_at[:19] }}</td>
+                <td><strong>{{ log.user_name or '-' }}</strong></td>
+                <td>
+                    {% if log.action == 'Connexion' %}<span class="badge-status" style="background:#e3f2fd;color:#1A7A6D">🔐 {{ log.action }}</span>
+                    {% elif log.action == 'Traitement' %}<span class="badge-status" style="background:#e8f5e9;color:#2e7d32">⚙️ {{ log.action }}</span>
+                    {% elif log.action == 'Envoi' %}<span class="badge-status sent">✅ {{ log.action }}</span>
+                    {% elif log.action == 'Réinitialisation' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">🚨 {{ log.action }}</span>
+                    {% elif log.action == 'Commentaire' %}<span class="badge-status" style="background:#fff8e1;color:#f57f17">💬 {{ log.action }}</span>
+                    {% elif log.action == 'Sauvegarde' %}<span class="badge-status" style="background:#e0f5f1;color:#1a7a6d">💾 {{ log.action }}</span>
+                    {% else %}<span class="badge-status" style="background:#f0f0f0;color:#666">{{ log.action }}</span>
+                    {% endif %}
+                </td>
+                <td style="font-size:13px;color:#555">{{ log.detail or '-' }}</td>
+                <td style="font-size:11px;color:#999">{{ log.ip_address or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+        </details>
+        {% endfor %}
         {% else %}
         <p style="text-align:center;color:#999;padding:30px">Aucune activité enregistrée</p>
         {% endif %}
