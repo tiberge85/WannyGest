@@ -249,7 +249,9 @@
 
 <!-- ═══════════════════════════════════════════════════════════════════ -->
 <!-- v159 — FACTURATION À DÉCIDER (technicien a terminé, décision DG/RH en attente) -->
+<!-- v168 : réservé au DG / RH / admin -->
 <!-- ═══════════════════════════════════════════════════════════════════ -->
+{% if current_user and current_user.role in ('dg','rh','admin') %}
 <div class="card" style="border-top:4px solid #5e35b1;margin-bottom:18px">
     <div class="card-header" style="background:#ede7f6">
         <h3 style="color:#5e35b1;margin:0">💰 Facturation à décider ({{ (facturation_a_decider or [])|length }})</h3>
@@ -288,6 +290,7 @@
 {% endif %}
     </div>
 </div>
+{% endif %}
 
 <!-- ═══════════════════════════════════════════════════════════════════ -->
 <!-- TABLEAU 4 : REMONTÉES DÉJÀ EXÉCUTÉES (décision prise + transformee + classee + traitee) -->
