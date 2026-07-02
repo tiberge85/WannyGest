@@ -21049,7 +21049,23 @@ def field_reports_list():
                         r['_tech_name'] = tech_row['technician_name']
                         r['_intervention_status'] = tech_row['status']
                 except: pass
-    
+
+    # v168 : grouper « Déjà exécutées » PAR MOIS (évite une longue liste à scroller)
+    _MOIS_FR = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+    def _mlabel(k):
+        try:
+            y, m = k.split('-'); return f"{_MOIS_FR[int(m)]} {y}"
+        except Exception:
+            return "Sans date"
+    _groups = {}
+    for r in deja_executees:  # déjà triées par date décroissante (source ORDER BY created_at DESC)
+        k = (r.get('decision_date') or r.get('updated_at') or r.get('created_at') or '')[:7]
+        _groups.setdefault(k, []).append(r)
+    # mois récents d'abord ; « Sans date » (clé vide) en dernier
+    deja_executees_by_month = [(_mlabel(k), rs) for k, rs in
+                               sorted(_groups.items(), key=lambda kv: kv[0], reverse=True)]
+
     # Stats globales (sans filtres pour les KPI)
     if can_view_all:
         all_rows = conn.execute("SELECT statut, COUNT(*) as nb FROM field_reports GROUP BY statut").fetchall()
@@ -21087,6 +21103,7 @@ def field_reports_list():
     return render_template('field_reports_dashboard.html', page='field_reports',
         a_traiter=a_traiter, a_affecter=a_affecter, en_execution=en_execution,
         facturation_a_decider=facturation_a_decider, deja_executees=deja_executees,
+        deja_executees_by_month=deja_executees_by_month,
         stats=stats, stats_statut=stats_statut, stats_priorite=stats_priorite, stats_type=stats_type,
         top_auteurs=top_auteurs,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,

@@ -300,7 +300,13 @@
         <h3 style="color:#2e7d32;margin:0">✅ Remontées déjà exécutées ({{ deja_executees|length }})</h3>
     </div>
     <div class="card-body" style="padding:0">
-{% if deja_executees %}
+{% if deja_executees_by_month %}
+{# v168 : regroupées par mois (sections repliables) pour éviter une longue liste #}
+{% for label, reports in deja_executees_by_month %}
+<details {% if loop.first %}open{% endif %} style="border-bottom:1px solid #e0e0e0">
+    <summary style="cursor:pointer;padding:10px 14px;font-weight:700;color:#2e7d32;background:#f1f8f1;user-select:none">
+        📅 {{ label }} <span style="background:#2e7d32;color:#fff;border-radius:10px;padding:1px 9px;font-size:11px;margin-left:6px">{{ reports|length }}</span>
+    </summary>
 <div class="table-wrap"><table style="width:100%;font-size:12px">
 <thead><tr style="background:#2e7d32;color:#fff">
     <th style="padding:8px;text-align:left">Référence</th>
@@ -315,7 +321,7 @@
     <th style="text-align:center">Détails</th>
 </tr></thead>
 <tbody>
-{% for r in deja_executees %}
+{% for r in reports %}
 <tr style="border-bottom:1px solid #f0f0f0">
     <td style="padding:8px;font-family:monospace;font-weight:700">{{ r.reference }}</td>
     <td style="padding:8px;font-size:11px">{{ r.date_constat or r.created_at[:10] }}</td>
@@ -338,6 +344,8 @@
 {% endfor %}
 </tbody>
 </table></div>
+</details>
+{% endfor %}
 {% else %}
 <div style="text-align:center;padding:30px;color:#888">
     <div style="font-size:36px">📭</div>
