@@ -6,14 +6,41 @@
     <p>Historique des actions effectuées sur la plateforme</p>
 </div>
 
+<div class="card" style="margin-bottom:14px">
+    <div class="card-body">
+        <form method="get" action="/logs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:end">
+            <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">🔍 Recherche (détail, IP…)</label>
+                <input type="text" name="q" value="{{ q or '' }}" placeholder="Mot-clé…" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px"></div>
+            <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">👤 Utilisateur</label>
+                <select name="user" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+                    <option value="">— Tous —</option>
+                    {% for u in facets.users %}<option value="{{ u }}" {% if u == f_user %}selected{% endif %}>{{ u }}</option>{% endfor %}
+                </select></div>
+            <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">⚙️ Action</label>
+                <select name="action" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+                    <option value="">— Toutes —</option>
+                    {% for a in facets.actions %}<option value="{{ a }}" {% if a == f_action %}selected{% endif %}>{{ a }}</option>{% endfor %}
+                </select></div>
+            <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">Du</label>
+                <input type="date" name="date_from" value="{{ date_from or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px"></div>
+            <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">Au</label>
+                <input type="date" name="date_to" value="{{ date_to or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px"></div>
+            <div style="display:flex;gap:6px">
+                <button type="submit" class="btn btn-primary btn-sm" style="flex:1">Filtrer</button>
+                <a href="/logs" class="btn btn-outline btn-sm">Réinitialiser</a>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header">
-        <h3>Dernières activités ({{ logs|length }})</h3>
+        <h3>Activités ({{ logs|length }}{% if q or f_user or f_action or date_from or date_to %} — filtré{% endif %})</h3>
     </div>
     <div class="card-body">
         {% if logs %}
         <div class="table-wrap">
-            <div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
+            <div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Filtrer l'affichage…" onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
                 <thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th><th>IP</th></tr></thead>
                 <tbody>
                 {% for log in logs %}

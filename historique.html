@@ -2,9 +2,30 @@
 <div class="page-header"><h1>🕓 Historique des modifications</h1></div>
 
 <!-- ACTIVITY LOGS -->
-<div class="card"><div class="card-header"><h3>📋 Journal d'activité</h3></div><div class="card-body" style="padding:0">
+<div class="card"><div class="card-body">
+    <form method="get" action="/historique" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:end">
+        <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">🔍 Recherche</label>
+            <input type="text" name="q" value="{{ q or '' }}" placeholder="Détail, IP…" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px"></div>
+        <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">👤 Utilisateur</label>
+            <select name="user" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+                <option value="">— Tous —</option>
+                {% for u in facets.users %}<option value="{{ u }}" {% if u == f_user %}selected{% endif %}>{{ u }}</option>{% endfor %}
+            </select></div>
+        <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">⚙️ Action</label>
+            <select name="action" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+                <option value="">— Toutes —</option>
+                {% for a in facets.actions %}<option value="{{ a }}" {% if a == f_action %}selected{% endif %}>{{ a }}</option>{% endfor %}
+            </select></div>
+        <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">Du</label>
+            <input type="date" name="date_from" value="{{ date_from or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px"></div>
+        <div><label style="font-size:11px;color:#666;display:block;margin-bottom:3px">Au</label>
+            <input type="date" name="date_to" value="{{ date_to or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px"></div>
+        <div style="display:flex;gap:6px"><button type="submit" class="btn btn-primary btn-sm" style="flex:1">Filtrer</button><a href="/historique" class="btn btn-outline btn-sm">Réinit.</a></div>
+    </form>
+</div></div>
+<div class="card"><div class="card-header"><h3>📋 Journal d'activité ({{ logs|length }}{% if q or f_user or f_action or date_from or date_to %} — filtré{% endif %})</h3></div><div class="card-body" style="padding:0">
 {% if logs %}
-<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchLogs" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchLogs','logsTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div>
+<div style="margin:10px;display:flex;justify-content:flex-end"><input type="text" id="searchLogs" placeholder="🔍 Filtrer l'affichage…" onkeyup="filterTable('searchLogs','logsTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:250px"></div>
 <div class="table-wrap"><table id="logsTable">
 <thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détail</th><th>IP</th></tr></thead>
 <tbody>{% for l in logs %}<tr>

@@ -30,7 +30,7 @@ from models import (init_db, create_user, authenticate_user, get_user_by_id,
                     get_dashboard_stats, has_permission, get_role_permissions,
                     update_role_permissions,
                     reset_jobs, reset_clients, reset_users, reset_all,
-                    log_activity, get_activity_logs,
+                    log_activity, get_activity_logs, get_activity_logs_filtered, get_activity_log_facets,
                     add_job_comment, get_job_comments, update_job_notes,
                     get_job_by_id, get_db_path,
                     create_contract, get_client_contracts, get_all_contracts,
@@ -7257,8 +7257,21 @@ def admin_tender_toggle(tid):
 @app.route('/logs')
 @permission_required('logs')
 def logs_page():
-    logs = get_activity_logs(200)
-    return render_template('logs.html', page='logs', logs=logs)
+    # v168 : recherche + filtres (texte libre, utilisateur, action, dates)
+    q = (request.args.get('q', '') or '').strip()
+    f_user = (request.args.get('user', '') or '').strip()
+    f_action = (request.args.get('action', '') or '').strip()
+    date_from = (request.args.get('date_from', '') or '').strip()
+    date_to = (request.args.get('date_to', '') or '').strip()
+    any_filter = bool(q or f_user or f_action or date_from or date_to)
+    if any_filter:
+        logs = get_activity_logs_filtered(q=q, user=f_user, action=f_action,
+                                          date_from=date_from, date_to=date_to, limit=2000)
+    else:
+        logs = get_activity_logs(500)
+    facets = get_activity_log_facets()
+    return render_template('logs.html', page='logs', logs=logs, facets=facets,
+        q=q, f_user=f_user, f_action=f_action, date_from=date_from, date_to=date_to)
 
 
 # ======================== DÉTAIL RAPPORT + COMMENTAIRES ========================
@@ -27170,13 +27183,26 @@ def depenses_export_csv():
 @app.route('/historique')
 @permission_required('admin')
 def historique():
-    logs = get_activity_logs(limit=200)
+    # v168 : recherche + filtres sur les logs d'activité
+    q = (request.args.get('q', '') or '').strip()
+    f_user = (request.args.get('user', '') or '').strip()
+    f_action = (request.args.get('action', '') or '').strip()
+    date_from = (request.args.get('date_from', '') or '').strip()
+    date_to = (request.args.get('date_to', '') or '').strip()
+    if q or f_user or f_action or date_from or date_to:
+        logs = get_activity_logs_filtered(q=q, user=f_user, action=f_action,
+                                          date_from=date_from, date_to=date_to, limit=2000)
+    else:
+        logs = get_activity_logs(limit=500)
+    facets = get_activity_log_facets()
     conn = _gdb()
     try:
         trail = [dict(r) for r in conn.execute("SELECT * FROM audit_trail ORDER BY created_at DESC LIMIT 100").fetchall()]
     except: trail = []
     conn.close()
-    return render_template('historique.html', page='historique', trail=trail, logs=logs, filter_table=request.args.get('table',''))
+    return render_template('historique.html', page='historique', trail=trail, logs=logs,
+        facets=facets, q=q, f_user=f_user, f_action=f_action, date_from=date_from, date_to=date_to,
+        filter_table=request.args.get('table',''))
 
 
 # ======================== TABLEAU DE BORD EXÉCUTIF ========================

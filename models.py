@@ -635,6 +635,44 @@ def get_activity_logs(limit=100):
     conn.close()
     return [dict(l) for l in logs]
 
+def get_activity_logs_filtered(q='', user='', action='', date_from='', date_to='', limit=1000):
+    """v168 : logs d'activité avec recherche/filtres.
+    q : texte libre (détail, utilisateur, action, IP) ; user/action : exacts ; dates : YYYY-MM-DD."""
+    conn = get_db()
+    where = []
+    params = []
+    q = (q or '').strip()
+    if q:
+        where.append("(detail LIKE ? OR user_name LIKE ? OR action LIKE ? OR ip_address LIKE ?)")
+        like = f"%{q}%"
+        params += [like, like, like, like]
+    if user:
+        where.append("user_name = ?"); params.append(user)
+    if action:
+        where.append("action = ?"); params.append(action)
+    if date_from:
+        where.append("DATE(created_at) >= ?"); params.append(date_from)
+    if date_to:
+        where.append("DATE(created_at) <= ?"); params.append(date_to)
+    sql = "SELECT * FROM activity_logs"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    logs = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(l) for l in logs]
+
+def get_activity_log_facets():
+    """v168 : valeurs distinctes pour les menus de filtre (actions + utilisateurs)."""
+    conn = get_db()
+    actions = [r[0] for r in conn.execute(
+        "SELECT DISTINCT action FROM activity_logs WHERE COALESCE(action,'')<>'' ORDER BY action").fetchall()]
+    users = [r[0] for r in conn.execute(
+        "SELECT DISTINCT user_name FROM activity_logs WHERE COALESCE(user_name,'')<>'' ORDER BY user_name").fetchall()]
+    conn.close()
+    return {'actions': actions, 'users': users}
+
 def get_user_activity(user_id, limit=50):
     conn = get_db()
     logs = conn.execute("""
