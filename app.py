@@ -3312,6 +3312,25 @@ def get_user_pending_tasks(user_id, user_role=None):
                         'priority': 'high',
                     })
             except: pass
+            # v168 : factures À ÉDITER (status='a_facturer') — l'agent recouvreur peut les éditer
+            # (recouvrement_edit) → elles doivent bloquer la clôture tant qu'elles ne sont pas traitées.
+            # (on exclut celles reportées au lendemain : deadline_edit > aujourd'hui)
+            try:
+                _today = datetime.now().strftime('%Y-%m-%d')
+                rows = conn.execute("""SELECT fri.id, fri.amount, fr.reference as fr_ref, fr.client_name
+                    FROM field_report_invoices fri
+                    JOIN field_reports fr ON fr.id = fri.field_report_id
+                    WHERE fri.status='a_facturer' AND fri.emitted_at IS NULL
+                          AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= ?)
+                    ORDER BY fri.created_at LIMIT 30""", (_today,)).fetchall()
+                for r in rows:
+                    result['validations'].append({
+                        'id': r['id'], 'task_type': 'facture_a_editer',
+                        'label': f"🧾 Facture à éditer {r['fr_ref']} — {r['client_name']} ({r['amount']:,.0f} XOF)",
+                        'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
+                        'priority': 'high',
+                    })
+            except: pass
         
         # v142 / v150 : Caissière — paiements en attente de validation
         if user_role == 'caissiere' and not is_admin_silent:
@@ -16766,7 +16785,8 @@ def rh_closures_dashboard():
         return redirect('/dashboard')
     
     date_filter = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
-    
+    statut_filter = (request.args.get('statut', '') or '').strip()  # v168 : filtre cliquable
+
     conn = _gdb()
     # Tous les users actifs
     all_users = [dict(r) for r in conn.execute(
@@ -16796,6 +16816,15 @@ def rh_closures_dashboard():
             just_by_closure.setdefault(j['closure_id'], []).append(j)
     except Exception as _e: print(f"[v161-just] {_e}", flush=True)
 
+    # v168 : clôtures ayant une demande d'explication en cours (pour le filtre « Explications »)
+    exp_closure_ids = set()
+    try:
+        for r in conn.execute("""SELECT ce.closure_id FROM closure_explanations ce
+            JOIN daily_closures dc ON dc.id = ce.closure_id
+            WHERE dc.date_closure=? AND ce.status='envoyee'""", (date_filter,)).fetchall():
+            exp_closure_ids.add(r['closure_id'])
+    except Exception: pass
+
     # Construire la liste enrichie pour affichage
     users_view = []
     for u in all_users:
@@ -16808,16 +16837,29 @@ def rh_closures_dashboard():
             'pending_count': c['pending_count'] if c else None,
             'justified_count': c['justified_count'] if c else None,
             'justifications': just_by_closure.get(c['id'], []) if c else [],
+            'has_explanation': bool(c and c['id'] in exp_closure_ids),
         })
-    
+
+    # v168 : filtre cliquable par statut
+    if statut_filter:
+        _match = {
+            'cloturee':      lambda x: x['closure_status'] == 'cloturee',
+            'partielle':     lambda x: x['closure_status'] == 'partielle',
+            'exception':     lambda x: x['closure_status'] == 'cloturee_exception',
+            'non_cloturee':  lambda x: x['closure_status'] == 'non_demande',
+            'explanation':   lambda x: x['has_explanation'],
+        }.get(statut_filter)
+        if _match:
+            users_view = [x for x in users_view if _match(x)]
+
     # Trier : non clôturé > partielle > exception > clôturé
     sort_order = {'non_demande':0, 'en_attente':1, 'partielle':2, 'cloturee_exception':3, 'cloturee':4}
     users_view.sort(key=lambda x: (sort_order.get(x['closure_status'], 5), x['full_name']))
-    
+
     conn.close()
     
     return render_template('rh_closures_dashboard.html', page='rh_closures',
-        users_view=users_view, date_filter=date_filter,
+        users_view=users_view, date_filter=date_filter, statut_filter=statut_filter,
         motifs=CLOSURE_JUSTIFICATION_MOTIFS,
         stats={
             'total': len(all_users),
