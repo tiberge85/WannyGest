@@ -28508,6 +28508,38 @@ def admin_pointage_rapport_entreprise(month):
         import re as _re
         slug = _re.sub(r'[^a-zA-Z0-9-]', '-', company_name).strip('-').lower()[:30]
         filename = f"rapport-{slug}-{month}.pdf"
+
+        # v168 : déposer le rapport dans « Fichiers à envoyer » (RH) — entreprises EXTERNES uniquement
+        # (pas RAMYA interne). La RH pourra ainsi l'envoyer. 1 seul dépôt par entreprise et par mois.
+        if company_id:
+            try:
+                _period_lbl = f"Pointage {month}"
+                _cx = _gdb()
+                _exists = _cx.execute(
+                    "SELECT 1 FROM jobs WHERE client_name=? AND period=? "
+                    "AND COALESCE(status,'traite') <> 'envoye' LIMIT 1",
+                    (company_name, _period_lbl)).fetchone()
+                _cx.close()
+                if not _exists:
+                    _job_id = str(uuid.uuid4())[:8]
+                    _files_dir = os.path.join(app.config['FILES_FOLDER'], _job_id)
+                    os.makedirs(_files_dir, exist_ok=True)
+                    with open(os.path.join(_files_dir, filename), 'wb') as _fp:
+                        _fp.write(buf.getvalue())
+                    _nb = len(emps) + len(emps_sessions)
+                    create_job(_job_id, session.get('user_id'),
+                               company_name,                      # client_name = entreprise externe
+                               'RAMYA TECHNOLOGIE & INNOVATION',  # provider_name
+                               None,                              # filename_source
+                               filename,                          # filename_pdf
+                               None,                              # filename_xlsx
+                               _nb,                               # employee_count
+                               _period_lbl,                       # period
+                               'Pointage', None)
+                    print(f"[rapport_entreprise] déposé dans Fichiers à envoyer (RH) : {filename}", flush=True)
+            except Exception as _ej:
+                print(f"[rapport_entreprise] dépôt RH échoué : {_ej}", flush=True)
+
         return Response(buf.getvalue(), mimetype='application/pdf',
                        headers={'Content-Disposition': f'attachment; filename={filename}'})
     except Exception as e:
