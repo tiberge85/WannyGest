@@ -15,13 +15,25 @@ PERSISTENT_DIR = os.environ.get('PERSISTENT_DIR', os.path.join(os.path.dirname(o
 DB_PATH = os.path.join(PERSISTENT_DIR, 'ramya.db')
 
 
+_DB_DIR_READY = False
+_WAL_READY = False
+
 def get_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    # v140 : timeout=10s pour gérer les locks SQLite concurrents (Gunicorn + WAL)
+    # v170 : PERF — ne plus réémettre PRAGMA journal_mode=WAL à CHAQUE connexion (écriture coûteuse).
+    # WAL est une propriété persistante de la base : il suffit de le poser une fois par process.
+    global _DB_DIR_READY, _WAL_READY
+    if not _DB_DIR_READY:
+        try: os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        except Exception: pass
+        _DB_DIR_READY = True
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=10000")  # v140 - attendre 10s avant lock error
+    conn.execute("PRAGMA synchronous=NORMAL")  # v170 - sûr en WAL, nettement plus rapide en écriture
+    if not _WAL_READY:
+        try: conn.execute("PRAGMA journal_mode=WAL")
+        except Exception: pass
+        _WAL_READY = True
     return conn
 
 

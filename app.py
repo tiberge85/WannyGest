@@ -982,6 +982,37 @@ except Exception as _e:
     print(f"[v169] err module taches : {_e}", flush=True)
 
 
+# ==================== v170 : INDEX de PERFORMANCE ====================
+try:
+    from models import get_db as _v170_db
+    _v170 = _v170_db()
+    _idx = [
+        "CREATE INDEX IF NOT EXISTS idx_notif_user_read ON notifications(user_id, read)",
+        "CREATE INDEX IF NOT EXISTS idx_fr_statut ON field_reports(statut)",
+        "CREATE INDEX IF NOT EXISTS idx_fri_status ON field_report_invoices(status)",
+        "CREATE INDEX IF NOT EXISTS idx_tache_ass_user ON tache_assignees(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tache_ass_tid ON tache_assignees(tache_id)",
+        "CREATE INDEX IF NOT EXISTS idx_taches_statut ON taches(statut)",
+        "CREATE INDEX IF NOT EXISTS idx_taches_dl ON taches(date_limite)",
+        "CREATE INDEX IF NOT EXISTS idx_inter_status ON interventions(status)",
+        "CREATE INDEX IF NOT EXISTS idx_inter_sched ON interventions(scheduled_date)",
+        "CREATE INDEX IF NOT EXISTS idx_inter_tech ON interventions(technician_id)",
+        "CREATE INDEX IF NOT EXISTS idx_dclos_user_date ON daily_closures(user_id, date_closure)",
+        "CREATE INDEX IF NOT EXISTS idx_actlog_created ON activity_logs(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_achats_status ON achats_demandes(status)",
+        "CREATE INDEX IF NOT EXISTS idx_absences_status ON absences(status)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
+        "CREATE INDEX IF NOT EXISTS idx_wfpn_read ON wf_project_notifications(is_read)",
+    ]
+    for _q in _idx:
+        try: _v170.execute(_q)
+        except Exception: pass
+    _v170.commit(); _v170.close()
+    print("[v170] Index de performance OK", flush=True)
+except Exception as _e:
+    print(f"[v170] err index perf : {_e}", flush=True)
+
+
 # ==================== v100 : Fusion rôles vers gestionnaire_projet + Validation Compta MG ====================
 try:
     from models import get_db as _v100_db
@@ -5140,6 +5171,14 @@ def inject_globals():
                 except: ctx['today_interventions'] = []
                 _sc.close()
             except: pass
+            # v170 : mémoriser les badges/compteurs (TTL) pour éviter de rouvrir ~17 connexions
+            try:
+                _CTX_CACHE[user['id']] = (_now_ctx + _CTX_TTL, {k: v for k, v in ctx.items()
+                    if k not in ('current_user', 'permissions', 'user_role', 'can_edit')})
+                if len(_CTX_CACHE) > 500:
+                    _CTX_CACHE.clear()
+            except Exception:
+                pass
     else:
         ctx['can_edit'] = lambda module: False
     return ctx
