@@ -40284,17 +40284,40 @@ def api_correcteur():
     if not text:
         return jsonify({'matches': []})
     lang = request.form.get('language', 'fr') or 'fr'
-    try:
-        import requests as _rq
-        r = _rq.post('https://api.languagetool.org/v2/check',
-                     data={'language': lang, 'text': text[:20000]},
-                     headers={'Accept': 'application/json'}, timeout=12)
-        if r.status_code == 200:
-            return jsonify(r.json())
-        return jsonify({'matches': [], 'error': f'service {r.status_code}'}), 200
-    except Exception as e:
-        print(f"[v163m] correcteur err: {e}")
-        return jsonify({'matches': [], 'error': 'unreachable'}), 200
+    # v167b : endpoint configurable (auto-hébergé / premium pour éviter les limites de débit
+    # de l'API publique gratuite). Défaut = API publique LanguageTool.
+    lt_url = (os.environ.get('LANGUAGETOOL_URL') or 'https://api.languagetool.org/v2/check').strip()
+    data = {'language': lang, 'text': text[:20000]}
+    lt_user = os.environ.get('LANGUAGETOOL_USERNAME')
+    lt_key = os.environ.get('LANGUAGETOOL_API_KEY')
+    if lt_user and lt_key:
+        data['username'] = lt_user
+        data['apiKey'] = lt_key
+    import requests as _rq
+    # v167b : 1 retry sur échec transitoire (timeout / réseau) + gestion explicite du 429.
+    last_err = 'unreachable'
+    for _attempt in range(2):
+        try:
+            r = _rq.post(lt_url, data=data,
+                         headers={'Accept': 'application/json'}, timeout=15)
+            if r.status_code == 200:
+                return jsonify(r.json())
+            if r.status_code == 429:
+                # Trop de requêtes (limite de débit de l'API publique).
+                retry_after = 0
+                try: retry_after = int(r.headers.get('Retry-After', '0') or 0)
+                except: retry_after = 0
+                return jsonify({'matches': [], 'error': 'rate_limit', 'retry_after': retry_after}), 200
+            last_err = f'service {r.status_code}'
+            break  # autre erreur HTTP : inutile de réessayer
+        except _rq.exceptions.Timeout:
+            last_err = 'timeout'
+            continue  # réessayer une fois
+        except Exception as e:
+            print(f"[v163m] correcteur err: {e}")
+            last_err = 'unreachable'
+            continue
+    return jsonify({'matches': [], 'error': last_err}), 200
 
 
 # ════════════════════════════════════════════════════════════════════════════

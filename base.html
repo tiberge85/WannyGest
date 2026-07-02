@@ -1612,7 +1612,8 @@ function sortTable(tableId, colIndex, type){
             method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
             body:'language=fr&text='+encodeURIComponent(text)
         }).then(function(r){return r.json();}).then(function(d){
-            if(d && d.error==='unreachable'){ setBody('<div class="corr-loading">⚠️ Service de correction momentanément indisponible. Réessayez dans un instant.</div>'); return; }
+            if(d && d.error==='rate_limit'){ var s=(d.retry_after&&d.retry_after>0)?(' Réessayez dans ~'+d.retry_after+' s.'):' Patientez quelques secondes puis réessayez.'; setBody('<div class="corr-loading">⏳ Trop de corrections d\'affilée (limite du service gratuit).'+s+'</div>'); return; }
+            if(d && d.error){ setBody('<div class="corr-loading">⚠️ Service de correction momentanément indisponible. Réessayez dans un instant.</div>'); return; }
             curMatches=(d.matches||[]);
             if(!curMatches.length){ setBody('<div class="corr-empty">✅ Aucune faute détectée. Beau travail !</div>'); return; }
             var h='';
