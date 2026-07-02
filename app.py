@@ -3086,6 +3086,7 @@ def get_user_pending_tasks(user_id, user_role=None):
     from models import get_db as _gdb_pt
     conn = _gdb_pt()
     result = {
+        'taches':            [],
         'interventions':     [],
         'projets':           [],
         'notifications':     [],
@@ -3096,7 +3097,23 @@ def get_user_pending_tasks(user_id, user_role=None):
         'commandes':         [],
         'others':            [],
     }
-    
+
+    # v169c : Tâches assignées non terminées (module Gestion des tâches) — bloquent la clôture
+    try:
+        rows = conn.execute("""SELECT t.id, t.titre, t.priorite, a.statut AS my_statut
+            FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+            WHERE a.user_id=? AND a.statut NOT IN ('terminee')
+              AND t.statut NOT IN ('terminee','annulee','refusee')
+            ORDER BY t.date_limite IS NULL, t.date_limite LIMIT 50""", (user_id,)).fetchall()
+        for r in rows:
+            result['taches'].append({
+                'id': r['id'], 'task_type': 'tache',
+                'label': f"{r['titre']} ({r['my_statut']})",
+                'link': f"/gestion-taches/{r['id']}", 'status': r['my_statut'],
+                'priority': 'high' if r['priorite'] in ('haute', 'urgente') else 'normal',
+            })
+    except Exception: pass
+
     # v150 : Admin n'agit pas comme un acteur métier dans la clôture → 
     # On exclut les validations globales (OV à valider, demandes MG, etc.)
     # qui sont normalement le travail d'un DG/RH ou compta.
@@ -27495,12 +27512,15 @@ def taches_dashboard():
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     taches = [dict(r) for r in conn.execute(
         f"SELECT t.* FROM taches t{wsql} ORDER BY t.created_at DESC LIMIT 300", params).fetchall()]
+    f_retard = (request.args.get('retard', '') or '').strip()  # v169c : filtre « en retard »
     for t in taches:
         t['assignees'] = [dict(r) for r in conn.execute(
             "SELECT user_id,user_name,statut FROM tache_assignees WHERE tache_id=?", (t['id'],)).fetchall()]
         t['is_late'] = _tache_is_late(t)
         pl = TACHE_PRIORITES.get(t['priorite'], (t['priorite'], '#888')); t['prio_label'], t['prio_color'] = pl
         sl = TACHE_STATUTS.get(t['statut'], (t['statut'], '#888')); t['stat_label'], t['stat_color'] = sl
+    if f_retard == '1':
+        taches = [t for t in taches if t['is_late']]
 
     # KPIs (globaux, non filtrés)
     total = conn.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
@@ -27539,7 +27559,7 @@ def taches_dashboard():
         a_risque=a_risque[:12], absents=list(absents),
         stats={'total': total, 'terminees': terminees, 'en_retard': en_retard, 'taux': taux},
         can_manage=_tache_can_manage(user),
-        q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date)
+        q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date, f_retard=f_retard)
 
 
 @app.route('/gestion-taches/creer', methods=['POST'])
@@ -27583,7 +27603,24 @@ def tache_creer():
     for uid in request.form.getlist('user_ids'):
         if str(uid).isdigit(): target_ids.add(int(uid))
     assign_dep = (request.form.get('assign_departement', '') or '').strip()
-    if assign_dep:
+    auto_repartir = request.form.get('auto_repartir') == '1'
+    if assign_dep and auto_repartir:
+        # v169c : auto-affectation — employé le moins chargé du département (hors absents du jour)
+        absents_ids = _tache_users_absents_aujourdhui(conn)
+        candidats = [dict(r) for r in conn.execute(
+            "SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND department=?", (assign_dep,)).fetchall()]
+        best, best_load = None, None
+        for cand in candidats:
+            if cand['id'] in absents_ids:
+                continue
+            load = conn.execute("""SELECT COUNT(*) FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+                WHERE a.user_id=? AND a.statut NOT IN ('terminee') AND t.statut NOT IN ('terminee','annulee','refusee')""",
+                (cand['id'],)).fetchone()[0]
+            if best is None or load < best_load:
+                best, best_load = cand['id'], load
+        if best:
+            target_ids.add(best)
+    elif assign_dep:
         for r in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND department=?", (assign_dep,)).fetchall():
             target_ids.add(r['id'])
     if not target_ids:
@@ -27922,6 +27959,45 @@ def taches_performance():
     perf = _tache_perf_stats(conn, wx, pr)
     conn.close()
     return render_template('taches_performance.html', page='taches', perf=perf, periode=periode, libelle=lbl)
+
+
+@app.route('/gestion-taches/ia-suggest', methods=['POST'])
+@permission_required_any('taches_manage', 'admin')
+def taches_ia_suggest():
+    """v169c : assistant IA (Anthropic) — rédige une tâche à partir d'un besoin en langage naturel.
+    Best-effort : nécessite ANTHROPIC_API_KEY. Retourne titre/description/priorite/categorie/temps_estime."""
+    brief = (request.form.get('brief', '') or '').strip()
+    if not brief:
+        return jsonify({'ok': False, 'error': 'Décrivez le besoin.'})
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    if not api_key:
+        return jsonify({'ok': False, 'error': "IA non configurée (ANTHROPIC_API_KEY manquante). L'assistant heuristique reste disponible."})
+    try:
+        import requests as _rq, json as _json
+        model = os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001')
+        cats = ", ".join(TACHE_CATEGORIES)
+        sys = ("Tu es un assistant RH qui rédige des tâches professionnelles claires et actionnables en français. "
+               "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour, avec les clés : "
+               "titre (court), description (consignes concrètes), priorite (faible|normale|haute|urgente), "
+               f"categorie (une parmi: {cats}), temps_estime (ex: '2h').")
+        r = _rq.post('https://api.anthropic.com/v1/messages',
+            headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            data=_json.dumps({'model': model, 'max_tokens': 600,
+                'system': sys, 'messages': [{'role': 'user', 'content': brief[:2000]}]}), timeout=25)
+        if r.status_code != 200:
+            return jsonify({'ok': False, 'error': f"IA indisponible ({r.status_code})."})
+        txt = ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text').strip()
+        # extraire le JSON
+        import re as _re2
+        m = _re2.search(r'\{.*\}', txt, _re2.S)
+        obj = _json.loads(m.group(0)) if m else {}
+        prio = (obj.get('priorite') or 'normale').lower()
+        if prio not in TACHE_PRIORITES: prio = 'normale'
+        return jsonify({'ok': True, 'titre': obj.get('titre', ''), 'description': obj.get('description', ''),
+            'priorite': prio, 'categorie': obj.get('categorie', ''), 'temps_estime': obj.get('temps_estime', '')})
+    except Exception as _e:
+        print(f"[v169] ia err: {_e}", flush=True)
+        return jsonify({'ok': False, 'error': "Erreur de l'assistant IA."})
 
 
 @app.route('/gestion-taches/export.<fmt>')

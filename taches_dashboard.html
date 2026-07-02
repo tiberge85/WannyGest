@@ -36,11 +36,12 @@
     {% if can_manage %}<button class="btn btn-primary btn-sm" onclick="document.getElementById('newTacheM').classList.add('open')">+ Nouvelle tâche</button>{% endif %}
 </div></div>
 
+<style>a.tk-card{text-decoration:none;display:block;transition:transform .1s,box-shadow .1s}a.tk-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}a.tk-card.on{outline:3px solid #1A7A6D;outline-offset:1px}</style>
 <div class="tk-kpi">
-    <div class="tk-card"><div class="tk-num">{{ stats.total }}</div><div class="tk-lbl">Tâches créées</div></div>
-    <div class="tk-card" style="border-top-color:#2e7d32"><div class="tk-num" style="color:#2e7d32">{{ stats.terminees }}</div><div class="tk-lbl">✅ Terminées</div></div>
-    <div class="tk-card" style="border-top-color:#c53030"><div class="tk-num" style="color:#c53030">{{ stats.en_retard }}</div><div class="tk-lbl">⏰ En retard</div></div>
-    <div class="tk-card" style="border-top-color:#e8672a"><div class="tk-num" style="color:#e8672a">{{ stats.taux }}%</div><div class="tk-lbl">Taux d'exécution</div></div>
+    <a class="tk-card {% if not f_stat and not f_retard %}on{% endif %}" href="/gestion-taches"><div class="tk-num">{{ stats.total }}</div><div class="tk-lbl">Tâches créées</div></a>
+    <a class="tk-card {% if f_stat=='terminee' %}on{% endif %}" href="/gestion-taches?statut=terminee" style="border-top-color:#2e7d32"><div class="tk-num" style="color:#2e7d32">{{ stats.terminees }}</div><div class="tk-lbl">✅ Terminées</div></a>
+    <a class="tk-card {% if f_retard=='1' %}on{% endif %}" href="/gestion-taches?retard=1" style="border-top-color:#c53030"><div class="tk-num" style="color:#c53030">{{ stats.en_retard }}</div><div class="tk-lbl">⏰ En retard</div></a>
+    <a class="tk-card" href="/gestion-taches/performance" style="border-top-color:#e8672a"><div class="tk-num" style="color:#e8672a">{{ stats.taux }}%</div><div class="tk-lbl">Taux d'exécution →</div></a>
 </div>
 
 {% if a_risque %}
@@ -94,6 +95,14 @@
 <div class="modal-bg2" id="newTacheM">
 <div class="tk-modal">
     <h3 style="margin:0 0 10px;color:#1a3a5c">✅ Nouvelle tâche</h3>
+    <div style="background:#f3e5f5;border-radius:10px;padding:10px;margin-bottom:12px">
+        <label style="margin:0 0 4px">✨ Assistant IA — décrivez le besoin, l'IA rédige la tâche</label>
+        <div style="display:flex;gap:6px">
+            <input type="text" id="iaBrief" placeholder="Ex : préparer la salle de réunion pour demain 9h" style="flex:1">
+            <button type="button" class="btn btn-sm" style="background:#7b1fa2;color:#fff;white-space:nowrap" onclick="tkIaSuggest(this)">✨ Générer</button>
+        </div>
+        <div id="iaMsg" style="font-size:11px;color:#7b1fa2;margin-top:4px"></div>
+    </div>
     <form method="post" action="/gestion-taches/creer" enctype="multipart/form-data">
         <label>Titre *</label><input type="text" name="titre" required placeholder="Ex : Vérifier les caméras du site X">
         <label>Description</label><textarea name="description" rows="3" placeholder="Détails, consignes…"></textarea>
@@ -121,6 +130,8 @@
         </select>
         <label>🏢 …ou assigner tout un département</label>
         <select name="assign_departement"><option value="">— Aucun —</option>{% for d in departements %}<option value="{{ d }}">{{ d }} (toute l'équipe)</option>{% endfor %}</select>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-weight:600;color:#1A7A6D">
+            <input type="checkbox" name="auto_repartir" value="1" style="width:auto"> 🤖 Auto‑affecter à l'employé le moins chargé du département (équilibrage)</label>
         <label>📎 Pièces jointes (photos, vidéos, documents)</label>
         <input type="file" name="fichiers" multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx">
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
@@ -131,6 +142,7 @@
 </div></div>
 {% endif %}
 <script>
+function tkIaSuggest(btn){var b=document.getElementById('iaBrief').value.trim();var msg=document.getElementById('iaMsg');if(!b){msg.textContent='Décrivez d’abord le besoin.';return;}btn.disabled=true;msg.textContent='✨ Génération…';var fd=new FormData();fd.append('brief',b);fetch('/gestion-taches/ia-suggest',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{btn.disabled=false;if(!d.ok){msg.textContent='⚠️ '+(d.error||'Erreur');return;}var f=document.querySelector('#newTacheM form');if(d.titre)f.titre.value=d.titre;if(d.description)f.description.value=d.description;if(d.priorite)f.priorite.value=d.priorite;if(d.categorie)f.categorie.value=d.categorie;if(d.temps_estime)f.temps_estime.value=d.temps_estime;msg.textContent='✅ Proposition insérée — ajustez puis assignez.';}).catch(()=>{btn.disabled=false;msg.textContent='⚠️ IA indisponible.';});}
 var TK_EST={{ estimations|tojson if estimations else '{}' }};
 (function(){var sel=document.querySelector('#newTacheM select[name=categorie]');var hint=document.getElementById('tkEstHint');var inp=document.getElementById('tkTempsEst');if(sel){sel.addEventListener('change',function(){var v=TK_EST[sel.value];if(v){hint.textContent='🤖 ~'+v+'h en moyenne';if(inp&&!inp.value)inp.value=v+'h';}else{hint.textContent='';}});}})();
 document.addEventListener('click',function(e){var m=document.getElementById('expMenu');if(m&&!e.target.closest('#expMenu')&&!(e.target.textContent||'').includes('Exporter'))m.style.display='none';else if(m&&(e.target.textContent||'').includes('Exporter'))m.style.display=m.style.display==='block'?'none':'block';});
