@@ -28417,11 +28417,11 @@ def admin_pointage_rapport_entreprise(month):
         S = rapport_core.make_styles()
         
         period = f"Période : {month}"
-        # Utiliser le nom de l'entreprise dynamiquement (multi-entreprises ou RAMYA)
-        provider_name = company_name
-        provider_info = company_subtitle
+        # v168 : en-tête = RAMYA (prestataire qui génère le rapport) ; l'entreprise devient le « client »
+        provider_name = "RAMYA TECHNOLOGIE & INNOVATION"
+        provider_info = "Tél: 2722204498 | Email: techniqueramya@gmail.com"
         if company_id:
-            client_name = f"Rapport personnel — {company_name}"
+            client_name = f"Rapport de pointage — {company_name}"
         else:
             client_name = "Rapport interne — Personnel RAMYA"
         client_info = ""
