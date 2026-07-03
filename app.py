@@ -28127,58 +28127,77 @@ def taches_ia_suggest():
     brief = (request.form.get('brief', '') or '').strip()
     if not brief:
         return jsonify({'ok': False, 'error': 'Décrivez le besoin.'})
-    api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
-    if not api_key:
-        return jsonify({'ok': False, 'error': "FOUATI n'est pas encore activé (clé API manquante). L'assistant heuristique reste disponible."})
+    # v170 : FOUATI multi-fournisseur — Groq (GRATUIT) prioritaire, sinon Anthropic (payant).
+    groq_key = os.environ.get('GROQ_API_KEY', '').strip()
+    anthropic_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    if not groq_key and not anthropic_key:
+        return jsonify({'ok': False, 'error': "FOUATI n'est pas activé : définissez GROQ_API_KEY (gratuit, console.groq.com) ou ANTHROPIC_API_KEY sur le serveur."})
     try:
         import requests as _rq
     except ImportError:
         return jsonify({'ok': False, 'error': "Module 'requests' non installé sur le serveur (pip install requests / redéploiement requirements)."})
-    import json as _json
-    model = os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001')
+    import json as _json, re as _re2
     cats = ", ".join(TACHE_CATEGORIES)
     sys = ("Tu es FOUATI, l'assistant RH de WannyGest qui rédige des tâches professionnelles claires et actionnables en français. "
            "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour, avec les clés : "
            "titre (court), description (consignes concrètes), priorite (faible|normale|haute|urgente), "
            f"categorie (une parmi: {cats}), temps_estime (ex: '2h').")
-    payload = _json.dumps({'model': model, 'max_tokens': 600,
-        'system': sys, 'messages': [{'role': 'user', 'content': brief[:2000]}]})
-    # v169d : 1 retry sur échec réseau transitoire + message d'erreur DIAGNOSTIQUE
-    # (le message générique masquait la vraie cause : clé invalide, crédit épuisé, réseau bloqué...).
+
+    def _finish(txt):
+        """Parse le JSON renvoyé par l'IA et construit la réponse FOUATI."""
+        m = _re2.search(r'\{.*\}', txt or '', _re2.S)
+        obj = _json.loads(m.group(0)) if m else {}
+        prio = (obj.get('priorite') or 'normale').lower()
+        if prio not in TACHE_PRIORITES: prio = 'normale'
+        return jsonify({'ok': True, 'titre': obj.get('titre', ''), 'description': obj.get('description', ''),
+            'priorite': prio, 'categorie': obj.get('categorie', ''), 'temps_estime': obj.get('temps_estime', '')})
+
+    # Choix du fournisseur + préparation de la requête
+    if groq_key:
+        provider = 'Groq'
+        host = 'api.groq.com'
+        url = 'https://api.groq.com/openai/v1/chat/completions'
+        headers = {'Authorization': f'Bearer {groq_key}', 'content-type': 'application/json'}
+        payload = _json.dumps({
+            'model': os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+            'max_tokens': 700, 'temperature': 0.4,
+            'response_format': {'type': 'json_object'},
+            'messages': [{'role': 'system', 'content': sys}, {'role': 'user', 'content': brief[:2000]}]})
+        def _text_of(resp): return (resp.json().get('choices', [{}])[0].get('message', {}) or {}).get('content', '')
+    else:
+        provider = 'Anthropic'
+        host = 'api.anthropic.com'
+        url = 'https://api.anthropic.com/v1/messages'
+        headers = {'x-api-key': anthropic_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'}
+        payload = _json.dumps({'model': os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001'),
+            'max_tokens': 600, 'system': sys, 'messages': [{'role': 'user', 'content': brief[:2000]}]})
+        def _text_of(resp): return ''.join(b.get('text', '') for b in resp.json().get('content', []) if b.get('type') == 'text')
+
+    # 1 retry sur échec réseau transitoire + message d'erreur DIAGNOSTIQUE.
     last_err = None
     for _attempt in range(2):
         try:
-            r = _rq.post('https://api.anthropic.com/v1/messages',
-                headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
-                data=payload, timeout=20)  # v169e : < timeout worker Gunicorn (30s) pour éviter un 502 HTML
+            r = _rq.post(url, headers=headers, data=payload, timeout=20)  # < timeout worker Gunicorn (30s)
             if r.status_code != 200:
-                # Remonter le détail de l'API Anthropic (type d'erreur) sans exposer la clé.
                 _detail = ''
                 try: _detail = (r.json().get('error', {}) or {}).get('message', '')[:160]
                 except: _detail = (r.text or '')[:160]
-                print(f"[v169] FOUATI HTTP {r.status_code}: {_detail}", flush=True)
+                print(f"[v170] FOUATI {provider} HTTP {r.status_code}: {_detail}", flush=True)
                 _hint = {401: "clé API invalide", 400: "requête refusée", 429: "quota/limite atteint",
                          529: "service surchargé"}.get(r.status_code, "")
-                return jsonify({'ok': False, 'error': f"FOUATI indisponible (HTTP {r.status_code}{' — '+_hint if _hint else ''}). {_detail}".strip()})
-            txt = ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text').strip()
-            import re as _re2
-            m = _re2.search(r'\{.*\}', txt, _re2.S)
-            obj = _json.loads(m.group(0)) if m else {}
-            prio = (obj.get('priorite') or 'normale').lower()
-            if prio not in TACHE_PRIORITES: prio = 'normale'
-            return jsonify({'ok': True, 'titre': obj.get('titre', ''), 'description': obj.get('description', ''),
-                'priorite': prio, 'categorie': obj.get('categorie', ''), 'temps_estime': obj.get('temps_estime', '')})
+                return jsonify({'ok': False, 'error': f"FOUATI ({provider}) indisponible (HTTP {r.status_code}{' — '+_hint if _hint else ''}). {_detail}".strip()})
+            return _finish(_text_of(r).strip())
         except _rq.exceptions.Timeout:
             last_err = "délai dépassé (le service met trop de temps à répondre)"
             continue
         except _rq.exceptions.ConnectionError:
-            last_err = "connexion impossible à api.anthropic.com (réseau/pare-feu du serveur)"
+            last_err = f"connexion impossible à {host} (réseau/pare-feu du serveur)"
             continue
         except Exception as _e:
             last_err = str(_e)[:160]
-            print(f"[v169] ia err: {_e}", flush=True)
+            print(f"[v170] ia err ({provider}): {_e}", flush=True)
             break
-    return jsonify({'ok': False, 'error': f"Erreur de FOUATI : {last_err}" if last_err else "Erreur de FOUATI (assistant IA)."})
+    return jsonify({'ok': False, 'error': f"Erreur de FOUATI ({provider}) : {last_err}" if last_err else "Erreur de FOUATI (assistant IA)."})
 
 
 @app.route('/gestion-taches/export.<fmt>')
