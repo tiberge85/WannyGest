@@ -51,8 +51,8 @@
                     <div class="form-group"><label>Contact</label><input type="text" name="contact_name" value="{{ v.contact_name or '' }}"></div>
                     <div class="form-group"><label>Tél contact</label><input type="text" name="contact_tel" value="{{ v.contact_tel or '' }}"></div>
                 </div>
-                <div class="form-group"><label>Besoins</label><textarea name="needs" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">{{ v.needs or '' }}</textarea></div>
-                <div class="form-group"><label>Observations</label><textarea name="observations" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">{{ v.observations or '' }}</textarea></div>
+                <div class="form-group"><label>Besoins</label><textarea name="needs" rows="2" data-fouati="visite" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">{{ v.needs or '' }}</textarea></div>
+                <div class="form-group"><label>Observations</label><textarea name="observations" rows="2" data-fouati="visite" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">{{ v.observations or '' }}</textarea></div>
                 <div class="form-group"><label>Équipement</label><input type="text" name="equipment" value="{{ v.equipment or '' }}"></div>
                 <div style="display:flex;gap:10px;justify-content:flex-end">
                     <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>

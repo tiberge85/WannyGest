@@ -1652,5 +1652,58 @@ function sortTable(tableId, colIndex, type){
     };
 })();
 </script>
+
+<!-- v170f : FOUATI — suggestions de phrases pendant la saisie des RAPPORTS.
+     S'attache automatiquement à toute <textarea data-fouati="visite|intervention|remontee|projet|general">. -->
+<script>
+(function(){
+    function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function improve(ta, box, btn){
+        var t = (ta.value||'').trim();
+        if(t.length < 3){ box.innerHTML='<span style="color:#888;font-size:12px">Écrivez d’abord quelques mots.</span>'; return; }
+        btn.disabled=true; var old=btn.textContent; btn.textContent='✨ FOUATI réfléchit…';
+        box.innerHTML='';
+        var fd=new FormData(); fd.append('text', t); fd.append('type', ta.getAttribute('data-fouati')||'general');
+        fetch('/api/fouati/reformuler',{method:'POST',body:fd})
+          .then(function(r){return r.text().then(function(tx){var d;try{d=JSON.parse(tx);}catch(e){d=null;}return {status:r.status,data:d};});})
+          .then(function(res){
+            btn.disabled=false; btn.textContent=old;
+            if(!res.data){ box.innerHTML='<span style="color:#c53030;font-size:12px">⚠️ FOUATI indisponible (HTTP '+res.status+').</span>'; return; }
+            var d=res.data;
+            if(!d.ok){ box.innerHTML='<span style="color:#c53030;font-size:12px">⚠️ '+esc(d.error||'FOUATI indisponible')+'</span>'; return; }
+            var wrap=document.createElement('div');
+            wrap.style.cssText='background:#f0f7f5;border:1px solid #1A7A6D;border-radius:8px;padding:8px 10px;margin-top:6px';
+            var ttl=document.createElement('div'); ttl.style.cssText='font-size:11px;color:#1A7A6D;font-weight:700;margin-bottom:5px'; ttl.textContent='✨ Suggestion FOUATI (langage professionnel)';
+            var txt=document.createElement('div'); txt.style.cssText='font-size:13px;white-space:pre-wrap;background:#fff;border-radius:6px;padding:7px;margin-bottom:7px;border:1px solid #d8e8e4'; txt.textContent=d.texte;
+            var bRepl=document.createElement('button'); bRepl.type='button'; bRepl.className='btn btn-sm'; bRepl.style.cssText='background:#1A7A6D;color:#fff'; bRepl.textContent='✅ Remplacer mon texte';
+            var bIgn=document.createElement('button'); bIgn.type='button'; bIgn.className='btn btn-sm btn-outline'; bIgn.style.marginLeft='6px'; bIgn.textContent='Ignorer';
+            bRepl.addEventListener('click', function(){ ta.value=d.texte; ta.dispatchEvent(new Event('input',{bubbles:true})); box.innerHTML='<span style="color:#2e7d32;font-size:12px">✅ Texte amélioré par FOUATI.</span>'; });
+            bIgn.addEventListener('click', function(){ box.innerHTML=''; });
+            wrap.appendChild(ttl); wrap.appendChild(txt); wrap.appendChild(bRepl); wrap.appendChild(bIgn);
+            box.appendChild(wrap);
+          }).catch(function(){ btn.disabled=false; btn.textContent=old; box.innerHTML='<span style="color:#c53030;font-size:12px">⚠️ FOUATI injoignable (réseau).</span>'; });
+    }
+    function attach(ta){
+        if(ta.getAttribute('data-fouati-done')) return;
+        ta.setAttribute('data-fouati-done','1');
+        var bar=document.createElement('div'); bar.style.cssText='margin-top:4px';
+        var btn=document.createElement('button'); btn.type='button'; btn.className='btn btn-sm';
+        btn.style.cssText='background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;font-size:11px';
+        btn.textContent='✨ Améliorer avec FOUATI';
+        var box=document.createElement('div');
+        btn.addEventListener('click', function(){ improve(ta, box, btn); });
+        bar.appendChild(btn); bar.appendChild(box);
+        if(ta.nextSibling) ta.parentNode.insertBefore(bar, ta.nextSibling); else ta.parentNode.appendChild(bar);
+    }
+    function scan(root){ (root||document).querySelectorAll('textarea[data-fouati]').forEach(attach); }
+    document.addEventListener('DOMContentLoaded', function(){ scan(document); });
+    // Modales / champs ajoutés dynamiquement
+    try{
+        var mo=new MutationObserver(function(muts){ muts.forEach(function(m){ m.addedNodes && m.addedNodes.forEach(function(n){ if(n.nodeType===1){ if(n.matches && n.matches('textarea[data-fouati]')) attach(n); if(n.querySelectorAll) scan(n); } }); }); });
+        mo.observe(document.body, {childList:true, subtree:true});
+    }catch(e){}
+    scan(document);
+})();
+</script>
 </body>
 </html>

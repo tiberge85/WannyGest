@@ -7385,7 +7385,7 @@ function showTab(id){
     <div style="margin-top:6px;padding:10px;background:#f8faf9;border-radius:8px">
         <div style="font-size:11px;font-weight:700;color:#1A7A6D;margin-bottom:6px">📝 Rapport d'avancement</div>
         <form method="post" action="/interventions/{{ i.id }}/daily-report" enctype="multipart/form-data">
-            <textarea name="report" required rows="2" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin-bottom:6px" placeholder="Avancement du jour..."></textarea>
+            <textarea name="report" required rows="2" data-fouati="intervention" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin-bottom:6px" placeholder="Avancement du jour..."></textarea>
             <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
                 <select name="progress" style="padding:5px;border:1px solid #ddd;border-radius:6px;font-size:11px">
                     <option value="10">10%</option><option value="25">25%</option><option value="50">50%</option>
@@ -7400,7 +7400,7 @@ function showTab(id){
     <!-- Rapport final (quand prêt à soumettre) -->
     <details style="margin-top:6px"><summary style="font-size:11px;color:#e8672a;cursor:pointer;font-weight:600">📋 Rapport final + Soumettre les travaux</summary>
     <form method="post" action="/interventions/{{ i.id }}/rapport" style="margin-top:6px;padding:10px;background:#fff3e0;border-radius:8px">
-        <div class="form-group"><label>Rapport final</label><textarea name="rapport" rows="3" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:7px" placeholder="Bilan complet des travaux..."></textarea></div>
+        <div class="form-group"><label>Rapport final</label><textarea name="rapport" rows="3" data-fouati="intervention" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:7px" placeholder="Bilan complet des travaux..."></textarea></div>
         <div class="form-row">
             <div class="form-group"><label>Matériel utilisé</label><input type="text" name="material_used" placeholder="Câbles, caméras..."></div>
             <div class="form-group"><label>Durée totale (h)</label><input type="number" name="duration_hours" step="0.5" min="0" value="1"></div>

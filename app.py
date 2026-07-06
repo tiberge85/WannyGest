@@ -7509,7 +7509,8 @@ def floating_windows_js():
 def contrats_page():
     contracts = get_all_contracts()
     clients = get_all_clients()
-    return render_template('contrats.html', page='contrats', contracts=contracts, clients=clients)
+    return render_template('contrats.html', page='contrats', contracts=contracts, clients=clients,
+                           current_year=datetime.now().strftime('%Y'))
 
 
 # v83 : Réorganiser l'ordre des contrats (monter / descendre)
@@ -7543,12 +7544,36 @@ def contrats_move(cid, direction):
     return redirect('/contrats')
 
 
+_CONTRAT_PREFIXES = ('CTR-PO', 'CTR-TRK', 'CTR-ENT')
+
+def _next_contrat_ref(prefix, year):
+    """v170d : référence contrat = <PREFIXE>-<ANNEE>-<ORDRE auto> (ex: CTR-PO-2026-001).
+    Le préfixe est choisi, l'année est saisie, l'ordre s'incrémente par préfixe+année."""
+    if prefix not in _CONTRAT_PREFIXES:
+        prefix = _CONTRAT_PREFIXES[0]
+    year = ''.join(ch for ch in str(year) if ch.isdigit())[:4] or datetime.now().strftime('%Y')
+    conn = _gdb()
+    rows = conn.execute("SELECT reference FROM contracts WHERE reference LIKE ?",
+                        (f"{prefix}-{year}-%",)).fetchall()
+    conn.close()
+    maxn = 0
+    for r in rows:
+        try:
+            n = int(str(r['reference']).rsplit('-', 1)[-1])
+            if n > maxn: maxn = n
+        except Exception:
+            pass
+    return f"{prefix}-{year}-{maxn + 1:03d}"
+
 @app.route('/contrats/add', methods=['POST'])
 @permission_required('contrats')
 def contrats_add():
+    # v170d : référence = préfixe choisi + année (manuelle) + ordre d'arrivée automatique
+    reference = _next_contrat_ref(request.form.get('ref_prefix', 'CTR-PO'),
+                                  request.form.get('ref_year', ''))
     create_contract(
         int(request.form['client_id']),
-        request.form.get('reference', ''),
+        reference,
         request.form.get('start_date', ''),
         request.form.get('end_date', ''),
         float(request.form.get('monthly_rate', 0) or 0),
@@ -25104,6 +25129,18 @@ def installations_add():
     if not name:
         flash("Nom du site requis", "error")
         return redirect('/installations')
+    # v170e : TOUS les champs sont obligatoires à l'enregistrement (validation serveur,
+    # le 'required' HTML pouvant être contourné).
+    _required = {
+        'client_name': "Client", 'zone': "Zone", 'install_date': "Date d'installation",
+        'address': "Adresse", 'latitude': "Latitude", 'longitude': "Longitude",
+        'equipment_count': "Nombre d'équipements", 'equipment_type': "Type d'équipement",
+        'notes': "Notes",
+    }
+    _missing = [lbl for f, lbl in _required.items() if not (request.form.get(f, '') or '').strip()]
+    if _missing:
+        flash("⚠️ Tous les champs sont obligatoires. Manquant(s) : " + ", ".join(_missing) + ".", "error")
+        return redirect('/installations')
     conn = _gdb()
     client_id = request.form.get('client_id') or None
     # v168 : nom du client saisi librement (recherche/saisie) → on relie au client existant si le nom correspond
@@ -28224,6 +28261,82 @@ def taches_ia_suggest():
             print(f"[v170] ia err ({provider}): {_e}", flush=True)
             break
     return jsonify({'ok': False, 'error': f"Erreur de FOUATI ({provider}) : {last_err}" if last_err else "Erreur de FOUATI (assistant IA)."})
+
+
+def _fouati_call(system_prompt, user_msg, max_tokens=800, temperature=0.3):
+    """v170f : appel LLM FOUATI mutualisé — Groq (GRATUIT) prioritaire, sinon Anthropic.
+    Retourne (texte, erreur). texte='' si erreur ; erreur=None si succès."""
+    groq_key = os.environ.get('GROQ_API_KEY', '').strip()
+    anthropic_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    if not groq_key and not anthropic_key:
+        return '', "FOUATI non activé (définir GROQ_API_KEY — gratuit sur console.groq.com)."
+    try:
+        import requests as _rq
+    except ImportError:
+        return '', "Module 'requests' non installé sur le serveur."
+    import json as _json
+    if groq_key:
+        provider, host = 'Groq', 'api.groq.com'
+        url = 'https://api.groq.com/openai/v1/chat/completions'
+        headers = {'Authorization': f'Bearer {groq_key}', 'content-type': 'application/json'}
+        payload = _json.dumps({'model': os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+            'max_tokens': max_tokens, 'temperature': temperature,
+            'messages': [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_msg}]})
+        def _txt(r): return (r.json().get('choices', [{}])[0].get('message', {}) or {}).get('content', '')
+    else:
+        provider, host = 'Anthropic', 'api.anthropic.com'
+        url = 'https://api.anthropic.com/v1/messages'
+        headers = {'x-api-key': anthropic_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'}
+        payload = _json.dumps({'model': os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001'),
+            'max_tokens': max_tokens, 'system': system_prompt, 'messages': [{'role': 'user', 'content': user_msg}]})
+        def _txt(r): return ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text')
+    last = None
+    for _attempt in range(2):
+        try:
+            r = _rq.post(url, headers=headers, data=payload, timeout=20)
+            if r.status_code != 200:
+                _d = ''
+                try: _d = (r.json().get('error', {}) or {}).get('message', '')[:160]
+                except: _d = (r.text or '')[:160]
+                print(f"[v170] FOUATI {provider} HTTP {r.status_code}: {_d}", flush=True)
+                return '', f"FOUATI ({provider}) indisponible (HTTP {r.status_code}). {_d}".strip()
+            return (_txt(r) or '').strip(), None
+        except _rq.exceptions.Timeout:
+            last = "délai dépassé"; continue
+        except _rq.exceptions.ConnectionError:
+            last = f"connexion impossible à {host}"; continue
+        except Exception as _e:
+            last = str(_e)[:160]; print(f"[v170] FOUATI err: {_e}", flush=True); break
+    return '', f"Erreur FOUATI : {last}"
+
+
+@app.route('/api/fouati/reformuler', methods=['POST'])
+@login_required
+def fouati_reformuler():
+    """v170f : FOUATI reformule le texte d'un rapport en français professionnel et correct,
+    sans changer le sens/les faits. Sert les suggestions de phrases pendant la saisie."""
+    text = (request.form.get('text', '') or '').strip()
+    if len(text) < 3:
+        return jsonify({'ok': False, 'error': "Écrivez d'abord quelques mots."})
+    typ = (request.form.get('type', '') or 'general').strip().lower()
+    ctx = {
+        'visite': "un rapport de visite technique",
+        'intervention': "un rapport d'intervention technique",
+        'remontee': "une remontée d'information terrain",
+        'projet': "un rapport d'avancement de projet",
+    }.get(typ, "un rapport professionnel")
+    sysp = (f"Tu es FOUATI, l'assistant rédactionnel de WannyGest. Reformule le texte de l'utilisateur pour {ctx}, "
+            "en français professionnel, clair, poli et SANS fautes d'orthographe ni de grammaire. "
+            "GARDE strictement le sens, les faits, les chiffres, les mesures, les dates et les noms propres. "
+            "N'invente aucune information. Reste concis et factuel. "
+            "Réponds UNIQUEMENT par le texte reformulé, sans commentaire, sans guillemets, sans préambule.")
+    out, err = _fouati_call(sysp, text[:3000], max_tokens=900, temperature=0.3)
+    if err:
+        return jsonify({'ok': False, 'error': err})
+    out = (out or '').strip().strip('"').strip()
+    if not out:
+        return jsonify({'ok': False, 'error': "FOUATI n'a pas pu reformuler ce texte."})
+    return jsonify({'ok': True, 'texte': out})
 
 
 @app.route('/gestion-taches/export.<fmt>')

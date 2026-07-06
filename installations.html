@@ -342,34 +342,35 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- Modal ajout installation -->
 <div class="modal-bg" id="addM"><div class="modal" style="max-width:600px"><h3>🏗️ Nouvelle installation</h3>
 <form method="post" action="/installations/add">
+    {# v170e : tous les champs sont OBLIGATOIRES à l'enregistrement d'une installation #}
     <div class="form-row">
         <div class="form-group"><label>Nom du site *</label><input type="text" name="site_name" required placeholder="Ex: Pharmacie Cocody Plateau"></div>
-        <div class="form-group"><label>Client (rechercher ou saisir)</label>
-            <input type="text" name="client_name" list="clientsDL" autocomplete="off" placeholder="Tapez pour rechercher un client existant, ou saisissez un nouveau nom">
+        <div class="form-group"><label>Client *</label>
+            <input type="text" name="client_name" list="clientsDL" autocomplete="off" required placeholder="Rechercher un client existant, ou saisir un nouveau nom">
             <datalist id="clientsDL">{% for cl in clients %}<option value="{{ cl.name }}"></option>{% endfor %}</datalist>
         </div>
     </div>
     <div class="form-row">
-        <div class="form-group"><label>Zone</label><input type="text" name="zone" placeholder="Ex: Cocody, Plateau, Yopougon..."></div>
-        <div class="form-group"><label>Date d'installation</label><input type="date" name="install_date"></div>
+        <div class="form-group"><label>Zone *</label><input type="text" name="zone" required placeholder="Ex: Cocody, Plateau, Yopougon..."></div>
+        <div class="form-group"><label>Date d'installation *</label><input type="date" name="install_date" required></div>
     </div>
-    <div class="form-group"><label>Adresse</label><input type="text" name="address" placeholder="Adresse complète"></div>
+    <div class="form-group"><label>Adresse *</label><input type="text" name="address" required placeholder="Adresse complète"></div>
     <div style="background:#e8f5e9;border-radius:8px;padding:10px 12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-            <label style="margin:0;font-weight:600;color:#1b5e20;font-size:13px">📍 Position GPS du site (pour la carte)</label>
+            <label style="margin:0;font-weight:600;color:#1b5e20;font-size:13px">📍 Position GPS du site (pour la carte) *</label>
             <button type="button" class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="useMyPosition()">📍 Utiliser ma position actuelle</button>
         </div>
         <div class="form-row" style="margin-top:8px">
-            <div class="form-group"><label>Latitude</label><input type="number" step="0.000001" name="latitude" id="inLat" placeholder="5.345678"></div>
-            <div class="form-group"><label>Longitude</label><input type="number" step="0.000001" name="longitude" id="inLng" placeholder="-4.012345"></div>
+            <div class="form-group"><label>Latitude *</label><input type="number" step="0.000001" name="latitude" id="inLat" required placeholder="5.345678"></div>
+            <div class="form-group"><label>Longitude *</label><input type="number" step="0.000001" name="longitude" id="inLng" required placeholder="-4.012345"></div>
         </div>
         <div id="geoStatus" style="font-size:11px;color:#666"></div>
     </div>
     <div class="form-row">
-        <div class="form-group"><label>Nombre d'équipements</label><input type="number" name="equipment_count" min="0" value="1"></div>
-        <div class="form-group"><label>Type équipement</label><input type="text" name="equipment_type" placeholder="CCTV, Alarme, Climatisation..."></div>
+        <div class="form-group"><label>Nombre d'équipements *</label><input type="number" name="equipment_count" min="1" value="1" required></div>
+        <div class="form-group"><label>Type équipement *</label><input type="text" name="equipment_type" required placeholder="CCTV, Alarme, Climatisation..."></div>
     </div>
-    <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div class="form-group"><label>Notes *</label><textarea name="notes" rows="2" required placeholder="Observations sur le site / l'installation" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('addM').classList.remove('active')">Annuler</button>
         <button type="submit" class="btn btn-primary">✅ Enregistrer</button>
