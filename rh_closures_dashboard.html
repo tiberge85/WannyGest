@@ -94,11 +94,21 @@ a.stat-card.active{outline:3px solid #1A7A6D;outline-offset:1px}
                 {% if u.justified_count > 0 %} · {{ u.justified_count }} justifiées{% endif %}
             {% endif %}
         </div>
-        <div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             {% if u.closure %}
             <a href="/rh/closures/{{ u.closure.id }}" class="btn btn-sm btn-primary" style="font-size:11px">📋 Détail</a>
             {% else %}
             <span style="font-size:10px;color:#888;font-style:italic">Pas de demande de clôture</span>
+            {% endif %}
+            {# v170i : clôture exceptionnelle DIRECTE (RH/admin) — sans passer par les tâches, même si non demandée #}
+            {% if u.closure_status not in ('cloturee','cloturee_exception') %}
+            <form method="post" action="/rh/closures/exception-directe" style="display:inline"
+                  onsubmit="var m=prompt('Motif de la clôture exceptionnelle :'); if(m===null||!m.trim()){return false;} this.motif_exception.value=m.trim(); return confirm('🔓 Clôturer exceptionnellement cette journée SANS passer par les tâches ?');">
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <input type="hidden" name="date" value="{{ date_filter }}">
+                <input type="hidden" name="motif_exception" value="">
+                <button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:11px" title="Clôturer exceptionnellement sans exiger la clôture des tâches">🔓 Clôture except.</button>
+            </form>
             {% endif %}
         </div>
         {# v161 : justifications visibles directement #}

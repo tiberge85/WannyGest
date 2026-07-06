@@ -16983,6 +16983,60 @@ def closure_exception(closure_id):
     return redirect(f'/rh/closures/{closure_id}')
 
 
+@app.route('/rh/closures/exception-directe', methods=['POST'])
+@login_required
+def closure_exception_directe():
+    """v170i : clôture exceptionnelle DIRECTE par la RH/responsable pour un utilisateur,
+    quel que soit l'état de ses tâches ET même s'il n'a pas encore ouvert sa clôture.
+    Crée l'enregistrement de clôture au besoin, puis le passe en 'cloturee_exception'
+    SANS aucune vérification de tâches. Corrige : « on demande encore de clôturer les
+    tâches avant la clôture exceptionnelle »."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] not in ('admin', 'dg', 'directeur', 'rh', 'directrice_rh'):
+        flash("⛔ Réservé aux responsables hiérarchiques et RH", "error")
+        return redirect('/dashboard')
+
+    target_user_id = request.form.get('user_id', '')
+    target_user_id = int(target_user_id) if str(target_user_id).strip().isdigit() else None
+    date_cl = (request.form.get('date', '') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+    motif = (request.form.get('motif_exception', '') or '').strip()
+    if not target_user_id:
+        flash("Utilisateur invalide", "error")
+        return redirect('/rh/closures')
+    if not motif:
+        flash("Motif d'exception requis", "error")
+        return redirect(f'/rh/closures?date={date_cl}')
+
+    conn = _gdb()
+    row = conn.execute("SELECT id, status FROM daily_closures WHERE user_id=? AND date_closure=?",
+                       (target_user_id, date_cl)).fetchone()
+    if row and row['status'] in ('cloturee', 'cloturee_exception'):
+        conn.close()
+        flash("Cette journée est déjà clôturée.", "warning")
+        return redirect(f'/rh/closures?date={date_cl}')
+    if not row:
+        conn.execute("""INSERT INTO daily_closures (user_id, date_closure, status, created_at)
+                        VALUES (?,?, 'en_attente', datetime('now'))""", (target_user_id, date_cl))
+    conn.execute("""UPDATE daily_closures
+        SET status='cloturee_exception', closure_time=datetime('now'),
+            exception_validated_by=?, exception_motif=?, last_activity_at=datetime('now')
+        WHERE user_id=? AND date_closure=?""",
+        (user['id'], motif, target_user_id, date_cl))
+    conn.commit(); conn.close()
+
+    log_activity(user['id'], user['full_name'], 'Clôture exception directe',
+        f"Clôture exceptionnelle directe pour user #{target_user_id} ({date_cl}) — {motif}",
+        request.remote_addr)
+    try:
+        notify_user(target_user_id, title="✅ Clôture validée exceptionnellement",
+            message=f"Votre journée du {date_cl} a été clôturée exceptionnellement par {user['full_name']}. Motif : {motif}",
+            link='/dashboard', module='rh', priority='normal')
+    except: pass
+
+    flash("✅ Clôture exceptionnelle effectuée (sans passer par les tâches).", "success")
+    return redirect(f'/rh/closures?date={date_cl}')
+
+
 # ============== TABLEAU DE BORD RH ==============
 
 @app.route('/rh/closures')
