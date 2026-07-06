@@ -1546,9 +1546,11 @@ function sortTable(tableId, colIndex, type){
 
 <!-- v163m : Correcteur orthographique & grammatical (LanguageTool, français) -->
 <style>
-#corrBtn{position:fixed;right:27px;bottom:90px;z-index:9998;background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;border:none;border-radius:50%;width:50px;height:50px;font-size:20px;cursor:pointer;box-shadow:0 4px 14px rgba(26,122,109,.4)}
+/* v170c : z-index au-dessus des modales (.modal-bg=10000, .modal=10001) pour que le
+   correcteur reste utilisable quand une fenêtre modale est ouverte */
+#corrBtn{position:fixed;right:27px;bottom:90px;z-index:100000;background:linear-gradient(135deg,#1A7A6D,#0f5249);color:#fff;border:none;border-radius:50%;width:50px;height:50px;font-size:20px;cursor:pointer;box-shadow:0 4px 14px rgba(26,122,109,.4)}
 #corrBtn:hover{transform:scale(1.06)}
-#corrPanel{position:fixed;right:24px;bottom:150px;z-index:9999;width:340px;max-width:calc(100vw - 36px);max-height:60vh;overflow-y:auto;background:#fff;border:1px solid #e2e2e2;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.18);display:none;font-size:13px}
+#corrPanel{position:fixed;right:24px;bottom:150px;z-index:100001;width:340px;max-width:calc(100vw - 36px);max-height:60vh;overflow-y:auto;background:#fff;border:1px solid #e2e2e2;border-radius:14px;box-shadow:0 10px 34px rgba(0,0,0,.18);display:none;font-size:13px}
 #corrPanel header{background:#1A7A6D;color:#fff;padding:11px 14px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center;font-weight:700}
 #corrPanel header span{cursor:pointer}
 #corrBody{padding:12px 14px}
