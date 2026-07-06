@@ -28324,7 +28324,7 @@ def fouati_reformuler():
         'intervention': "un rapport d'intervention technique",
         'remontee': "une remontée d'information terrain",
         'projet': "un rapport d'avancement de projet",
-    }.get(typ, "un rapport professionnel")
+    }.get(typ, "un texte professionnel")
     sysp = (f"Tu es FOUATI, l'assistant rédactionnel de WannyGest. Reformule le texte de l'utilisateur pour {ctx}, "
             "en français professionnel, clair, poli et SANS fautes d'orthographe ni de grammaire. "
             "GARDE strictement le sens, les faits, les chiffres, les mesures, les dates et les noms propres. "

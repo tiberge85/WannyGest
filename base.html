@@ -1695,11 +1695,20 @@ function sortTable(tableId, colIndex, type){
         bar.appendChild(btn); bar.appendChild(box);
         if(ta.nextSibling) ta.parentNode.insertBefore(bar, ta.nextSibling); else ta.parentNode.appendChild(bar);
     }
-    function scan(root){ (root||document).querySelectorAll('textarea[data-fouati]').forEach(attach); }
+    // v170g : FOUATI intervient PARTOUT où il y a du texte à éditer = toute <textarea>.
+    // Exclusions : data-fouati="off", champ en lecture seule/désactivé, ou l'UI FOUATI elle-même.
+    function eligible(ta){
+        if(!ta || ta.tagName!=='TEXTAREA') return false;
+        if(ta.getAttribute('data-fouati')==='off') return false;
+        if(ta.readOnly || ta.disabled) return false;
+        if(ta.closest && ta.closest('#corrPanel')) return false;
+        return true;
+    }
+    function scan(root){ (root||document).querySelectorAll('textarea').forEach(function(ta){ if(eligible(ta)) attach(ta); }); }
     document.addEventListener('DOMContentLoaded', function(){ scan(document); });
     // Modales / champs ajoutés dynamiquement
     try{
-        var mo=new MutationObserver(function(muts){ muts.forEach(function(m){ m.addedNodes && m.addedNodes.forEach(function(n){ if(n.nodeType===1){ if(n.matches && n.matches('textarea[data-fouati]')) attach(n); if(n.querySelectorAll) scan(n); } }); }); });
+        var mo=new MutationObserver(function(muts){ muts.forEach(function(m){ m.addedNodes && m.addedNodes.forEach(function(n){ if(n.nodeType===1){ if(n.tagName==='TEXTAREA' && eligible(n)) attach(n); if(n.querySelectorAll) scan(n); } }); }); });
         mo.observe(document.body, {childList:true, subtree:true});
     }catch(e){}
     scan(document);
