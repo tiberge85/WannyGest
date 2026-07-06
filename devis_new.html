@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header"><h1>📝 Nouveau devis / proforma</h1></div>
 <div class="card"><div class="card-body">
-<form method="post" id="devisForm">
+<form method="post" id="devisForm" onsubmit="var b=this.querySelector('button[type=submit]'); if(b){setTimeout(function(){b.disabled=true;b.textContent='⏳ Création…';},0);} return true;">
     <div class="form-row">
         <div class="form-group"><label>Type de document</label>
             <select name="doc_type">

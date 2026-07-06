@@ -10046,7 +10046,27 @@ def devis_new():
         cur_u = get_user_by_id(session['user_id'])
         redacteur_name = (cur_u['full_name'] if cur_u else '') or 'Utilisateur'
         redacteur_dt = datetime.now().strftime('%d/%m/%Y à %H:%M')
-        
+
+        # v170a : garde anti-DOUBLON — si un devis STRICTEMENT identique (même client, même TTC,
+        # mêmes lignes, même type) a été créé par cet utilisateur il y a < 120 s, on renvoie
+        # l'existant au lieu d'en recréer un (cause n°1 des doublons : double-clic / renvoi du formulaire).
+        _doc_type = request.form.get('doc_type', 'devis')
+        _items_json = json.dumps(items)
+        try:
+            _dchk = _gdb()
+            _dup = _dchk.execute(
+                """SELECT id, reference FROM devis
+                   WHERE created_by=? AND doc_type=? AND client_name=? AND total_ttc=? AND items_json=?
+                     AND created_at >= datetime('now','-120 seconds')
+                   ORDER BY id DESC LIMIT 1""",
+                (session['user_id'], _doc_type, request.form.get('client_name', ''), total_ttc, _items_json)).fetchone()
+            _dchk.close()
+        except Exception:
+            _dup = None
+        if _dup:
+            flash(f"⚠️ Devis identique déjà créé il y a un instant ({_dup['reference']}) — doublon évité.", "warning")
+            return redirect(url_for('devis_page'))
+
         did, ref = create_devis(
             client_id, request.form.get('client_name', ''),
             request.form.get('client_code', ''),
@@ -10211,29 +10231,37 @@ def devis_edit(did):
     devis = get_devis_by_id(did)
     if not devis: flash("Devis non trouvé", "error"); return redirect(url_for('devis_page'))
     if request.method == 'POST':
+        # v170a : parseurs robustes (espaces, virgules, valeurs vides) — HARMONISÉ avec /devis/new.
+        # Avant : int()/float() bruts faussaient/plantaient sur « 1 000 » ou « 1500,50 » → montants incorrects.
+        def _num(v, default=0.0):
+            try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.') or default)
+            except: return default
+        def _int(v, default=1):
+            try: return int(round(_num(v, default)))
+            except: return default
         items = []
         i = 1
         while request.form.get(f'item_{i}_designation'):
             items.append({
                 'num': i, 'designation': request.form.get(f'item_{i}_designation', ''),
                 'detail': request.form.get(f'item_{i}_detail', ''),
-                'qty': int(request.form.get(f'item_{i}_qty', 1) or 1),
-                'prix': float(request.form.get(f'item_{i}_prix', 0) or 0),
-                'remise': float(request.form.get(f'item_{i}_remise', 0) or 0),
+                'qty': _int(request.form.get(f'item_{i}_qty', 1), 1),
+                'prix': _num(request.form.get(f'item_{i}_prix', 0), 0),
+                'remise': _num(request.form.get(f'item_{i}_remise', 0), 0),
             })
             i += 1
         total_ht = sum(it['qty'] * it['prix'] - it['remise'] for it in items)
-        main_oeuvre = float(request.form.get('main_oeuvre', 0) or 0)
-        petites_fourn = float(request.form.get('petites_fournitures', 0) or 0)
+        main_oeuvre = _num(request.form.get('main_oeuvre', 0), 0)
+        petites_fourn = _num(request.form.get('petites_fournitures', 0), 0)
         # v161 : remise en % (prioritaire) OU montant fixe — harmonisé avec /devis/new
         remise_pct_raw = (request.form.get('remise_pct', '') or '').strip()
         if remise_pct_raw:
-            try: remise_glob = round((total_ht + main_oeuvre + petites_fourn) * float(remise_pct_raw.replace(',', '.')) / 100, 0)
-            except: remise_glob = float(request.form.get('remise', 0) or 0)
+            pct = _num(remise_pct_raw, 0)
+            remise_glob = round((total_ht + main_oeuvre + petites_fourn) * pct / 100, 0) if pct else _num(request.form.get('remise', 0), 0)
         else:
-            remise_glob = float(request.form.get('remise', 0) or 0)
+            remise_glob = _num(request.form.get('remise', 0), 0)
         tva_active = 1 if request.form.get('tva_active') in ('1','true','on','yes') else 0
-        tva_rate = float(request.form.get('tva_rate', 18) or 18)
+        tva_rate = _num(request.form.get('tva_rate', 18), 18)
         # v160 : la MAIN D'ŒUVRE fait partie de la base HT (taxable) et du TTC
         base_ht = total_ht + main_oeuvre
         tva_amount = round((base_ht - remise_glob) * tva_rate / 100, 0) if tva_active else 0
@@ -25561,9 +25589,11 @@ def projects_create():
 
 # v87 : Suppression d'un projet clôturé (admin uniquement)
 @app.route('/projects/<int:pid>/delete', methods=['POST'])
-@permission_required('admin')
+@admin_only_required
 def project_delete(pid):
-    """Suppression DÉFINITIVE d'un projet clôturé. Réservé aux admins.
+    """Suppression DÉFINITIVE d'un projet clôturé. Réservé au rôle admin STRICT.
+    v170a : admin_only_required (avant : permission_required('admin') laissait passer
+    le bypass RH → la RH pouvait supprimer). Désormais seul le rôle 'admin'.
     Supprime aussi : history, notifications, materials, team, progress reports."""
     conn = _gdb()
     p = conn.execute("SELECT status, reference, title FROM wf_projects WHERE id=?", (pid,)).fetchone()
