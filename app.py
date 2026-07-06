@@ -28310,6 +28310,45 @@ def _fouati_call(system_prompt, user_msg, max_tokens=800, temperature=0.3):
     return '', f"Erreur FOUATI : {last}"
 
 
+def _restore_accents_fr(text):
+    """v170h : restaure UNIQUEMENT les accents manquants d'un texte français via LanguageTool.
+    Une correction n'est appliquée QUE si le mot corrigé est identique au mot d'origine une fois
+    les accents retirés — on ne modifie donc jamais un nom propre ni un terme technique
+    (ex. « realisee » -> « réalisée » OUI ; « Wanny » -> « Manny » NON)."""
+    if not text or not text.strip():
+        return text
+    import unicodedata as _ud
+    def _strip(s):
+        return ''.join(c for c in _ud.normalize('NFD', s or '') if _ud.category(c) != 'Mn')
+    lt_url = (os.environ.get('LANGUAGETOOL_URL') or 'https://api.languagetool.org/v2/check').strip()
+    data = {'language': 'fr', 'text': text[:20000]}
+    lt_user = os.environ.get('LANGUAGETOOL_USERNAME'); lt_key = os.environ.get('LANGUAGETOOL_API_KEY')
+    if lt_user and lt_key:
+        data['username'] = lt_user; data['apiKey'] = lt_key
+    try:
+        import requests as _rq
+        r = _rq.post(lt_url, data=data, headers={'Accept': 'application/json'}, timeout=12)
+        if r.status_code != 200:
+            return text
+        matches = r.json().get('matches', []) or []
+    except Exception:
+        return text
+    fixes = []
+    for m in matches:
+        off = m.get('offset', 0); length = m.get('length', 0)
+        orig = text[off:off + length]
+        for rep in (m.get('replacements') or []):
+            val = rep.get('value', '')
+            # accent-only : mêmes lettres une fois les accents retirés
+            if val and val != orig and _strip(val).lower() == _strip(orig).lower():
+                fixes.append((off, length, val))
+                break
+    # appliquer de droite à gauche pour préserver les offsets
+    for off, length, val in sorted(fixes, key=lambda x: x[0], reverse=True):
+        text = text[:off] + val + text[off + length:]
+    return text
+
+
 @app.route('/api/fouati/reformuler', methods=['POST'])
 @login_required
 def fouati_reformuler():
@@ -28326,14 +28365,24 @@ def fouati_reformuler():
         'projet': "un rapport d'avancement de projet",
     }.get(typ, "un texte professionnel")
     sysp = (f"Tu es FOUATI, l'assistant rédactionnel de WannyGest. Reformule le texte de l'utilisateur pour {ctx}, "
-            "en français professionnel, clair, poli et SANS fautes d'orthographe ni de grammaire. "
-            "GARDE strictement le sens, les faits, les chiffres, les mesures, les dates et les noms propres. "
-            "N'invente aucune information. Reste concis et factuel. "
+            "en français professionnel, clair et poli.\n"
+            "RÈGLES ABSOLUES :\n"
+            "1. Français IMPECCABLE : orthographe et grammaire parfaites, ZÉRO faute.\n"
+            "2. Tous les ACCENTS et signes diacritiques OBLIGATOIRES et corrects : é, è, ê, ë, à, â, ù, û, ï, î, ô, ç. "
+            "N'écris JAMAIS un mot sans son accent (ex. écris « intervention réalisée », « problème résolu », « équipement installé », JAMAIS « intervention realisee »).\n"
+            "3. Ponctuation française correcte.\n"
+            "4. GARDE strictement le sens, les faits, les chiffres, les mesures, les dates et les noms propres (clients, marques, références). N'invente RIEN.\n"
+            "5. Registre professionnel, concis et factuel.\n"
             "Réponds UNIQUEMENT par le texte reformulé, sans commentaire, sans guillemets, sans préambule.")
-    out, err = _fouati_call(sysp, text[:3000], max_tokens=900, temperature=0.3)
+    out, err = _fouati_call(sysp, text[:3000], max_tokens=900, temperature=0.2)
     if err:
         return jsonify({'ok': False, 'error': err})
     out = (out or '').strip().strip('"').strip()
+    # v170h : filet de sécurité — restaure les accents manquants (sans toucher aux noms propres).
+    try:
+        out = _restore_accents_fr(out)
+    except Exception:
+        pass
     if not out:
         return jsonify({'ok': False, 'error': "FOUATI n'a pas pu reformuler ce texte."})
     return jsonify({'ok': True, 'texte': out})
