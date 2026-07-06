@@ -25587,13 +25587,14 @@ def projects_create():
         from_field_report_id=from_field_report_id)
 
 
-# v87 : Suppression d'un projet clôturé (admin uniquement)
+# v87 : Suppression d'un projet — admin uniquement
+# v170b : l'admin peut supprimer un projet À N'IMPORTE QUEL STATUT (y compris un nouveau
+# projet non clôturé), à sa demande. La restriction « clôturé uniquement » est levée.
 @app.route('/projects/<int:pid>/delete', methods=['POST'])
 @admin_only_required
 def project_delete(pid):
-    """Suppression DÉFINITIVE d'un projet clôturé. Réservé au rôle admin STRICT.
-    v170a : admin_only_required (avant : permission_required('admin') laissait passer
-    le bypass RH → la RH pouvait supprimer). Désormais seul le rôle 'admin'.
+    """Suppression DÉFINITIVE d'un projet. Réservé au rôle admin STRICT (aucun bypass).
+    v170b : suppression possible quel que soit le statut (plus de restriction 'clôturé').
     Supprime aussi : history, notifications, materials, team, progress reports."""
     conn = _gdb()
     p = conn.execute("SELECT status, reference, title FROM wf_projects WHERE id=?", (pid,)).fetchone()
@@ -25601,12 +25602,7 @@ def project_delete(pid):
         conn.close()
         flash("Projet introuvable", "error")
         return redirect('/projects')
-    
-    if p['status'] != 'cloture':
-        conn.close()
-        flash("⚠️ Seuls les projets clôturés peuvent être supprimés", "error")
-        return redirect(f'/projects/{pid}')
-    
+
     ref = p['reference']
     title = p['title']
     
