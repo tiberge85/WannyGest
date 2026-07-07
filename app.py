@@ -14362,10 +14362,63 @@ def compta_caisses():
         ca['nb_ops'] = conn.execute("SELECT COUNT(*) FROM caisse_operations WHERE caisse_id=?", (ca['id'],)).fetchone()[0]
     users = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE is_active=1").fetchall()]
     total = sum(ca['solde_calcule'] for ca in caisses)
+
+    # v170j : recherche par RÉFÉRENCE de paiement — retrouver dans quelle caisse le paiement est débité.
+    search_ref = (request.args.get('ref', '') or '').strip()
+    search_results = []
+    if search_ref:
+        like = f"%{search_ref}%"
+        seen_refs = set()
+        # 1) Opérations de caisse (source directe : dans quelle caisse le paiement passe)
+        for r in conn.execute("""
+            SELECT co.reference, co.type, co.amount, co.description, co.category,
+                   COALESCE(co.created_at,'') AS dt,
+                   c.name  AS caisse_name,
+                   cs.name AS src_name, cd.name AS dst_name
+            FROM caisse_operations co
+            LEFT JOIN caisses c  ON c.id  = co.caisse_id
+            LEFT JOIN caisses cs ON cs.id = co.source_caisse_id
+            LEFT JOIN caisses cd ON cd.id = co.dest_caisse_id
+            WHERE co.reference LIKE ? COLLATE NOCASE
+            ORDER BY co.created_at DESC""", (like,)).fetchall():
+            r = dict(r)
+            if r['type'] == 'transfert':
+                caisse_label = f"{r.get('src_name') or '?'} → {r.get('dst_name') or '?'}"
+            else:
+                caisse_label = r.get('caisse_name') or '—'
+            sens = {'sortie': 'Sortie (débit)', 'entree': 'Entrée (crédit)', 'transfert': 'Transfert'}.get(r['type'], r['type'])
+            if r.get('reference'): seen_refs.add(str(r['reference']).lower())
+            search_results.append({
+                'source': 'Opération caisse', 'reference': r['reference'] or '', 'sens': sens,
+                'montant': r['amount'] or 0, 'date': (r['dt'] or '')[:16], 'caisse': caisse_label,
+                'description': r['description'] or r['category'] or '',
+            })
+        # 2) Journal de trésorerie (mouvements type caisse) — complément si la réf n'a pas été trouvée ci-dessus
+        try:
+            for r in conn.execute("""
+                SELECT tm.reference, tm.sens, tm.montant, tm.libelle, COALESCE(tm.date,'') AS dt,
+                       c.name AS caisse_name
+                FROM tresorerie_mouvements tm
+                LEFT JOIN caisses c ON c.id = tm.caisse_id
+                WHERE tm.type='caisse' AND tm.reference LIKE ? COLLATE NOCASE
+                ORDER BY tm.date DESC""", (like,)).fetchall():
+                r = dict(r)
+                if r.get('reference') and str(r['reference']).lower() in seen_refs:
+                    continue
+                sens = {'sortie': 'Sortie (débit)', 'entree': 'Entrée (crédit)'}.get(r['sens'], r['sens'] or '')
+                search_results.append({
+                    'source': 'Journal trésorerie', 'reference': r['reference'] or '', 'sens': sens,
+                    'montant': r['montant'] or 0, 'date': (r['dt'] or '')[:16],
+                    'caisse': r['caisse_name'] or '—', 'description': r['libelle'] or '',
+                })
+        except Exception:
+            pass
+
     conn.close()
     # v120 : permission de modifier les caisses
     can_edit_caisse = is_admin or (user and _hp(user['role'], 'caisse_create') and _hp(user['role'], 'comptabilite_edit'))
-    return render_template('extra_pages.html', page='caisses', caisses=caisses, users=users, total=total, can_edit_caisse=can_edit_caisse)
+    return render_template('extra_pages.html', page='caisses', caisses=caisses, users=users, total=total,
+                           can_edit_caisse=can_edit_caisse, search_ref=search_ref, search_results=search_results)
 
 @app.route('/comptabilite/caisses/add', methods=['POST'])
 @permission_required('comptabilite_edit')
