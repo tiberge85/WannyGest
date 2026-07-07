@@ -922,6 +922,20 @@ try:
 except Exception as _e:
     print(f"[v167] err perms v167 : {_e}", flush=True)
 
+# v170k : lien ferme intervention -> site cartographié (installation_id).
+try:
+    from models import get_db as _v170k_db
+    _v170k = _v170k_db()
+    try:
+        _v170k.execute("ALTER TABLE interventions ADD COLUMN installation_id INTEGER")
+        _v170k.commit()
+        print("[v170k] Colonne interventions.installation_id ajoutée", flush=True)
+    except Exception:
+        pass  # déjà présente
+    _v170k.close()
+except Exception as _e:
+    print(f"[v170k] err migration installation_id : {_e}", flush=True)
+
 
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
@@ -16158,16 +16172,23 @@ def interventions_list():
     projects = [dict(r) for r in conn.execute("SELECT id, name FROM projects ORDER BY name").fetchall()]
     clients = [dict(r) for r in conn.execute("SELECT id, name FROM clients ORDER BY name").fetchall()]
     technicians = [dict(r) for r in conn.execute("SELECT id, full_name FROM users WHERE role IN ('technicien','admin','tech_chef','chef_chantier','centre_technique','informatique','responsable_technique') ORDER BY full_name").fetchall()]
-    
+    # v170k : sites déjà cartographiés (pour rattacher une intervention à un site connu)
+    try:
+        installations = [dict(r) for r in conn.execute(
+            "SELECT id, site_name, COALESCE(client_id,0) AS client_id, COALESCE(client_name,'') AS client_name, "
+            "COALESCE(zone,'') AS zone FROM installations ORDER BY client_name, site_name").fetchall()]
+    except Exception:
+        installations = []
+
     try:
         conn.execute("UPDATE users SET last_interventions_seen=? WHERE id=?",
                      (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), session['user_id']))
         conn.commit()
     except: pass
     conn.close()
-    
+
     return render_template('extra_pages.html', page='interventions', interventions=interventions,
-                          projects=projects, clients=clients, technicians=technicians,
+                          projects=projects, clients=clients, technicians=technicians, installations=installations,
                           tab=tab, counts=counts, search=search,
                           date_from=date_from, date_to=date_to,
                           tech_filter=tech_filter, client_filter=client_filter, sort=sort)
@@ -16192,6 +16213,33 @@ def interventions_tech():
     conn.close()
     return render_template('extra_pages.html', page='interventions_tech', interventions=interventions, is_admin=is_admin)
 
+def _find_installation_for(conn, client_id, client_name, *texts):
+    """v170k : retrouve le site cartographié (installation) correspondant à une intervention.
+    Rapprochement CONSERVATEUR : (1) nom du site présent dans le texte, sinon (2) le client
+    n'a qu'un seul site cartographié. Retourne l'id de l'installation ou None."""
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, client_id, client_name, site_name FROM installations").fetchall()]
+    except Exception:
+        return None
+    hay = ' '.join([(t or '') for t in texts]).lower()
+    def _same_client(r):
+        try:
+            if client_id and r.get('client_id') and int(r['client_id']) == int(client_id): return True
+        except Exception: pass
+        if client_name and r.get('client_name') and r['client_name'].strip().lower() == (client_name or '').strip().lower():
+            return True
+        return False
+    cands = [r for r in rows if _same_client(r)]
+    for r in cands:  # 1) match fort par nom de site
+        sn = (r.get('site_name') or '').strip().lower()
+        if sn and sn in hay:
+            return r['id']
+    if len(cands) == 1:  # 2) un seul site pour ce client
+        return cands[0]['id']
+    return None
+
+
 @app.route('/interventions/add', methods=['POST'])
 @login_required
 def intervention_add():
@@ -16202,25 +16250,33 @@ def intervention_add():
     if tech_id:
         tu = conn.execute("SELECT full_name FROM users WHERE id=?", (tech_id,)).fetchone()
         tech_name = tu['full_name'] if tu else ''
-    
+
     client_id = int(request.form.get('client_id',0) or 0)
     client_name = ''
     if client_id:
         cl = conn.execute("SELECT name FROM clients WHERE id=?", (client_id,)).fetchone()
         client_name = cl['name'] if cl else ''
-    
+
     project_id = int(request.form.get('project_id',0) or 0) or None
     task_id = int(request.form.get('task_id',0) or 0) or None
-    
+
+    # v170k : rattachement au site cartographié — sélecteur explicite OU auto-rapprochement
+    _site_addr = request.form.get('site_address', '')
+    _title = request.form.get('title', '')
+    installation_id = request.form.get('installation_id', '')
+    installation_id = int(installation_id) if str(installation_id).strip().isdigit() else None
+    if not installation_id:
+        installation_id = _find_installation_for(conn, client_id, client_name, _site_addr, _title, request.form.get('description',''))
+
     conn.execute("""INSERT INTO interventions (reference, title, type, project_id, task_id, client_id, client_name,
-        site_address, technician_id, technician_name, scheduled_date, scheduled_time, priority, description, 
-        is_billable, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (ref, request.form.get('title',''), request.form.get('type','maintenance'),
+        site_address, technician_id, technician_name, scheduled_date, scheduled_time, priority, description,
+        is_billable, installation_id, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (ref, _title, request.form.get('type','maintenance'),
          project_id, task_id, client_id, client_name,
-         request.form.get('site_address',''), tech_id, tech_name,
+         _site_addr, tech_id, tech_name,
          request.form.get('scheduled_date',''), request.form.get('scheduled_time',''),
          request.form.get('priority','normale'), request.form.get('description',''),
-         1 if request.form.get('is_billable') else 0, session['user_id']))
+         1 if request.form.get('is_billable') else 0, installation_id, session['user_id']))
     conn.commit()
     
     # Notify technician
@@ -16247,6 +16303,71 @@ def intervention_add():
     log_activity(session['user_id'], user['full_name'] if user else '?', 'Intervention', f"Intervention {ref} planifiée — {client_name}", request.remote_addr)
     flash(f"Intervention {ref} créée", "success")
     return redirect(request.form.get('redirect', '/interventions'))
+
+
+@app.route('/interventions/<int:iid>/carte-obligatoire', methods=['GET', 'POST'])
+@login_required
+def intervention_carte_obligatoire(iid):
+    """v170k : enregistrement OBLIGATOIRE du site sur la cartographie avant de démarrer
+    l'intervention (si le site n'existe pas déjà). Crée l'installation, la lie, puis démarre."""
+    conn = _gdb()
+    inter = conn.execute("SELECT * FROM interventions WHERE id=?", (iid,)).fetchone()
+    if not inter:
+        conn.close(); flash("Intervention introuvable", "error"); return redirect('/interventions/tech')
+    inter = dict(inter)
+    # Si déjà lié entre-temps -> démarrer directement
+    if inter.get('installation_id'):
+        conn.close()
+        return redirect(f'/interventions/{iid}/status/en_cours')
+
+    if request.method == 'POST':
+        site_name = (request.form.get('site_name', '') or '').strip()
+        zone = (request.form.get('zone', '') or '').strip()
+        address = (request.form.get('address', '') or '').strip()
+        lat = (request.form.get('latitude', '') or '').strip()
+        lng = (request.form.get('longitude', '') or '').strip()
+        eqc = (request.form.get('equipment_count', '') or '').strip()
+        eqt = (request.form.get('equipment_type', '') or '').strip()
+        notes = (request.form.get('notes', '') or '').strip()
+        missing = []
+        if not site_name: missing.append('Nom du site')
+        if not zone: missing.append('Zone')
+        if not address: missing.append('Adresse')
+        if not lat or not lng: missing.append('Position GPS (latitude/longitude)')
+        if not eqc: missing.append("Nombre d'équipements")
+        if not eqt: missing.append("Type d'équipement")
+        if not notes: missing.append('Notes')
+        if missing:
+            conn.close()
+            flash("⚠️ Tous les champs sont obligatoires. Manquant(s) : " + ", ".join(missing) + ".", "error")
+            return redirect(f'/interventions/{iid}/carte-obligatoire')
+        def _f(v):
+            try: return float(v)
+            except: return None
+        try:
+            _n = int(float(eqc))
+        except Exception:
+            _n = 0
+        conn.execute("""INSERT INTO installations
+            (client_id, client_name, site_name, zone, address, latitude, longitude,
+             install_date, equipment_count, equipment_type, status, notes, created_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (inter.get('client_id'), inter.get('client_name') or '', site_name, zone, address,
+             _f(lat), _f(lng), datetime.now().strftime('%Y-%m-%d'), _n, eqt, 'actif', notes, session.get('user_id')))
+        new_inst_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute("UPDATE interventions SET installation_id=?, gps_lat=COALESCE(gps_lat,?), gps_lng=COALESCE(gps_lng,?) WHERE id=?",
+                     (new_inst_id, _f(lat), _f(lng), iid))
+        conn.commit(); conn.close()
+        flash(f"✅ Site « {site_name} » enregistré sur la cartographie. L'intervention peut démarrer.", "success")
+        return redirect(f'/interventions/{iid}/status/en_cours')
+
+    clients = get_all_clients()
+    conn.close()
+    prefill = {'site_name': inter.get('site_address') or inter.get('title') or '',
+               'address': inter.get('site_address') or ''}
+    return render_template('installation_obligatoire.html', page='interventions_tech',
+                           inter=inter, prefill=prefill, clients=clients)
+
 
 def _notify_client(conn, iid, title, message):
     """Envoie une notification au client propriétaire de l'intervention via son client_user."""
@@ -16277,6 +16398,28 @@ def _timeline_add(conn, iid, step, title, description, actor_id=None, actor_name
 def intervention_status(iid, status):
     valid = ('planifiee','en_cours','travaux_termines','controle_qualite','livre','annulee')
     if status not in valid: flash("Statut invalide","error"); return redirect('/interventions')
+
+    # v170k : au DÉMARRAGE, le site doit être renseigné sur la cartographie.
+    # Si déjà lié ou rapprochable automatiquement -> rien à demander ; sinon -> enregistrement obligatoire.
+    if status == 'en_cours':
+        _cg = _gdb()
+        _iv = _cg.execute("SELECT installation_id, client_id, client_name, site_address, title, description "
+                          "FROM interventions WHERE id=?", (iid,)).fetchone()
+        _inst = None
+        if _iv:
+            _iv = dict(_iv)
+            _inst = _iv.get('installation_id')
+            if not _inst:
+                _inst = _find_installation_for(_cg, _iv.get('client_id'), _iv.get('client_name'),
+                                               _iv.get('site_address'), _iv.get('title'), _iv.get('description'))
+                if _inst:
+                    try:
+                        _cg.execute("UPDATE interventions SET installation_id=? WHERE id=?", (_inst, iid)); _cg.commit()
+                    except Exception: pass
+        _cg.close()
+        if _iv and not _inst:
+            flash("📍 Ce site n'est pas encore sur la cartographie. Enregistrez-le (avec la position GPS) pour pouvoir démarrer l'intervention.", "warning")
+            return redirect(f'/interventions/{iid}/carte-obligatoire')
 
     # v160 : le statut 'controle_qualite' est réservé aux nouveaux projets/installations
     if status == 'controle_qualite':

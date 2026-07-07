@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Enregistrer le site (cartographie){% endblock %}
+{% block content %}
+<div class="page-header"><h1>📍 Enregistrer le site sur la cartographie</h1></div>
+
+<div style="background:#e3f2fd;border-left:4px solid #1565c0;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;color:#0d47a1">
+    Ce site n'est pas encore cartographié. Pour <strong>démarrer l'intervention</strong>
+    « {{ inter.title }} » {% if inter.client_name %}chez <strong>{{ inter.client_name }}</strong>{% endif %},
+    enregistrez-le d'abord (position GPS + équipements). <strong>Tous les champs sont obligatoires.</strong>
+    Une fois enregistré, ce site ne vous sera plus redemandé.
+</div>
+
+<div class="card"><div class="card-body" style="padding:16px">
+<form method="post" action="/interventions/{{ inter.id }}/carte-obligatoire" id="siteForm"
+      onsubmit="var b=this.querySelector('button[type=submit]'); if(b){setTimeout(function(){b.disabled=true;b.textContent='⏳ Enregistrement…';},0);} return true;">
+    <div class="form-row">
+        <div class="form-group"><label>Nom du site *</label>
+            <input type="text" name="site_name" required value="{{ prefill.site_name or '' }}" placeholder="Ex: Pharmacie Cocody Plateau"></div>
+        <div class="form-group"><label>Client</label>
+            <input type="text" value="{{ inter.client_name or '—' }}" disabled title="Client de l'intervention" style="background:#f5f5f5;color:#666"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Zone *</label><input type="text" name="zone" required placeholder="Ex: Cocody, Plateau, Yopougon..."></div>
+        <div class="form-group"><label>Type d'équipement *</label><input type="text" name="equipment_type" required placeholder="CCTV, Alarme, Climatisation..."></div>
+    </div>
+    <div class="form-group"><label>Adresse *</label><input type="text" name="address" required value="{{ prefill.address or '' }}" placeholder="Adresse complète"></div>
+
+    <div style="background:#e8f5e9;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+            <label style="margin:0;font-weight:600;color:#1b5e20;font-size:13px">📍 Position GPS du site (obligatoire) *</label>
+            <button type="button" class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="useMyPos()">📍 Utiliser ma position actuelle</button>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+            <div class="form-group"><label>Latitude *</label><input type="number" step="0.000001" name="latitude" id="oLat" required placeholder="5.345678"></div>
+            <div class="form-group"><label>Longitude *</label><input type="number" step="0.000001" name="longitude" id="oLng" required placeholder="-4.012345"></div>
+        </div>
+        <div id="oGeo" style="font-size:11px;color:#666"></div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group"><label>Nombre d'équipements *</label><input type="number" name="equipment_count" min="1" value="1" required title="Nombre d'équipements sur le site" placeholder="Ex: 4"></div>
+        <div class="form-group"><label>Date d'installation</label><input type="text" value="Aujourd'hui (automatique)" disabled title="La date d'installation est celle du jour" aria-label="Date d'installation (aujourd'hui)" style="background:#f5f5f5;color:#666"></div>
+    </div>
+    <div class="form-group"><label>Notes *</label><textarea name="notes" rows="2" required placeholder="Observations sur le site / l'installation" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+        <a href="/interventions/tech" class="btn btn-outline">Annuler</a>
+        <button type="submit" class="btn btn-primary">✅ Enregistrer le site et démarrer</button>
+    </div>
+</form>
+</div></div>
+
+<script>
+function useMyPos(){
+    var s=document.getElementById('oGeo');
+    if(!navigator.geolocation){ s.textContent='⚠️ Géolocalisation non disponible sur cet appareil.'; return; }
+    s.textContent='📡 Localisation en cours…';
+    navigator.geolocation.getCurrentPosition(function(p){
+        document.getElementById('oLat').value=p.coords.latitude.toFixed(6);
+        document.getElementById('oLng').value=p.coords.longitude.toFixed(6);
+        s.textContent='✅ Position capturée (précision ~'+Math.round(p.coords.accuracy)+' m).';
+    }, function(err){
+        s.textContent='⚠️ Impossible d\'obtenir la position ('+err.message+'). Saisissez les coordonnées manuellement.';
+    }, {enableHighAccuracy:true, timeout:10000, maximumAge:0});
+}
+</script>
+{% endblock %}

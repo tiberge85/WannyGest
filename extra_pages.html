@@ -7359,21 +7359,47 @@ function showTab(id){
     <div class="form-group"><label>Priorité</label><select name="priority"><option value="normale">Normale</option><option value="haute">Haute</option><option value="urgente">Urgente</option></select></div>
 </div>
 <div class="form-row">
-    <div class="form-group"><label>Client</label><select name="client_id"><option value="">—</option>{% for cl in clients %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}</select></div>
+    <div class="form-group"><label>Client</label><select name="client_id" id="intClient" onchange="filterIntSites()"><option value="">—</option>{% for cl in clients %}<option value="{{ cl.id }}">{{ cl.name }}</option>{% endfor %}</select></div>
     <div class="form-group"><label>Technicien</label><select name="technician_id"><option value="">—</option>{% for t in technicians %}<option value="{{ t.id }}">{{ t.full_name }}</option>{% endfor %}</select></div>
+</div>
+{# v170k : rattacher à un site déjà cartographié (sinon le technicien l'enregistrera au démarrage) #}
+<div class="form-group"><label>Site connu (cartographie)</label>
+    <select name="installation_id" id="intSite" onchange="onIntSite()">
+        <option value="">— Auto / nouveau site —</option>
+        {% for inst in installations %}<option value="{{ inst.id }}" data-client="{{ inst.client_id }}" data-addr="{{ inst.site_name|e }}">{{ inst.client_name }} — {{ inst.site_name }}{% if inst.zone %} ({{ inst.zone }}){% endif %}</option>{% endfor %}
+    </select>
+    <div style="font-size:10px;color:#888;margin-top:2px">Si le site est déjà sur la carte, sélectionnez-le. Sinon laissez « Auto » : le technicien devra l'enregistrer (GPS) au démarrage.</div>
 </div>
 <div class="form-row">
     <div class="form-group"><label>Date *</label><input type="date" name="scheduled_date" required></div>
     <div class="form-group"><label>Heure</label><input type="time" name="scheduled_time"></div>
 </div>
 <div class="form-group"><label>Projet lié</label><select name="project_id"><option value="">— Aucun —</option>{% for p in projects %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div>
-<div class="form-group"><label>Adresse du site</label><input type="text" name="site_address" placeholder="Adresse d'intervention"></div>
+<div class="form-group"><label>Adresse du site</label><input type="text" name="site_address" id="intSiteAddr" placeholder="Adresse d'intervention"></div>
 <div class="form-group"><label>Description</label><textarea name="description" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
 <div class="form-group"><label><input type="checkbox" name="is_billable" value="1" checked> 💰 Facturable</label></div>
 <div style="display:flex;gap:8px;justify-content:flex-end">
     <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
     <button type="submit" class="btn btn-primary">🔧 Planifier</button>
 </div></form></div></div>
+<script>
+// v170k : filtrer les sites cartographiés par client + pré-remplir l'adresse quand on choisit un site
+function filterIntSites(){
+    var c=document.getElementById('intClient'), s=document.getElementById('intSite');
+    if(!c||!s) return;
+    var cid=c.value;
+    Array.prototype.forEach.call(s.options, function(o){
+        if(!o.value){ o.hidden=false; return; }
+        o.hidden = !!(cid && o.getAttribute('data-client') && o.getAttribute('data-client')!==cid);
+    });
+    if(s.selectedOptions[0] && s.selectedOptions[0].hidden) s.value='';
+}
+function onIntSite(){
+    var s=document.getElementById('intSite'), a=document.getElementById('intSiteAddr');
+    var o=s && s.selectedOptions[0];
+    if(o && o.value && a && !a.value){ a.value=o.getAttribute('data-addr')||''; }
+}
+</script>
 
 {% elif page == 'interventions_tech' %}
 <div class="page-header"><h1>🔧 Mes interventions</h1></div>
