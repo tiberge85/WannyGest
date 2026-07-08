@@ -60,7 +60,10 @@
             data-id="{{ d.id }}" data-ref="{{ d.reference }}"
             style="background:#e8672a;color:#fff" title="Envoyer à la Comptabilité pour validation budgétaire">💰 → Compta</button>
     {% endif %}
+    {# v170n : suppression réservée à la direction (MG ne peut plus supprimer) #}
+    {% if current_user and current_user.role in ('admin','dg','directeur') %}
     <a href="/mg/demandes/{{ d.id }}/delete" class="btn btn-sm" style="color:#c53030" title="Supprimer" onclick="return confirm('Supprimer cette demande ?')">🗑️</a>
+    {% endif %}
 </td>
 </tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucune demande</p>{% endif %}

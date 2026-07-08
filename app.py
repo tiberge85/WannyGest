@@ -35324,8 +35324,14 @@ def mg_demandes_valider(did, action):
 
 
 @app.route('/mg/demandes/<int:did>/delete')
-@permission_required_any('mg_gestion', 'admin')
+@login_required
 def mg_demandes_delete(did):
+    # v170n : Moyens Généraux ne peut PLUS supprimer une demande interne.
+    # Réservé à la direction (admin / dg / directeur).
+    _u = get_user_by_id(session['user_id'])
+    if not _u or _u['role'] not in ('admin', 'dg', 'directeur'):
+        flash("⛔ Vous n'êtes pas autorisé à supprimer une demande interne. Réservé à la direction.", "error")
+        return redirect('/mg/demandes')
     conn = _gdb()
     conn.execute("DELETE FROM achats_demande_items WHERE demande_id=?", (did,))
     conn.execute("DELETE FROM achats_demandes WHERE id=?", (did,))

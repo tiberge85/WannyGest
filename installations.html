@@ -126,12 +126,24 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     var map = L.map('mapInstall').setView(DEFAULT_CI, 7);
-    
-    // Couche OSM
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-        maxZoom: 19
-    }).addTo(map);
+
+    // v170n : vue SATELLITE réelle (Esri World Imagery, gratuit, sans clé) par défaut,
+    // + fond « Plan » (OpenStreetMap), commutables via le sélecteur de couches.
+    var osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors', maxZoom: 19
+    });
+    var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Imagerie © Esri, Maxar, Earthstar Geographics', maxZoom: 19
+    });
+    // Libellés (villes, routes) par-dessus le satellite pour se repérer
+    var labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '© Esri', maxZoom: 19
+    });
+    var satHybride = L.layerGroup([sat, labels]).addTo(map);  // couche par défaut
+    L.control.layers(
+        { '🛰️ Satellite': satHybride, '🗺️ Plan': osm },
+        {}, { position: 'topright', collapsed: false }
+    ).addTo(map);
     
     // Données installations (côté JS)
     var installations = [
