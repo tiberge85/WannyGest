@@ -139,16 +139,21 @@
                     <div class="form-group" id="tresorerie_block" style="display:none;background:#f0f8f5;border:1.5px solid #1A7A6D;border-radius:8px;padding:12px">
                         <label style="color:#1A7A6D;font-weight:700">💸 Portefeuille fournisseur à débiter *</label>
                         <p style="font-size:11px;color:#666;margin:2px 0 8px">Le montant <strong>{{ '{:,.0f}'.format(montant_demande).replace(',', ' ') }} F</strong> sera déduit du solde choisi à la validation.</p>
-                        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-                            <label style="flex:1 1 110px;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1.5px solid #cbd5e1;border-radius:8px;padding:10px 8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">
-                                <input type="radio" name="tresorerie_type" value="caisse" id="tt_caisse"> 🧰 Caisse
-                            </label>
-                            <label style="flex:1 1 110px;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1.5px solid #cbd5e1;border-radius:8px;padding:10px 8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">
-                                <input type="radio" name="tresorerie_type" value="banque" id="tt_banque"> 🏦 Banque
-                            </label>
-                            <label style="flex:1 1 110px;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1.5px solid #7b1fa2;border-radius:8px;padding:10px 8px;cursor:pointer;font-size:13px;font-weight:600;color:#7b1fa2;white-space:nowrap">
-                                <input type="radio" name="tresorerie_type" value="credit" id="tt_credit"> 🧾 À crédit
-                            </label>
+                        <style>
+                        .mg-choice-3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}
+                        .mg-choice-2{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:6px}
+                        .mg-choice{display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1.5px solid #cbd5e1;border-radius:8px;padding:0 6px;min-height:46px;cursor:pointer;font-size:13px;font-weight:600;text-align:center;transition:.12s}
+                        .mg-choice input{margin:0}
+                        .mg-choice:hover{border-color:#1A7A6D}
+                        .mg-choice.credit{border-color:#7b1fa2;color:#7b1fa2}
+                        .mg-choice.total{border-color:#2e7d32;color:#2e7d32}
+                        .mg-choice.partiel{border-color:#e8672a;color:#e8672a}
+                        @media(max-width:480px){.mg-choice-3{grid-template-columns:1fr}}
+                        </style>
+                        <div class="mg-choice-3">
+                            <label class="mg-choice"><input type="radio" name="tresorerie_type" value="caisse" id="tt_caisse"> 🧰 Caisse</label>
+                            <label class="mg-choice"><input type="radio" name="tresorerie_type" value="banque" id="tt_banque"> 🏦 Banque</label>
+                            <label class="mg-choice credit"><input type="radio" name="tresorerie_type" value="credit" id="tt_credit"> 🧾 À crédit</label>
                         </div>
                         <select name="tresorerie_caisse_id" id="sel_caisse" style="display:none;width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
                             <option value="">— Choisir une caisse fournisseur —</option>
@@ -159,13 +164,9 @@
                             {% for b in banques_fourn %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — solde {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}
                         </select>
                         <div id="paymode_block" style="display:none;margin-bottom:6px">
-                            <div style="display:flex;gap:8px;margin-bottom:6px">
-                                <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid #2e7d32;border-radius:7px;padding:8px;cursor:pointer;font-size:13px;font-weight:600">
-                                    <input type="radio" name="paiement_mode" value="total" id="pm_total" checked onchange="syncPayMode()"> ✅ Paiement total
-                                </label>
-                                <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid #e8672a;border-radius:7px;padding:8px;cursor:pointer;font-size:13px;font-weight:600;color:#e8672a">
-                                    <input type="radio" name="paiement_mode" value="partiel" id="pm_partiel" onchange="syncPayMode()"> 📉 Paiement partiel
-                                </label>
+                            <div class="mg-choice-2">
+                                <label class="mg-choice total"><input type="radio" name="paiement_mode" value="total" id="pm_total" checked onchange="syncPayMode()"> ✅ Paiement total</label>
+                                <label class="mg-choice partiel"><input type="radio" name="paiement_mode" value="partiel" id="pm_partiel" onchange="syncPayMode()"> 📉 Paiement partiel</label>
                             </div>
                             <div id="partiel_amount" style="display:none">
                                 <label style="font-size:11px;color:#666">Montant à payer maintenant *</label>
