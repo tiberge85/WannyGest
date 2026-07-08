@@ -344,9 +344,9 @@ document.addEventListener('DOMContentLoaded', function() {
 <form method="post" action="/installations/add">
     {# v170e : tous les champs sont OBLIGATOIRES à l'enregistrement d'une installation #}
     <div class="form-row">
-        <div class="form-group"><label>Nom du site *</label><input type="text" name="site_name" required placeholder="Ex: Pharmacie Cocody Plateau"></div>
+        <div class="form-group"><label>Nom de code</label><input type="text" name="site_name" id="add_site_code" readonly placeholder="Auto (code client)" title="Code du client (automatique)" style="background:#f5f5f5;color:#1a7a6d;font-family:monospace;font-weight:700"></div>
         <div class="form-group"><label>Client *</label>
-            <input type="text" name="client_name" list="clientsDL" autocomplete="off" required placeholder="Rechercher un client existant, ou saisir un nouveau nom">
+            <input type="text" name="client_name" list="clientsDL" autocomplete="off" required placeholder="Rechercher un client existant, ou saisir un nouveau nom" onchange="window.fillClientCode(document.getElementById('add_site_code'),{name:this.value})">
             <datalist id="clientsDL">{% for cl in clients %}<option value="{{ cl.name }}"></option>{% endfor %}</datalist>
         </div>
     </div>
@@ -382,9 +382,9 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="modal-bg" id="editM"><div class="modal" style="max-width:600px"><h3>✏️ Modifier l'installation</h3>
 <form method="post" id="editForm">
     <div class="form-row">
-        <div class="form-group"><label>Nom du site *</label><input type="text" name="site_name" id="e_site" required></div>
+        <div class="form-group"><label>Nom de code</label><input type="text" name="site_name" id="e_site" readonly placeholder="Auto (code client)" title="Code du client (automatique)" style="background:#f5f5f5;color:#1a7a6d;font-family:monospace;font-weight:700"></div>
         <div class="form-group"><label>Client (rechercher ou saisir)</label>
-            <input type="text" name="client_name" id="e_client_name" list="clientsDL" autocomplete="off" placeholder="Rechercher un client existant ou saisir un nom"></div>
+            <input type="text" name="client_name" id="e_client_name" list="clientsDL" autocomplete="off" placeholder="Rechercher un client existant ou saisir un nom" onchange="window.fillClientCode(document.getElementById('e_site'),{name:this.value})"></div>
     </div>
     <div class="form-row">
         <div class="form-group"><label>Zone</label><input type="text" name="zone" id="e_zone"></div>

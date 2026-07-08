@@ -1714,5 +1714,20 @@ function sortTable(tableId, colIndex, type){
     scan(document);
 })();
 </script>
+
+<!-- v170l : « Nom de code » = code du client, rempli automatiquement (verrouillé) -->
+<script>
+window.fillClientCode = function(codeEl, opts){
+    if(!codeEl) return;
+    opts = opts || {};
+    var q = '';
+    if(opts.id) q = 'client_id='+encodeURIComponent(opts.id);
+    else if(opts.name) q = 'name='+encodeURIComponent((opts.name||'').trim());
+    if(!q){ codeEl.value=''; return; }
+    fetch('/api/client-code?'+q).then(function(r){return r.json();}).then(function(d){
+        codeEl.value = (d && d.code) || '';
+    }).catch(function(){});
+};
+</script>
 </body>
 </html>

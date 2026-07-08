@@ -936,6 +936,31 @@ try:
 except Exception as _e:
     print(f"[v170k] err migration installation_id : {_e}", flush=True)
 
+# v170l : garantir un CODE à chaque client (le « nom de code » utilisé partout).
+# Les clients sans code reçoivent « C NNN » (suite du max existant).
+try:
+    from models import get_db as _v170l_db
+    _v170l = _v170l_db()
+    try: _v170l.execute("ALTER TABLE clients ADD COLUMN client_code TEXT DEFAULT ''")
+    except Exception: pass
+    _maxn = 0
+    for _r in _v170l.execute("SELECT client_code FROM clients WHERE client_code LIKE 'C %'").fetchall():
+        try:
+            _n = int(str(_r['client_code']).replace('C ', '').strip())
+            if _n > _maxn: _maxn = _n
+        except Exception: pass
+    _added = 0
+    for _r in _v170l.execute("SELECT id FROM clients WHERE COALESCE(client_code,'')='' ORDER BY id").fetchall():
+        _maxn += 1
+        _v170l.execute("UPDATE clients SET client_code=? WHERE id=?", (f"C {_maxn:03d}", _r['id']))
+        _added += 1
+    if _added:
+        _v170l.commit()
+        print(f"[v170l] {_added} code(s) client généré(s)", flush=True)
+    _v170l.close()
+except Exception as _e:
+    print(f"[v170l] err backfill codes clients : {_e}", flush=True)
+
 
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
@@ -6965,6 +6990,45 @@ def clients_add():
     log_audit(session['user_id'], user['full_name'] if user else '?', 'clients', 0, 'create', 'name', '', request.form['name'])
     flash("Client ajouté", "success")
     return redirect(url_for('clients_page'))
+
+
+def _get_or_make_client_code(conn, client_id=None, name=None):
+    """v170l : renvoie le code d'un client (par id ou nom), en le générant/persistant si absent."""
+    row = None
+    if client_id:
+        row = conn.execute("SELECT id, client_code FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not row and name:
+        row = conn.execute("SELECT id, client_code FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) LIMIT 1", (name,)).fetchone()
+    if not row:
+        return ''
+    row = dict(row)
+    code = (row.get('client_code') or '').strip()
+    if not code:
+        maxn = 0
+        for r in conn.execute("SELECT client_code FROM clients WHERE client_code LIKE 'C %'").fetchall():
+            try:
+                n = int(str(r['client_code']).replace('C ', '').strip())
+                if n > maxn: maxn = n
+            except Exception: pass
+        code = f"C {(maxn + 1):03d}"
+        try:
+            conn.execute("UPDATE clients SET client_code=? WHERE id=?", (code, row['id'])); conn.commit()
+        except Exception: pass
+    return code
+
+
+@app.route('/api/client-code')
+@login_required
+def api_client_code():
+    """v170l : renvoie le « nom de code » d'un client (par ?client_id= ou ?name=)."""
+    cid = request.args.get('client_id', '')
+    cid = int(cid) if str(cid).strip().isdigit() else None
+    name = (request.args.get('name', '') or '').strip()
+    conn = _gdb()
+    code = _get_or_make_client_code(conn, cid, name)
+    conn.close()
+    return jsonify({'code': code})
+
 
 @app.route('/clients/delete-bulk', methods=['POST'])
 @permission_required('clients_edit')
@@ -16362,9 +16426,10 @@ def intervention_carte_obligatoire(iid):
         return redirect(f'/interventions/{iid}/status/en_cours')
 
     clients = get_all_clients()
+    # v170l : « Nom de code » = code du client (auto)
+    _code = _get_or_make_client_code(conn, inter.get('client_id'), inter.get('client_name'))
     conn.close()
-    prefill = {'site_name': inter.get('site_address') or inter.get('title') or '',
-               'address': inter.get('site_address') or ''}
+    prefill = {'site_name': _code, 'address': inter.get('site_address') or ''}
     return render_template('installation_obligatoire.html', page='interventions_tech',
                            inter=inter, prefill=prefill, clients=clients)
 
