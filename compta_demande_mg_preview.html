@@ -158,6 +158,21 @@
                             <option value="">— Choisir un compte bancaire fournisseur —</option>
                             {% for b in banques_fourn %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — solde {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}
                         </select>
+                        <div id="paymode_block" style="display:none;margin-bottom:6px">
+                            <div style="display:flex;gap:8px;margin-bottom:6px">
+                                <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid #2e7d32;border-radius:7px;padding:8px;cursor:pointer;font-size:13px;font-weight:600">
+                                    <input type="radio" name="paiement_mode" value="total" id="pm_total" checked onchange="syncPayMode()"> ✅ Paiement total
+                                </label>
+                                <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid #e8672a;border-radius:7px;padding:8px;cursor:pointer;font-size:13px;font-weight:600;color:#e8672a">
+                                    <input type="radio" name="paiement_mode" value="partiel" id="pm_partiel" onchange="syncPayMode()"> 📉 Paiement partiel
+                                </label>
+                            </div>
+                            <div id="partiel_amount" style="display:none">
+                                <label style="font-size:11px;color:#666">Montant à payer maintenant *</label>
+                                <input type="number" name="montant_partiel" id="montant_partiel" step="1" min="1" max="{{ montant_demande|round|int }}" placeholder="Montant partiel" style="width:100%;padding:8px;border:1.5px solid #e8672a;border-radius:6px">
+                                <div style="font-size:10px;color:#888;margin-top:2px">Le reste ({{ '{:,.0f}'.format(montant_demande).replace(',', ' ') }} F − montant payé) sera suivi comme dette (crédit fournisseur).</div>
+                            </div>
+                        </div>
                         <div id="credit_block" style="display:none;background:#f6f0fb;border:1px solid #7b1fa2;border-radius:8px;padding:10px;margin-bottom:6px">
                             <div style="font-size:11px;color:#7b1fa2;font-weight:700;margin-bottom:6px">🧾 Achat à crédit — un dossier de dette fournisseur sera créé (aucun décaissement).</div>
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -199,6 +214,15 @@
                         var ttCredit = document.getElementById('tt_credit');
                         var creditBlock = document.getElementById('credit_block');
                         var creditEch = document.getElementById('credit_echeance');
+                        var paymodeBlock = document.getElementById('paymode_block');
+                        var partielAmount = document.getElementById('partiel_amount');
+                        var montantPartiel = document.getElementById('montant_partiel');
+                        window.syncPayMode = function(){
+                            var pmP = document.getElementById('pm_partiel');
+                            var isPartiel = pmP && pmP.checked && paymodeBlock && paymodeBlock.style.display !== 'none';
+                            if (partielAmount) partielAmount.style.display = isPartiel ? 'block' : 'none';
+                            if (montantPartiel) montantPartiel.required = isPartiel;
+                        };
                         function syncTreso(){
                             var isCaisse = ttCaisse && ttCaisse.checked;
                             var isBanque = ttBanque && ttBanque.checked;
@@ -207,6 +231,8 @@
                             selBanque.style.display = isBanque ? 'block' : 'none'; selBanque.required = isBanque; if(!isBanque) selBanque.value='';
                             if (creditBlock) creditBlock.style.display = isCredit ? 'block' : 'none';
                             if (creditEch) creditEch.required = isCredit;
+                            if (paymodeBlock) paymodeBlock.style.display = (isCaisse || isBanque) ? 'block' : 'none';
+                            window.syncPayMode();
                         }
                         if (ttCaisse) ttCaisse.addEventListener('change', syncTreso);
                         if (ttBanque) ttBanque.addEventListener('change', syncTreso);

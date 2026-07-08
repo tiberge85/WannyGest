@@ -60,8 +60,15 @@
             <option value="">— Choisir une facture —</option>
             {% for p in purchases %}<option value="{{ p.id }}" data-reste="{{ p.reste|int }}">{{ p.fournisseur_name }} · {{ p.description|truncate(30) }} — reste {{ '{:,.0f}'.format(p.reste).replace(',', ' ') }} F</option>{% endfor %}
         </select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Type de paiement</label>
+        <div style="display:flex;gap:4px">
+            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;border:1.5px solid #2e7d32;border-radius:6px;padding:7px;cursor:pointer;font-size:12px;font-weight:600">
+                <input type="radio" name="pay_type" value="total" checked onchange="onPayType()"> Total</label>
+            <label style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;border:1.5px solid #e8672a;border-radius:6px;padding:7px;cursor:pointer;font-size:12px;font-weight:600">
+                <input type="radio" name="pay_type" value="partiel" onchange="onPayType()"> Partiel</label>
+        </div></div>
     <div><label style="font-size:11px;color:#888;display:block">Montant (F) *</label>
-        <input type="number" name="montant" id="pay_montant" required min="1" step="1" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right"></div>
+        <input type="number" name="montant" id="pay_montant" required min="1" step="1" readonly style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;text-align:right;background:#f5f5f5"></div>
     <div style="grid-column:span 2"><label style="font-size:11px;color:#888;display:block">Compte à débiter *</label>
         <select name="wallet" required title="Compte à débiter" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
             <option value="">— Choisir le compte —</option>
@@ -110,7 +117,9 @@
 </div></div>
 
 <script>
-function onPick(){var s=document.getElementById('pay_purchase');var o=s.options[s.selectedIndex];var r=o?o.getAttribute('data-reste'):'';if(r){document.getElementById('pay_montant').value=r;document.getElementById('pay_montant').max=r;}}
+function _payReste(){var s=document.getElementById('pay_purchase');var o=s.options[s.selectedIndex];return o?(parseInt(o.getAttribute('data-reste'))||0):0;}
+function onPick(){var r=_payReste();var m=document.getElementById('pay_montant');m.max=r;var isTotal=document.querySelector('input[name=pay_type]:checked').value==='total';if(isTotal){m.value=r;}else if(!m.value||parseInt(m.value)>r){m.value=r;}}
+function onPayType(){var isTotal=document.querySelector('input[name=pay_type]:checked').value==='total';var m=document.getElementById('pay_montant');var r=_payReste();if(isTotal){m.value=r;m.readOnly=true;m.style.background='#f5f5f5';}else{m.readOnly=false;m.style.background='#fff';m.focus();}}
 function filterPay(){var q=(document.getElementById('paySearch').value||'').toLowerCase();document.querySelectorAll('.pay-row').forEach(function(r){r.style.display=(!q||(r.getAttribute('data-s')||'').indexOf(q)>=0)?'':'none';});}
 </script>
 {% endblock %}

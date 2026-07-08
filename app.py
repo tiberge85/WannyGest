@@ -35858,6 +35858,21 @@ def compta_demande_mg_decision(did):
             already_debited = int(row.get('tresorerie_debited') or 0) == 1
             if not already_debited:
                 caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+                # v170p : caisse/banque -> paiement TOTAL ou PARTIEL. Si partiel, on décaisse le
+                # montant partiel et le RESTE devient une dette suivie (dossier de crédit fournisseur).
+                _pay_mode = (request.form.get('paiement_mode', 'total') or 'total').strip()
+                def _npm(v):
+                    try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.') or 0)
+                    except Exception: return 0.0
+                pay_amount = montant
+                is_partiel = False
+                if _pay_mode == 'partiel' and tresorerie_type in ('caisse', 'banque'):
+                    pay_amount = _npm(request.form.get('montant_partiel'))
+                    if pay_amount <= 0 or pay_amount > montant:
+                        conn.close()
+                        flash("⚠️ Montant partiel invalide (doit être supérieur à 0 et ≤ au total).", "error")
+                        return redirect(f'/comptabilite/demandes-mg/{did}/preview')
+                    is_partiel = pay_amount < montant
                 if tresorerie_type == 'caisse':
                     cid = request.form.get('tresorerie_caisse_id', '')
                     cid = int(cid) if str(cid).isdigit() else 0
@@ -35866,19 +35881,23 @@ def compta_demande_mg_decision(did):
                         conn.close()
                         flash("⚠️ Sélectionnez une caisse fournisseur valide à débiter.", "error")
                         return redirect(f'/comptabilite/demandes-mg/{did}/preview')
-                    if montant > 0:
+                    if pay_amount > 0:
                         # v160 : décaissement dans caisse_operations (source partagée trésorerie/MG)
                         conn.execute("""INSERT INTO caisse_operations
                             (caisse_id, type, amount, description, reference, category, created_by, created_at)
                             VALUES (?, 'sortie', ?, ?, ?, 'fournisseur', ?, datetime('now'))""",
-                            (cid, montant, f"Demande MG {row['reference']}", row['reference'], session.get('user_id')))
+                            (cid, pay_amount, f"Demande MG {row['reference']}", row['reference'], session.get('user_id')))
                         conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
-                                     (montant, cid))
-                        debit_msg = f" — {montant:,.0f} XOF débités de la caisse « {target['name']} »"
+                                     (pay_amount, cid))
+                        debit_msg = f" — {pay_amount:,.0f} XOF débités de la caisse « {target['name']} »"
                     conn.execute("""UPDATE achats_demandes SET tresorerie_type='caisse',
                         tresorerie_caisse_id=?, tresorerie_banque_id=NULL, tresorerie_montant=?,
                         tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
-                        (cid, montant, did))
+                        (cid, pay_amount, did))
+                    if is_partiel:
+                        _nc = _mg_credit_create_from_demande(conn, did, montant, request.form, user,
+                            paye_initial=pay_amount, pay_mode='caisse', caisse_id=cid)
+                        debit_msg += f" — reste {montant-pay_amount:,.0f} F suivi en crédit ({_nc})"
                 elif tresorerie_type == 'banque':
                     bid = request.form.get('tresorerie_banque_id', '')
                     bid = int(bid) if str(bid).isdigit() else 0
@@ -35887,21 +35906,25 @@ def compta_demande_mg_decision(did):
                         conn.close()
                         flash("⚠️ Sélectionnez un compte bancaire fournisseur valide à débiter.", "error")
                         return redirect(f'/comptabilite/demandes-mg/{did}/preview')
-                    if montant > 0:
+                    if pay_amount > 0:
                         conn.execute("UPDATE tresorerie_comptes_bancaires SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
-                                     (montant, bid))
+                                     (pay_amount, bid))
                         try:
                             conn.execute("""INSERT INTO tresorerie_mouvements
                                 (type, sens, source, source_id, date, montant, libelle, reference, banque_id, created_by)
                                 VALUES ('decaissement','sortie','demande_mg',?,?,?,?,?,?,?)""",
-                                (did, datetime.now().strftime('%Y-%m-%d'), montant,
+                                (did, datetime.now().strftime('%Y-%m-%d'), pay_amount,
                                  f"Demande MG {row['reference']}", row['reference'], bid, session.get('user_id')))
                         except: pass
-                        debit_msg = f" — {montant:,.0f} XOF débités du compte « {target['nom']} »"
+                        debit_msg = f" — {pay_amount:,.0f} XOF débités du compte « {target['nom']} »"
                     conn.execute("""UPDATE achats_demandes SET tresorerie_type='banque',
                         tresorerie_banque_id=?, tresorerie_caisse_id=NULL, tresorerie_montant=?,
                         tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
-                        (bid, montant, did))
+                        (bid, pay_amount, did))
+                    if is_partiel:
+                        _nc = _mg_credit_create_from_demande(conn, did, montant, request.form, user,
+                            paye_initial=pay_amount, pay_mode='banque', banque_id=bid)
+                        debit_msg += f" — reste {montant-pay_amount:,.0f} F suivi en crédit ({_nc})"
                 elif tresorerie_type == 'credit':
                     # v170o : ACHAT À CRÉDIT — aucun décaissement ; on crée un dossier de crédit fournisseur.
                     try:
@@ -36017,8 +36040,11 @@ def _mg_credit_recalc(conn, credit_id):
                  (paye, reste, statut, credit_id))
     return statut
 
-def _mg_credit_create_from_demande(conn, did, montant, form, user):
-    """Crée un dossier de crédit fournisseur à partir d'une demande validée + écriture comptable + audit."""
+def _mg_credit_create_from_demande(conn, did, montant, form, user,
+                                   paye_initial=0.0, pay_mode='', caisse_id=None, banque_id=None):
+    """Crée un dossier de crédit fournisseur à partir d'une demande validée + écriture comptable + audit.
+    Si paye_initial>0 (paiement partiel immédiat déjà décaissé) : enregistre ce 1er règlement
+    (sans re-débiter la trésorerie) + écriture 401/5xx + recalcul du reste."""
     d = conn.execute("""SELECT reference, department, fournisseur_id, requested_by, description
                         FROM achats_demandes WHERE id=?""", (did,)).fetchone()
     d = dict(d) if d else {}
@@ -36069,6 +36095,21 @@ def _mg_credit_create_from_demande(conn, did, montant, form, user):
     except Exception as _e:
         print(f"[v170o] err écriture achat crédit : {_e}", flush=True)
     _mg_credit_log(conn, credit_id, 'creation', 'statut', '', 'validee_credit')
+    # Paiement partiel immédiat déjà décaissé (caisse/banque) -> l'enregistrer comme 1er règlement
+    if paye_initial and paye_initial > 0:
+        try:
+            ref_p = f"REGL-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            conn.execute("""INSERT INTO mg_credit_paiements
+                (credit_id, reference, montant, mode, caisse_id, banque_id, date_paiement, commentaire, paid_by, paid_by_nom, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+                (credit_id, ref_p, paye_initial, pay_mode or 'caisse', caisse_id, banque_id,
+                 date_achat, "Acompte à la validation", (user['id'] if user else None), (user['full_name'] if user else '')))
+            auto_ecriture(conn, date_achat, f"Acompte crédit {numero} — {fournisseur_nom}",
+                          '401', ('521' if banque_id else '571'), paye_initial, ref_p)
+            _mg_credit_log(conn, credit_id, 'acompte', 'montant_paye', 0, paye_initial)
+            _mg_credit_recalc(conn, credit_id)
+        except Exception as _e:
+            print(f"[v170o] err acompte : {_e}", flush=True)
     # Notifier MG + compta
     try:
         notify_department(d.get('department'),
