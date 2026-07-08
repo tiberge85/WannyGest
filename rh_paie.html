@@ -30,9 +30,10 @@
 {% if p.status=='brouillon' %}background:#f0f4f8;color:#555
 {% elif p.status=='en_attente_compta' %}background:#e3f2fd;color:#1A7A6D
 {% elif p.status=='valide_compta' %}background:#e8f5e9;color:#2e7d32
+{% elif p.status=='partiellement_paye' %}background:#fff3e0;color:#b8561f
 {% elif p.status=='envoye' %}background:#fff3e0;color:#e8672a
 {% else %}background:#f0f0f0;color:#888{% endif %}">
-{% if p.status=='brouillon' %}📝 Brouillon{% elif p.status=='en_attente_compta' %}📋 Compta{% elif p.status=='valide_compta' %}✅ Validé{% elif p.status=='envoye' %}📧 Envoyé{% else %}{{ p.status }}{% endif %}</span>
+{% if p.status=='brouillon' %}📝 Brouillon{% elif p.status=='en_attente_compta' %}📋 Compta{% elif p.status=='valide_compta' %}✅ Validé{% elif p.status=='partiellement_paye' %}📉 Partiel{% elif p.status=='envoye' %}📧 Envoyé{% else %}{{ p.status }}{% endif %}</span>
 {% if p.signed_at %}<span style="margin-left:4px;font-size:9px;color:#2e7d32">✍️</span>{% endif %}</td>
 <td style="white-space:nowrap">
 <a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm" style="font-size:9px">👁️</a>

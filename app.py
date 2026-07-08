@@ -1004,6 +1004,20 @@ try:
 except Exception as _e:
     print(f"[v170o] err tables crédit fournisseur : {_e}", flush=True)
 
+# v170q : paiement PARTIEL des bulletins de paie -> colonne montant_paye.
+try:
+    from models import get_db as _v170q_db
+    _v170q = _v170q_db()
+    try:
+        _v170q.execute("ALTER TABLE payslips ADD COLUMN montant_paye REAL DEFAULT 0")
+        _v170q.commit()
+        print("[v170q] Colonne payslips.montant_paye ajoutée", flush=True)
+    except Exception:
+        pass
+    _v170q.close()
+except Exception as _e:
+    print(f"[v170q] err migration montant_paye : {_e}", flush=True)
+
 
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
@@ -11935,8 +11949,11 @@ def compta_validation_paie():
     conn = _gdb()
     pending = [dict(r) for r in conn.execute(
         """SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.department, e.position
-        FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id 
-        WHERE p.status='en_attente_compta' ORDER BY p.period DESC, e.last_name""").fetchall()]
+        FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id
+        WHERE p.status IN ('en_attente_compta','partiellement_paye') ORDER BY p.period DESC, e.last_name""").fetchall()]
+    # v170q : reste à payer par bulletin (pour le paiement partiel)
+    for _pp in pending:
+        _pp['reste_paie'] = float(_pp.get('net_salary') or 0) - float(_pp.get('montant_paye') or 0)
     validated = [dict(r) for r in conn.execute(
         """SELECT p.*, e.first_name||' '||e.last_name as employee_name, e.department,
            b.nom as bank_nom, b.banque as bank_etab, b.type_compte as bank_type
@@ -11984,30 +12001,43 @@ def _resolve_paie_payment_source(conn, sel):
             'compta_bank_account': '571', 'bank_id': None, 'caisse_id': src_id}, None
 
 
-def _validate_one_payslip(conn, p, src, user):
-    """v166 : valide UN bulletin (statut + écriture 661/compte + mouvement trésorerie + dépense).
-    Retourne le net décaissé (0 si ignoré). Ne commit pas (l'appelant gère commit/notif)."""
+def _validate_one_payslip(conn, p, src, user, pay_amount=None):
+    """v166 : valide/paie UN bulletin (statut + écriture 661/compte + mvt trésorerie + dépense).
+    v170q : paiement PARTIEL possible. pay_amount=None -> solde total ; sinon montant partiel.
+    Le bulletin passe 'valide_compta' si soldé, sinon 'partiellement_paye'. Retourne le montant décaissé."""
     net = float(p.get('net_salary') or 0)
     if net <= 0:
         return 0
+    already_paid = float(p.get('montant_paye') or 0)
+    reste = net - already_paid
+    if reste <= 0:
+        return 0
+    amt = reste if (pay_amount is None) else min(float(pay_amount), reste)
+    if amt <= 0:
+        return 0
+    new_paid = already_paid + amt
+    is_full = new_paid >= net - 0.01
+    new_status = 'valide_compta' if is_full else 'partiellement_paye'
     src_type = src['src_type']; src_label = src['src_label']
     compta_bank_account = src['compta_bank_account']
     bank_id = src['bank_id']; caisse_id = src['caisse_id']
     now_iso = datetime.now().isoformat()
     now_date = datetime.now().strftime('%Y-%m-%d')
     ref_compta = f"PAIE-{p['id']}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    mvt_libelle = f"Paie {p.get('period','')} — {p.get('employee_name','?')}"
-    # 1. Marquer le bulletin comme validé + lié au compte/caisse
+    _part = "" if is_full else " (partiel)"
+    mvt_libelle = f"Paie {p.get('period','')} — {p.get('employee_name','?')}{_part}"
+    # 1. Statut + montant payé + lien compte/caisse
     conn.execute("""UPDATE payslips SET
-        status='valide_compta', bank_account_id=?, caisse_id=?,
+        status=?, montant_paye=?, bank_account_id=?, caisse_id=?,
         compta_paid_at=?, compta_paid_by=?, compta_paid_by_name=?, compta_reference=?
         WHERE id=?""",
-        (bank_id, caisse_id, now_iso, session['user_id'], user['full_name'] if user else '?', ref_compta, p['id']))
+        (new_status, new_paid, bank_id, caisse_id, now_iso, session['user_id'],
+         user['full_name'] if user else '?', ref_compta, p['id']))
     # 2. Écriture comptable : 661 (Rémunérations) DÉBIT / 521 banque ou 571 caisse CRÉDIT
     try:
         auto_ecriture(conn, now_date,
-            f"Paie {p.get('period','')} — {p.get('employee_name','?')} ({src_label})",
-            '661', compta_bank_account, net, ref_compta)
+            f"Paie {p.get('period','')} — {p.get('employee_name','?')} ({src_label}){_part}",
+            '661', compta_bank_account, amt, ref_compta)
     except Exception as _e:
         print(f"[v117-Paie] Erreur écriture comptable : {_e}", flush=True)
     # 3. Mouvement de trésorerie (sortie) — banque OU caisse
@@ -12016,34 +12046,32 @@ def _validate_one_payslip(conn, p, src, user):
             conn.execute("""INSERT INTO tresorerie_mouvements
                 (type, sens, source, banque_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
                 VALUES ('banque','sortie','paie',?,?,?,?,?,'virement',?,?)""",
-                (bank_id, ref_compta, now_date, net, mvt_libelle, session['user_id'], now_iso))
+                (bank_id, ref_compta, now_date, amt, mvt_libelle, session['user_id'], now_iso))
         else:
             conn.execute("""INSERT INTO caisse_operations
                 (caisse_id, type, amount, description, reference, category, created_by, created_at)
                 VALUES (?, 'sortie', ?, ?, ?, 'salaire', ?, ?)""",
-                (caisse_id, net, mvt_libelle, ref_compta, session['user_id'], now_iso))
+                (caisse_id, amt, mvt_libelle, ref_compta, session['user_id'], now_iso))
             conn.execute("""INSERT INTO tresorerie_mouvements
                 (type, sens, source, caisse_id, reference, date, montant, libelle, mode_paiement, created_by, created_at)
                 VALUES ('caisse','sortie','paie',?,?,?,?,?,'espece',?,?)""",
-                (caisse_id, ref_compta, now_date, net, mvt_libelle, session['user_id'], now_iso))
+                (caisse_id, ref_compta, now_date, amt, mvt_libelle, session['user_id'], now_iso))
     except Exception as _e:
         print(f"[v162-Paie] Erreur mvt trésorerie : {_e}", flush=True)
-    # 4. Injection dans la table depenses (suivi unifié)
+    # 4. Injection dans la table depenses (suivi unifié) — une ligne par décaissement (réf unique)
     try:
-        existing = conn.execute("SELECT id FROM depenses WHERE source_type='paie' AND source_id=?", (p['id'],)).fetchone()
-        if not existing:
-            conn.execute("""INSERT INTO depenses
-                (reference, date, category, amount, description, beneficiaire,
-                 source_type, source_id, source_reference, bank_id, caisse_id,
-                 status, created_by, created_by_name)
-                VALUES (?,?,?,?,?,?,'paie',?,?,?,?,'comptabilisee',?,?)""",
-                (f"DEP-PAIE-{p['id']}", now_date, 'salaire', net,
-                 f"Bulletin de paie {p.get('period','')} via {src_label}",
-                 p.get('employee_name',''), p['id'], ref_compta, bank_id, caisse_id,
-                 session['user_id'], user['full_name'] if user else '?'))
+        conn.execute("""INSERT INTO depenses
+            (reference, date, category, amount, description, beneficiaire,
+             source_type, source_id, source_reference, bank_id, caisse_id,
+             status, created_by, created_by_name)
+            VALUES (?,?,?,?,?,?,'paie',?,?,?,?,'comptabilisee',?,?)""",
+            (f"DEP-{ref_compta}", now_date, 'salaire', amt,
+             f"Bulletin de paie {p.get('period','')} via {src_label}{_part}",
+             p.get('employee_name',''), p['id'], ref_compta, bank_id, caisse_id,
+             session['user_id'], user['full_name'] if user else '?'))
     except Exception as _e:
         print(f"[v117-Paie] Erreur dépense : {_e}", flush=True)
-    return net
+    return amt
 
 
 @app.route('/comptabilite/validation-paie/<int:pid>/validate', methods=['POST'])
@@ -12058,26 +12086,42 @@ def compta_validate_one(pid):
     src, err = _resolve_paie_payment_source(conn, sel)
     if not src:
         conn.close(); flash(err, "error"); return redirect('/comptabilite/validation-paie')
-    row = conn.execute("""SELECT p.id, p.net_salary, p.period, p.employee_id, p.status,
+    row = conn.execute("""SELECT p.id, p.net_salary, COALESCE(p.montant_paye,0) AS montant_paye,
+        p.period, p.employee_id, p.status,
         e.first_name||' '||e.last_name AS employee_name
         FROM payslips p LEFT JOIN employees e ON p.employee_id=e.id WHERE p.id=?""", (pid,)).fetchone()
-    if not row or row['status'] != 'en_attente_compta':
+    if not row or row['status'] not in ('en_attente_compta', 'partiellement_paye'):
         conn.close(); flash("Bulletin introuvable ou déjà traité.", "error")
         return redirect('/comptabilite/validation-paie')
     p = dict(row)
-    net = _validate_one_payslip(conn, p, src, user)
+    # v170q : paiement total ou partiel
+    reste = float(p['net_salary'] or 0) - float(p.get('montant_paye') or 0)
+    pay_amount = None  # None -> solde total
+    if (request.form.get('paiement_mode', 'total') or 'total').strip() == 'partiel':
+        def _npm(v):
+            try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.') or 0)
+            except Exception: return 0.0
+        pay_amount = _npm(request.form.get('montant_partiel'))
+        if pay_amount <= 0 or pay_amount > reste + 0.01:
+            conn.close()
+            flash(f"⚠️ Montant partiel invalide (doit être > 0 et ≤ reste {reste:,.0f} F).", "error")
+            return redirect('/comptabilite/validation-paie')
+    net = _validate_one_payslip(conn, p, src, user, pay_amount)
     if net <= 0:
         conn.close(); flash("Bulletin ignoré (net nul).", "error")
         return redirect('/comptabilite/validation-paie')
+    _solde = (float(p.get('montant_paye') or 0) + net) >= float(p['net_salary'] or 0) - 0.01
+    _statut_lbl = "payé intégralement" if _solde else "payé partiellement"
     for ru in conn.execute("SELECT id FROM users WHERE role IN ('rh','admin','dg')").fetchall():
         conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
-            (ru['id'], 'bulletin', "✅ Bulletin validé",
-             f"La comptabilité a validé le bulletin de {p.get('employee_name','?')} ({net:,.0f} F) via {src['src_label']}.",
+            (ru['id'], 'bulletin', "✅ Bulletin " + ('validé' if _solde else 'payé partiellement'),
+             f"La comptabilité a {_statut_lbl} le bulletin de {p.get('employee_name','?')} ({net:,.0f} F) via {src['src_label']}.",
              '/rh/paie'))
     conn.commit(); conn.close()
     log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie',
-                f"Bulletin {p.get('period','')} {p.get('employee_name','?')} validé via {src['src_label']} — {net:,.0f} F", request.remote_addr)
-    flash(f"✅ Bulletin de {p.get('employee_name','?')} validé — {net:,.0f} F via {src['src_label']} (écriture 661/{src['compta_bank_account']})", "success")
+                f"Bulletin {p.get('period','')} {p.get('employee_name','?')} — {net:,.0f} F ({_statut_lbl}) via {src['src_label']}", request.remote_addr)
+    flash(f"✅ Bulletin de {p.get('employee_name','?')} — {net:,.0f} F {_statut_lbl} via {src['src_label']}"
+          + ("" if _solde else f" · reste {reste-net:,.0f} F"), "success")
     return redirect('/comptabilite/validation-paie')
 
 
