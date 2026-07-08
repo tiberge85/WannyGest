@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Crédit {{ credit.numero }}{% endblock %}
+{% block content %}
+<style>
+.cd-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px}
+.cd-grid .k{font-size:11px;color:#888}
+.cd-grid .v{font-size:13px;font-weight:600;color:#1a3a5c;margin-bottom:6px}
+.cd-badge{padding:3px 10px;border-radius:10px;font-size:11px;font-weight:800;color:#fff}
+@media(max-width:640px){.cd-grid{grid-template-columns:1fr}}
+</style>
+<div class="page-header"><h1>🧾 {{ credit.numero }}</h1>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/mg/credits" class="btn btn-outline btn-sm">← Liste</a>
+    <span class="cd-badge" style="background:{{ credit.stat_color }};align-self:center">{{ credit.stat_label }}</span>
+</div></div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px" class="cd-cols">
+<div>
+    <!-- Détails du crédit -->
+    <div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:16px">
+        <div class="cd-grid">
+            <div><div class="k">Fournisseur</div><div class="v">{{ credit.fournisseur_nom or '—' }}</div></div>
+            <div><div class="k">Référence demande</div><div class="v">{{ credit.demande_ref or '—' }}</div></div>
+            <div><div class="k">Organisation / Service</div><div class="v">{{ credit.organisation or '—' }}</div></div>
+            <div><div class="k">Projet concerné</div><div class="v">{{ credit.project_nom or '—' }}</div></div>
+            <div><div class="k">Montant HT</div><div class="v">{{ '{:,.0f}'.format(credit.montant_ht|float).replace(',', ' ') }} F</div></div>
+            <div><div class="k">TVA</div><div class="v">{{ '{:,.0f}'.format(credit.tva|float).replace(',', ' ') }} F</div></div>
+            <div><div class="k">Montant TTC</div><div class="v" style="color:#1565c0">{{ '{:,.0f}'.format(credit.montant_ttc|float).replace(',', ' ') }} F</div></div>
+            <div><div class="k">Date d'achat</div><div class="v">{{ credit.date_achat or '—' }}</div></div>
+            <div><div class="k">Date d'échéance</div><div class="v">{{ credit.date_echeance or '—' }}{% if credit.jours_restants is not none %} <span style="font-size:11px;color:{% if credit.jours_restants<0 %}#c53030{% elif credit.jours_restants<=7 %}#e8672a{% else %}#888{% endif %}">({{ credit.jours_restants }} j)</span>{% endif %}</div></div>
+            <div><div class="k">Responsable MG</div><div class="v">{{ credit.responsable_mg_nom or '—' }}</div></div>
+            <div><div class="k">Responsable Comptabilité</div><div class="v">{{ credit.responsable_compta_nom or '—' }}</div></div>
+        </div>
+        {% if credit.observations %}<div style="margin-top:10px"><div class="k" style="font-size:11px;color:#888">Observations</div><div style="font-size:13px;color:#555">{{ credit.observations }}</div></div>{% endif %}
+        <!-- Barre payé / reste -->
+        <div style="margin-top:14px">
+            {% set pct = (credit.montant_paye/credit.montant_ttc*100)|round if credit.montant_ttc else 0 %}
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:3px">
+                <span>Payé : <strong style="color:#2e7d32">{{ '{:,.0f}'.format(credit.montant_paye|float).replace(',', ' ') }} F</strong></span>
+                <span>Reste : <strong style="color:#c53030">{{ '{:,.0f}'.format(credit.reste|float).replace(',', ' ') }} F</strong></span>
+            </div>
+            <div style="height:12px;background:#eee;border-radius:6px;overflow:hidden"><div style="height:100%;width:{{ pct }}%;background:#2e7d32"></div></div>
+        </div>
+    </div></div>
+
+    <!-- Pièces jointes -->
+    <div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:14px">
+        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">📎 Pièces jointes</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+            {% for kind, lbl, path in [('facture','🧾 Facture', credit.facture_path), ('bl','📦 Bon de livraison', credit.bl_path), ('photo','📷 Photo', credit.photo_path)] %}
+            <div style="border:1px dashed #ccc;border-radius:8px;padding:8px;text-align:center">
+                <div style="font-size:12px;font-weight:600;margin-bottom:4px">{{ lbl }}</div>
+                {% if path %}<a href="/uploads/{{ path }}" target="_blank" style="font-size:11px;color:#1A7A6D">Voir</a>{% else %}<span style="font-size:10px;color:#aaa">Aucune</span>{% endif %}
+                {% if can_manage and credit.statut != 'annulee' %}
+                <form method="post" action="/mg/credits/{{ credit.id }}/piece" enctype="multipart/form-data" style="margin-top:5px">
+                    <input type="hidden" name="kind" value="{{ kind }}">
+                    <input type="file" name="fichier" accept="image/*,application/pdf" required style="font-size:9px;width:100%">
+                    <button type="submit" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px;margin-top:3px">Téléverser</button>
+                </form>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div></div>
+
+    <!-- Historique des paiements -->
+    <div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:14px">
+        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">💳 Historique des paiements ({{ paiements|length }})</div>
+        {% if paiements %}
+        <div class="table-wrap"><table style="width:100%;font-size:12px">
+            <thead><tr><th style="text-align:left">Date</th><th style="text-align:right">Montant</th><th style="text-align:left">Mode</th><th style="text-align:left">Par</th><th style="text-align:left">Réf.</th></tr></thead>
+            <tbody>{% for p in paiements %}<tr>
+                <td>{{ p.date_paiement }}</td>
+                <td style="text-align:right;font-weight:700;color:#2e7d32">{{ '{:,.0f}'.format(p.montant|float).replace(',', ' ') }} F</td>
+                <td>{{ p.mode }}</td><td>{{ p.paid_by_nom }}</td>
+                <td style="font-family:monospace;font-size:10px;color:#888">{{ p.reference }}</td>
+            </tr>{% endfor %}</tbody>
+        </table></div>
+        {% else %}<p style="color:#999;font-size:12px">Aucun paiement enregistré.</p>{% endif %}
+    </div></div>
+
+    <!-- Journal / audit -->
+    <div class="card"><div class="card-body" style="padding:14px">
+        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">🕓 Historique des opérations</div>
+        {% if history %}
+        <div style="max-height:260px;overflow-y:auto">
+        {% for h in history %}
+        <div style="border-bottom:1px solid #f0f0f0;padding:6px 0;font-size:11px;color:#555">
+            <strong>{{ h.action }}</strong>{% if h.field_name %} · {{ h.field_name }}{% endif %}
+            {% if h.old_value or h.new_value %}<span style="color:#888"> : {{ h.old_value }} → {{ h.new_value }}</span>{% endif %}
+            <div style="color:#aaa;font-size:10px">👤 {{ h.user_name }} · {{ h.created_at }}{% if h.ip_address %} · {{ h.ip_address }}{% endif %}</div>
+        </div>
+        {% endfor %}
+        </div>
+        {% else %}<p style="color:#999;font-size:12px">—</p>{% endif %}
+    </div></div>
+</div>
+
+<!-- Colonne actions : paiement -->
+<div>
+    {% if can_manage and credit.statut not in ('soldee','annulee') %}
+    <div class="card" style="margin-bottom:14px;border:2px solid #2e7d32"><div class="card-body" style="padding:14px">
+        <div style="font-size:14px;font-weight:800;color:#2e7d32;margin-bottom:10px">💵 Enregistrer un paiement</div>
+        <form method="post" action="/mg/credits/{{ credit.id }}/payer">
+            <label style="font-size:11px;color:#666">Montant à payer (reste : {{ '{:,.0f}'.format(credit.reste|float).replace(',', ' ') }} F)</label>
+            <input type="number" name="montant" step="1" min="0" max="{{ credit.reste|float }}" placeholder="Montant partiel" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px;cursor:pointer">
+                <input type="checkbox" name="total" value="1" onchange="var m=this.form.montant; m.disabled=this.checked; if(this.checked)m.value='';"> Payer la TOTALITÉ du reste
+            </label>
+            <label style="font-size:11px;color:#666">Mode</label>
+            <select name="mode" id="crMode" onchange="crToggle()" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
+                <option value="espece">Espèces (hors caisse)</option>
+                <option value="caisse">Caisse</option>
+                <option value="banque">Banque / virement</option>
+                <option value="autre">Autre</option>
+            </select>
+            <select name="caisse_id" id="crCaisse" style="display:none;width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
+                <option value="">— Caisse —</option>{% for c in caisses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+            <select name="banque_id" id="crBanque" style="display:none;width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
+                <option value="">— Banque —</option>{% for b in banques %}<option value="{{ b.id }}">{{ b.nom }}</option>{% endfor %}
+            </select>
+            <label style="font-size:11px;color:#666">Date</label>
+            <input type="date" name="date_paiement" value="{{ credit.date_achat }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
+            <input type="text" name="commentaire" placeholder="Commentaire (optionnel)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:10px">
+            <button type="submit" class="btn btn-primary" style="width:100%;background:#2e7d32">✅ Enregistrer le paiement</button>
+        </form>
+    </div></div>
+    {% endif %}
+
+    {% if current_user and current_user.role in ('admin','dg','directeur') and credit.statut != 'annulee' %}
+    <form method="post" action="/mg/credits/{{ credit.id }}/annuler" onsubmit="return confirm('Annuler ce crédit ? (action tracée)')">
+        <button type="submit" class="btn btn-sm" style="width:100%;background:#fde8e8;color:#c53030">🗑️ Annuler ce crédit</button>
+    </form>
+    {% endif %}
+</div>
+</div>
+
+<script>
+function crToggle(){
+    var m=document.getElementById('crMode').value;
+    document.getElementById('crCaisse').style.display = (m==='caisse')?'block':'none';
+    document.getElementById('crBanque').style.display = (m==='banque')?'block':'none';
+}
+</script>
+{% endblock %}

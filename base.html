@@ -719,6 +719,9 @@
                     {% if mg_core %}
                     <a href="/mg/paiements" class="{% if page == 'mg_paiements' %}active{% endif %}">💵 Paiements fournisseurs</a>
                     {% endif %}
+                    {% if mg_core %}
+                    <a href="/mg/credits" class="{% if page == 'mg_credits' %}active{% endif %}">🧾 Crédits fournisseurs</a>
+                    {% endif %}
                     {% if mg_core or 'fournisseurs' in permissions %}
                     <a href="/mg/fournisseurs-dashboard" class="{% if page == 'mg_fournisseurs' %}active{% endif %}">💰 Suivi financier fournisseurs</a>
                     {% endif %}

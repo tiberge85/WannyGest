@@ -961,6 +961,49 @@ try:
 except Exception as _e:
     print(f"[v170l] err backfill codes clients : {_e}", flush=True)
 
+# v170o : module CRÉDIT FOURNISSEUR (achats à crédit) — tables.
+try:
+    from models import get_db as _v170o_db
+    _v170o = _v170o_db()
+    _v170o.executescript("""
+        CREATE TABLE IF NOT EXISTS mg_credits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT, demande_id INTEGER, demande_ref TEXT,
+            fournisseur_id INTEGER, fournisseur_nom TEXT,
+            organisation TEXT, project_id INTEGER, project_nom TEXT,
+            montant_ht REAL DEFAULT 0, tva REAL DEFAULT 0, montant_ttc REAL DEFAULT 0,
+            montant_paye REAL DEFAULT 0, reste REAL DEFAULT 0,
+            date_achat TEXT, date_echeance TEXT,
+            responsable_mg_id INTEGER, responsable_mg_nom TEXT,
+            responsable_compta_id INTEGER, responsable_compta_nom TEXT,
+            observations TEXT, statut TEXT DEFAULT 'validee_credit',
+            facture_path TEXT, bl_path TEXT, photo_path TEXT,
+            created_by INTEGER, created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS mg_credit_paiements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            credit_id INTEGER, reference TEXT, montant REAL DEFAULT 0,
+            mode TEXT, caisse_id INTEGER, banque_id INTEGER,
+            date_paiement TEXT, commentaire TEXT,
+            paid_by INTEGER, paid_by_nom TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS mg_credit_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            credit_id INTEGER, user_id INTEGER, user_name TEXT,
+            action TEXT, field_name TEXT, old_value TEXT, new_value TEXT,
+            ip_address TEXT, created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_mg_credits_fourn ON mg_credits(fournisseur_id);
+        CREATE INDEX IF NOT EXISTS idx_mg_credit_pay ON mg_credit_paiements(credit_id);
+        CREATE INDEX IF NOT EXISTS idx_mg_credit_hist ON mg_credit_history(credit_id);
+    """)
+    _v170o.commit(); _v170o.close()
+    print("[v170o] Tables crédit fournisseur OK", flush=True)
+except Exception as _e:
+    print(f"[v170o] err tables crédit fournisseur : {_e}", flush=True)
+
 
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
@@ -18310,6 +18353,12 @@ def pointage_photo_serve(filename):
 def chat_file_serve(filename):
     if '..' in filename or filename.startswith('/'): abort(403)
     return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'chat_files'), filename)
+
+@app.route('/uploads/mg_credits/<path:filename>')
+@login_required
+def mg_credit_file_serve(filename):
+    if '..' in filename or filename.startswith('/'): abort(403)
+    return send_from_directory(os.path.join(app.config['UPLOAD_FOLDER'], 'mg_credits'), filename)
 
 
 @app.route('/uploads/versements/<path:filename>')
@@ -35853,9 +35902,22 @@ def compta_demande_mg_decision(did):
                         tresorerie_banque_id=?, tresorerie_caisse_id=NULL, tresorerie_montant=?,
                         tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
                         (bid, montant, did))
+                elif tresorerie_type == 'credit':
+                    # v170o : ACHAT À CRÉDIT — aucun décaissement ; on crée un dossier de crédit fournisseur.
+                    try:
+                        _num_credit = _mg_credit_create_from_demande(conn, did, montant, request.form, user)
+                        conn.execute("""UPDATE achats_demandes SET tresorerie_type='credit',
+                            tresorerie_montant=?, tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
+                            (montant, did))
+                        debit_msg = f" — 🧾 achat à CRÉDIT enregistré (dossier {_num_credit})"
+                    except Exception as _ce:
+                        conn.close()
+                        print(f"[v170o] err création crédit : {_ce}", flush=True)
+                        flash(f"⚠️ Impossible de créer le dossier de crédit : {_ce}", "error")
+                        return redirect(f'/comptabilite/demandes-mg/{did}/preview')
                 else:
                     conn.close()
-                    flash("⚠️ Choisissez le portefeuille fournisseur à débiter (caisse ou compte bancaire) pour valider.", "error")
+                    flash("⚠️ Choisissez le mode de règlement : caisse, compte bancaire, ou achat à crédit.", "error")
                     return redirect(f'/comptabilite/demandes-mg/{did}/preview')
 
         conn.execute("""UPDATE achats_demandes SET
@@ -35890,6 +35952,369 @@ def compta_demande_mg_decision(did):
 
 
 # ==================== FIN v100 Workflow MG → Comptabilité ====================
+
+
+# ============================================================
+# v170o : MODULE CRÉDIT FOURNISSEUR (achats à crédit)
+# ============================================================
+MG_CREDIT_STATUTS = {
+    'en_attente':          ('En attente', '#888'),
+    'validee':             ('Validée', '#1565c0'),
+    'validee_credit':      ('Validée à crédit', '#7b1fa2'),
+    'partiellement_payee': ('Partiellement payée', '#e8672a'),
+    'soldee':              ('Soldée', '#2e7d32'),
+    'annulee':             ('Annulée', '#c53030'),
+}
+
+def _mg_credit_can_manage(user):
+    from models import has_permission as _hp
+    return bool(user and (user['role'] == 'admin' or _hp(user['role'], 'mg_gestion')
+                          or _hp(user['role'], 'comptabilite') or _hp(user['role'], 'comptabilite_edit')))
+
+def _mg_credit_next_numero(conn):
+    year = datetime.now().strftime('%Y')
+    n = 0
+    for r in conn.execute("SELECT numero FROM mg_credits WHERE numero LIKE ?", (f"CRD-{year}-%",)).fetchall():
+        try:
+            v = int(str(r['numero']).rsplit('-', 1)[-1])
+            if v > n: n = v
+        except Exception: pass
+    return f"CRD-{year}-{n + 1:04d}"
+
+def _mg_credit_log(conn, credit_id, action, field='', old='', new=''):
+    """Historise une opération sur un crédit (user, date, heure, IP, ancienne/nouvelle valeur)."""
+    try:
+        u = get_user_by_id(session.get('user_id')) if session.get('user_id') else None
+        ip = ''
+        try: ip = request.remote_addr or ''
+        except Exception: ip = ''
+        conn.execute("""INSERT INTO mg_credit_history
+            (credit_id, user_id, user_name, action, field_name, old_value, new_value, ip_address, created_at)
+            VALUES (?,?,?,?,?,?,?,?,datetime('now'))""",
+            (credit_id, (u['id'] if u else None), (u['full_name'] if u else 'Système'),
+             action, field, str(old), str(new), ip))
+    except Exception as _e:
+        print(f"[v170o] log err : {_e}", flush=True)
+
+def _mg_credit_recalc(conn, credit_id):
+    """Recalcule montant payé / reste / statut à partir des paiements."""
+    row = conn.execute("SELECT montant_ttc, statut FROM mg_credits WHERE id=?", (credit_id,)).fetchone()
+    if not row: return
+    ttc = float(row['montant_ttc'] or 0)
+    paye = float(conn.execute("SELECT COALESCE(SUM(montant),0) FROM mg_credit_paiements WHERE credit_id=?",
+                              (credit_id,)).fetchone()[0] or 0)
+    reste = round(ttc - paye, 2)
+    if reste < 0: reste = 0
+    statut = row['statut']
+    if statut != 'annulee':
+        if paye <= 0:
+            statut = 'validee_credit'
+        elif reste <= 0:
+            statut = 'soldee'
+        else:
+            statut = 'partiellement_payee'
+    conn.execute("UPDATE mg_credits SET montant_paye=?, reste=?, statut=?, updated_at=datetime('now') WHERE id=?",
+                 (paye, reste, statut, credit_id))
+    return statut
+
+def _mg_credit_create_from_demande(conn, did, montant, form, user):
+    """Crée un dossier de crédit fournisseur à partir d'une demande validée + écriture comptable + audit."""
+    d = conn.execute("""SELECT reference, department, fournisseur_id, requested_by, description
+                        FROM achats_demandes WHERE id=?""", (did,)).fetchone()
+    d = dict(d) if d else {}
+    fournisseur_nom = ''
+    if d.get('fournisseur_id'):
+        _fr = conn.execute("SELECT nom FROM suppliers WHERE id=?", (d['fournisseur_id'],)).fetchone()
+        if _fr: fournisseur_nom = _fr['nom']
+    def _n(v, dv=0.0):
+        try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.') or dv)
+        except Exception: return dv
+    ttc = _n(form.get('credit_ttc'), 0) or float(montant or 0)
+    ht = _n(form.get('credit_ht'), 0) or ttc
+    tva = _n(form.get('credit_tva'), 0)
+    if not tva and ht and ttc and ttc > ht:
+        tva = round(ttc - ht, 2)
+    date_achat = datetime.now().strftime('%Y-%m-%d')
+    date_ech = (form.get('credit_echeance', '') or '').strip() or None
+    numero = _mg_credit_next_numero(conn)
+    resp_mg_id = d.get('requested_by')
+    resp_mg_nom = ''
+    if resp_mg_id:
+        _ru = get_user_by_id(resp_mg_id)
+        resp_mg_nom = _ru['full_name'] if _ru else ''
+    project_id = form.get('credit_project_id', '')
+    project_id = int(project_id) if str(project_id).strip().isdigit() else None
+    project_nom = (form.get('credit_project_nom', '') or '').strip()
+    if project_id and not project_nom:
+        try:
+            _p = conn.execute("SELECT name FROM projects WHERE id=?", (project_id,)).fetchone()
+            if _p: project_nom = _p['name']
+        except Exception: pass
+    conn.execute("""INSERT INTO mg_credits
+        (numero, demande_id, demande_ref, fournisseur_id, fournisseur_nom, organisation,
+         project_id, project_nom, montant_ht, tva, montant_ttc, montant_paye, reste,
+         date_achat, date_echeance, responsable_mg_id, responsable_mg_nom,
+         responsable_compta_id, responsable_compta_nom, observations, statut, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?, 'validee_credit', ?)""",
+        (numero, did, d.get('reference', ''), d.get('fournisseur_id'), fournisseur_nom,
+         d.get('department', ''), project_id, project_nom, ht, tva, ttc, ttc,
+         date_achat, date_ech, resp_mg_id, resp_mg_nom,
+         (user['id'] if user else None), (user['full_name'] if user else ''),
+         (form.get('credit_obs', '') or '').strip(), (user['id'] if user else None)))
+    credit_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    # Écriture comptable : achat à crédit -> Débit 605 (achats) / Crédit 401 (fournisseurs)
+    try:
+        auto_ecriture(conn, date_achat, f"Achat à crédit {numero} — {fournisseur_nom or d.get('reference','')}",
+                      '605', '401', ttc, numero)
+    except Exception as _e:
+        print(f"[v170o] err écriture achat crédit : {_e}", flush=True)
+    _mg_credit_log(conn, credit_id, 'creation', 'statut', '', 'validee_credit')
+    # Notifier MG + compta
+    try:
+        notify_department(d.get('department'),
+            f"🧾 Achat à crédit {numero} — {fournisseur_nom}",
+            f"Un achat à crédit de {ttc:,.0f} F a été enregistré (demande {d.get('reference','')}).",
+            link=f"/mg/credits/{credit_id}", type='mg_credit', module='moyens_generaux', icon='🧾')
+    except Exception: pass
+    return numero
+
+def _mg_credit_check_echeances():
+    """Notifications d'échéance J-7 / J-3 / jour / retard (déclenché 1x/jour)."""
+    try:
+        conn = _gdb()
+        today = datetime.now().date()
+        flag = conn.execute("SELECT value FROM app_settings WHERE key='mg_credit_echeance_last'").fetchone()
+        if flag and flag['value'] == today.strftime('%Y-%m-%d'):
+            conn.close(); return
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, numero, fournisseur_nom, reste, date_echeance FROM mg_credits "
+            "WHERE statut IN ('validee_credit','partiellement_payee') AND COALESCE(date_echeance,'')<>''").fetchall()]
+        # Destinataires : MG + compta + direction
+        dests = [r['id'] for r in conn.execute(
+            "SELECT id FROM users WHERE is_active=1 AND role IN "
+            "('admin','dg','directeur','moyens_generaux','mg','comptable','comptabilite')").fetchall()]
+        for c in rows:
+            try:
+                d_ech = datetime.strptime(c['date_echeance'][:10], '%Y-%m-%d').date()
+            except Exception:
+                continue
+            j = (d_ech - today).days
+            titre = None
+            if j == 7:   titre = f"⏳ Crédit {c['numero']} — échéance dans 7 jours"
+            elif j == 3: titre = f"⏳ Crédit {c['numero']} — échéance dans 3 jours"
+            elif j == 0: titre = f"📅 Crédit {c['numero']} — échéance AUJOURD'HUI"
+            elif j < 0:  titre = f"🚨 Crédit {c['numero']} — EN RETARD de {abs(j)} j"
+            if not titre: continue
+            msg = f"{c['fournisseur_nom'] or ''} — reste à payer {float(c['reste'] or 0):,.0f} F."
+            for uid in dests:
+                try: notify_user(uid, title=titre, message=msg, link=f"/mg/credits/{c['id']}",
+                                 module='moyens_generaux', priority=('high' if j <= 0 else 'normal'))
+                except Exception: pass
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('mg_credit_echeance_last', ?)",
+                     (today.strftime('%Y-%m-%d'),))
+        conn.commit(); conn.close()
+    except Exception as _e:
+        print(f"[v170o] err echeances : {_e}", flush=True)
+
+
+@app.route('/mg/credits')
+@permission_required_any('mg_view', 'mg_gestion', 'comptabilite', 'admin')
+def mg_credits():
+    """Tableau de bord + liste des crédits fournisseurs."""
+    _mg_credit_check_echeances()
+    conn = _gdb()
+    f_stat = (request.args.get('statut', '') or '').strip()
+    f_four = (request.args.get('fournisseur', '') or '').strip()
+    f_from = (request.args.get('from', '') or '').strip()
+    f_to = (request.args.get('to', '') or '').strip()
+    where, params = [], []
+    if f_stat: where.append("statut=?"); params.append(f_stat)
+    if f_four and f_four.isdigit(): where.append("fournisseur_id=?"); params.append(int(f_four))
+    if f_from: where.append("date_achat>=?"); params.append(f_from)
+    if f_to: where.append("date_achat<=?"); params.append(f_to)
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    credits = [dict(r) for r in conn.execute(
+        f"SELECT * FROM mg_credits{wsql} ORDER BY (COALESCE(date_echeance,'9999')) ASC, id DESC LIMIT 500", params).fetchall()]
+    today = datetime.now().date()
+    for c in credits:
+        sl = MG_CREDIT_STATUTS.get(c['statut'], (c['statut'], '#888')); c['stat_label'], c['stat_color'] = sl
+        c['jours_restants'] = None
+        c['retard'] = False
+        if c.get('date_echeance'):
+            try:
+                d_ech = datetime.strptime(c['date_echeance'][:10], '%Y-%m-%d').date()
+                c['jours_restants'] = (d_ech - today).days
+                c['retard'] = c['jours_restants'] < 0 and c['statut'] not in ('soldee', 'annulee')
+            except Exception: pass
+    # KPIs (globaux, non filtrés par la liste)
+    def _sum(sql, p=()):
+        return float(conn.execute(sql, p).fetchone()[0] or 0)
+    total_ttc = _sum("SELECT COALESCE(SUM(montant_ttc),0) FROM mg_credits WHERE statut<>'annulee'")
+    total_paye = _sum("SELECT COALESCE(SUM(montant_paye),0) FROM mg_credits WHERE statut<>'annulee'")
+    total_reste = _sum("SELECT COALESCE(SUM(reste),0) FROM mg_credits WHERE statut NOT IN ('annulee','soldee')")
+    nb_total = int(conn.execute("SELECT COUNT(*) FROM mg_credits WHERE statut<>'annulee'").fetchone()[0])
+    # Échéances proches (< 7j) et retards
+    _t = today.strftime('%Y-%m-%d')
+    _t7 = (today + timedelta(days=7)).strftime('%Y-%m-%d')
+    nb_echeance = int(conn.execute(
+        "SELECT COUNT(*) FROM mg_credits WHERE statut IN ('validee_credit','partiellement_payee') "
+        "AND COALESCE(date_echeance,'')<>'' AND date_echeance>=? AND date_echeance<=?", (_t, _t7)).fetchone()[0])
+    nb_retard = int(conn.execute(
+        "SELECT COUNT(*) FROM mg_credits WHERE statut IN ('validee_credit','partiellement_payee') "
+        "AND COALESCE(date_echeance,'')<>'' AND date_echeance<?", (_t,)).fetchone()[0])
+    top_fourn = [dict(r) for r in conn.execute(
+        "SELECT fournisseur_id, fournisseur_nom, COUNT(*) nb, COALESCE(SUM(reste),0) reste, "
+        "COALESCE(SUM(montant_ttc),0) ttc FROM mg_credits WHERE statut NOT IN ('annulee','soldee') "
+        "GROUP BY fournisseur_id ORDER BY reste DESC LIMIT 8").fetchall()]
+    fournisseurs = [dict(r) for r in conn.execute("SELECT id, nom FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+    conn.close()
+    user = get_user_by_id(session['user_id'])
+    return render_template('mg_credits.html', page='mg_credits', credits=credits,
+        stats={'total': total_ttc, 'paye': total_paye, 'reste': total_reste, 'nb': nb_total,
+               'echeance': nb_echeance, 'retard': nb_retard},
+        top_fourn=top_fourn, statuts=MG_CREDIT_STATUTS, fournisseurs=fournisseurs,
+        f_stat=f_stat, f_four=f_four, f_from=f_from, f_to=f_to,
+        can_manage=_mg_credit_can_manage(user))
+
+
+@app.route('/mg/credits/<int:cid>')
+@permission_required_any('mg_view', 'mg_gestion', 'comptabilite', 'admin')
+def mg_credit_detail(cid):
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM mg_credits WHERE id=?", (cid,)).fetchone()
+    if not row:
+        conn.close(); flash("Crédit introuvable", "error"); return redirect('/mg/credits')
+    credit = dict(row)
+    sl = MG_CREDIT_STATUTS.get(credit['statut'], (credit['statut'], '#888')); credit['stat_label'], credit['stat_color'] = sl
+    credit['jours_restants'] = None
+    if credit.get('date_echeance'):
+        try:
+            d_ech = datetime.strptime(credit['date_echeance'][:10], '%Y-%m-%d').date()
+            credit['jours_restants'] = (d_ech - datetime.now().date()).days
+        except Exception: pass
+    paiements = [dict(r) for r in conn.execute(
+        "SELECT * FROM mg_credit_paiements WHERE credit_id=? ORDER BY id DESC", (cid,)).fetchall()]
+    history = [dict(r) for r in conn.execute(
+        "SELECT * FROM mg_credit_history WHERE credit_id=? ORDER BY id DESC LIMIT 100", (cid,)).fetchall()]
+    caisses = [dict(r) for r in conn.execute("SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
+    try:
+        banques = [dict(r) for r in conn.execute("SELECT id, nom FROM tresorerie_comptes_bancaires ORDER BY nom").fetchall()]
+    except Exception:
+        banques = []
+    conn.close()
+    user = get_user_by_id(session['user_id'])
+    return render_template('mg_credit_detail.html', page='mg_credits', credit=credit,
+        paiements=paiements, history=history, statuts=MG_CREDIT_STATUTS,
+        caisses=caisses, banques=banques, can_manage=_mg_credit_can_manage(user))
+
+
+@app.route('/mg/credits/<int:cid>/payer', methods=['POST'])
+@login_required
+def mg_credit_payer(cid):
+    """Enregistre un paiement (total ou partiel) + décaissement + écriture comptable + recalcul."""
+    user = get_user_by_id(session['user_id'])
+    if not _mg_credit_can_manage(user):
+        flash("⛔ Non autorisé à enregistrer un paiement.", "error"); return redirect(f'/mg/credits/{cid}')
+    conn = _gdb()
+    c = conn.execute("SELECT * FROM mg_credits WHERE id=?", (cid,)).fetchone()
+    if not c:
+        conn.close(); flash("Crédit introuvable", "error"); return redirect('/mg/credits')
+    c = dict(c)
+    if c['statut'] in ('soldee', 'annulee'):
+        conn.close(); flash("Ce crédit est déjà soldé ou annulé.", "warning"); return redirect(f'/mg/credits/{cid}')
+    def _n(v):
+        try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.') or 0)
+        except Exception: return 0.0
+    montant = _n(request.form.get('montant'))
+    if request.form.get('total') == '1':
+        montant = float(c['reste'] or 0)
+    reste = float(c['reste'] or 0)
+    if montant <= 0:
+        conn.close(); flash("Montant de paiement invalide.", "error"); return redirect(f'/mg/credits/{cid}')
+    if montant > reste + 0.01:
+        conn.close(); flash(f"Le montant dépasse le reste à payer ({reste:,.0f} F).", "error"); return redirect(f'/mg/credits/{cid}')
+    mode = (request.form.get('mode', '') or 'espece').strip()
+    caisse_id = request.form.get('caisse_id', ''); caisse_id = int(caisse_id) if str(caisse_id).isdigit() else None
+    banque_id = request.form.get('banque_id', ''); banque_id = int(banque_id) if str(banque_id).isdigit() else None
+    date_p = (request.form.get('date_paiement', '') or datetime.now().strftime('%Y-%m-%d')).strip()
+    ref_p = f"REGL-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    conn.execute("""INSERT INTO mg_credit_paiements
+        (credit_id, reference, montant, mode, caisse_id, banque_id, date_paiement, commentaire, paid_by, paid_by_nom, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+        (cid, ref_p, montant, mode, caisse_id, banque_id, date_p,
+         (request.form.get('commentaire', '') or '').strip(), user['id'], user['full_name']))
+    # Décaissement réel de la caisse choisie (facultatif) + écriture comptable
+    credit_account = '571'
+    if mode == 'caisse' and caisse_id:
+        try:
+            conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by, created_at)
+                VALUES (?, 'sortie', ?, ?, ?, 'fournisseur', ?, datetime('now'))""",
+                (caisse_id, montant, f"Règlement crédit {c['numero']}", c['numero'], user['id']))
+            conn.execute("UPDATE caisses SET solde_actuel=COALESCE(solde_actuel,0)-? WHERE id=?", (montant, caisse_id))
+        except Exception: pass
+    elif mode == 'banque' and banque_id:
+        credit_account = '521'
+        try:
+            conn.execute("UPDATE tresorerie_comptes_bancaires SET solde_actuel=COALESCE(solde_actuel,0)-? WHERE id=?", (montant, banque_id))
+            conn.execute("""INSERT INTO tresorerie_mouvements (type, sens, source, source_id, date, montant, libelle, reference, banque_id, created_by)
+                VALUES ('decaissement','sortie','credit_fournisseur',?,?,?,?,?,?,?)""",
+                (cid, date_p, montant, f"Règlement crédit {c['numero']}", c['numero'], banque_id, user['id']))
+        except Exception: pass
+    try:
+        auto_ecriture(conn, date_p, f"Règlement crédit {c['numero']} — {c.get('fournisseur_nom','')}",
+                      '401', credit_account, montant, ref_p)
+    except Exception as _e:
+        print(f"[v170o] err écriture règlement : {_e}", flush=True)
+    _mg_credit_log(conn, cid, 'paiement', 'montant_paye', c.get('montant_paye', 0), (c.get('montant_paye', 0) or 0) + montant)
+    new_statut = _mg_credit_recalc(conn, cid)
+    conn.commit(); conn.close()
+    log_activity(user['id'], user['full_name'], 'Crédit fournisseur',
+                 f"Paiement {montant:,.0f} F sur {c['numero']}", request.remote_addr)
+    flash(f"✅ Paiement de {montant:,.0f} F enregistré." + (" Crédit SOLDÉ." if new_statut == 'soldee' else ''), "success")
+    return redirect(f'/mg/credits/{cid}')
+
+
+@app.route('/mg/credits/<int:cid>/annuler', methods=['POST'])
+@login_required
+def mg_credit_annuler(cid):
+    user = get_user_by_id(session['user_id'])
+    if not (user and user['role'] in ('admin', 'dg', 'directeur')):
+        flash("⛔ Seule la direction peut annuler un crédit.", "error"); return redirect(f'/mg/credits/{cid}')
+    conn = _gdb()
+    c = conn.execute("SELECT numero, statut FROM mg_credits WHERE id=?", (cid,)).fetchone()
+    if not c:
+        conn.close(); flash("Crédit introuvable", "error"); return redirect('/mg/credits')
+    conn.execute("UPDATE mg_credits SET statut='annulee', updated_at=datetime('now') WHERE id=?", (cid,))
+    _mg_credit_log(conn, cid, 'annulation', 'statut', c['statut'], 'annulee')
+    conn.commit(); conn.close()
+    flash("Crédit annulé.", "warning")
+    return redirect(f'/mg/credits/{cid}')
+
+
+@app.route('/mg/credits/<int:cid>/piece', methods=['POST'])
+@login_required
+def mg_credit_piece(cid):
+    """Upload d'une pièce jointe (facture / bon de livraison / photo)."""
+    user = get_user_by_id(session['user_id'])
+    if not _mg_credit_can_manage(user):
+        flash("⛔ Non autorisé.", "error"); return redirect(f'/mg/credits/{cid}')
+    kind = (request.form.get('kind', '') or '').strip()
+    col = {'facture': 'facture_path', 'bl': 'bl_path', 'photo': 'photo_path'}.get(kind)
+    f = request.files.get('fichier')
+    if not col or not f or not f.filename:
+        flash("Fichier ou type invalide.", "error"); return redirect(f'/mg/credits/{cid}')
+    from werkzeug.utils import secure_filename
+    subdir = os.path.join(app.config['UPLOAD_FOLDER'], 'mg_credits')
+    os.makedirs(subdir, exist_ok=True)
+    safe = f"{cid}_{kind}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{secure_filename(f.filename)}"
+    f.save(os.path.join(subdir, safe))
+    rel = f"mg_credits/{safe}"
+    conn = _gdb()
+    conn.execute(f"UPDATE mg_credits SET {col}=?, updated_at=datetime('now') WHERE id=?", (rel, cid))
+    _mg_credit_log(conn, cid, 'piece_jointe', kind, '', safe)
+    conn.commit(); conn.close()
+    flash(f"✅ {kind.capitalize()} enregistrée.", "success")
+    return redirect(f'/mg/credits/{cid}')
 
 
 # === RÉCEPTIONS ===
@@ -37391,11 +37816,25 @@ def mg_fournisseur_details(fid):
         LEFT JOIN achats_commandes c ON p.commande_id = c.id
         WHERE p.fournisseur_id=? ORDER BY p.date_paiement DESC
     """, (fid,)).fetchall()]
+    # v170o : crédits fournisseur (achats à crédit)
+    credits = []
+    credit_stats = {'ttc': 0, 'paye': 0, 'reste': 0, 'nb': 0}
+    try:
+        credits = [dict(r) for r in conn.execute(
+            "SELECT * FROM mg_credits WHERE fournisseur_id=? ORDER BY id DESC", (fid,)).fetchall()]
+        for c in credits:
+            sl = MG_CREDIT_STATUTS.get(c['statut'], (c['statut'], '#888')); c['stat_label'], c['stat_color'] = sl
+        _cr = conn.execute("SELECT COALESCE(SUM(montant_ttc),0), COALESCE(SUM(montant_paye),0), "
+                           "COALESCE(SUM(reste),0), COUNT(*) FROM mg_credits WHERE fournisseur_id=? AND statut<>'annulee'",
+                           (fid,)).fetchone()
+        credit_stats = {'ttc': _cr[0] or 0, 'paye': _cr[1] or 0, 'reste': _cr[2] or 0, 'nb': _cr[3] or 0}
+    except Exception: pass
     conn.close()
-    
+
     return render_template('mg_fournisseur_details.html',
                           fournisseur=f_data,
-                          commandes=commandes, paiements=paiements)
+                          commandes=commandes, paiements=paiements,
+                          credits=credits, credit_stats=credit_stats)
 
 
 # ============================================================

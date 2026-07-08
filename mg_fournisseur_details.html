@@ -64,4 +64,24 @@
 {% else %}<p style="text-align:center;color:#999;padding:20px">Aucun paiement</p>{% endif %}
 </div></div>
 
+{# v170o : Crédits fournisseurs (achats à crédit) #}
+<div class="card" style="margin-top:14px"><div class="card-header"><h3>🧾 Crédits fournisseurs</h3></div><div class="card-body">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">
+        <div>Total crédits : <strong>{{ '{:,.0f}'.format(credit_stats.ttc|float).replace(',', ' ') }} F</strong> ({{ credit_stats.nb }})</div>
+        <div style="color:#2e7d32">Payé : <strong>{{ '{:,.0f}'.format(credit_stats.paye|float).replace(',', ' ') }} F</strong></div>
+        <div style="color:#c53030">Reste : <strong>{{ '{:,.0f}'.format(credit_stats.reste|float).replace(',', ' ') }} F</strong></div>
+    </div>
+    {% if credits %}<div class="table-wrap"><table style="width:100%;font-size:12px">
+    <thead><tr><th style="text-align:left">N°</th><th style="text-align:left">Date</th><th style="text-align:right">TTC</th><th style="text-align:right">Reste</th><th style="text-align:left">Échéance</th><th style="text-align:left">Statut</th><th></th></tr></thead>
+    <tbody>{% for c in credits %}<tr>
+        <td style="font-family:monospace">{{ c.numero }}</td><td>{{ c.date_achat }}</td>
+        <td style="text-align:right">{{ '{:,.0f}'.format(c.montant_ttc|float).replace(',', ' ') }}</td>
+        <td style="text-align:right;color:#c53030">{{ '{:,.0f}'.format(c.reste|float).replace(',', ' ') }}</td>
+        <td>{{ c.date_echeance or '—' }}</td>
+        <td><span style="padding:1px 7px;border-radius:8px;font-size:10px;color:#fff;background:{{ c.stat_color }}">{{ c.stat_label }}</span></td>
+        <td><a href="/mg/credits/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:10px">Ouvrir</a></td>
+    </tr>{% endfor %}</tbody></table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:16px">Aucun crédit</p>{% endif %}
+</div></div>
+
 {% endblock %}

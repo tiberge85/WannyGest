@@ -139,12 +139,15 @@
                     <div class="form-group" id="tresorerie_block" style="display:none;background:#f0f8f5;border:1.5px solid #1A7A6D;border-radius:8px;padding:12px">
                         <label style="color:#1A7A6D;font-weight:700">💸 Portefeuille fournisseur à débiter *</label>
                         <p style="font-size:11px;color:#666;margin:2px 0 8px">Le montant <strong>{{ '{:,.0f}'.format(montant_demande).replace(',', ' ') }} F</strong> sera déduit du solde choisi à la validation.</p>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px">
                             <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
-                                <input type="radio" name="tresorerie_type" value="caisse" id="tt_caisse"> 🧰 Caisse fournisseur
+                                <input type="radio" name="tresorerie_type" value="caisse" id="tt_caisse"> 🧰 Caisse
                             </label>
                             <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
-                                <input type="radio" name="tresorerie_type" value="banque" id="tt_banque"> 🏦 Compte bancaire
+                                <input type="radio" name="tresorerie_type" value="banque" id="tt_banque"> 🏦 Banque
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #7b1fa2;border-radius:7px;padding:8px;cursor:pointer">
+                                <input type="radio" name="tresorerie_type" value="credit" id="tt_credit"> 🧾 À crédit
                             </label>
                         </div>
                         <select name="tresorerie_caisse_id" id="sel_caisse" style="display:none;width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:6px">
@@ -155,6 +158,16 @@
                             <option value="">— Choisir un compte bancaire fournisseur —</option>
                             {% for b in banques_fourn %}<option value="{{ b.id }}">{{ b.nom }}{% if b.banque %} ({{ b.banque }}){% endif %} — solde {{ '{:,.0f}'.format(b.solde).replace(',', ' ') }} F</option>{% endfor %}
                         </select>
+                        <div id="credit_block" style="display:none;background:#f6f0fb;border:1px solid #7b1fa2;border-radius:8px;padding:10px;margin-bottom:6px">
+                            <div style="font-size:11px;color:#7b1fa2;font-weight:700;margin-bottom:6px">🧾 Achat à crédit — un dossier de dette fournisseur sera créé (aucun décaissement).</div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                                <div><label style="font-size:11px;color:#666">Montant HT</label><input type="number" name="credit_ht" step="1" min="0" placeholder="HT" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+                                <div><label style="font-size:11px;color:#666">TVA</label><input type="number" name="credit_tva" step="1" min="0" placeholder="TVA" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+                                <div><label style="font-size:11px;color:#666">Montant TTC</label><input type="number" name="credit_ttc" step="1" min="0" value="{{ montant_demande|round|int }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+                                <div><label style="font-size:11px;color:#666">Date d'échéance *</label><input type="date" name="credit_echeance" id="credit_echeance" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+                            </div>
+                            <input type="text" name="credit_obs" placeholder="Observations (optionnel)" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px;margin-top:8px">
+                        </div>
                         {% if not caisses_fourn and not banques_fourn %}
                         <p style="font-size:11px;color:#c53030;margin-top:4px">⚠️ Aucune caisse/compte fournisseur configuré. Créez-en un dans <a href="/mg/soldes">MG → Soldes</a> avant de valider.</p>
                         {% endif %}
@@ -183,17 +196,21 @@
                                 }
                             });
                         });
+                        var ttCredit = document.getElementById('tt_credit');
+                        var creditBlock = document.getElementById('credit_block');
+                        var creditEch = document.getElementById('credit_echeance');
                         function syncTreso(){
-                            if (ttCaisse && ttCaisse.checked) {
-                                selCaisse.style.display = 'block'; selCaisse.required = true;
-                                selBanque.style.display = 'none'; selBanque.required = false; selBanque.value = '';
-                            } else if (ttBanque && ttBanque.checked) {
-                                selBanque.style.display = 'block'; selBanque.required = true;
-                                selCaisse.style.display = 'none'; selCaisse.required = false; selCaisse.value = '';
-                            }
+                            var isCaisse = ttCaisse && ttCaisse.checked;
+                            var isBanque = ttBanque && ttBanque.checked;
+                            var isCredit = ttCredit && ttCredit.checked;
+                            selCaisse.style.display = isCaisse ? 'block' : 'none'; selCaisse.required = isCaisse; if(!isCaisse) selCaisse.value='';
+                            selBanque.style.display = isBanque ? 'block' : 'none'; selBanque.required = isBanque; if(!isBanque) selBanque.value='';
+                            if (creditBlock) creditBlock.style.display = isCredit ? 'block' : 'none';
+                            if (creditEch) creditEch.required = isCredit;
                         }
                         if (ttCaisse) ttCaisse.addEventListener('change', syncTreso);
                         if (ttBanque) ttBanque.addEventListener('change', syncTreso);
+                        if (ttCredit) ttCredit.addEventListener('change', syncTreso);
                     })();
                     </script>
                     <div class="form-group">

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Crédits fournisseurs{% endblock %}
+{% block content %}
+<style>
+.cr-kpi{background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-top:3px solid #1A7A6D;text-decoration:none;display:block}
+.cr-kpi .n{font-size:20px;font-weight:800}
+.cr-kpi .l{font-size:10px;color:#666;text-transform:uppercase;margin-top:2px}
+.cr-badge{padding:2px 8px;border-radius:9px;font-size:10px;font-weight:800;color:#fff}
+</style>
+<div class="page-header"><h1>🧾 Crédits fournisseurs</h1>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/mg/demandes" class="btn btn-outline btn-sm">📋 Demandes internes</a>
+    <a href="/mg/paiements" class="btn btn-outline btn-sm">💵 Paiements</a>
+</div></div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+    <div class="cr-kpi"><div class="n" style="color:#1a3a5c">{{ '{:,.0f}'.format(stats.total).replace(',', ' ') }} F</div><div class="l">Total des crédits ({{ stats.nb }})</div></div>
+    <div class="cr-kpi" style="border-top-color:#2e7d32"><div class="n" style="color:#2e7d32">{{ '{:,.0f}'.format(stats.paye).replace(',', ' ') }} F</div><div class="l">Montant payé</div></div>
+    <div class="cr-kpi" style="border-top-color:#e8672a"><div class="n" style="color:#e8672a">{{ '{:,.0f}'.format(stats.reste).replace(',', ' ') }} F</div><div class="l">Reste à payer</div></div>
+    <a class="cr-kpi" href="/mg/credits?statut=partiellement_payee" style="border-top-color:#f29f2f"><div class="n" style="color:#b8790f">{{ stats.echeance }}</div><div class="l">⏳ Échéance &lt; 7 j</div></a>
+    <a class="cr-kpi" href="/mg/credits" style="border-top-color:#c53030"><div class="n" style="color:#c53030">{{ stats.retard }}</div><div class="l">🚨 En retard</div></a>
+</div>
+
+{% if top_fourn %}
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px 14px">
+    <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">🏆 Top fournisseurs (reste à payer)</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+        {% for f in top_fourn %}
+        <a href="/mg/credits?fournisseur={{ f.fournisseur_id }}" style="text-decoration:none;background:#f0f7f5;border:1px solid #1A7A6D;border-radius:8px;padding:6px 10px;font-size:12px;color:#1A7A6D">
+            {{ f.fournisseur_nom or '—' }} · <strong>{{ '{:,.0f}'.format(f.reste).replace(',', ' ') }} F</strong> <span style="color:#888">({{ f.nb }})</span>
+        </a>
+        {% endfor %}
+    </div>
+</div></div>
+{% endif %}
+
+<form method="get" class="card" style="margin-bottom:12px"><div class="card-body" style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <select name="statut" style="padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+        <option value="">— Tous statuts —</option>
+        {% for k, v in statuts.items() %}<option value="{{ k }}" {% if f_stat==k %}selected{% endif %}>{{ v[0] }}</option>{% endfor %}
+    </select>
+    <select name="fournisseur" style="padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+        <option value="">— Tous fournisseurs —</option>
+        {% for f in fournisseurs %}<option value="{{ f.id }}" {% if f_four==f.id|string %}selected{% endif %}>{{ f.nom }}</option>{% endfor %}
+    </select>
+    <input type="date" name="from" value="{{ f_from }}" title="Date d'achat début" style="padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+    <input type="date" name="to" value="{{ f_to }}" title="Date d'achat fin" style="padding:7px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+    {% if f_stat or f_four or f_from or f_to %}<a href="/mg/credits" class="btn btn-outline btn-sm">✖</a>{% endif %}
+</div></form>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if credits %}
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead><tr>
+    <th style="text-align:left">N°</th><th style="text-align:left">Fournisseur</th><th style="text-align:left">Réf. demande</th>
+    <th style="text-align:right">TTC</th><th style="text-align:right">Payé</th><th style="text-align:right">Reste</th>
+    <th style="text-align:left">Échéance</th><th style="text-align:left">Statut</th><th></th>
+</tr></thead>
+<tbody>
+{% for c in credits %}
+<tr {% if c.retard %}style="background:#fff5f5"{% endif %}>
+    <td style="font-family:monospace;font-weight:700">{{ c.numero }}</td>
+    <td>{{ c.fournisseur_nom or '—' }}</td>
+    <td style="color:#666">{{ c.demande_ref or '—' }}</td>
+    <td style="text-align:right">{{ '{:,.0f}'.format(c.montant_ttc|float).replace(',', ' ') }}</td>
+    <td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(c.montant_paye|float).replace(',', ' ') }}</td>
+    <td style="text-align:right;font-weight:700;color:{% if c.reste and c.reste>0 %}#c53030{% else %}#2e7d32{% endif %}">{{ '{:,.0f}'.format(c.reste|float).replace(',', ' ') }}</td>
+    <td>{{ c.date_echeance or '—' }}{% if c.jours_restants is not none and c.statut in ('validee_credit','partiellement_payee') %} <span style="font-size:10px;color:{% if c.jours_restants<0 %}#c53030{% elif c.jours_restants<=7 %}#e8672a{% else %}#888{% endif %}">({{ c.jours_restants }} j)</span>{% endif %}</td>
+    <td><span class="cr-badge" style="background:{{ c.stat_color }}">{{ c.stat_label }}</span></td>
+    <td><a href="/mg/credits/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:10px">Ouvrir →</a></td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<p style="text-align:center;color:#999;padding:26px">Aucun crédit fournisseur. Ils sont créés automatiquement en validant une demande interne avec le mode <strong>« Achat à crédit »</strong>.</p>
+{% endif %}
+</div></div>
+{% endblock %}
