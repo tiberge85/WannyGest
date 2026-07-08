@@ -41,6 +41,7 @@
     <a class="tk-card {% if not f_stat and not f_retard %}on{% endif %}" href="/gestion-taches"><div class="tk-num">{{ stats.total }}</div><div class="tk-lbl">Tâches créées</div></a>
     <a class="tk-card {% if f_stat=='terminee' %}on{% endif %}" href="/gestion-taches?statut=terminee" style="border-top-color:#2e7d32"><div class="tk-num" style="color:#2e7d32">{{ stats.terminees }}</div><div class="tk-lbl">✅ Terminées</div></a>
     <a class="tk-card {% if f_retard=='1' %}on{% endif %}" href="/gestion-taches?retard=1" style="border-top-color:#c53030"><div class="tk-num" style="color:#c53030">{{ stats.en_retard }}</div><div class="tk-lbl">⏰ En retard</div></a>
+    <a class="tk-card {% if f_stat=='refusee' %}on{% endif %}" href="/gestion-taches?statut=refusee" style="border-top-color:#b71c1c"><div class="tk-num" style="color:#b71c1c">{{ stats.refusees }}</div><div class="tk-lbl">🚫 Refusées</div></a>
     <a class="tk-card" href="/gestion-taches/performance" style="border-top-color:#e8672a"><div class="tk-num" style="color:#e8672a">{{ stats.taux }}%</div><div class="tk-lbl">Taux d'exécution →</div></a>
 </div>
 

@@ -27971,6 +27971,7 @@ def taches_dashboard():
     # KPIs (globaux, non filtrés)
     total = conn.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
     terminees = conn.execute("SELECT COUNT(*) FROM taches WHERE statut='terminee'").fetchone()[0]
+    refusees = conn.execute("SELECT COUNT(*) FROM taches WHERE statut='refusee'").fetchone()[0]  # v170m
     all_open = [dict(r) for r in conn.execute("SELECT id,titre,date_limite,heure_limite,statut FROM taches").fetchall()]
     en_retard = sum(1 for t in all_open if _tache_is_late(t))
     taux = round(terminees * 100.0 / total, 1) if total else 0
@@ -28017,7 +28018,7 @@ def taches_dashboard():
         employes=employes, departements=departements, categories=TACHE_CATEGORIES,
         priorites=TACHE_PRIORITES, statuts=TACHE_STATUTS, estimations=estimations,
         a_risque=a_risque[:12], absents=list(absents),
-        stats={'total': total, 'terminees': terminees, 'en_retard': en_retard, 'taux': taux},
+        stats={'total': total, 'terminees': terminees, 'refusees': refusees, 'en_retard': en_retard, 'taux': taux},
         can_manage=_tache_can_manage(user), can_edit=_tache_can_edit(user),
         q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date, f_retard=f_retard)
 
@@ -28370,11 +28371,14 @@ def mes_taches():
     ma_perf = _mp[0] if _mp else {'assignees': 0, 'done': 0, 'on_time': 0, 'late': 0, 'points': 0, 'taux': 0, 'taux_delai': 0, 'temps_moyen': None}
     conn.close()
     today = datetime.now().strftime('%Y-%m-%d')
-    du_jour, a_venir, en_retard, terminees = [], [], [], []
+    du_jour, a_venir, en_retard, terminees, refusees = [], [], [], [], []
     for t in rows:
         pl = TACHE_PRIORITES.get(t['priorite'], (t['priorite'], '#888')); t['prio_label'], t['prio_color'] = pl
         t['is_late'] = _tache_is_late(t)
-        if t['statut'] in ('terminee', 'annulee', 'refusee'):
+        _st = (t.get('my_statut') or t.get('statut') or '')
+        if _st == 'refusee' or t['statut'] == 'refusee':
+            refusees.append(t)  # v170m : les tâches refusées ont leur propre section
+        elif t['statut'] in ('terminee', 'annulee'):
             terminees.append(t)
         elif t['is_late']:
             en_retard.append(t)
@@ -28383,7 +28387,8 @@ def mes_taches():
         else:
             a_venir.append(t)
     return render_template('mes_taches.html', page='mes_taches',
-        du_jour=du_jour, a_venir=a_venir, en_retard=en_retard, terminees=terminees[:30], ma_perf=ma_perf)
+        du_jour=du_jour, a_venir=a_venir, en_retard=en_retard, terminees=terminees[:30],
+        refusees=refusees, ma_perf=ma_perf)
 
 
 @app.route('/gestion-taches/calendrier')

@@ -12,18 +12,21 @@
 
 {% if ma_perf %}
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px">
-    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-top:3px solid #1A7A6D;text-align:center">
+    <a href="/gestion-taches/performance" title="Voir le détail de ma performance" style="text-decoration:none;background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-top:3px solid #1A7A6D;text-align:center;cursor:pointer">
         <div style="font-size:22px;font-weight:800;color:{% if ma_perf.taux>=80 %}#2e7d32{% elif ma_perf.taux>=50 %}#e8672a{% else %}#c53030{% endif %}">{{ ma_perf.taux }}%</div>
-        <div style="font-size:10px;color:#666;text-transform:uppercase">Taux réalisation</div></div>
-    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center">
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Taux réalisation →</div></a>
+    <a href="#mt-terminees" title="Voir mes tâches terminées" style="text-decoration:none;background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center;cursor:pointer">
         <div style="font-size:22px;font-weight:800;color:#1a3a5c">{{ ma_perf.done }}</div>
-        <div style="font-size:10px;color:#666;text-transform:uppercase">Terminées</div></div>
-    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center">
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Terminées →</div></a>
+    <a href="/gestion-taches/performance" title="Voir le détail des délais" style="text-decoration:none;background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center;cursor:pointer">
         <div style="font-size:22px;font-weight:800;color:#2e7d32">{{ ma_perf.taux_delai }}%</div>
-        <div style="font-size:10px;color:#666;text-transform:uppercase">Dans les délais</div></div>
-    <div style="background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center">
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Dans les délais →</div></a>
+    <a href="#mt-refusees" title="Voir mes tâches refusées" style="text-decoration:none;background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-top:3px solid #c53030;text-align:center;cursor:pointer">
+        <div style="font-size:22px;font-weight:800;color:#c53030">{{ refusees|length }}</div>
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Refusées →</div></a>
+    <a href="/gestion-taches/classement" title="Voir le classement" style="text-decoration:none;background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center;cursor:pointer">
         <div style="font-size:22px;font-weight:800;color:#7b1fa2">{{ ma_perf.points }}</div>
-        <div style="font-size:10px;color:#666;text-transform:uppercase">Points</div></div>
+        <div style="font-size:10px;color:#666;text-transform:uppercase">Points →</div></a>
 </div>
 {% endif %}
 
@@ -45,5 +48,6 @@
 {% if en_retard %}<div class="mt-sec"><div class="mt-h" style="color:#c53030">⏰ En retard ({{ en_retard|length }})</div>{% for t in en_retard %}{{ card(t) }}{% endfor %}</div>{% endif %}
 <div class="mt-sec"><div class="mt-h" style="color:#e8672a">📌 Aujourd'hui ({{ du_jour|length }})</div>{% for t in du_jour %}{{ card(t) }}{% else %}<p style="color:#999;font-size:12px">Aucune tâche pour aujourd'hui.</p>{% endfor %}</div>
 <div class="mt-sec"><div class="mt-h" style="color:#1565c0">🗓️ À venir ({{ a_venir|length }})</div>{% for t in a_venir %}{{ card(t) }}{% else %}<p style="color:#999;font-size:12px">Rien à venir.</p>{% endfor %}</div>
-{% if terminees %}<div class="mt-sec"><div class="mt-h" style="color:#2e7d32">✅ Terminées / clôturées ({{ terminees|length }})</div>{% for t in terminees %}{{ card(t) }}{% endfor %}</div>{% endif %}
+<div class="mt-sec" id="mt-terminees"><div class="mt-h" style="color:#2e7d32">✅ Terminées / clôturées ({{ terminees|length }})</div>{% for t in terminees %}{{ card(t) }}{% else %}<p style="color:#999;font-size:12px">Aucune tâche terminée.</p>{% endfor %}</div>
+<div class="mt-sec" id="mt-refusees"><div class="mt-h" style="color:#c53030">🚫 Refusées ({{ refusees|length }})</div>{% for t in refusees %}{{ card(t) }}{% else %}<p style="color:#999;font-size:12px">Aucune tâche refusée.</p>{% endfor %}</div>
 {% endblock %}

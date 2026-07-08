@@ -2177,8 +2177,51 @@ def get_current_champion():
     conn.close()
     return dict(row) if row else None
 
+def _weekly_leaderboard(conn, ws, we):
+    """v170m : classement hebdomadaire COMBINÉ = assiduité (rapports journaliers)
+    + performance des TÂCHES (points du classement des tâches sur la semaine).
+    Score = nb_jours_rapports * 5 + points_tâches. Retourne la liste triée (meilleur en tête)."""
+    users = {}
+    # 1) Assiduité — rapports journaliers
+    try:
+        for r in conn.execute("""
+            SELECT rj.user_id, u.full_name, u.role, rj.department,
+                   COUNT(DISTINCT rj.date) as nb, AVG(rj.completion_pct) as avg_c
+            FROM rapports_journaliers rj LEFT JOIN users u ON rj.user_id=u.id
+            WHERE rj.date >= ? AND rj.date <= ? GROUP BY rj.user_id""", (ws, we)).fetchall():
+            r = dict(r)
+            users[r['user_id']] = {
+                'user_id': r['user_id'], 'full_name': r['full_name'], 'role': r['role'],
+                'department': r['department'] or '', 'nb_rapports': r['nb'] or 0,
+                'avg_completion': round(r['avg_c'] or 0), 'task_points': 0}
+    except Exception:
+        pass
+    # 2) Performance TÂCHES — points sur les tâches terminées à temps cette semaine
+    try:
+        for r in conn.execute("""
+            SELECT a.user_id, a.user_name, u.role, u.department, a.on_time, t.points
+            FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+            LEFT JOIN users u ON u.id=a.user_id
+            WHERE a.statut='terminee' AND t.statut='terminee'
+              AND DATE(COALESCE(t.validated_at, a.done_at, t.updated_at)) >= ?
+              AND DATE(COALESCE(t.validated_at, a.done_at, t.updated_at)) <= ?""", (ws, we)).fetchall():
+            r = dict(r)
+            uid = r['user_id']
+            if uid not in users:
+                users[uid] = {'user_id': uid, 'full_name': r['user_name'], 'role': r['role'],
+                    'department': r['department'] or '', 'nb_rapports': 0,
+                    'avg_completion': 0, 'task_points': 0}
+            pts = (r['points'] or 0)
+            users[uid]['task_points'] += pts if r['on_time'] else max(1, int(pts * 0.4))
+    except Exception:
+        pass
+    for u in users.values():
+        u['score'] = (u['nb_rapports'] or 0) * 5 + (u['task_points'] or 0)
+    return sorted(users.values(), key=lambda x: (-x['score'], -x['task_points'], -x['avg_completion']))
+
+
 def update_weekly_champion():
-    """Calcule et enregistre le champion de la semaine écoulée."""
+    """Calcule et enregistre le champion de la semaine écoulée (assiduité + tâches)."""
     from datetime import datetime, timedelta
     conn = get_db()
     today = datetime.now().date()
@@ -2187,61 +2230,41 @@ def update_weekly_champion():
     last_monday = last_sunday - timedelta(days=6)
     ws = last_monday.strftime('%Y-%m-%d')
     we = last_sunday.strftime('%Y-%m-%d')
-    
-    # Check if already computed for this week
+
     existing = conn.execute("SELECT id FROM weekly_champion WHERE week_start=?", (ws,)).fetchone()
     if existing:
         conn.close(); return
-    
-    # Find top performer
-    row = conn.execute("""
-        SELECT rj.user_id, u.full_name, u.role, COUNT(DISTINCT rj.date) as nb,
-               AVG(rj.completion_pct) as avg_c, rj.department
-        FROM rapports_journaliers rj
-        LEFT JOIN users u ON rj.user_id=u.id
-        WHERE rj.date >= ? AND rj.date <= ?
-        GROUP BY rj.user_id
-        ORDER BY nb DESC, avg_c DESC
-        LIMIT 1
-    """, (ws, we)).fetchone()
-    
-    if row and row['nb'] > 0:
-        conn.execute("""INSERT INTO weekly_champion 
+
+    board = _weekly_leaderboard(conn, ws, we)
+    top = board[0] if board else None
+    if top and top['score'] > 0:
+        conn.execute("""INSERT INTO weekly_champion
             (user_id, full_name, role, department, week_start, week_end, nb_rapports, avg_completion)
             VALUES (?,?,?,?,?,?,?,?)""",
-            (row['user_id'], row['full_name'], row['role'], row['department'] or '',
-             ws, we, row['nb'], round(row['avg_c'] or 0)))
+            (top['user_id'], top['full_name'], top['role'], top['department'] or '',
+             ws, we, top['nb_rapports'], top['avg_completion']))
         conn.commit()
     conn.close()
 
 def get_live_champion():
-    """Retourne le leader actuel de la semaine en cours (mis à jour en temps réel)."""
+    """Leader de la semaine en cours (temps réel) — assiduité + performance tâches."""
     from datetime import datetime, timedelta
     conn = get_db()
     today = datetime.now().date()
     week_start = today - timedelta(days=today.weekday())
     ws = week_start.strftime('%Y-%m-%d')
     we = today.strftime('%Y-%m-%d')
-    
-    row = conn.execute("""
-        SELECT rj.user_id, u.full_name, u.role, COUNT(DISTINCT rj.date) as nb,
-               AVG(rj.completion_pct) as avg_c, rj.department
-        FROM rapports_journaliers rj
-        LEFT JOIN users u ON rj.user_id=u.id
-        WHERE rj.date >= ? AND rj.date <= ?
-        GROUP BY rj.user_id
-        ORDER BY nb DESC, avg_c DESC
-        LIMIT 1
-    """, (ws, we)).fetchone()
+
+    board = _weekly_leaderboard(conn, ws, we)
     conn.close()
-    
-    if row and row['nb'] > 0:
+    top = board[0] if board else None
+    if top and top['score'] > 0:
         return {
-            'user_id': row['user_id'], 'full_name': row['full_name'],
-            'role': row['role'], 'department': row['department'] or '',
+            'user_id': top['user_id'], 'full_name': top['full_name'],
+            'role': top['role'], 'department': top['department'] or '',
             'week_start': ws, 'week_end': we,
-            'nb_rapports': row['nb'], 'avg_completion': round(row['avg_c'] or 0),
-            'is_live': True
+            'nb_rapports': top['nb_rapports'], 'avg_completion': top['avg_completion'],
+            'task_points': top['task_points'], 'is_live': True
         }
     return None
 
