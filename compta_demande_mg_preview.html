@@ -139,14 +139,14 @@
                     <div class="form-group" id="tresorerie_block" style="display:none;background:#f0f8f5;border:1.5px solid #1A7A6D;border-radius:8px;padding:12px">
                         <label style="color:#1A7A6D;font-weight:700">💸 Portefeuille fournisseur à débiter *</label>
                         <p style="font-size:11px;color:#666;margin:2px 0 8px">Le montant <strong>{{ '{:,.0f}'.format(montant_demande).replace(',', ' ') }} F</strong> sera déduit du solde choisi à la validation.</p>
-                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px">
-                            <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
+                        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                            <label style="flex:1 1 110px;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1.5px solid #cbd5e1;border-radius:8px;padding:10px 8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">
                                 <input type="radio" name="tresorerie_type" value="caisse" id="tt_caisse"> 🧰 Caisse
                             </label>
-                            <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;padding:8px;cursor:pointer">
+                            <label style="flex:1 1 110px;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1.5px solid #cbd5e1;border-radius:8px;padding:10px 8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">
                                 <input type="radio" name="tresorerie_type" value="banque" id="tt_banque"> 🏦 Banque
                             </label>
-                            <label style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #7b1fa2;border-radius:7px;padding:8px;cursor:pointer">
+                            <label style="flex:1 1 110px;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1.5px solid #7b1fa2;border-radius:8px;padding:10px 8px;cursor:pointer;font-size:13px;font-weight:600;color:#7b1fa2;white-space:nowrap">
                                 <input type="radio" name="tresorerie_type" value="credit" id="tt_credit"> 🧾 À crédit
                             </label>
                         </div>

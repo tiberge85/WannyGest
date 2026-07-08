@@ -36317,6 +36317,177 @@ def mg_credit_piece(cid):
     return redirect(f'/mg/credits/{cid}')
 
 
+MG_CREDIT_REPORTS = {
+    'achats':      "Achats à crédit",
+    'paiements':   "Paiements de crédits",
+    'dettes':      "Dettes fournisseurs",
+    'retards':     "Crédits en retard",
+    'fournisseur': "Synthèse par fournisseur",
+}
+
+def _mg_credit_report(conn, rtype, f_from, f_to, four_id):
+    """Construit un rapport crédit -> (titre, headers, rows[list], totals[dict])."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    p = []
+    def _flt(sql, col='date_achat'):
+        s = sql
+        if four_id: s += f" AND fournisseur_id=?"; p.append(four_id)
+        if f_from:  s += f" AND {col}>=?"; p.append(f_from)
+        if f_to:    s += f" AND {col}<=?"; p.append(f_to)
+        return s
+    title = MG_CREDIT_REPORTS.get(rtype, "Rapport crédits")
+    headers, rows, totals = [], [], {}
+    if rtype == 'paiements':
+        headers = ['Date', 'N° crédit', 'Fournisseur', 'Montant', 'Mode', 'Par', 'Référence']
+        sql = _flt("""SELECT pmt.date_paiement, cr.numero, cr.fournisseur_nom, pmt.montant, pmt.mode,
+                      pmt.paid_by_nom, pmt.reference FROM mg_credit_paiements pmt
+                      JOIN mg_credits cr ON cr.id=pmt.credit_id WHERE 1=1""", col='pmt.date_paiement')
+        if four_id: sql = sql.replace("fournisseur_id=?", "cr.fournisseur_id=?")
+        sql += " ORDER BY pmt.date_paiement DESC"
+        tot = 0
+        for r in conn.execute(sql, p).fetchall():
+            r = dict(r); tot += float(r['montant'] or 0)
+            rows.append([r['date_paiement'], r['numero'], r['fournisseur_nom'] or '', float(r['montant'] or 0),
+                         r['mode'] or '', r['paid_by_nom'] or '', r['reference'] or ''])
+        totals = {'Total payé': tot}
+    elif rtype == 'dettes':
+        headers = ['Fournisseur', 'Nb crédits', 'Total TTC', 'Payé', 'Reste']
+        sql = _flt("SELECT fournisseur_nom, COUNT(*) nb, COALESCE(SUM(montant_ttc),0) ttc, "
+                   "COALESCE(SUM(montant_paye),0) paye, COALESCE(SUM(reste),0) reste FROM mg_credits "
+                   "WHERE statut NOT IN ('annulee','soldee')")
+        sql += " GROUP BY fournisseur_id ORDER BY reste DESC"
+        tt = tp = tr = 0
+        for r in conn.execute(sql, p).fetchall():
+            r = dict(r); tt += r['ttc']; tp += r['paye']; tr += r['reste']
+            rows.append([r['fournisseur_nom'] or '', r['nb'], r['ttc'], r['paye'], r['reste']])
+        totals = {'Total TTC': tt, 'Payé': tp, 'Reste dû': tr}
+    elif rtype == 'retards':
+        headers = ['N°', 'Fournisseur', 'TTC', 'Reste', 'Échéance', 'Jours de retard']
+        sql = _flt("SELECT numero, fournisseur_nom, montant_ttc, reste, date_echeance FROM mg_credits "
+                   "WHERE statut IN ('validee_credit','partiellement_payee') AND COALESCE(date_echeance,'')<>'' "
+                   "AND date_echeance < '" + today + "'")
+        sql += " ORDER BY date_echeance ASC"
+        tr = 0
+        for r in conn.execute(sql, p).fetchall():
+            r = dict(r); tr += float(r['reste'] or 0)
+            jr = ''
+            try: jr = (datetime.now().date() - datetime.strptime(r['date_echeance'][:10], '%Y-%m-%d').date()).days
+            except Exception: jr = ''
+            rows.append([r['numero'], r['fournisseur_nom'] or '', float(r['montant_ttc'] or 0),
+                         float(r['reste'] or 0), r['date_echeance'], jr])
+        totals = {'Total en retard': tr}
+    elif rtype == 'fournisseur':
+        headers = ['Fournisseur', 'Nb crédits', 'Total TTC', 'Payé', 'Reste']
+        sql = _flt("SELECT fournisseur_nom, COUNT(*) nb, COALESCE(SUM(montant_ttc),0) ttc, "
+                   "COALESCE(SUM(montant_paye),0) paye, COALESCE(SUM(reste),0) reste FROM mg_credits WHERE statut<>'annulee'")
+        sql += " GROUP BY fournisseur_id ORDER BY ttc DESC"
+        tt = tp = tr = 0
+        for r in conn.execute(sql, p).fetchall():
+            r = dict(r); tt += r['ttc']; tp += r['paye']; tr += r['reste']
+            rows.append([r['fournisseur_nom'] or '', r['nb'], r['ttc'], r['paye'], r['reste']])
+        totals = {'Total TTC': tt, 'Payé': tp, 'Reste': tr}
+    else:  # achats
+        rtype = 'achats'; title = MG_CREDIT_REPORTS['achats']
+        headers = ['N°', 'Date achat', 'Fournisseur', 'Réf. demande', 'HT', 'TVA', 'TTC', 'Payé', 'Reste', 'Échéance', 'Statut']
+        sql = _flt("SELECT * FROM mg_credits WHERE statut<>'annulee'")
+        sql += " ORDER BY date_achat DESC"
+        tt = tp = tr = 0
+        for r in conn.execute(sql, p).fetchall():
+            r = dict(r); tt += float(r['montant_ttc'] or 0); tp += float(r['montant_paye'] or 0); tr += float(r['reste'] or 0)
+            rows.append([r['numero'], r['date_achat'], r['fournisseur_nom'] or '', r['demande_ref'] or '',
+                         float(r['montant_ht'] or 0), float(r['tva'] or 0), float(r['montant_ttc'] or 0),
+                         float(r['montant_paye'] or 0), float(r['reste'] or 0), r['date_echeance'] or '',
+                         MG_CREDIT_STATUTS.get(r['statut'], (r['statut'],))[0]])
+        totals = {'Total TTC': tt, 'Payé': tp, 'Reste': tr}
+    return title, headers, rows, totals
+
+
+@app.route('/mg/credits/rapports')
+@permission_required_any('mg_view', 'mg_gestion', 'comptabilite', 'admin')
+def mg_credits_rapports():
+    rtype = (request.args.get('type', 'achats') or 'achats').strip()
+    f_from = (request.args.get('from', '') or '').strip()
+    f_to = (request.args.get('to', '') or '').strip()
+    four_id = request.args.get('fournisseur', ''); four_id = int(four_id) if str(four_id).isdigit() else None
+    conn = _gdb()
+    title, headers, rows, totals = _mg_credit_report(conn, rtype, f_from, f_to, four_id)
+    fournisseurs = [dict(r) for r in conn.execute("SELECT id, nom FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+    conn.close()
+    return render_template('mg_credits_rapports.html', page='mg_credits',
+        rtype=rtype, types=MG_CREDIT_REPORTS, title=title, headers=headers, rows=rows, totals=totals,
+        f_from=f_from, f_to=f_to, four_id=four_id, fournisseurs=fournisseurs)
+
+
+@app.route('/mg/credits/rapports/export.<fmt>')
+@permission_required_any('mg_view', 'mg_gestion', 'comptabilite', 'admin')
+def mg_credits_rapports_export(fmt):
+    rtype = (request.args.get('type', 'achats') or 'achats').strip()
+    f_from = (request.args.get('from', '') or '').strip()
+    f_to = (request.args.get('to', '') or '').strip()
+    four_id = request.args.get('fournisseur', ''); four_id = int(four_id) if str(four_id).isdigit() else None
+    conn = _gdb()
+    title, headers, rows, totals = _mg_credit_report(conn, rtype, f_from, f_to, four_id)
+    conn.close()
+    periode = f" du {f_from or '...'} au {f_to or '...'}" if (f_from or f_to) else ""
+    fname = f"credits_{rtype}"
+    if fmt == 'csv':
+        import csv, io as _io
+        sio = _io.StringIO(); w = csv.writer(sio); w.writerow(headers)
+        for r in rows: w.writerow(r)
+        if totals: w.writerow([]); w.writerow(['TOTAUX'] + [f"{k}: {v:,.0f}" for k, v in totals.items()])
+        return Response('﻿' + sio.getvalue(), mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={fname}.csv'})
+    if fmt == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+        import io as _io
+        wb = Workbook(); ws = wb.active; ws.title = 'Rapport'
+        ws.append([title + periode]); ws['A1'].font = Font(bold=True, size=13)
+        ws.append(headers)
+        for c in ws[2]: c.font = Font(bold=True)
+        for r in rows: ws.append(r)
+        if totals:
+            ws.append([])
+            ws.append(['TOTAUX'] + [f"{k}: {v:,.0f} F" for k, v in totals.items()])
+        bio = _io.BytesIO(); wb.save(bio); bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': f'attachment; filename={fname}.xlsx'})
+    if fmt == 'pdf':
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors as _c
+        import io as _io
+        bio = _io.BytesIO()
+        doc = SimpleDocTemplate(bio, pagesize=landscape(A4), topMargin=12 * mm, bottomMargin=10 * mm,
+                                leftMargin=8 * mm, rightMargin=8 * mm)
+        styles = getSampleStyleSheet()
+        elems = [Paragraph(f"<b>{title}</b>{periode}", styles['Title']), Spacer(1, 6)]
+        def _fmt(v):
+            return f"{v:,.0f}".replace(',', ' ') if isinstance(v, (int, float)) else str(v)
+        data = [headers] + [[_fmt(v) for v in r] for r in rows]
+        if totals:
+            data.append([''] * len(headers))
+            data.append(['TOTAUX'] + [f"{k}: {_fmt(v)} F" for k, v in totals.items()][:len(headers) - 1] + [''] * max(0, len(headers) - 1 - len(totals)))
+        t = Table(data, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), _c.HexColor('#1A7A6D')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), _c.white),
+            ('FONTSIZE', (0, 0), (-1, -1), 7),
+            ('GRID', (0, 0), (-1, -1), 0.3, _c.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [_c.white, _c.HexColor('#f4f7f6')]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        elems.append(t)
+        doc.build(elems)
+        bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename={fname}.pdf'})
+    flash("Format non supporté", "error")
+    return redirect('/mg/credits/rapports')
+
+
 # === RÉCEPTIONS ===
 
 @app.route('/mg/receptions')
