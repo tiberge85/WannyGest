@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Bilan Général{% endblock %}
+{% block content %}
+<style>
+.bg-kpi{background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center;border-top:3px solid #1a1a2e}
+.bg-kpi .n{font-size:22px;font-weight:800;color:#1a3a5c}
+.bg-kpi .l{font-size:10px;color:#666;text-transform:uppercase}
+</style>
+<div class="page-header"><h1>🏢 Bilan Général — {{ g.periode }}</h1>
+<a href="/rh/bilan" class="btn btn-outline btn-sm">← Services</a></div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px">
+    <div class="bg-kpi"><div class="n">{{ g.rh.nb_emp }}</div><div class="l">Employés</div></div>
+    <div class="bg-kpi"><div class="n">{{ g.activites.creees }}</div><div class="l">Tâches créées</div></div>
+    <div class="bg-kpi"><div class="n" style="color:#2e7d32">{{ g.activites.faites }}</div><div class="l">Tâches réalisées</div></div>
+    <div class="bg-kpi"><div class="n" style="color:#c53030">{{ g.rh.absences }}</div><div class="l">Absences</div></div>
+    <div class="bg-kpi"><div class="n">{{ g.mg.demandes }}</div><div class="l">Demandes MG</div></div>
+    <div class="bg-kpi"><div class="n" style="color:#c53030">{{ '{:,.0f}'.format(g.mg.reste).replace(',', ' ') }}</div><div class="l">Dettes fournisseurs</div></div>
+    <div class="bg-kpi" style="border-top-color:#DAA520"><div class="n" style="color:#b8790f">{{ g.score }}</div><div class="l">Score global /100</div></div>
+</div>
+
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:14px">
+    <div style="font-size:14px;font-weight:700;color:#1a3a5c;margin-bottom:8px">🏅 Classement des services</div>
+    <div style="height:260px"><canvas id="bgChart"></canvas></div>
+</div></div>
+
+<div class="card"><div class="card-body" style="padding:0">
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead><tr><th style="text-align:left">#</th><th style="text-align:left">Service</th><th style="text-align:right">Effectif</th><th style="text-align:right">Tâches</th><th style="text-align:right">Exécution</th><th style="text-align:right">Présence</th><th style="text-align:right">Absences</th><th style="text-align:right">Score</th><th></th></tr></thead>
+<tbody>
+{% for r in par_dep %}
+<tr>
+    <td>{% if loop.index<=3 %}{{ ['🥇','🥈','🥉'][loop.index0] }}{% else %}{{ loop.index }}{% endif %}</td>
+    <td style="font-weight:700">{{ r.departement }}</td>
+    <td style="text-align:right">{{ r.nb_emp }}</td>
+    <td style="text-align:right">{{ r.taches }}</td>
+    <td style="text-align:right">{{ r.taux_exec }}%</td>
+    <td style="text-align:right;color:#2e7d32">{{ r.taux_present }}%</td>
+    <td style="text-align:right;color:#c53030">{{ r.absences }}</td>
+    <td style="text-align:right;font-weight:800;color:{% if r.score>=75 %}#2e7d32{% elif r.score>=50 %}#e8672a{% else %}#c53030{% endif %}">{{ r.score }}</td>
+    <td><a href="/rh/bilan/service?departement={{ r.departement|urlencode }}&annee={{ annee }}&mois={{ mois }}" class="btn btn-sm btn-outline" style="font-size:10px">Détail</a></td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+    var L={{ par_dep|map(attribute='departement')|list|tojson }}, V={{ par_dep|map(attribute='score')|list|tojson }};
+    if(window.Chart && L.length) new Chart(document.getElementById('bgChart'),{type:'bar',data:{labels:L,datasets:[{label:'Score /100',data:V,backgroundColor:'#1A7A6D'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{max:100}},plugins:{legend:{display:false}}}});
+})();
+</script>
+{% endblock %}

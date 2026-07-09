@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Bilans des services{% endblock %}
+{% block content %}
+<div class="page-header"><h1>📊 Bilans des services</h1>
+{% if is_direction %}<a href="/rh/bilan/general?annee={{ annee }}&mois={{ mois }}" class="btn btn-sm" style="background:#1a1a2e;color:#fff">🏢 Bilan Général</a>{% endif %}
+</div>
+
+<form method="get" action="/rh/bilan/service" class="card" style="margin-bottom:14px"><div class="card-body" style="padding:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:end" id="bilForm">
+    <div><label style="font-size:11px;color:#888;display:block">Année</label><input type="number" name="annee" id="bilAnnee" value="{{ annee }}" min="2020" max="2100" style="padding:8px;border:1.5px solid #ddd;border-radius:7px;width:100px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Mois (optionnel)</label>
+        <select name="mois" id="bilMois" style="padding:8px;border:1.5px solid #ddd;border-radius:7px">
+            <option value="">Toute l'année</option>
+            {% for i in range(1,13) %}<option value="{{ '%02d'|format(i) }}" {% if mois==('%02d'|format(i)) %}selected{% endif %}>{{ ['','Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][i] }}</option>{% endfor %}
+        </select></div>
+    <div style="font-size:11px;color:#666">Choisissez la période, puis cliquez « Bilan » sur un service.</div>
+</div></form>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+{% for dp in departements %}
+<div class="card"><div class="card-body" style="padding:14px;display:flex;justify-content:space-between;align-items:center">
+    <div><div style="font-size:15px;font-weight:700;color:#1a3a5c">🏢 {{ dp }}</div><div style="font-size:11px;color:#888">Département / service</div></div>
+    <a href="/rh/bilan/service?departement={{ dp|urlencode }}&annee={{ annee }}&mois={{ mois }}" class="btn btn-primary btn-sm bilBtn" data-dep="{{ dp }}">📊 Bilan</a>
+</div></div>
+{% else %}
+<p style="color:#999;padding:20px">Aucun département défini (renseignez le champ « département » sur les fiches employés).</p>
+{% endfor %}
+</div>
+
+<script>
+// Synchronise la période choisie avec les boutons « Bilan »
+(function(){
+    function upd(){
+        var a=document.getElementById('bilAnnee').value, m=document.getElementById('bilMois').value;
+        document.querySelectorAll('.bilBtn').forEach(function(b){
+            b.href='/rh/bilan/service?departement='+encodeURIComponent(b.getAttribute('data-dep'))+'&annee='+a+'&mois='+m;
+        });
+    }
+    document.getElementById('bilAnnee').addEventListener('change',upd);
+    document.getElementById('bilMois').addEventListener('change',upd);
+})();
+</script>
+{% endblock %}

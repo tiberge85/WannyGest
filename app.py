@@ -1041,6 +1041,20 @@ try:
 except Exception as _e:
     print(f"[v170t] err module absences : {_e}", flush=True)
 
+# v170u : BILAN des services — journal d'audit des rapports générés.
+try:
+    from models import get_db as _v170u_db
+    _v170u = _v170u_db()
+    _v170u.execute("""CREATE TABLE IF NOT EXISTS bilan_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, numero TEXT, type_rapport TEXT,
+        departement TEXT, service TEXT, annee TEXT, mois TEXT, periode TEXT,
+        score REAL, user_id INTEGER, user_name TEXT, ip_address TEXT,
+        created_at TEXT DEFAULT (datetime('now')))""")
+    _v170u.commit(); _v170u.close()
+    print("[v170u] Table bilan_reports OK", flush=True)
+except Exception as _e:
+    print(f"[v170u] err table bilan : {_e}", flush=True)
+
 
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
@@ -11458,6 +11472,233 @@ def rh_absences_export(fmt):
             headers={'Content-Disposition': 'attachment; filename=absences.pdf'})
     flash("Format non supporté", "error")
     return redirect(url_for('rh_absences'))
+
+# ============================================================
+# v170u : BILAN MENSUEL DES SERVICES (Centre de reporting)
+# ============================================================
+def _bilan_periode(annee, mois):
+    """Retourne (from, to, libelle) pour une année (et mois optionnel 'MM' ou 'YYYY-MM')."""
+    annee = (annee or datetime.now().strftime('%Y'))[:4]
+    m = (mois or '').strip()
+    if m:
+        mm = m[-2:] if '-' in m else (m.zfill(2) if m.isdigit() else '')
+        if mm and mm.isdigit():
+            from calendar import monthrange
+            last = monthrange(int(annee), int(mm))[1]
+            _MOIS = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+            return f"{annee}-{mm}-01", f"{annee}-{mm}-{last:02d}", f"{_MOIS[int(mm)]} {annee}"
+    return f"{annee}-01-01", f"{annee}-12-31", f"Année {annee}"
+
+def _bilan_data(conn, dept, annee, mois):
+    """v170u : agrège les indicateurs d'un département/service sur une période. Aucune ressaisie."""
+    d_from, d_to, per_lbl = _bilan_periode(annee, mois)
+    like_dep = dept or ''
+    D = {'departement': dept or 'Tous', 'periode': per_lbl, 'from': d_from, 'to': d_to}
+    # --- RH ---
+    emps = [dict(r) for r in conn.execute(
+        "SELECT id, hire_date, status FROM employees WHERE COALESCE(department,'')=?" if dept else
+        "SELECT id, hire_date, status FROM employees", ((dept,) if dept else ())).fetchall()]
+    nb_emp = len(emps)
+    nouveaux = sum(1 for e in emps if (e.get('hire_date') or '')[:10] >= d_from and (e.get('hire_date') or '')[:10] <= d_to)
+    departs = sum(1 for e in emps if (e.get('status') or '') in ('inactif', 'parti', 'demission', 'licencie'))
+    # Absences du département sur la période
+    abs_rows = [dict(r) for r in conn.execute(
+        f"""SELECT a.categorie, a.type, a.duree, a.date, a.date_fin FROM absences a
+            LEFT JOIN employees e ON e.id=a.employee_id
+            WHERE a.date>=? AND a.date<=? {("AND COALESCE(e.department,'')=?" if dept else "")}""",
+        ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchall()]
+    nb_abs = nb_retard = nb_conge = nb_maladie = nb_injust = 0
+    jours_perdus = 0.0
+    for a in abs_rows:
+        cat = (a.get('categorie') or a.get('type') or '').lower()
+        j = 1.0
+        try:
+            if a.get('date_fin'):
+                from datetime import datetime as _dt
+                j = max(1, (_dt.strptime(a['date_fin'][:10], '%Y-%m-%d') - _dt.strptime(a['date'][:10], '%Y-%m-%d')).days + 1)
+            elif a.get('duree') == 'demi_journee': j = 0.5
+        except Exception: pass
+        jours_perdus += j; nb_abs += 1
+        if 'retard' in cat: nb_retard += 1
+        if 'cong' in cat: nb_conge += 1
+        if 'malad' in cat: nb_maladie += 1
+        if 'injustifi' in cat or 'non déclar' in cat: nb_injust += 1
+    jours_ouvres = 22 if mois else 250
+    taux_absent = round(jours_perdus / (nb_emp * jours_ouvres) * 100, 1) if nb_emp else 0
+    taux_present = round(max(0, 100 - taux_absent), 1)
+    D['rh'] = {'nb_emp': nb_emp, 'nouveaux': nouveaux, 'departs': departs, 'absences': nb_abs,
+               'retards': nb_retard, 'conges': nb_conge, 'maladies': nb_maladie, 'injustifiees': nb_injust,
+               'jours_perdus': round(jours_perdus, 1), 'taux_present': taux_present, 'taux_absent': taux_absent}
+    # --- ACTIVITÉS (tâches) ---
+    tq = "COALESCE(t.date_limite, substr(t.created_at,1,10))"
+    def _tc(cond=''):
+        sql = f"SELECT COUNT(*) FROM taches t WHERE {tq}>=? AND {tq}<=?"
+        p = [d_from, d_to]
+        if dept: sql += " AND COALESCE(t.departement,'')=?"; p.append(dept)
+        if cond: sql += f" AND {cond}"
+        return int(conn.execute(sql, p).fetchone()[0] or 0)
+    t_creees = _tc(); t_faites = _tc("t.statut='terminee'"); t_cours = _tc("t.statut='en_cours'")
+    t_annul = _tc("t.statut='annulee'"); t_refus = _tc("t.statut='refusee'")
+    # à temps (on_time) via assignees
+    _ot = conn.execute(
+        f"""SELECT COUNT(*) FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+            WHERE a.statut='terminee' AND a.on_time=1 AND {tq}>=? AND {tq}<=? {("AND COALESCE(t.departement,'')=?" if dept else "")}""",
+        ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchone()[0] or 0
+    from datetime import datetime as _dtn
+    t_retard = 0
+    for r in conn.execute(f"SELECT date_limite, heure_limite, statut FROM taches t WHERE {tq}>=? AND {tq}<=?" + (" AND COALESCE(departement,'')=?" if dept else ""),
+                          ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchall():
+        try:
+            if r['statut'] not in ('terminee', 'annulee') and r['date_limite'] and r['date_limite'][:10] < datetime.now().strftime('%Y-%m-%d'):
+                t_retard += 1
+        except Exception: pass
+    taux_exec = round(t_faites / t_creees * 100, 1) if t_creees else 0
+    taux_delai = round(int(_ot) / t_faites * 100, 1) if t_faites else 0
+    D['activites'] = {'creees': t_creees, 'faites': t_faites, 'en_cours': t_cours, 'annulees': t_annul,
+                      'refusees': t_refus, 'en_retard': t_retard, 'taux_exec': taux_exec, 'taux_delai': taux_delai, 'on_time': int(_ot)}
+    # --- MOYENS GÉNÉRAUX ---
+    def _mgc(cond=''):
+        sql = "SELECT COUNT(*) FROM achats_demandes WHERE substr(COALESCE(created_at, date),1,10)>=? AND substr(COALESCE(created_at, date),1,10)<=?"
+        p = [d_from, d_to]
+        if dept: sql += " AND COALESCE(department,'')=?"; p.append(dept)
+        if cond: sql += f" AND {cond}"
+        return int(conn.execute(sql, p).fetchone()[0] or 0)
+    dem_creees = _mgc(); dem_valid = _mgc("compta_status='validee'"); dem_refus = _mgc("compta_status='refusee'")
+    try:
+        _cr = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(montant_ttc),0), COALESCE(SUM(montant_paye),0), COALESCE(SUM(reste),0) "
+            "FROM mg_credits WHERE statut<>'annulee' AND date_achat>=? AND date_achat<=?" + (" AND COALESCE(organisation,'')=?" if dept else ""),
+            ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchone()
+        nb_cred, cred_ttc, cred_paye, cred_reste = int(_cr[0]), float(_cr[1]), float(_cr[2]), float(_cr[3])
+    except Exception:
+        nb_cred = cred_ttc = cred_paye = cred_reste = 0
+    D['mg'] = {'demandes': dem_creees, 'validees': dem_valid, 'refusees': dem_refus,
+               'credits': nb_cred, 'engage': cred_ttc, 'paye': cred_paye, 'reste': cred_reste,
+               'taux_valid': round(dem_valid / dem_creees * 100, 1) if dem_creees else 0}
+    # --- NOTE DE PERFORMANCE /100 (pondérée) ---
+    s_present = taux_present
+    s_exec = taux_exec
+    s_delai = taux_delai
+    s_valid = D['mg']['taux_valid'] if dem_creees else 100
+    s_discipline = max(0, 100 - min(100, (nb_retard + nb_injust) * 5))
+    score = round(s_present * 0.20 + s_exec * 0.30 + s_delai * 0.20 + s_valid * 0.15 + s_discipline * 0.15, 1)
+    D['performance'] = {'presence': round(s_present, 1), 'realisation': round(s_exec, 1), 'delais': round(s_delai, 1),
+                        'validation': round(s_valid, 1), 'discipline': round(s_discipline, 1)}
+    D['score'] = score
+    # --- Top employés du service (par tâches) ---
+    try:
+        top = [dict(r) for r in conn.execute(
+            f"""SELECT a.user_name, COUNT(*) done, COALESCE(SUM(t.points),0) pts
+                FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+                LEFT JOIN users u ON u.id=a.user_id
+                WHERE a.statut='terminee' AND {tq}>=? AND {tq}<=? {("AND COALESCE(t.departement,'')=?" if dept else "")}
+                GROUP BY a.user_id ORDER BY pts DESC, done DESC LIMIT 10""",
+            ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchall()]
+    except Exception:
+        top = []
+    D['top_emp'] = top
+    return D
+
+def _bilan_log(conn, type_rapport, dept, annee, mois, score):
+    try:
+        u = get_user_by_id(session.get('user_id')) if session.get('user_id') else None
+        ip = request.remote_addr if request else ''
+        num = f"BIL-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        conn.execute("""INSERT INTO bilan_reports (numero, type_rapport, departement, annee, mois, periode, score, user_id, user_name, ip_address)
+            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (num, type_rapport, dept or 'Tous', (annee or '')[:4], mois or '', '', score,
+             (u['id'] if u else None), (u['full_name'] if u else ''), ip))
+        conn.commit()
+        return num
+    except Exception:
+        return ''
+
+@app.route('/rh/bilan')
+@permission_required_any('fichiers', 'dashboard_general', 'admin')
+def rh_bilan_hub():
+    conn = _gdb()
+    departements = [r[0] for r in conn.execute("SELECT DISTINCT department FROM employees WHERE COALESCE(department,'')<>'' ORDER BY department").fetchall()]
+    conn.close()
+    user = get_user_by_id(session['user_id'])
+    is_direction = user and user['role'] in ('admin', 'dg', 'directeur')
+    return render_template('rh_bilan_hub.html', page='bilan', departements=departements,
+        annee=datetime.now().strftime('%Y'), mois=datetime.now().strftime('%m'), is_direction=is_direction)
+
+@app.route('/rh/bilan/service')
+@permission_required_any('fichiers', 'dashboard_general', 'admin')
+def rh_bilan_service():
+    dept = (request.args.get('departement', '') or '').strip()
+    annee = (request.args.get('annee', '') or datetime.now().strftime('%Y')).strip()
+    mois = (request.args.get('mois', '') or '').strip()
+    conn = _gdb()
+    data = _bilan_data(conn, dept, annee, mois)
+    _bilan_log(conn, 'service', dept, annee, mois, data['score'])
+    conn.close()
+    return render_template('rh_bilan_service.html', page='bilan', d=data, dept=dept, annee=annee, mois=mois, general=False)
+
+@app.route('/rh/bilan/general')
+@permission_required_any('dashboard_general', 'admin')
+def rh_bilan_general():
+    annee = (request.args.get('annee', '') or datetime.now().strftime('%Y')).strip()
+    mois = (request.args.get('mois', '') or '').strip()
+    conn = _gdb()
+    global_data = _bilan_data(conn, '', annee, mois)  # tous services
+    departements = [r[0] for r in conn.execute("SELECT DISTINCT department FROM employees WHERE COALESCE(department,'')<>'' ORDER BY department").fetchall()]
+    par_dep = []
+    for dp in departements:
+        dd = _bilan_data(conn, dp, annee, mois)
+        par_dep.append({'departement': dp, 'nb_emp': dd['rh']['nb_emp'], 'score': dd['score'],
+                        'taux_present': dd['rh']['taux_present'], 'taux_exec': dd['activites']['taux_exec'],
+                        'absences': dd['rh']['absences'], 'taches': dd['activites']['creees']})
+    par_dep.sort(key=lambda x: -x['score'])
+    _bilan_log(conn, 'general', '', annee, mois, global_data['score'])
+    conn.close()
+    return render_template('rh_bilan_general.html', page='bilan', g=global_data, par_dep=par_dep, annee=annee, mois=mois)
+
+@app.route('/rh/bilan/pdf')
+@permission_required_any('fichiers', 'dashboard_general', 'admin')
+def rh_bilan_pdf():
+    dept = (request.args.get('departement', '') or '').strip()
+    annee = (request.args.get('annee', '') or datetime.now().strftime('%Y')).strip()
+    mois = (request.args.get('mois', '') or '').strip()
+    conn = _gdb()
+    d = _bilan_data(conn, dept, annee, mois)
+    conn.close()
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors as _c
+    import io as _io
+    bio = _io.BytesIO()
+    doc = SimpleDocTemplate(bio, pagesize=A4, topMargin=14 * mm, bottomMargin=12 * mm, leftMargin=14 * mm, rightMargin=14 * mm)
+    st = getSampleStyleSheet()
+    els = [Paragraph(f"<b>Bilan — {d['departement']}</b>", st['Title']),
+           Paragraph(f"{d['periode']} · Généré le {datetime.now().strftime('%d/%m/%Y %H:%M')} · Note {d['score']}/100", st['Normal']),
+           Spacer(1, 8)]
+    def _sec(titre, rows):
+        els.append(Paragraph(f"<b>{titre}</b>", st['Heading3']))
+        t = Table([[k, str(v)] for k, v in rows], colWidths=[90 * mm, 70 * mm])
+        t.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.3, _c.grey), ('FONTSIZE', (0, 0), (-1, -1), 9),
+                               ('ROWBACKGROUNDS', (0, 0), (-1, -1), [_c.white, _c.HexColor('#f4f7f6')])]))
+        els.append(t); els.append(Spacer(1, 6))
+    r = d['rh']
+    _sec("Ressources humaines", [('Effectif', r['nb_emp']), ('Nouveaux', r['nouveaux']), ('Départs', r['departs']),
+        ('Absences', r['absences']), ('Retards', r['retards']), ('Congés', r['conges']), ('Maladies', r['maladies']),
+        ('Jours perdus', r['jours_perdus']), ('Taux de présence', f"{r['taux_present']}%"), ('Taux d\'absentéisme', f"{r['taux_absent']}%")])
+    a = d['activites']
+    _sec("Activités (tâches)", [('Créées', a['creees']), ('Réalisées', a['faites']), ('En cours', a['en_cours']),
+        ('Annulées', a['annulees']), ('En retard', a['en_retard']), ('Taux d\'exécution', f"{a['taux_exec']}%"), ('Respect des délais', f"{a['taux_delai']}%")])
+    m = d['mg']
+    _sec("Moyens généraux", [('Demandes', m['demandes']), ('Validées', m['validees']), ('Refusées', m['refusees']),
+        ('Crédits fournisseurs', m['credits']), ('Montant engagé', f"{m['engage']:,.0f} F"), ('Payé', f"{m['paye']:,.0f} F"), ('Reste dû', f"{m['reste']:,.0f} F")])
+    p = d['performance']
+    _sec("Note de performance /100", [('Présence (20%)', p['presence']), ('Réalisation tâches (30%)', p['realisation']),
+        ('Respect délais (20%)', p['delais']), ('Validation demandes (15%)', p['validation']), ('Discipline (15%)', p['discipline']), ('SCORE GLOBAL', f"{d['score']}/100")])
+    doc.build(els); bio.seek(0)
+    return Response(bio.getvalue(), mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename=bilan_{(dept or "general")}_{annee}{("-"+mois) if mois else ""}.pdf'})
+
 
 @app.route('/rh/absences/approve/<int:aid>/<status>')
 @permission_required('fichiers')

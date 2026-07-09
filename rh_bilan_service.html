@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Bilan {{ d.departement }}{% endblock %}
+{% block content %}
+<style>
+.bs-sec{background:#fff;border-radius:12px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:14px}
+.bs-sec h3{margin:0 0 10px;font-size:14px;color:#1a3a5c;border-bottom:2px solid #1A7A6D;padding-bottom:6px}
+.bs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.bs-item{background:#f8faf9;border-radius:8px;padding:10px;text-align:center}
+.bs-item .n{font-size:18px;font-weight:800;color:#1a3a5c}
+.bs-item .l{font-size:10px;color:#666;text-transform:uppercase;margin-top:2px}
+</style>
+<div class="page-header"><h1>📊 Bilan — {{ d.departement }}</h1>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/rh/bilan" class="btn btn-outline btn-sm">← Services</a>
+    <a href="/rh/bilan/pdf?departement={{ dept|urlencode }}&annee={{ annee }}&mois={{ mois }}" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📄 Export PDF</a>
+</div></div>
+
+<!-- En-tête + Score -->
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px" class="bs-cols">
+    <div class="bs-sec" style="margin:0">
+        <h3>Informations générales</h3>
+        <div style="font-size:13px;line-height:1.8">
+            <strong>Département / service :</strong> {{ d.departement }}<br>
+            <strong>Période :</strong> {{ d.periode }} ({{ d.from }} → {{ d.to }})<br>
+            <strong>Généré le :</strong> {{ now_str if now_str else '' }}{{ '' }}<span id="genDate"></span><br>
+            <strong>Par :</strong> {{ current_user.full_name if current_user else '' }}
+        </div>
+    </div>
+    <div class="bs-sec" style="margin:0;text-align:center;background:linear-gradient(135deg,#1a1a2e,#0f3460);color:#fff">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#DAA520;font-weight:700">Note de performance</div>
+        <div style="font-size:48px;font-weight:900;color:{% if d.score>=75 %}#2ecc71{% elif d.score>=50 %}#f29f2f{% else %}#e74c3c{% endif %}">{{ d.score }}</div>
+        <div style="font-size:12px;color:#8899aa">/ 100</div>
+    </div>
+</div>
+
+<!-- RH -->
+<div class="bs-sec"><h3>👥 Ressources humaines</h3><div class="bs-grid">
+    <div class="bs-item"><div class="n">{{ d.rh.nb_emp }}</div><div class="l">Effectif</div></div>
+    <div class="bs-item"><div class="n" style="color:#2e7d32">{{ d.rh.nouveaux }}</div><div class="l">Nouveaux</div></div>
+    <div class="bs-item"><div class="n" style="color:#c53030">{{ d.rh.departs }}</div><div class="l">Départs</div></div>
+    <div class="bs-item"><div class="n" style="color:#e8672a">{{ d.rh.absences }}</div><div class="l">Absences</div></div>
+    <div class="bs-item"><div class="n">{{ d.rh.retards }}</div><div class="l">Retards</div></div>
+    <div class="bs-item"><div class="n">{{ d.rh.conges }}</div><div class="l">Congés</div></div>
+    <div class="bs-item"><div class="n">{{ d.rh.maladies }}</div><div class="l">Maladies</div></div>
+    <div class="bs-item"><div class="n">{{ d.rh.jours_perdus }}</div><div class="l">Jours perdus</div></div>
+    <div class="bs-item"><div class="n" style="color:#2e7d32">{{ d.rh.taux_present }}%</div><div class="l">Présence</div></div>
+    <div class="bs-item"><div class="n" style="color:#c53030">{{ d.rh.taux_absent }}%</div><div class="l">Absentéisme</div></div>
+</div></div>
+
+<!-- Activités -->
+<div class="bs-sec"><h3>✅ Activités (tâches)</h3><div class="bs-grid">
+    <div class="bs-item"><div class="n">{{ d.activites.creees }}</div><div class="l">Créées</div></div>
+    <div class="bs-item"><div class="n" style="color:#2e7d32">{{ d.activites.faites }}</div><div class="l">Réalisées</div></div>
+    <div class="bs-item"><div class="n" style="color:#1565c0">{{ d.activites.en_cours }}</div><div class="l">En cours</div></div>
+    <div class="bs-item"><div class="n" style="color:#c53030">{{ d.activites.en_retard }}</div><div class="l">En retard</div></div>
+    <div class="bs-item"><div class="n">{{ d.activites.annulees }}</div><div class="l">Annulées</div></div>
+    <div class="bs-item"><div class="n" style="color:#1A7A6D">{{ d.activites.taux_exec }}%</div><div class="l">Taux exécution</div></div>
+    <div class="bs-item"><div class="n" style="color:#2e7d32">{{ d.activites.taux_delai }}%</div><div class="l">Respect délais</div></div>
+</div></div>
+
+<!-- MG -->
+<div class="bs-sec"><h3>🏠 Moyens généraux</h3><div class="bs-grid">
+    <div class="bs-item"><div class="n">{{ d.mg.demandes }}</div><div class="l">Demandes</div></div>
+    <div class="bs-item"><div class="n" style="color:#2e7d32">{{ d.mg.validees }}</div><div class="l">Validées</div></div>
+    <div class="bs-item"><div class="n" style="color:#c53030">{{ d.mg.refusees }}</div><div class="l">Refusées</div></div>
+    <div class="bs-item"><div class="n">{{ d.mg.credits }}</div><div class="l">Crédits</div></div>
+    <div class="bs-item"><div class="n">{{ '{:,.0f}'.format(d.mg.engage).replace(',', ' ') }}</div><div class="l">Engagé (F)</div></div>
+    <div class="bs-item"><div class="n" style="color:#2e7d32">{{ '{:,.0f}'.format(d.mg.paye).replace(',', ' ') }}</div><div class="l">Payé (F)</div></div>
+    <div class="bs-item"><div class="n" style="color:#c53030">{{ '{:,.0f}'.format(d.mg.reste).replace(',', ' ') }}</div><div class="l">Reste dû (F)</div></div>
+</div></div>
+
+<!-- Détail de la note -->
+<div class="bs-sec"><h3>🎯 Détail de la note de performance</h3>
+    {% for lbl, val, w in [('Présence', d.performance.presence, 20), ('Réalisation des tâches', d.performance.realisation, 30), ('Respect des délais', d.performance.delais, 20), ('Validation des demandes', d.performance.validation, 15), ('Discipline', d.performance.discipline, 15)] %}
+    <div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>{{ lbl }} <span style="color:#888">({{ w }}%)</span></span><strong>{{ val }}/100</strong></div>
+        <div style="height:8px;background:#eee;border-radius:4px"><div style="height:100%;width:{{ val }}%;background:{% if val>=75 %}#2ecc71{% elif val>=50 %}#f29f2f{% else %}#e74c3c{% endif %};border-radius:4px"></div></div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Top employés -->
+{% if d.top_emp %}
+<div class="bs-sec"><h3>🏆 Top employés du service</h3>
+    <div class="table-wrap"><table style="width:100%;font-size:12px">
+    <thead><tr><th style="text-align:left">Employé</th><th style="text-align:right">Tâches réalisées</th><th style="text-align:right">Points</th></tr></thead>
+    <tbody>{% for e in d.top_emp %}<tr><td>{{ e.user_name }}</td><td style="text-align:right">{{ e.done }}</td><td style="text-align:right;font-weight:700;color:#1A7A6D">{{ e.pts }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+</div>
+{% endif %}
+
+<!-- Observations -->
+<div class="bs-sec"><h3>📝 Observations du responsable</h3>
+    <textarea rows="4" data-fouati="general" placeholder="Analyse, difficultés, recommandations, actions prévues…" style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px"></textarea>
+    <div style="font-size:10px;color:#888;margin-top:4px">💡 Saisissez vos observations puis exportez en PDF pour signature.</div>
+</div>
+
+<script>document.getElementById('genDate').textContent=new Date().toLocaleString('fr-FR');</script>
+{% endblock %}
