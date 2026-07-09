@@ -5537,11 +5537,29 @@ def _block_cross_site_get_mutations():
             pass
         abort(403)
 
+_remises_check_ts = [0.0]
+def _run_crediter_remises_if_due():
+    """v170r2 : crédite automatiquement les remises de chèque devenues disponibles (J+3),
+    sans attendre l'ouverture de la page recouvrement. Throttlé ~30 min."""
+    try:
+        now_ts = time.time()
+        if now_ts - _remises_check_ts[0] < 1800:
+            return
+        _remises_check_ts[0] = now_ts
+        conn = _gdb()
+        try: _recouvrement_crediter_dus(conn)
+        finally: conn.close()
+    except Exception as _e:
+        try: print(f"[v170r2] credit remises err: {_e}", flush=True)
+        except Exception: pass
+
 @app.before_request
 def _daily_backup_hook():
     """Déclenche au plus 1 sauvegarde/jour (best-effort, ne bloque jamais la requête)."""
     _run_daily_backup_if_due()
     try: _taches_generer_recurrentes()  # v169b : génère les tâches récurrentes du jour
+    except Exception: pass
+    try: _run_crediter_remises_if_due()  # v170r2 : crédite les remises de chèque échues
     except Exception: pass
 
 @app.before_request
@@ -39629,6 +39647,10 @@ def compta_pro_integrate_paiement(payment_id):
 @permission_required_any('tresorerie', 'admin')
 def tresorerie_dashboard():
     """Dashboard Trésorerie : KPI caisse + banque, mouvements récents."""
+    # v170r2 : créditer les remises de chèque échues avant d'afficher les soldes
+    try:
+        _cc = _gdb(); _recouvrement_crediter_dus(_cc); _cc.close()
+    except Exception: pass
     from models import tresorerie_solde_caisse, tresorerie_solde_banque
     from datetime import date as _date
     today = datetime.now()
