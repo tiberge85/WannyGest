@@ -5016,6 +5016,16 @@ def inject_globals():
             ctx['permissions'] = perms
             ctx['user_role'] = user['role']
             ctx['can_edit'] = lambda module: (module + '_edit') in perms or 'admin' in perms
+            # v173 : ordre GLOBAL de la barre latérale (défini par l'admin, appliqué à tous) —
+            # lu à chaque requête (hors cache) pour refléter immédiatement les changements.
+            try:
+                from models import get_db as _sob_db
+                _sob = _sob_db()
+                _sor = _sob.execute("SELECT value FROM app_settings WHERE key='sidebar_order_global'").fetchone()
+                _sob.close()
+                ctx['sidebar_order'] = _json_lib.loads(_sor[0]) if (_sor and _sor[0]) else []
+            except Exception:
+                ctx['sidebar_order'] = []
             # v170 : servir les badges/compteurs depuis le cache si récent (évite ~17 connexions)
             _now_ctx = time.time()
             _cc = _CTX_CACHE.get(user['id'])
@@ -5368,7 +5378,7 @@ def inject_globals():
             # v170 : mémoriser les badges/compteurs (TTL) pour éviter de rouvrir ~17 connexions
             try:
                 _CTX_CACHE[user['id']] = (_now_ctx + _CTX_TTL, {k: v for k, v in ctx.items()
-                    if k not in ('current_user', 'permissions', 'user_role', 'can_edit')})
+                    if k not in ('current_user', 'permissions', 'user_role', 'can_edit', 'sidebar_order')})
                 if len(_CTX_CACHE) > 500:
                     _CTX_CACHE.clear()
             except Exception:
@@ -7649,6 +7659,32 @@ def _group_by_month(rows, key='created_at'):
         try: y, m = k.split('-'); return f"{_MOIS_FR_G[int(m)]} {y}"
         except Exception: return "Sans date"
     return [(_lbl(k), rs) for k, rs in sorted(g.items(), key=lambda kv: kv[0], reverse=True)]
+
+
+@app.route('/admin/sidebar/order', methods=['POST'])
+@login_required
+def admin_sidebar_order():
+    """v173 : l'admin enregistre l'ordre GLOBAL de la barre latérale (appliqué à tous)."""
+    user = get_user_by_id(session['user_id'])
+    if not user or user['role'] != 'admin':
+        return jsonify({'ok': False, 'error': 'forbidden'}), 403
+    raw = (request.form.get('order', '') or '').strip()
+    conn = _gdb()
+    try:
+        conn.execute("INSERT OR IGNORE INTO app_settings(key,value) VALUES('sidebar_order_global','')")
+        if not raw or raw == '[]':
+            conn.execute("UPDATE app_settings SET value='' WHERE key='sidebar_order_global'")
+        else:
+            arr = _json_lib.loads(raw)
+            if not isinstance(arr, list):
+                conn.close(); return jsonify({'ok': False, 'error': 'invalid'}), 400
+            arr = [str(x)[:120] for x in arr][:300]
+            conn.execute("UPDATE app_settings SET value=? WHERE key='sidebar_order_global'", (_json_lib.dumps(arr),))
+        conn.commit()
+    except Exception as _e:
+        conn.close(); return jsonify({'ok': False, 'error': str(_e)}), 400
+    conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/logs')

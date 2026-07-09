@@ -1747,7 +1747,7 @@ window.fillClientCode = function(codeEl, opts){
     var nav = document.querySelector('.sidebar-nav');
     if(!nav) return;
     var IS_ADMIN = {{ 'true' if user_role == 'admin' else 'false' }};
-    var LS = 'wg_sidebar_order_v1';
+    var GLOBAL_ORDER = {{ sidebar_order|tojson if sidebar_order else '[]' }};
     function clean(t){ return (t||'').replace(/[0-9]/g,'').replace(/[▼▲]/g,'').replace(/[^0-9A-Za-zÀ-ÿ]+/g,' ').trim().toLowerCase(); }
     function isItem(c){ return c && (c.tagName==='A' || (c.classList && c.classList.contains('nav-section'))); }
     var list = Array.prototype.slice.call(nav.children).filter(isItem);
@@ -1762,7 +1762,8 @@ window.fillClientCode = function(codeEl, opts){
         return labelOf(a).localeCompare(labelOf(b),'fr'); });
       return links.concat(secs).map(keyOf);
     }
-    function loadOrder(){ try{ var s=localStorage.getItem(LS); if(s){ var a=JSON.parse(s); if(a&&a.length) return a; } }catch(e){} return alphaOrder(); }
+    function loadOrder(){ return (GLOBAL_ORDER && GLOBAL_ORDER.length) ? GLOBAL_ORDER : alphaOrder(); }
+    function saveServer(order){ try{ var fd=new FormData(); fd.append('order', JSON.stringify(order||[])); fetch('/admin/sidebar/order',{method:'POST',body:fd}); }catch(e){} }
     function apply(order){
       var pos={}, i; for(i=0;i<order.length;i++) pos[order[i]]=i;
       var maxi=order.length;
@@ -1788,15 +1789,15 @@ window.fillClientCode = function(codeEl, opts){
         ord.splice(ord.indexOf(dk),1);
         ord.splice(ord.indexOf(tk),0,dk);
         apply(ord);
-        try{ localStorage.setItem(LS, JSON.stringify(ord)); }catch(x){}
+        saveServer(ord);  // v173 : ordre GLOBAL, appliqué à tous
       });
     });
     // Aide + réinitialisation (admin uniquement)
     var bar=document.createElement('div');
     bar.style.cssText='order:-100;display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:10px;color:rgba(255,255,255,.55);padding:6px 18px';
-    var hint=document.createElement('span'); hint.textContent='↕️ Glissez pour réorganiser';
+    var hint=document.createElement('span'); hint.textContent='↕️ Glissez (ordre appliqué à tous)';
     var reset=document.createElement('a'); reset.textContent='⟲ Réinitialiser'; reset.href='#'; reset.style.cssText='color:#8fd3c7;text-decoration:none';
-    reset.onclick=function(ev){ ev.preventDefault(); try{localStorage.removeItem(LS);}catch(x){} apply(alphaOrder()); };
+    reset.onclick=function(ev){ ev.preventDefault(); apply(alphaOrder()); saveServer([]); };
     bar.appendChild(hint); bar.appendChild(reset); nav.insertBefore(bar, nav.firstChild);
   }catch(e){}
 })();
