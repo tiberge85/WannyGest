@@ -1188,6 +1188,15 @@ try:
     for _role in ('admin', 'dg', 'directeur', 'directrice_rh', 'rh'):
         try: _v171.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, 'centre_decision')", (_role,))
         except: pass
+    # v171b : source de calcul de l'objectif (manuel / taches / budget)
+    try: _v171.execute("ALTER TABLE cd_objectifs ADD COLUMN source TEXT DEFAULT 'manuel'")
+    except: pass
+    # v171b : snapshots quotidiens des KPI pour l'analyse automatique (tendances)
+    _v171.execute("""CREATE TABLE IF NOT EXISTS cd_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        jour TEXT UNIQUE, dep_mois REAL, budget_pct REAL, tk_termine INTEGER,
+        tk_retard INTEGER, emp_absents INTEGER, int_retard INTEGER, mg_dettes REAL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
     _v171.commit(); _v171.close()
     print("[v171] Centre de Décision — tables + permission OK", flush=True)
 except Exception as _e:
@@ -5645,6 +5654,8 @@ def _daily_backup_hook():
     try: _taches_generer_recurrentes()  # v169b : génère les tâches récurrentes du jour
     except Exception: pass
     try: _run_crediter_remises_if_due()  # v170r2 : crédite les remises de chèque échues
+    except Exception: pass
+    try: _cd_save_snapshot_if_due()  # v171b : snapshot KPI du jour (analyse automatique)
     except Exception: pass
 
 @app.before_request
@@ -29855,6 +29866,171 @@ def _cd_log(action, details=''):
     except Exception: pass
 
 
+# ---- v171b : période courante selon 'mensuel'/'trimestriel'/'annuel' ----
+def _cd_periode_bornes(periode):
+    now = datetime.now()
+    if periode == 'annuel':
+        return f"{now.year}-01-01", f"{now.year}-12-31", str(now.year)
+    if periode == 'trimestriel':
+        q = (now.month - 1) // 3
+        m1 = q * 3 + 1
+        start = datetime(now.year, m1, 1)
+        end_m = m1 + 2
+        end = (datetime(now.year, end_m + 1, 1) - timedelta(days=1)) if end_m < 12 else datetime(now.year, 12, 31)
+        return start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'), f"T{q+1} {now.year}"
+    # mensuel
+    start = datetime(now.year, now.month, 1)
+    end = (datetime(now.year, now.month + 1, 1) - timedelta(days=1)) if now.month < 12 else datetime(now.year, 12, 31)
+    return start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'), start.strftime('%m/%Y')
+
+def _cd_objectif_realise(conn, o):
+    """Calcule automatiquement le « réalisé » selon la source (taches/budget), sinon la valeur saisie."""
+    src = (o.get('source') or 'manuel')
+    if src == 'manuel':
+        return float(o.get('realise') or 0)
+    d = o.get('departement')
+    d1, d2, _ = _cd_periode_bornes(o.get('periode') or 'mensuel')
+    if src == 'taches':
+        tot = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=? AND date(created_at) BETWEEN ? AND ?", (d, d1, d2))
+        ok = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=? AND statut='terminee' AND date(created_at) BETWEEN ? AND ?", (d, d1, d2))
+        return round(ok * 100.0 / tot, 1) if tot else 0
+    if src == 'budget':
+        bp = _cd_n(conn, "SELECT COALESCE(SUM(amount_planned),0) FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1", (d,))
+        bs = _cd_n(conn, "SELECT COALESCE(SUM(amount_spent),0) FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1", (d,))
+        return round(100 - (bs * 100.0 / bp), 1) if bp else 0  # % de budget NON dépassé
+    return float(o.get('realise') or 0)
+
+
+# ---- v171b : snapshot quotidien (analyse automatique) ----
+_cd_snap_check = [0.0]
+def _cd_save_snapshot_if_due():
+    try:
+        now_ts = time.time()
+        if now_ts - _cd_snap_check[0] < 3600:
+            return
+        _cd_snap_check[0] = now_ts
+        jour = datetime.now().strftime('%Y-%m-%d')
+        conn = _gdb()
+        try:
+            if conn.execute("SELECT 1 FROM cd_snapshots WHERE jour=?", (jour,)).fetchone():
+                conn.close(); return
+            m = _cd_metrics(conn)
+            conn.execute("""INSERT OR IGNORE INTO cd_snapshots
+                (jour, dep_mois, budget_pct, tk_termine, tk_retard, emp_absents, int_retard, mg_dettes)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (jour, m['dep_mois'], m['budget_pct'], m['tk_termine'], m['tk_retard'],
+                 m['emp_absents'], m['int_retard'], m['mg_dettes']))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as _e:
+        try: print(f"[v171b] snapshot err: {_e}", flush=True)
+        except Exception: pass
+
+def _cd_analyse(conn):
+    """Analyse automatique : tendances (vs 7 derniers jours) + employés surchargés/inactifs."""
+    out = []
+    snaps = _cd_rows(conn, "SELECT * FROM cd_snapshots ORDER BY jour DESC LIMIT 8")
+    if len(snaps) >= 2:
+        cur = snaps[0]
+        prev = snaps[1:]
+        def avg(k):
+            vals = [s[k] for s in prev if s.get(k) is not None]
+            return sum(vals) / len(vals) if vals else 0
+        # Hausse des dépenses
+        a = avg('dep_mois')
+        if a and cur['dep_mois'] and cur['dep_mois'] > a * 1.25:
+            out.append({'type': 'hausse', 'texte': f"Hausse des dépenses : {cur['dep_mois']:,.0f} XOF vs moyenne {a:,.0f} (+{(cur['dep_mois']/a-1)*100:.0f} %)."})
+        # Baisse de performance (moins de tâches terminées)
+        at = avg('tk_termine')
+        if at and cur['tk_termine'] is not None and cur['tk_termine'] < at * 0.8:
+            out.append({'type': 'baisse', 'texte': f"Baisse de la performance : {cur['tk_termine']} tâches terminées vs moyenne {at:.0f}."})
+        # Hausse des retards
+        ar = avg('tk_retard')
+        if cur['tk_retard'] and cur['tk_retard'] > max(2, ar * 1.5):
+            out.append({'type': 'retard', 'texte': f"Retards en hausse : {cur['tk_retard']} tâches en retard (moyenne {ar:.0f})."})
+        # Hausse des absences
+        aa = avg('emp_absents')
+        if cur['emp_absents'] and cur['emp_absents'] > max(2, aa * 1.5):
+            out.append({'type': 'absences', 'texte': f"Absences en hausse aujourd'hui : {cur['emp_absents']} (moyenne {aa:.0f})."})
+    # Employés surchargés (>= 6 tâches en cours)
+    for e in _cd_rows(conn, """SELECT user_name, COUNT(*) n FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+        WHERE a.statut NOT IN ('terminee') AND t.statut NOT IN ('terminee','annulee','refusee')
+        GROUP BY a.user_id HAVING n>=6 ORDER BY n DESC LIMIT 5"""):
+        out.append({'type': 'surcharge', 'texte': f"Employé surchargé : {e['user_name']} — {e['n']} tâches en cours."})
+    # Employés inactifs (0 tâche terminée ce mois alors qu'ils en ont)
+    for e in _cd_rows(conn, """SELECT a.user_name, COUNT(*) tot,
+        SUM(CASE WHEN a.statut='terminee' THEN 1 ELSE 0 END) ok
+        FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
+        WHERE substr(t.created_at,1,7)=strftime('%Y-%m','now')
+        GROUP BY a.user_id HAVING tot>=3 AND ok=0 LIMIT 5"""):
+        out.append({'type': 'inactif', 'texte': f"Employé inactif : {e['user_name']} — {e['tot']} tâches, 0 terminée ce mois."})
+    return out
+
+
+@app.route('/centre-decision/objectifs')
+@permission_required_any('centre_decision', 'admin')
+def cd_objectifs():
+    conn = _gdb()
+    rows = _cd_rows(conn, "SELECT * FROM cd_objectifs ORDER BY departement, periode, id DESC")
+    for o in rows:
+        o['realise_calc'] = _cd_objectif_realise(conn, o)
+        o['taux'] = round(o['realise_calc'] * 100.0 / o['cible'], 1) if o.get('cible') else 0
+        o['ecart'] = round(o['realise_calc'] - (o.get('cible') or 0), 1)
+    departements = sorted({r['department'] for r in _cd_rows(conn, "SELECT DISTINCT department FROM employees WHERE COALESCE(department,'')<>''")}
+                          | {r['departement'] for r in _cd_rows(conn, "SELECT DISTINCT departement FROM taches WHERE COALESCE(departement,'')<>''")})
+    conn.close()
+    return render_template('cd_objectifs.html', page='centre_decision', objectifs=rows, departements=departements)
+
+
+@app.route('/centre-decision/objectifs/add', methods=['POST'])
+@permission_required_any('centre_decision', 'admin')
+def cd_objectif_add():
+    user = get_user_by_id(session['user_id'])
+    libelle = (request.form.get('libelle', '') or '').strip()
+    dep = (request.form.get('departement', '') or '').strip()
+    if not libelle or not dep:
+        flash("Département et libellé obligatoires.", "error"); return redirect('/centre-decision/objectifs')
+    periode = (request.form.get('periode', 'mensuel') or 'mensuel').strip()
+    source = (request.form.get('source', 'manuel') or 'manuel').strip()
+    try: cible = float((request.form.get('cible', '0') or '0').replace(',', '.'))
+    except: cible = 0
+    try: realise = float((request.form.get('realise', '0') or '0').replace(',', '.'))
+    except: realise = 0
+    _, _, plabel = _cd_periode_bornes(periode)
+    conn = _gdb()
+    conn.execute("""INSERT INTO cd_objectifs (departement, libelle, periode, cible, realise, unite,
+        periode_label, source, created_by, created_by_name) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (dep, libelle, periode, cible, realise, (request.form.get('unite', '') or '').strip(),
+         plabel, source, user['id'], user['full_name']))
+    conn.commit(); conn.close()
+    _cd_log('objectif_add', f"{dep} — {libelle}")
+    flash("🎯 Objectif ajouté.", "success")
+    return redirect('/centre-decision/objectifs')
+
+
+@app.route('/centre-decision/objectifs/<int:oid>/edit', methods=['POST'])
+@permission_required_any('centre_decision', 'admin')
+def cd_objectif_edit(oid):
+    try: cible = float((request.form.get('cible', '0') or '0').replace(',', '.'))
+    except: cible = 0
+    try: realise = float((request.form.get('realise', '0') or '0').replace(',', '.'))
+    except: realise = 0
+    conn = _gdb()
+    conn.execute("UPDATE cd_objectifs SET cible=?, realise=?, updated_at=datetime('now') WHERE id=?", (cible, realise, oid))
+    conn.commit(); conn.close()
+    flash("Objectif mis à jour.", "success")
+    return redirect('/centre-decision/objectifs')
+
+
+@app.route('/centre-decision/objectifs/<int:oid>/delete', methods=['POST'])
+@permission_required_any('centre_decision', 'admin')
+def cd_objectif_delete(oid):
+    conn = _gdb(); conn.execute("DELETE FROM cd_objectifs WHERE id=?", (oid,)); conn.commit(); conn.close()
+    flash("Objectif supprimé.", "success")
+    return redirect('/centre-decision/objectifs')
+
+
 @app.route('/centre-decision')
 @permission_required_any('centre_decision', 'admin')
 def centre_decision():
@@ -29864,11 +30040,13 @@ def centre_decision():
     recos = _cd_recommandations(conn)
     briefing = _cd_briefing(conn)
     services = _cd_services(conn)
+    analyse = _cd_analyse(conn)
     conn.close()
     _cd_log('consultation', 'Tableau de bord exécutif')
     niveaux = {'critique': '#c53030', 'eleve': '#e8672a', 'moyen': '#f29f2f', 'faible': '#1565c0', 'information': '#1A7A6D'}
     return render_template('centre_decision.html', page='centre_decision',
-        m=metrics, alertes=alertes, recos=recos, briefing=briefing, services=services, niveaux=niveaux)
+        m=metrics, alertes=alertes, recos=recos, briefing=briefing, services=services,
+        analyse=analyse, niveaux=niveaux)
 
 
 @app.route('/centre-decision/assistant', methods=['POST'])
@@ -29975,6 +30153,35 @@ def centre_decision_rapport(fmt):
             for r in recos: story.append(Paragraph("• " + r, S['Normal']))
         doc.build(story); bio.seek(0)
         return Response(bio.getvalue(), mimetype='application/pdf', headers={'Content-Disposition': 'attachment; filename=centre-decision.pdf'})
+    if fmt in ('docx', 'word'):
+        try:
+            from docx import Document
+        except Exception:
+            flash("Export Word indisponible (python-docx non installé). Utilisez PDF ou Excel.", "error")
+            return redirect('/centre-decision')
+        d = Document()
+        d.add_heading("Centre de Décision — Rapport exécutif", level=0)
+        d.add_paragraph(datetime.now().strftime('%d/%m/%Y %H:%M'))
+        d.add_heading("Indicateurs clés", level=1)
+        tb = d.add_table(rows=1, cols=2); tb.style = 'Light Grid Accent 1'
+        tb.rows[0].cells[0].text = 'Indicateur'; tb.rows[0].cells[1].text = 'Valeur'
+        for k, v in lignes_kpi:
+            row = tb.add_row().cells; row[0].text = str(k); row[1].text = str(v)
+        if alertes:
+            d.add_heading("Alertes actives", level=1)
+            for a in alertes[:30]:
+                d.add_paragraph(f"[{a['niveau'].upper()}] {a['module']} — {a['titre']} → {a['action']}", style='List Bullet')
+        if recos:
+            d.add_heading("Recommandations", level=1)
+            for r in recos:
+                d.add_paragraph(r, style='List Bullet')
+        d.add_heading("Comparaison des services", level=1)
+        for s in services:
+            d.add_paragraph(f"{s['departement']} — score {s['score']}/100 (tâches {s['tk_pct']}%, budget {s['budget_pct']}%)", style='List Bullet')
+        bio = io.BytesIO(); d.save(bio); bio.seek(0)
+        return Response(bio.getvalue(),
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            headers={'Content-Disposition': 'attachment; filename=centre-decision.docx'})
     flash("Format non supporté.", "error"); return redirect('/centre-decision')
 
 

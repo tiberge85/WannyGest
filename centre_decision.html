@@ -17,11 +17,24 @@
 
 <div class="page-header"><h1>🧭 Centre de Décision</h1>
 <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/centre-decision/objectifs" class="btn btn-outline btn-sm">🎯 Objectifs</a>
     <a href="/centre-decision/rapport.pdf" class="btn btn-outline btn-sm" target="_blank">📄 PDF</a>
     <a href="/centre-decision/rapport.xlsx" class="btn btn-outline btn-sm">📊 Excel</a>
+    <a href="/centre-decision/rapport.docx" class="btn btn-outline btn-sm">📝 Word</a>
     <a href="/centre-decision/rapport.csv" class="btn btn-outline btn-sm">📑 CSV</a>
     <button class="btn btn-primary btn-sm" onclick="location.reload()">🔄 Actualiser</button>
 </div></div>
+
+{% if analyse %}
+<div style="background:#eef7ff;border:1.5px solid #1565c0;border-radius:12px;padding:12px 14px;margin-bottom:16px">
+    <strong style="color:#0d47a1">📈 Analyse automatique ({{ analyse|length }})</strong>
+    <div style="font-size:11px;color:#456;margin:2px 0 8px">Tendances & anomalies détectées automatiquement (comparaison sur les derniers jours).</div>
+    {% for a in analyse %}
+    <div style="background:#fff;border-radius:8px;padding:8px 10px;margin-bottom:5px;font-size:12px;border-left:4px solid
+        {% if a.type in ('hausse','retard','absences','surcharge') %}#e8672a{% elif a.type in ('baisse','inactif') %}#c53030{% else %}#1565c0{% endif %}">{{ a.texte }}</div>
+    {% endfor %}
+</div>
+{% endif %}
 
 <!-- BRIEFING DU JOUR -->
 <div style="background:linear-gradient(135deg,#0d1b2a,#1b3a4b);color:#fff;border-radius:14px;padding:16px 18px;margin-bottom:16px">
@@ -47,38 +60,38 @@
 <!-- KPIs -->
 <div class="cd-sec">👥 Ressources humaines & présence</div>
 <div class="cd-grid">
-    <div class="cd-c"><div class="cd-n">{{ m.emp_total }}</div><div class="cd-l">Employés</div></div>
-    <div class="cd-c" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ m.emp_presents }}</div><div class="cd-l">Présents</div></div>
-    <div class="cd-c" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.emp_absents }}</div><div class="cd-l">Absents</div></div>
-    <div class="cd-c" style="border-left-color:#1565c0"><div class="cd-n">{{ m.emp_conges }}</div><div class="cd-l">En congé</div></div>
-    <div class="cd-c" style="border-left-color:#7b1fa2"><div class="cd-n">{{ m.emp_mission }}</div><div class="cd-l">En mission</div></div>
-    <div class="cd-c" style="border-left-color:#e8672a"><div class="cd-n" style="color:#e8672a">{{ m.emp_retards }}</div><div class="cd-l">En retard</div></div>
+    <a class="cd-c" href="/rh/personnel"><div class="cd-n">{{ m.emp_total }}</div><div class="cd-l">Employés →</div></a>
+    <a class="cd-c" href="/admin/pointage" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ m.emp_presents }}</div><div class="cd-l">Présents →</div></a>
+    <a class="cd-c" href="/rh/absences" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.emp_absents }}</div><div class="cd-l">Absents →</div></a>
+    <a class="cd-c" href="/rh/conges" style="border-left-color:#1565c0"><div class="cd-n">{{ m.emp_conges }}</div><div class="cd-l">En congé →</div></a>
+    <a class="cd-c" href="/rh/absences?categorie=Mission+ext%C3%A9rieure" style="border-left-color:#7b1fa2"><div class="cd-n">{{ m.emp_mission }}</div><div class="cd-l">En mission →</div></a>
+    <a class="cd-c" href="/rh/absences?categorie=Retard" style="border-left-color:#e8672a"><div class="cd-n" style="color:#e8672a">{{ m.emp_retards }}</div><div class="cd-l">En retard →</div></a>
 </div>
 
 <div class="cd-sec">✅ Tâches & 🔧 Interventions</div>
 <div class="cd-grid">
-    <div class="cd-c"><div class="cd-n">{{ m.tk_jour }}</div><div class="cd-l">Tâches du jour</div></div>
-    <div class="cd-c" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ m.tk_termine }}</div><div class="cd-l">Tâches terminées</div></div>
-    <div class="cd-c" style="border-left-color:#e8672a"><div class="cd-n">{{ m.tk_encours }}</div><div class="cd-l">Tâches en cours</div></div>
-    <div class="cd-c" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.tk_retard }}</div><div class="cd-l">Tâches en retard</div></div>
-    <div class="cd-c" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.tk_critique }}</div><div class="cd-l">Tâches critiques</div></div>
-    <div class="cd-c"><div class="cd-n">{{ m.int_total }}</div><div class="cd-l">Interventions</div></div>
-    <div class="cd-c" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ m.int_termine }}</div><div class="cd-l">Int. terminées</div></div>
-    <div class="cd-c" style="border-left-color:#f29f2f"><div class="cd-n">{{ m.int_attente }}</div><div class="cd-l">Int. en attente</div></div>
-    <div class="cd-c" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.int_urgent }}</div><div class="cd-l">Int. urgentes</div></div>
+    <a class="cd-c" href="/gestion-taches"><div class="cd-n">{{ m.tk_jour }}</div><div class="cd-l">Tâches du jour →</div></a>
+    <a class="cd-c" href="/gestion-taches?statut=terminee" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ m.tk_termine }}</div><div class="cd-l">Tâches terminées →</div></a>
+    <a class="cd-c" href="/gestion-taches?statut=en_cours" style="border-left-color:#e8672a"><div class="cd-n">{{ m.tk_encours }}</div><div class="cd-l">Tâches en cours →</div></a>
+    <a class="cd-c" href="/gestion-taches?retard=1" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.tk_retard }}</div><div class="cd-l">Tâches en retard →</div></a>
+    <a class="cd-c" href="/gestion-taches?priorite=urgente" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.tk_critique }}</div><div class="cd-l">Tâches critiques →</div></a>
+    <a class="cd-c" href="/interventions"><div class="cd-n">{{ m.int_total }}</div><div class="cd-l">Interventions →</div></a>
+    <a class="cd-c" href="/interventions?tab=executees" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ m.int_termine }}</div><div class="cd-l">Int. terminées →</div></a>
+    <a class="cd-c" href="/interventions?tab=en_cours" style="border-left-color:#f29f2f"><div class="cd-n">{{ m.int_attente }}</div><div class="cd-l">Int. en attente →</div></a>
+    <a class="cd-c" href="/interventions" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ m.int_urgent }}</div><div class="cd-l">Int. urgentes →</div></a>
 </div>
 
 <div class="cd-sec">🏢 Moyens généraux & 💰 Finance</div>
 <div class="cd-grid">
-    <div class="cd-c" style="border-left-color:#f29f2f"><div class="cd-n">{{ m.mg_attente }}</div><div class="cd-l">Demandes en attente</div></div>
-    <div class="cd-c" style="border-left-color:#2e7d32"><div class="cd-n">{{ m.mg_valide }}</div><div class="cd-l">Demandes validées</div></div>
-    <div class="cd-c"><div class="cd-n">{{ m.mg_credits }}</div><div class="cd-l">Achats à crédit</div></div>
-    <div class="cd-c" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ '{:,.0f}'.format(m.mg_dettes) }}</div><div class="cd-l">Dettes fournisseurs</div></div>
-    <div class="cd-c"><div class="cd-n">{{ '{:,.0f}'.format(m.dep_jour) }}</div><div class="cd-l">Dépenses du jour</div></div>
-    <div class="cd-c"><div class="cd-n">{{ '{:,.0f}'.format(m.dep_mois) }}</div><div class="cd-l">Dépenses du mois</div></div>
-    <div class="cd-c" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ '{:,.0f}'.format(m.solde_caisse) }}</div><div class="cd-l">Solde caisses</div></div>
-    <div class="cd-c" style="border-left-color:#1565c0"><div class="cd-n" style="color:#1565c0">{{ '{:,.0f}'.format(m.solde_banque) }}</div><div class="cd-l">Solde banque</div></div>
-    <div class="cd-c" style="border-left-color:#7b1fa2"><div class="cd-n">{{ m.doc_attente }}</div><div class="cd-l">Docs à valider</div></div>
+    <a class="cd-c" href="/mg/demandes" style="border-left-color:#f29f2f"><div class="cd-n">{{ m.mg_attente }}</div><div class="cd-l">Demandes en attente →</div></a>
+    <a class="cd-c" href="/mg/demandes" style="border-left-color:#2e7d32"><div class="cd-n">{{ m.mg_valide }}</div><div class="cd-l">Demandes validées →</div></a>
+    <a class="cd-c" href="/mg/credits"><div class="cd-n">{{ m.mg_credits }}</div><div class="cd-l">Achats à crédit →</div></a>
+    <a class="cd-c" href="/mg/credits?statut=partiellement_payee" style="border-left-color:#c53030"><div class="cd-n" style="color:#c53030">{{ '{:,.0f}'.format(m.mg_dettes) }}</div><div class="cd-l">Dettes fournisseurs →</div></a>
+    <a class="cd-c" href="/depenses"><div class="cd-n">{{ '{:,.0f}'.format(m.dep_jour) }}</div><div class="cd-l">Dépenses du jour →</div></a>
+    <a class="cd-c" href="/depenses"><div class="cd-n">{{ '{:,.0f}'.format(m.dep_mois) }}</div><div class="cd-l">Dépenses du mois →</div></a>
+    <a class="cd-c" href="/comptabilite/caisses" style="border-left-color:#2e7d32"><div class="cd-n" style="color:#2e7d32">{{ '{:,.0f}'.format(m.solde_caisse) }}</div><div class="cd-l">Solde caisses →</div></a>
+    <a class="cd-c" href="/comptabilite/caisses" style="border-left-color:#1565c0"><div class="cd-n" style="color:#1565c0">{{ '{:,.0f}'.format(m.solde_banque) }}</div><div class="cd-l">Solde banque →</div></a>
+    <a class="cd-c" href="/fichiers" style="border-left-color:#7b1fa2"><div class="cd-n">{{ m.doc_attente }}</div><div class="cd-l">Docs à valider →</div></a>
 </div>
 
 <!-- Budget gauge -->

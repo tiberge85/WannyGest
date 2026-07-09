@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Objectifs{% endblock %}
+{% block content %}
+<style>
+.ob-card{background:#fff;border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-left:5px solid #1A7A6D}
+.ob-g{height:12px;background:#eee;border-radius:6px;overflow:hidden;margin-top:6px}
+.ob-g>span{display:block;height:100%;border-radius:6px}
+.ob-form label{font-size:11px;color:#555;font-weight:600;display:block;margin:6px 0 3px}
+.ob-form input,.ob-form select{width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px;font-size:13px}
+</style>
+<div class="page-header"><h1>🎯 Objectifs par département</h1>
+<a href="/centre-decision" class="btn btn-outline btn-sm">← Centre de Décision</a></div>
+
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+<form method="post" action="/centre-decision/objectifs/add" class="ob-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;align-items:end">
+    <div><label>Département *</label><input list="depsDL" name="departement" required placeholder="Ex : Informatique"><datalist id="depsDL">{% for d in departements %}<option value="{{ d }}"></option>{% endfor %}</datalist></div>
+    <div><label>Objectif *</label><input type="text" name="libelle" required placeholder="Ex : Réalisation des tâches"></div>
+    <div><label>Période</label><select name="periode"><option value="mensuel">Mensuel</option><option value="trimestriel">Trimestriel</option><option value="annuel">Annuel</option></select></div>
+    <div><label>Source du réalisé</label><select name="source"><option value="manuel">Manuel (saisi)</option><option value="taches">Auto — % tâches terminées</option><option value="budget">Auto — respect du budget</option></select></div>
+    <div><label>Cible</label><input type="number" step="any" name="cible" value="100"></div>
+    <div><label>Réalisé (si manuel)</label><input type="number" step="any" name="realise" value="0"></div>
+    <div><label>Unité</label><input type="text" name="unite" placeholder="% / XOF / nb"></div>
+    <div><button type="submit" class="btn btn-primary btn-sm" style="width:100%">🎯 Ajouter</button></div>
+</form>
+</div></div>
+
+{% for o in objectifs %}
+{% set pct = o.taux if o.taux <= 100 else 100 %}
+{% set col = '#2e7d32' if o.taux>=100 else ('#e8672a' if o.taux>=60 else '#c53030') %}
+<div class="ob-card" style="border-left-color:{{ col }}">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+            <strong style="font-size:14px">{{ o.departement }}</strong> — {{ o.libelle }}
+            <span style="font-size:10px;background:#f0f4f8;color:#555;padding:1px 8px;border-radius:8px;margin-left:4px">{{ o.periode }} · {{ o.periode_label }}</span>
+            {% if o.source and o.source != 'manuel' %}<span style="font-size:10px;background:#e8f5e9;color:#2e7d32;padding:1px 8px;border-radius:8px">auto</span>{% endif %}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-weight:800;color:{{ col }}">{{ o.taux }}%</span>
+            {% if o.source == 'manuel' %}
+            <form method="post" action="/centre-decision/objectifs/{{ o.id }}/edit" style="display:flex;gap:4px;align-items:center">
+                <input type="number" step="any" name="cible" value="{{ o.cible }}" title="Cible" style="width:70px;padding:4px;border:1.5px solid #ddd;border-radius:6px;font-size:11px">
+                <input type="number" step="any" name="realise" value="{{ o.realise }}" title="Réalisé" style="width:70px;padding:4px;border:1.5px solid #ddd;border-radius:6px;font-size:11px">
+                <button class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:10px">💾</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/centre-decision/objectifs/{{ o.id }}/delete" onsubmit="return confirm('Supprimer cet objectif ?')" style="display:inline"><button class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px">🗑️</button></form>
+        </div>
+    </div>
+    <div style="font-size:11px;color:#666;margin-top:4px">Réalisé : <strong>{{ o.realise_calc }}{{ o.unite or '' }}</strong> / Cible : {{ o.cible }}{{ o.unite or '' }} · Écart : <span style="color:{% if o.ecart>=0 %}#2e7d32{% else %}#c53030{% endif %}">{{ o.ecart }}</span></div>
+    <div class="ob-g"><span style="width:{{ pct }}%;background:{{ col }}"></span></div>
+</div>
+{% else %}
+<div style="background:#fff;border-radius:12px;padding:40px;text-align:center;color:#999">Aucun objectif défini. Ajoutez-en un ci-dessus.</div>
+{% endfor %}
+{% endblock %}
