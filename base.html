@@ -1738,38 +1738,66 @@ window.fillClientCode = function(codeEl, opts){
 };
 </script>
 <script>
-/* v172 : tri alphabétique de la barre latérale (non destructif — via flex order).
-   Les liens du haut sont triés entre eux, puis les sections (rubriques) ; la section
-   Administration reste en bas. Préserve permissions, badges et sous-menus. */
+/* v172/v173 : barre latérale — tri alphabétique par défaut + réorganisation par
+   glisser-déposer pour l'ADMIN (mémorisée dans le navigateur via localStorage).
+   Non destructif : agit uniquement sur le flex-order, ne touche ni au HTML, ni aux
+   permissions, ni aux sous-menus. */
 (function(){
   try{
     var nav = document.querySelector('.sidebar-nav');
     if(!nav) return;
-    function clean(txt){
-      return (txt||'')
-        .replace(/[0-9]/g,'')          // enlève les badges numériques
-        .replace(/[▼▲]/g,'')
-        .replace(/[^0-9A-Za-zÀ-ÿ]+/g,' ') // enlève emojis / symboles
-        .trim().toLowerCase();
+    var IS_ADMIN = {{ 'true' if user_role == 'admin' else 'false' }};
+    var LS = 'wg_sidebar_order_v1';
+    function clean(t){ return (t||'').replace(/[0-9]/g,'').replace(/[▼▲]/g,'').replace(/[^0-9A-Za-zÀ-ÿ]+/g,' ').trim().toLowerCase(); }
+    function isItem(c){ return c && (c.tagName==='A' || (c.classList && c.classList.contains('nav-section'))); }
+    var list = Array.prototype.slice.call(nav.children).filter(isItem);
+    function keyOf(el){ return el.tagName==='A' ? ('a:'+(el.getAttribute('href')||clean(el.textContent))) : ('sec:'+(el.id||clean(el.textContent))); }
+    function labelOf(el){ if(el.tagName==='A') return clean(el.textContent); var t=el.querySelector('.nav-section-title'); return clean(t?t.textContent:''); }
+    list.forEach(function(el){ el.setAttribute('data-navkey', keyOf(el)); });
+    // Ordre alphabétique par défaut : liens d'abord, puis rubriques (Administration en dernier)
+    function alphaOrder(){
+      var links = list.filter(function(e){return e.tagName==='A';}).sort(function(a,b){return labelOf(a).localeCompare(labelOf(b),'fr');});
+      var secs = list.filter(function(e){return !(e.tagName==='A');}).sort(function(a,b){
+        if(a.id==='sec-admin') return 1; if(b.id==='sec-admin') return -1;
+        return labelOf(a).localeCompare(labelOf(b),'fr'); });
+      return links.concat(secs).map(keyOf);
     }
-    function keyLink(a){ return clean(a.textContent); }
-    function keySection(s){
-      var t = s.querySelector('.nav-section-title');
-      return clean(t ? t.textContent : '');
+    function loadOrder(){ try{ var s=localStorage.getItem(LS); if(s){ var a=JSON.parse(s); if(a&&a.length) return a; } }catch(e){} return alphaOrder(); }
+    function apply(order){
+      var pos={}, i; for(i=0;i<order.length;i++) pos[order[i]]=i;
+      var maxi=order.length;
+      list.forEach(function(el){ var k=el.getAttribute('data-navkey'); el.style.order = (k in pos)?pos[k]:(maxi++); });
     }
-    var kids = Array.prototype.slice.call(nav.children);
-    // 1) liens directs (order 0..49)
-    var links = kids.filter(function(c){ return c.tagName === 'A'; });
-    links.sort(function(a,b){ return keyLink(a).localeCompare(keyLink(b),'fr'); });
-    links.forEach(function(a,i){ a.style.order = i; });
-    // 2) rubriques repliables (order 100..) — Administration toujours en dernier
-    var secs = kids.filter(function(c){ return c.classList && c.classList.contains('nav-section'); });
-    secs.sort(function(a,b){ return keySection(a).localeCompare(keySection(b),'fr'); });
-    var i2 = 0;
-    secs.forEach(function(s){
-      if(s.id === 'sec-admin'){ s.style.order = 950; return; }
-      s.style.order = 100 + (i2++);
+    apply(loadOrder());
+    if(!IS_ADMIN) return;
+
+    // ----- Mode ADMIN : glisser-déposer -----
+    function curOrder(){ return list.slice().sort(function(a,b){ return (parseFloat(a.style.order)||0)-(parseFloat(b.style.order)||0); }).map(keyOf); }
+    var dragged=null;
+    list.forEach(function(el){
+      el.setAttribute('draggable','true');
+      el.style.cursor='grab';
+      el.addEventListener('dragstart',function(e){ dragged=el; el.style.opacity='.45'; try{e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain','');}catch(x){} });
+      el.addEventListener('dragend',function(){ el.style.opacity=''; list.forEach(function(x){x.style.boxShadow='';}); dragged=null; });
+      el.addEventListener('dragover',function(e){ e.preventDefault(); if(dragged&&dragged!==el) el.style.boxShadow='inset 0 3px 0 #1A8F7E'; });
+      el.addEventListener('dragleave',function(){ el.style.boxShadow=''; });
+      el.addEventListener('drop',function(e){
+        e.preventDefault(); el.style.boxShadow='';
+        if(!dragged||dragged===el) return;
+        var ord=curOrder(), dk=keyOf(dragged), tk=keyOf(el);
+        ord.splice(ord.indexOf(dk),1);
+        ord.splice(ord.indexOf(tk),0,dk);
+        apply(ord);
+        try{ localStorage.setItem(LS, JSON.stringify(ord)); }catch(x){}
+      });
     });
+    // Aide + réinitialisation (admin uniquement)
+    var bar=document.createElement('div');
+    bar.style.cssText='order:-100;display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:10px;color:rgba(255,255,255,.55);padding:6px 18px';
+    var hint=document.createElement('span'); hint.textContent='↕️ Glissez pour réorganiser';
+    var reset=document.createElement('a'); reset.textContent='⟲ Réinitialiser'; reset.href='#'; reset.style.cssText='color:#8fd3c7;text-decoration:none';
+    reset.onclick=function(ev){ ev.preventDefault(); try{localStorage.removeItem(LS);}catch(x){} apply(alphaOrder()); };
+    bar.appendChild(hint); bar.appendChild(reset); nav.insertBefore(bar, nav.firstChild);
   }catch(e){}
 })();
 </script>
