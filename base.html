@@ -1737,5 +1737,41 @@ window.fillClientCode = function(codeEl, opts){
     }).catch(function(){});
 };
 </script>
+<script>
+/* v172 : tri alphabétique de la barre latérale (non destructif — via flex order).
+   Les liens du haut sont triés entre eux, puis les sections (rubriques) ; la section
+   Administration reste en bas. Préserve permissions, badges et sous-menus. */
+(function(){
+  try{
+    var nav = document.querySelector('.sidebar-nav');
+    if(!nav) return;
+    function clean(txt){
+      return (txt||'')
+        .replace(/[0-9]/g,'')          // enlève les badges numériques
+        .replace(/[▼▲]/g,'')
+        .replace(/[^0-9A-Za-zÀ-ÿ]+/g,' ') // enlève emojis / symboles
+        .trim().toLowerCase();
+    }
+    function keyLink(a){ return clean(a.textContent); }
+    function keySection(s){
+      var t = s.querySelector('.nav-section-title');
+      return clean(t ? t.textContent : '');
+    }
+    var kids = Array.prototype.slice.call(nav.children);
+    // 1) liens directs (order 0..49)
+    var links = kids.filter(function(c){ return c.tagName === 'A'; });
+    links.sort(function(a,b){ return keyLink(a).localeCompare(keyLink(b),'fr'); });
+    links.forEach(function(a,i){ a.style.order = i; });
+    // 2) rubriques repliables (order 100..) — Administration toujours en dernier
+    var secs = kids.filter(function(c){ return c.classList && c.classList.contains('nav-section'); });
+    secs.sort(function(a,b){ return keySection(a).localeCompare(keySection(b),'fr'); });
+    var i2 = 0;
+    secs.forEach(function(s){
+      if(s.id === 'sec-admin'){ s.style.order = 950; return; }
+      s.style.order = 100 + (i2++);
+    });
+  }catch(e){}
+})();
+</script>
 </body>
 </html>
