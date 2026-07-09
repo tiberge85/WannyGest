@@ -11686,9 +11686,45 @@ def _bilan_log(conn, type_rapport, dept, annee, mois, score):
     except Exception:
         return ''
 
+def _bilan_auto_generate():
+    """v170v : génère et ARCHIVE automatiquement le bilan du mois écoulé (1x/mois) pour chaque
+    département + le bilan général, avec un instantané (snapshot) consultable ensuite."""
+    try:
+        conn = _gdb()
+        now = datetime.now()
+        py, pm = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+        annee, mois = f"{py:04d}", f"{pm:02d}"
+        flag = conn.execute("SELECT value FROM app_settings WHERE key='bilan_auto_last'").fetchone()
+        if flag and flag['value'] == f"{annee}-{mois}":
+            conn.close(); return 0
+        import json as _json
+        deps = [r[0] for r in conn.execute("SELECT DISTINCT department FROM employees WHERE COALESCE(department,'')<>'' ORDER BY department").fetchall()]
+        n = 0
+        for dp in deps + ['']:  # '' = bilan général
+            d = _bilan_data(conn, dp, annee, mois)
+            num = f"BILAUTO-{annee}{mois}-{(dp or 'GENERAL')[:6].upper().replace(' ', '')}"
+            # éviter les doublons pour ce mois/département
+            if conn.execute("SELECT 1 FROM bilan_reports WHERE numero=?", (num,)).fetchone():
+                continue
+            try:
+                conn.execute("""INSERT INTO bilan_reports (numero, type_rapport, departement, annee, mois, periode, score, user_id, user_name, ip_address, snapshot_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (num, ('auto_general' if not dp else 'auto'), dp or 'Tous', annee, mois, d['periode'],
+                     d['score'], None, 'Système (auto)', '', _json.dumps(d, default=str)))
+                n += 1
+            except Exception: pass
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('bilan_auto_last', ?)", (f"{annee}-{mois}",))
+        conn.commit(); conn.close()
+        if n: print(f"[v170v] {n} bilan(s) mensuel(s) auto-archivé(s) pour {annee}-{mois}", flush=True)
+        return n
+    except Exception as _e:
+        print(f"[v170v] auto-gen err : {_e}", flush=True)
+        return 0
+
 @app.route('/rh/bilan')
 @permission_required_any('fichiers', 'dashboard_general', 'admin')
 def rh_bilan_hub():
+    _bilan_auto_generate()  # génère/archive le mois écoulé si pas déjà fait
     conn = _gdb()
     departements = [r[0] for r in conn.execute("SELECT DISTINCT department FROM employees WHERE COALESCE(department,'')<>'' ORDER BY department").fetchall()]
     conn.close()
@@ -11696,6 +11732,39 @@ def rh_bilan_hub():
     is_direction = user and user['role'] in ('admin', 'dg', 'directeur')
     return render_template('rh_bilan_hub.html', page='bilan', departements=departements,
         annee=datetime.now().strftime('%Y'), mois=datetime.now().strftime('%m'), is_direction=is_direction)
+
+@app.route('/rh/bilan/archives')
+@permission_required_any('fichiers', 'dashboard_general', 'admin')
+def rh_bilan_archives():
+    """v170v : liste des rapports archivés (auto + manuels), consultables."""
+    conn = _gdb()
+    reports = [dict(r) for r in conn.execute(
+        "SELECT id, numero, type_rapport, departement, annee, mois, periode, score, user_name, created_at "
+        "FROM bilan_reports ORDER BY id DESC LIMIT 300").fetchall()]
+    conn.close()
+    return render_template('rh_bilan_archives.html', page='bilan', reports=reports)
+
+@app.route('/rh/bilan/archive/<int:rid>')
+@permission_required_any('fichiers', 'dashboard_general', 'admin')
+def rh_bilan_archive_view(rid):
+    """v170v : consulter un rapport archivé (instantané figé) OU recalculer si pas de snapshot."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM bilan_reports WHERE id=?", (rid,)).fetchone()
+    if not row:
+        conn.close(); flash("Rapport introuvable", "error"); return redirect('/rh/bilan/archives')
+    rep = dict(row)
+    data = None
+    if rep.get('snapshot_json'):
+        try:
+            import json as _json
+            data = _json.loads(rep['snapshot_json'])
+        except Exception: data = None
+    if data is None:
+        data = _bilan_data(conn, (rep['departement'] if rep['departement'] != 'Tous' else ''), rep['annee'], rep['mois'])
+    conn.close()
+    return render_template('rh_bilan_service.html', page='bilan', d=data,
+        dept=(rep['departement'] if rep['departement'] != 'Tous' else ''),
+        annee=rep['annee'], mois=rep['mois'], general=False, archived=rep)
 
 @app.route('/rh/bilan/service')
 @permission_required_any('fichiers', 'dashboard_general', 'admin')
@@ -11805,6 +11874,13 @@ def rh_bilan_pdf():
     m = d['mg']
     _sec("Moyens généraux", [('Demandes', m['demandes']), ('Validées', m['validees']), ('Refusées', m['refusees']),
         ('Crédits fournisseurs', m['credits']), ('Montant engagé', f"{m['engage']:,.0f} F"), ('Payé', f"{m['paye']:,.0f} F"), ('Reste dû', f"{m['reste']:,.0f} F")])
+    iv = d.get('interventions', {})
+    if iv:
+        _sec("Interventions", [('Total', iv.get('total', 0)), ('Terminées', iv.get('terminees', 0)),
+            ('En attente', iv.get('en_attente', 0)), ('Temps moyen', f"{iv.get('temps_moyen', 0)} h")])
+    cp = d.get('compta', {})
+    if cp:
+        _sec("Comptabilité", [('Dépenses', f"{cp.get('depenses', 0):,.0f} F"), ('Nombre de dépenses', cp.get('nb_depenses', 0))])
     p = d['performance']
     _sec("Note de performance /100", [('Présence (20%)', p['presence']), ('Réalisation tâches (30%)', p['realisation']),
         ('Respect délais (20%)', p['delais']), ('Validation demandes (15%)', p['validation']), ('Discipline (15%)', p['discipline']), ('SCORE GLOBAL', f"{d['score']}/100")])

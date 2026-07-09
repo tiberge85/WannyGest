@@ -2,8 +2,10 @@
 {% block title %}WannyGest — Bilans des services{% endblock %}
 {% block content %}
 <div class="page-header"><h1>📊 Bilans des services</h1>
-{% if is_direction %}<a href="/rh/bilan/general?annee={{ annee }}&mois={{ mois }}" class="btn btn-sm" style="background:#1a1a2e;color:#fff">🏢 Bilan Général</a>{% endif %}
-</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+    <a href="/rh/bilan/archives" class="btn btn-outline btn-sm">🗄️ Rapports archivés</a>
+    {% if is_direction %}<a href="/rh/bilan/general?annee={{ annee }}&mois={{ mois }}" class="btn btn-sm" style="background:#1a1a2e;color:#fff">🏢 Bilan Général</a>{% endif %}
+</div></div>
 
 <form method="get" action="/rh/bilan/service" class="card" style="margin-bottom:14px"><div class="card-body" style="padding:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:end" id="bilForm">
     <div><label style="font-size:11px;color:#888;display:block">Année</label><input type="number" name="annee" id="bilAnnee" value="{{ annee }}" min="2020" max="2100" style="padding:8px;border:1.5px solid #ddd;border-radius:7px;width:100px"></div>

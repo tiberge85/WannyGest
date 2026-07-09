@@ -69,6 +69,24 @@
     <div class="bs-item"><div class="n" style="color:#c53030">{{ '{:,.0f}'.format(d.mg.reste).replace(',', ' ') }}</div><div class="l">Reste dû (F)</div></div>
 </div></div>
 
+<!-- Interventions -->
+{% if d.interventions %}
+<div class="bs-sec"><h3>🔧 Interventions</h3><div class="bs-grid">
+    <div class="bs-item"><div class="n">{{ d.interventions.total }}</div><div class="l">Total</div></div>
+    <div class="bs-item"><div class="n" style="color:#2e7d32">{{ d.interventions.terminees }}</div><div class="l">Terminées</div></div>
+    <div class="bs-item"><div class="n" style="color:#e8672a">{{ d.interventions.en_attente }}</div><div class="l">En attente</div></div>
+    <div class="bs-item"><div class="n">{{ d.interventions.temps_moyen }} h</div><div class="l">Temps moyen</div></div>
+</div></div>
+{% endif %}
+
+<!-- Comptabilité -->
+{% if d.compta %}
+<div class="bs-sec"><h3>💰 Comptabilité</h3><div class="bs-grid">
+    <div class="bs-item"><div class="n" style="color:#c53030">{{ '{:,.0f}'.format(d.compta.depenses).replace(',', ' ') }}</div><div class="l">Dépenses (F)</div></div>
+    <div class="bs-item"><div class="n">{{ d.compta.nb_depenses }}</div><div class="l">Nb dépenses</div></div>
+</div></div>
+{% endif %}
+
 <!-- Détail de la note -->
 <div class="bs-sec"><h3>🎯 Détail de la note de performance</h3>
     {% for lbl, val, w in [('Présence', d.performance.presence, 20), ('Réalisation des tâches', d.performance.realisation, 30), ('Respect des délais', d.performance.delais, 20), ('Validation des demandes', d.performance.validation, 15), ('Discipline', d.performance.discipline, 15)] %}
