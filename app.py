@@ -2779,7 +2779,9 @@ try:
         created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
     for _col in ["banque_id INTEGER", "banque_name TEXT",
                  "type_operation TEXT DEFAULT 'versement'",  # v162 : versement | remise (chèque)
-                 "date_disponibilite TEXT"]:                  # v162 : dispo du crédit (remise = J+3 ouvrés)
+                 "date_disponibilite TEXT",                   # v162 : dispo du crédit (remise = J+3 ouvrés)
+                 "credite INTEGER DEFAULT 0",                  # v170r : le compte a-t-il été crédité en trésorerie ?
+                 "credite_at TEXT", "tresorerie_ref TEXT"]:
         try: _v160rv.execute(f"ALTER TABLE recouvrement_versements ADD COLUMN {_col}")
         except: pass
     _v160rv.commit(); _v160rv.close()
@@ -5238,12 +5240,14 @@ def inject_globals():
             try:
                 from models import get_current_champion, update_weekly_champion, get_live_champion, get_db as _gdb_cp
                 update_weekly_champion()
-                champ = get_current_champion()
+                # v170s : Employé DU MOIS (basé sur la réalisation des tâches) — priorité au mois EN COURS
                 live = get_live_champion()
-                if champ:
-                    ctx['weekly_champion'] = champ
-                elif live:
+                if live:
                     ctx['weekly_champion'] = live
+                else:
+                    champ = get_current_champion()
+                    if champ:
+                        ctx['weekly_champion'] = champ
                 # Check visibility setting
                 _sc = _gdb_cp()
                 try:
@@ -9217,30 +9221,37 @@ def caisse_entree_add():
     pay_method = request.form.get('payment_method', '')
     caisse_id_raw = request.form.get('caisse_id', '').strip()
     caisse_id = int(caisse_id_raw) if caisse_id_raw.isdigit() else None
-    
+    # v170r : la caisse cible est OBLIGATOIRE (sinon l'entrée n'impacte ni le solde ni l'historique)
+    if not caisse_id:
+        conn.close()
+        flash("⚠️ Choisissez la caisse à créditer — sans caisse, l'entrée n'apparaît ni dans le solde ni dans l'historique.", "error")
+        return redirect('/caisse-sortie?tab=entrees')
+
     try:
         conn.execute("""INSERT INTO caisse_entrees (reference, date, source, montant, description, payment_method, caisse_id, created_by)
             VALUES (?,?,?,?,?,?,?,?)""",
             (ref, date_op, source, montant, description, pay_method, caisse_id, session['user_id']))
-    except:
+    except Exception:
         # Fallback if caisse_id column not yet added
         conn.execute("""INSERT INTO caisse_entrees (reference, date, source, montant, description, payment_method, created_by)
             VALUES (?,?,?,?,?,?,?)""",
             (ref, date_op, source, montant, description, pay_method, session['user_id']))
-    
-    # Mettre à jour la caisse ciblée (opération + solde)
-    caisse_nom = ''
-    if caisse_id:
-        c = conn.execute("SELECT name FROM caisses WHERE id=?", (caisse_id,)).fetchone()
-        caisse_nom = c['name'] if c else ''
-        try:
-            conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by)
-                VALUES (?,?,?,?,?,?,?)""",
-                (caisse_id, 'entree', montant,
-                 f"Entrée {ref} — {source}" + (f" : {description[:30]}" if description else ""),
-                 ref, 'entree', session['user_id']))
-            conn.execute("UPDATE caisses SET solde_actuel = solde_actuel + ? WHERE id=?", (montant, caisse_id))
-        except Exception: pass
+
+    # Mettre à jour la caisse ciblée (opération = historique + solde). Ne PAS avaler l'erreur.
+    c = conn.execute("SELECT name FROM caisses WHERE id=?", (caisse_id,)).fetchone()
+    caisse_nom = c['name'] if c else ''
+    try:
+        conn.execute("""INSERT INTO caisse_operations (caisse_id, type, amount, description, reference, category, created_by, created_at)
+            VALUES (?,?,?,?,?,?,?,datetime('now'))""",
+            (caisse_id, 'entree', montant,
+             f"Entrée {ref} — {source}" + (f" : {description[:30]}" if description else ""),
+             ref, 'entree', session['user_id']))
+        conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) + ? WHERE id=?", (montant, caisse_id))
+    except Exception as _e:
+        conn.rollback(); conn.close()
+        print(f"[v170r] err entrée caisse : {_e}", flush=True)
+        flash(f"❌ Erreur : l'entrée n'a pas pu être enregistrée en caisse ({_e}). Réessayez.", "error")
+        return redirect('/caisse-sortie?tab=entrees')
     
     # Écriture comptable partie double : 571 (caisse) DÉBIT / 758 (produits divers) CRÉDIT
     libelle = f"Entrée {ref} — {source}"
@@ -22967,6 +22978,9 @@ def recouvrement_versements():
     (bordereau) et suit l'historique. Registre justificatif (sans impact comptable :
     le crédit en caisse reste géré par la validation caissière)."""
     conn = _gdb()
+    # v170r : créditer les remises devenues disponibles (chèques encaissés à J+3) avant affichage
+    try: _recouvrement_crediter_dus(conn)
+    except Exception: pass
     user = get_user_by_id(session['user_id'])
     is_admin = user and user['role'] == 'admin'
     # Un agent voit ses propres versements ; admin/caissière voient tout
@@ -23031,6 +23045,73 @@ def _add_business_days(date_str, n):
     return d.strftime('%Y-%m-%d')
 
 
+def _crediter_versement(conn, v):
+    """v170r : crédite RÉELLEMENT la trésorerie (banque ou caisse) d'un versement/remise, UNE SEULE FOIS.
+    Met à jour le solde + crée le mouvement de trésorerie + l'écriture comptable. Retourne True si crédité."""
+    if int(v.get('credite') or 0) == 1:
+        return False
+    montant = float(v.get('montant') or 0)
+    if montant <= 0:
+        return False
+    vid = v['id']
+    dref = (v.get('date_disponibilite') or v.get('date_versement') or datetime.now().strftime('%Y-%m-%d'))[:10]
+    ref = f"REC-{vid}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    libelle = f"Encaissement recouvrement — {v.get('agent_name','') or ''}" + \
+              (f" (bordereau {v.get('bordereau_number')})" if v.get('bordereau_number') else '')
+    if v.get('banque_id'):
+        conn.execute("UPDATE tresorerie_comptes_bancaires SET solde_actuel=COALESCE(solde_actuel,0)+? WHERE id=?",
+                     (montant, v['banque_id']))
+        try:
+            conn.execute("""INSERT INTO tresorerie_mouvements
+                (type, sens, source, source_id, date, montant, libelle, reference, banque_id, created_by, created_at)
+                VALUES ('banque','entree','recouvrement',?,?,?,?,?,?,?,datetime('now'))""",
+                (vid, dref, montant, libelle, ref, v['banque_id'], v.get('agent_id')))
+        except Exception: pass
+        try: auto_ecriture(conn, dref, libelle, '521', '411', montant, ref)
+        except Exception: pass
+    elif v.get('caisse_id'):
+        try:
+            conn.execute("""INSERT INTO caisse_operations
+                (caisse_id, type, amount, description, reference, category, created_by, created_at)
+                VALUES (?, 'entree', ?, ?, ?, 'recouvrement', ?, datetime('now'))""",
+                (v['caisse_id'], montant, libelle, ref, v.get('agent_id')))
+            conn.execute("UPDATE caisses SET solde_actuel=COALESCE(solde_actuel,0)+? WHERE id=?", (montant, v['caisse_id']))
+        except Exception: pass
+        try:
+            conn.execute("""INSERT INTO tresorerie_mouvements
+                (type, sens, source, source_id, date, montant, libelle, reference, caisse_id, created_by, created_at)
+                VALUES ('caisse','entree','recouvrement',?,?,?,?,?,?,?,datetime('now'))""",
+                (vid, dref, montant, libelle, ref, v['caisse_id'], v.get('agent_id')))
+        except Exception: pass
+        try: auto_ecriture(conn, dref, libelle, '571', '411', montant, ref)
+        except Exception: pass
+    else:
+        return False  # aucune destination -> rien à créditer
+    conn.execute("UPDATE recouvrement_versements SET credite=1, credite_at=datetime('now'), tresorerie_ref=?, statut='verse' WHERE id=?",
+                 (ref, vid))
+    return True
+
+def _recouvrement_crediter_dus(conn):
+    """v170r : crédite tous les versements/remises devenus disponibles et non encore crédités."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM recouvrement_versements WHERE COALESCE(credite,0)=0 "
+            "AND (banque_id IS NOT NULL OR caisse_id IS NOT NULL) "
+            "AND (COALESCE(date_disponibilite, date_versement, ?) <= ?)", (today, today)).fetchall()]
+    except Exception:
+        return 0
+    n = 0
+    for v in rows:
+        try:
+            if _crediter_versement(conn, v): n += 1
+        except Exception as _e:
+            print(f"[v170r] credit err : {_e}", flush=True)
+    if n:
+        conn.commit()
+    return n
+
+
 @app.route('/recouvrement/versements/add', methods=['POST'])
 @permission_required_any('recouvrement_edit', 'caissiere_validate', 'admin')
 def recouvrement_versement_add():
@@ -23063,6 +23144,16 @@ def recouvrement_versement_add():
          request.form.get('mode', 'especes'), caisse_id, caisse_name, banque_id, banque_name,
          request.form.get('bordereau_number', ''), bordereau_file,
          date_versement, request.form.get('notes', ''), type_op, date_dispo, statut))
+    _vid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    # v170r : si disponible immédiatement (versement), créditer RÉELLEMENT le compte/caisse tout de suite.
+    # Une remise de chèque sera créditée à sa date de disponibilité (via _recouvrement_crediter_dus).
+    _credite_now = False
+    if statut == 'verse' and (banque_id or caisse_id):
+        try:
+            _v = dict(conn.execute("SELECT * FROM recouvrement_versements WHERE id=?", (_vid,)).fetchone())
+            _credite_now = _crediter_versement(conn, _v)
+        except Exception as _e:
+            print(f"[v170r] credit immédiat err : {_e}", flush=True)
     conn.commit(); conn.close()
     _libelle = "Remise de chèque" if type_op == 'remise' else "Versement"
     try:
@@ -23073,10 +23164,11 @@ def recouvrement_versement_add():
             + (f" — bordereau {request.form.get('bordereau_number','')}" if request.form.get('bordereau_number') else ''),
             link='/recouvrement/versements', type='recouvrement', module='recouvrement', icon='💰')
     except: pass
+    _dest_lbl = (banque_name or caisse_name or '')
     if type_op == 'remise':
-        flash(f"✅ Remise de chèque de {montant:,.0f} XOF enregistrée — ⏳ en attente, créditée le {date_dispo} (3 jours ouvrés).", "success")
+        flash(f"✅ Remise de chèque de {montant:,.0f} XOF enregistrée — ⏳ en attente, le compte « {_dest_lbl} » sera crédité le {date_dispo} (3 jours ouvrés).", "success")
     else:
-        flash(f"✅ Versement de {montant:,.0f} XOF enregistré.", "success")
+        flash(f"✅ Versement de {montant:,.0f} XOF enregistré" + (f" et crédité sur « {_dest_lbl} »." if _credite_now else "."), "success")
     return redirect('/recouvrement/versements')
 
 

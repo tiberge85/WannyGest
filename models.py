@@ -2170,101 +2170,97 @@ def migrate_v12():
     ''')
     conn.commit(); conn.close()
 
-def get_current_champion():
-    """Retourne le champion en cours (le plus récent)."""
-    conn = get_db()
-    row = conn.execute("SELECT * FROM weekly_champion ORDER BY week_end DESC, nb_rapports DESC LIMIT 1").fetchone()
-    conn.close()
-    return dict(row) if row else None
+_MOIS_FR_CHAMP = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet',
+                  'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 
-def _weekly_leaderboard(conn, ws, we):
-    """v170m : classement hebdomadaire COMBINÉ = assiduité (rapports journaliers)
-    + performance des TÂCHES (points du classement des tâches sur la semaine).
-    Score = nb_jours_rapports * 5 + points_tâches. Retourne la liste triée (meilleur en tête)."""
-    users = {}
-    # 1) Assiduité — rapports journaliers
+def _month_label_champ(m):
     try:
-        for r in conn.execute("""
-            SELECT rj.user_id, u.full_name, u.role, rj.department,
-                   COUNT(DISTINCT rj.date) as nb, AVG(rj.completion_pct) as avg_c
-            FROM rapports_journaliers rj LEFT JOIN users u ON rj.user_id=u.id
-            WHERE rj.date >= ? AND rj.date <= ? GROUP BY rj.user_id""", (ws, we)).fetchall():
-            r = dict(r)
-            users[r['user_id']] = {
-                'user_id': r['user_id'], 'full_name': r['full_name'], 'role': r['role'],
-                'department': r['department'] or '', 'nb_rapports': r['nb'] or 0,
-                'avg_completion': round(r['avg_c'] or 0), 'task_points': 0}
+        y, mm = (m or '')[:7].split('-')
+        return f"{_MOIS_FR_CHAMP[int(mm)]} {y}"
     except Exception:
-        pass
-    # 2) Performance TÂCHES — points sur les tâches terminées à temps cette semaine
+        return m or ''
+
+def _monthly_task_leaderboard(conn, month):
+    """v170s : classement du mois basé sur la RÉALISATION DES TÂCHES.
+    Points = points de la tâche si terminée à temps, sinon 40 %. Trié (meilleur en tête)."""
+    users = {}
     try:
         for r in conn.execute("""
             SELECT a.user_id, a.user_name, u.role, u.department, a.on_time, t.points
             FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
             LEFT JOIN users u ON u.id=a.user_id
             WHERE a.statut='terminee' AND t.statut='terminee'
-              AND DATE(COALESCE(t.validated_at, a.done_at, t.updated_at)) >= ?
-              AND DATE(COALESCE(t.validated_at, a.done_at, t.updated_at)) <= ?""", (ws, we)).fetchall():
-            r = dict(r)
-            uid = r['user_id']
-            if uid not in users:
-                users[uid] = {'user_id': uid, 'full_name': r['user_name'], 'role': r['role'],
-                    'department': r['department'] or '', 'nb_rapports': 0,
-                    'avg_completion': 0, 'task_points': 0}
+              AND strftime('%Y-%m', COALESCE(t.validated_at, a.done_at, t.updated_at)) = ?""", (month,)).fetchall():
+            r = dict(r); uid = r['user_id']
+            b = users.setdefault(uid, {'user_id': uid, 'full_name': r['user_name'] or '',
+                'role': r['role'] or '', 'department': r['department'] or '',
+                'task_points': 0, 'done': 0, 'on_time': 0})
+            b['done'] += 1
             pts = (r['points'] or 0)
-            users[uid]['task_points'] += pts if r['on_time'] else max(1, int(pts * 0.4))
+            if r['on_time']:
+                b['on_time'] += 1; b['task_points'] += pts
+            else:
+                b['task_points'] += max(1, int(pts * 0.4))
     except Exception:
         pass
-    for u in users.values():
-        u['score'] = (u['nb_rapports'] or 0) * 5 + (u['task_points'] or 0)
-    return sorted(users.values(), key=lambda x: (-x['score'], -x['task_points'], -x['avg_completion']))
+    return sorted(users.values(), key=lambda x: (-x['task_points'], -x['on_time'], -x['done']))
 
+def get_current_champion():
+    """v170s : dernier « employé du mois » figé (mois écoulé)."""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM weekly_champion ORDER BY week_end DESC, id DESC LIMIT 1").fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    return {
+        'user_id': d.get('user_id'), 'full_name': d.get('full_name'),
+        'role': d.get('role'), 'department': d.get('department'),
+        'month': d.get('week_start'), 'month_label': _month_label_champ(d.get('week_start') or ''),
+        'task_points': d.get('nb_rapports') or 0, 'done': d.get('avg_completion') or 0, 'on_time': 0,
+        'is_live': False,
+    }
 
 def update_weekly_champion():
-    """Calcule et enregistre le champion de la semaine écoulée (assiduité + tâches)."""
-    from datetime import datetime, timedelta
+    """v170s : fige l'« employé du mois » du mois écoulé (une fois par mois)."""
+    from datetime import datetime
     conn = get_db()
-    today = datetime.now().date()
-    # Previous completed week (Mon-Sun)
-    last_sunday = today - timedelta(days=today.weekday() + 1)
-    last_monday = last_sunday - timedelta(days=6)
-    ws = last_monday.strftime('%Y-%m-%d')
-    we = last_sunday.strftime('%Y-%m-%d')
-
-    existing = conn.execute("SELECT id FROM weekly_champion WHERE week_start=?", (ws,)).fetchone()
+    now = datetime.now()
+    py, pm = (now.year, now.month - 1) if now.month > 1 else (now.year - 1, 12)
+    month = f"{py:04d}-{pm:02d}"
+    existing = conn.execute("SELECT id FROM weekly_champion WHERE week_start=?", (month,)).fetchone()
     if existing:
         conn.close(); return
-
-    board = _weekly_leaderboard(conn, ws, we)
+    board = _monthly_task_leaderboard(conn, month)
     top = board[0] if board else None
-    if top and top['score'] > 0:
-        conn.execute("""INSERT INTO weekly_champion
-            (user_id, full_name, role, department, week_start, week_end, nb_rapports, avg_completion)
-            VALUES (?,?,?,?,?,?,?,?)""",
-            (top['user_id'], top['full_name'], top['role'], top['department'] or '',
-             ws, we, top['nb_rapports'], top['avg_completion']))
-        conn.commit()
+    if top and top['task_points'] > 0:
+        try:
+            # Réutilise le schéma existant : week_start/week_end = mois ; nb_rapports = points ; avg_completion = nb tâches
+            conn.execute("""INSERT INTO weekly_champion
+                (user_id, full_name, role, department, week_start, week_end, nb_rapports, avg_completion)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (top['user_id'], top['full_name'], top['role'], top['department'] or '',
+                 month, month, top['task_points'], top['done']))
+            conn.commit()
+        except Exception:
+            pass
     conn.close()
 
 def get_live_champion():
-    """Leader de la semaine en cours (temps réel) — assiduité + performance tâches."""
-    from datetime import datetime, timedelta
+    """v170s : « Employé du mois » EN COURS, basé sur la réalisation des tâches."""
+    from datetime import datetime
     conn = get_db()
-    today = datetime.now().date()
-    week_start = today - timedelta(days=today.weekday())
-    ws = week_start.strftime('%Y-%m-%d')
-    we = today.strftime('%Y-%m-%d')
-
-    board = _weekly_leaderboard(conn, ws, we)
+    month = datetime.now().strftime('%Y-%m')
+    board = _monthly_task_leaderboard(conn, month)
     conn.close()
     top = board[0] if board else None
-    if top and top['score'] > 0:
+    if top and top['task_points'] > 0:
         return {
             'user_id': top['user_id'], 'full_name': top['full_name'],
             'role': top['role'], 'department': top['department'] or '',
-            'week_start': ws, 'week_end': we,
-            'nb_rapports': top['nb_rapports'], 'avg_completion': top['avg_completion'],
-            'task_points': top['task_points'], 'is_live': True
+            'month': month, 'month_label': _month_label_champ(month),
+            'task_points': top['task_points'], 'done': top['done'], 'on_time': top['on_time'],
+            'is_live': True,
         }
     return None
 
