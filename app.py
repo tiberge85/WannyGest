@@ -1055,6 +1055,30 @@ try:
 except Exception as _e:
     print(f"[v170u] err table bilan : {_e}", flush=True)
 
+# v170v : rattachement département sur interventions & dépenses + snapshot des rapports archivés.
+try:
+    from models import get_db as _v170v_db
+    _v170v = _v170v_db()
+    try: _v170v.execute("ALTER TABLE interventions ADD COLUMN department TEXT")
+    except Exception: pass
+    try: _v170v.execute("ALTER TABLE depenses ADD COLUMN department TEXT")
+    except Exception: pass
+    try: _v170v.execute("ALTER TABLE bilan_reports ADD COLUMN snapshot_json TEXT")
+    except Exception: pass
+    # Backfill (rejouable) : département = celui de l'utilisateur lié (technicien / créateur)
+    try:
+        _v170v.execute("""UPDATE interventions SET department=(SELECT department FROM users WHERE users.id=interventions.technician_id)
+            WHERE COALESCE(department,'')='' AND technician_id IS NOT NULL""")
+        _v170v.execute("""UPDATE depenses SET department=(SELECT department FROM users WHERE users.id=depenses.created_by)
+            WHERE COALESCE(department,'')='' AND created_by IS NOT NULL""")
+        _v170v.commit()
+    except Exception as _be:
+        print(f"[v170v] backfill dept : {_be}", flush=True)
+    _v170v.close()
+    print("[v170v] Rattachement département (interventions/dépenses) OK", flush=True)
+except Exception as _e:
+    print(f"[v170v] err : {_e}", flush=True)
+
 
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
@@ -1144,6 +1168,30 @@ try:
     print("[v170] Index de performance OK", flush=True)
 except Exception as _e:
     print(f"[v170] err index perf : {_e}", flush=True)
+
+
+# ==================== v171 : CENTRE DE DÉCISION ====================
+try:
+    from models import get_db as _v171_db
+    _v171 = _v171_db()
+    _v171.execute("""CREATE TABLE IF NOT EXISTS cd_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, user_name TEXT, action TEXT, details TEXT,
+        ip TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    # Objectifs par département (mensuel / trimestriel / annuel)
+    _v171.execute("""CREATE TABLE IF NOT EXISTS cd_objectifs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        departement TEXT, libelle TEXT, periode TEXT,
+        cible REAL DEFAULT 0, realise REAL DEFAULT 0, unite TEXT,
+        periode_label TEXT, created_by INTEGER, created_by_name TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    for _role in ('admin', 'dg', 'directeur', 'directrice_rh', 'rh'):
+        try: _v171.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES (?, 'centre_decision')", (_role,))
+        except: pass
+    _v171.commit(); _v171.close()
+    print("[v171] Centre de Décision — tables + permission OK", flush=True)
+except Exception as _e:
+    print(f"[v171] err centre décision : {_e}", flush=True)
 
 
 # ==================== v100 : Fusion rôles vers gestionnaire_projet + Validation Compta MG ====================
@@ -11575,6 +11623,31 @@ def _bilan_data(conn, dept, annee, mois):
     D['mg'] = {'demandes': dem_creees, 'validees': dem_valid, 'refusees': dem_refus,
                'credits': nb_cred, 'engage': cred_ttc, 'paye': cred_paye, 'reste': cred_reste,
                'taux_valid': round(dem_valid / dem_creees * 100, 1) if dem_creees else 0}
+    # --- INTERVENTIONS (v170v : rattachées au département du technicien) ---
+    def _iv(cond=''):
+        sql = "SELECT COUNT(*) FROM interventions WHERE substr(COALESCE(scheduled_date, created_at),1,10)>=? AND substr(COALESCE(scheduled_date, created_at),1,10)<=?"
+        p = [d_from, d_to]
+        if dept: sql += " AND COALESCE(department,'')=?"; p.append(dept)
+        if cond: sql += f" AND {cond}"
+        return int(conn.execute(sql, p).fetchone()[0] or 0)
+    iv_total = _iv(); iv_term = _iv("status IN ('livre','termine','terminee','travaux_termines')")
+    iv_attente = _iv("status IN ('planifiee','en_cours','controle_qualite')")
+    try:
+        _tm = conn.execute(
+            "SELECT AVG(duration_hours) FROM interventions WHERE duration_hours>0 AND substr(COALESCE(scheduled_date, created_at),1,10)>=? AND substr(COALESCE(scheduled_date, created_at),1,10)<=?" + (" AND COALESCE(department,'')=?" if dept else ""),
+            ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchone()[0]
+    except Exception: _tm = None
+    D['interventions'] = {'total': iv_total, 'terminees': iv_term, 'en_attente': iv_attente,
+                          'temps_moyen': round(_tm, 1) if _tm else 0}
+    # --- COMPTABILITÉ (dépenses rattachées au département du créateur) ---
+    try:
+        _dp = conn.execute(
+            "SELECT COALESCE(SUM(amount),0), COUNT(*) FROM depenses WHERE substr(COALESCE(date, created_at),1,10)>=? AND substr(COALESCE(date, created_at),1,10)<=?" + (" AND COALESCE(department,'')=?" if dept else ""),
+            ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchone()
+        dep_montant, dep_nb = float(_dp[0] or 0), int(_dp[1] or 0)
+    except Exception:
+        dep_montant = dep_nb = 0
+    D['compta'] = {'depenses': dep_montant, 'nb_depenses': dep_nb}
     # --- NOTE DE PERFORMANCE /100 (pondérée) ---
     s_present = taux_present
     s_exec = taux_exec
@@ -16969,9 +17042,11 @@ def intervention_add():
     ref = f"INT-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     tech_id = int(request.form.get('technician_id',0) or 0)
     tech_name = ''
+    tech_dept = ''
     if tech_id:
-        tu = conn.execute("SELECT full_name FROM users WHERE id=?", (tech_id,)).fetchone()
+        tu = conn.execute("SELECT full_name, department FROM users WHERE id=?", (tech_id,)).fetchone()
         tech_name = tu['full_name'] if tu else ''
+        tech_dept = (tu['department'] if tu else '') or ''  # v170v : rattachement département
 
     client_id = int(request.form.get('client_id',0) or 0)
     client_name = ''
@@ -16992,13 +17067,13 @@ def intervention_add():
 
     conn.execute("""INSERT INTO interventions (reference, title, type, project_id, task_id, client_id, client_name,
         site_address, technician_id, technician_name, scheduled_date, scheduled_time, priority, description,
-        is_billable, installation_id, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        is_billable, installation_id, department, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (ref, _title, request.form.get('type','maintenance'),
          project_id, task_id, client_id, client_name,
          _site_addr, tech_id, tech_name,
          request.form.get('scheduled_date',''), request.form.get('scheduled_time',''),
          request.form.get('priority','normale'), request.form.get('description',''),
-         1 if request.form.get('is_billable') else 0, installation_id, session['user_id']))
+         1 if request.form.get('is_billable') else 0, installation_id, tech_dept, session['user_id']))
     conn.commit()
     
     # Notify technician
@@ -29503,6 +29578,328 @@ def taches_export(fmt):
         return Response(bio.getvalue(), mimetype='application/pdf',
             headers={'Content-Disposition': 'attachment; filename=taches.pdf'})
     flash("Format non supporté.", "error"); return redirect('/gestion-taches')
+
+
+# ======================== v171 : CENTRE DE DÉCISION ========================
+_CD_ROLES = ('admin', 'dg', 'directeur', 'directrice_rh', 'rh')
+
+def _cd_n(conn, sql, params=()):
+    """Scalaire défensif (COUNT/SUM) — 0 si table absente / erreur."""
+    try:
+        r = conn.execute(sql, params).fetchone()
+        return (r[0] or 0) if r else 0
+    except Exception:
+        return 0
+
+def _cd_rows(conn, sql, params=()):
+    try:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    except Exception:
+        return []
+
+def _cd_metrics(conn):
+    """Agrège les KPI temps réel depuis les modules existants (aucune ressaisie)."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    mois = datetime.now().strftime('%Y-%m')
+    m = {}
+    # RH / présence
+    m['emp_total'] = _cd_n(conn, "SELECT COUNT(*) FROM employees WHERE LOWER(COALESCE(status,'actif')) IN ('actif','active','')")
+    m['emp_absents'] = _cd_n(conn, "SELECT COUNT(DISTINCT employee_id) FROM absences WHERE ? BETWEEN date AND COALESCE(date_fin,date) AND LOWER(COALESCE(status,'')) IN ('approuve','approuvee','validee','valide','approved','')", (today,))
+    m['emp_conges'] = _cd_n(conn, "SELECT COUNT(DISTINCT employee_id) FROM absences WHERE ? BETWEEN date AND COALESCE(date_fin,date) AND LOWER(COALESCE(categorie,type,'')) LIKE '%cong%'", (today,))
+    m['emp_mission'] = _cd_n(conn, "SELECT COUNT(DISTINCT employee_id) FROM absences WHERE ? BETWEEN date AND COALESCE(date_fin,date) AND LOWER(COALESCE(categorie,type,'')) LIKE '%mission%'", (today,))
+    m['emp_presents'] = _cd_n(conn, "SELECT COUNT(DISTINCT user_id) FROM hr_pointages WHERE date=? AND LOWER(COALESCE(type,''))='arrivee'", (today,))
+    if not m['emp_presents']:
+        m['emp_presents'] = max(0, m['emp_total'] - m['emp_absents'])
+    m['emp_retards'] = _cd_n(conn, "SELECT COUNT(DISTINCT user_id) FROM hr_pointages WHERE date=? AND LOWER(COALESCE(type,''))='arrivee' AND COALESCE(ecart_minutes,0) > 0", (today,))
+    # Tâches
+    m['tk_jour'] = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE date_limite=?", (today,))
+    m['tk_termine'] = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE statut='terminee'")
+    m['tk_encours'] = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE statut IN ('en_cours','nouvelle','en_attente')")
+    m['tk_retard'] = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE statut NOT IN ('terminee','annulee','refusee') AND date_limite<>'' AND date_limite < ?", (today,))
+    m['tk_critique'] = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE priorite='urgente' AND statut NOT IN ('terminee','annulee','refusee')")
+    # Interventions
+    m['int_total'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions")
+    m['int_termine'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE status IN ('livre','termine','terminee','cloturee','close','travaux_termines')")
+    m['int_attente'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE status IN ('planifiee','en_cours','controle_qualite')")
+    m['int_urgent'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE priority IN ('urgente','urgent','haute') AND status NOT IN ('livre','termine','terminee','cloturee','close','annulee','annule')")
+    m['int_retard'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE scheduled_date<>'' AND scheduled_date < ? AND status IN ('planifiee','en_cours')", (today,))
+    # Moyens généraux
+    m['mg_attente'] = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('en_attente','soumise','transmise')")
+    m['mg_valide'] = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('approuvee','validee','valide')")
+    m['mg_refuse'] = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('refusee','rejetee')")
+    m['mg_credits'] = _cd_n(conn, "SELECT COUNT(*) FROM mg_credits WHERE COALESCE(reste,0) > 0")
+    m['mg_dettes'] = _cd_n(conn, "SELECT COALESCE(SUM(reste),0) FROM mg_credits WHERE COALESCE(reste,0) > 0")
+    # Finance
+    m['dep_jour'] = _cd_n(conn, "SELECT COALESCE(SUM(amount),0) FROM depenses WHERE date=?", (today,))
+    m['dep_mois'] = _cd_n(conn, "SELECT COALESCE(SUM(amount),0) FROM depenses WHERE substr(date,1,7)=?", (mois,))
+    _bp = _cd_n(conn, "SELECT COALESCE(SUM(amount_planned),0) FROM dept_budgets WHERE COALESCE(is_active,1)=1")
+    _bs = _cd_n(conn, "SELECT COALESCE(SUM(amount_spent),0) FROM dept_budgets WHERE COALESCE(is_active,1)=1")
+    m['budget_prevu'] = _bp; m['budget_conso'] = _bs
+    m['budget_restant'] = max(0, _bp - _bs)
+    m['budget_pct'] = round(_bs * 100.0 / _bp, 1) if _bp else 0
+    m['solde_caisse'] = _cd_n(conn, "SELECT COALESCE(SUM(solde_actuel),0) FROM caisses WHERE COALESCE(is_active,1)=1")
+    m['solde_banque'] = _cd_n(conn, "SELECT COALESCE(SUM(solde_actuel),0) FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1")
+    # Documents en attente de validation (paie compta + MG compta + décisions facturation)
+    m['doc_attente'] = (
+        _cd_n(conn, "SELECT COUNT(*) FROM payslips WHERE status='en_attente_compta'")
+        + _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE compta_status='a_valider'")
+        + _cd_n(conn, "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') AND facturable IS NULL"))
+    return m
+
+def _cd_alertes(conn):
+    """Moteur d'alertes : détecte automatiquement les situations à risque."""
+    today = datetime.now(); today_s = today.strftime('%Y-%m-%d')
+    A = []
+    def add(niveau, module, titre, action, prio='moyen'):
+        A.append({'niveau': niveau, 'module': module, 'titre': titre, 'action': action,
+                  'priorite': prio, 'date': today.strftime('%d/%m/%Y'), 'heure': today.strftime('%H:%M')})
+    # Budgets dépassés / proches
+    for b in _cd_rows(conn, "SELECT department, amount_planned p, amount_spent s FROM dept_budgets WHERE COALESCE(is_active,1)=1 AND COALESCE(amount_planned,0)>0"):
+        pct = (b['s'] or 0) * 100.0 / b['p']
+        if pct >= 100: add('critique', 'Budget', f"Budget « {b['department']} » dépassé ({pct:.0f} %)", "Réviser le budget ou geler les dépenses", 'haute')
+        elif pct >= 85: add('eleve', 'Budget', f"Budget « {b['department']} » consommé à {pct:.0f} %", "Surveiller / arbitrer les prochaines dépenses", 'haute')
+    # Dettes fournisseurs / crédits échus
+    _dette = _cd_n(conn, "SELECT COALESCE(SUM(reste),0) FROM mg_credits WHERE COALESCE(reste,0)>0")
+    if _dette > 0:
+        add('moyen', 'Fournisseurs', f"Dettes fournisseurs en cours : {_dette:,.0f} XOF", "Planifier les règlements")
+    for cr in _cd_rows(conn, "SELECT fournisseur_nom, reste, date_echeance FROM mg_credits WHERE COALESCE(reste,0)>0 AND date_echeance<>'' AND date_echeance <= ? ORDER BY date_echeance LIMIT 20", ((today+timedelta(days=7)).strftime('%Y-%m-%d'),)):
+        ech = (cr['date_echeance'] or '')[:10]
+        niv = 'critique' if ech < today_s else 'eleve'
+        add(niv, 'Crédits', f"Crédit {cr['fournisseur_nom'] or '?'} — échéance {ech} ({cr['reste']:,.0f} XOF)", "Régler avant échéance", 'haute')
+    # Tâches critiques non terminées
+    _tkc = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE priorite='urgente' AND statut NOT IN ('terminee','annulee','refusee')")
+    if _tkc: add('eleve', 'Tâches', f"{_tkc} tâche(s) critique(s) non terminée(s)", "Prioriser / réaffecter")
+    _tkr = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE statut NOT IN ('terminee','annulee','refusee') AND date_limite<>'' AND date_limite < ?", (today_s,))
+    if _tkr: add('moyen', 'Tâches', f"{_tkr} tâche(s) en retard", "Relancer les employés concernés")
+    # Interventions en retard / urgentes
+    _inr = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE scheduled_date<>'' AND scheduled_date < ? AND status IN ('planifiee','en_cours')", (today_s,))
+    if _inr: add('eleve', 'Interventions', f"{_inr} intervention(s) en retard", "Reprogrammer / affecter un technicien")
+    # Demandes MG bloquées (en attente > 3 jours)
+    _mgb = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('en_attente','soumise','transmise') AND DATE(created_at) <= ?", ((today-timedelta(days=3)).strftime('%Y-%m-%d'),))
+    if _mgb: add('moyen', 'Moyens Généraux', f"{_mgb} demande(s) bloquée(s) depuis > 3 jours", "Traiter les demandes en attente")
+    # Contrats arrivant à expiration (30 j)
+    _d30 = (today+timedelta(days=30)).strftime('%Y-%m-%d')
+    for ct in _cd_rows(conn, "SELECT reference, date_fin FROM supplier_contracts WHERE COALESCE(deleted_at,'')='' AND date_fin<>'' AND date_fin BETWEEN ? AND ? ORDER BY date_fin LIMIT 10", (today_s, _d30)):
+        add('moyen', 'Contrats', f"Contrat {ct['reference']} expire le {(ct['date_fin'] or '')[:10]}", "Renouveler ou résilier")
+    for ct in _cd_rows(conn, "SELECT reference, end_date FROM achats_contrats WHERE end_date<>'' AND end_date BETWEEN ? AND ? ORDER BY end_date LIMIT 10", (today_s, _d30)):
+        add('moyen', 'Contrats', f"Contrat {ct['reference']} expire le {(ct['end_date'] or '')[:10]}", "Renouveler ou résilier")
+    # Documents non validés
+    _doc = _cd_n(conn, "SELECT COUNT(*) FROM payslips WHERE status='en_attente_compta'") + _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE compta_status='a_valider'")
+    if _doc: add('faible', 'Documents', f"{_doc} document(s) en attente de validation", "Valider en comptabilité")
+    # Rupture de stock
+    for it in _cd_rows(conn, "SELECT name, quantity, min_stock FROM stock_items WHERE COALESCE(min_stock,0)>0 AND COALESCE(quantity,0) <= min_stock ORDER BY quantity LIMIT 15"):
+        niv = 'critique' if (it['quantity'] or 0) <= 0 else 'eleve'
+        add(niv, 'Stock', f"Stock bas : {it['name']} ({it['quantity']}/{it['min_stock']})", "Réapprovisionner", 'haute')
+    # Faible niveau de caisse
+    for ca in _cd_rows(conn, "SELECT name, solde_actuel FROM caisses WHERE COALESCE(is_active,1)=1 AND COALESCE(solde_actuel,0) < 50000"):
+        add('moyen', 'Trésorerie', f"Caisse « {ca['name']} » faible ({ca['solde_actuel']:,.0f} XOF)", "Réapprovisionner la caisse")
+    # Licences / recharges Internet expirant
+    for rc in _cd_rows(conn, "SELECT equipment_name, next_due, alert_days_before FROM it_internet_recharge WHERE COALESCE(status,'')='actif' AND next_due<>''"):
+        try:
+            due = datetime.strptime(rc['next_due'][:10], '%Y-%m-%d')
+            dl = (due - today).days
+            if dl <= int(rc['alert_days_before'] or 3):
+                add('critique' if dl < 0 else 'moyen', 'Licences/IT', f"{rc['equipment_name']} — échéance dans {dl} j", "Recharger / renouveler")
+        except Exception: pass
+    # Absentéisme anormal (aujourd'hui > 20% de l'effectif)
+    tot = _cd_n(conn, "SELECT COUNT(*) FROM employees WHERE LOWER(COALESCE(status,'actif')) IN ('actif','active','')")
+    abs_ = _cd_n(conn, "SELECT COUNT(DISTINCT employee_id) FROM absences WHERE ? BETWEEN date AND COALESCE(date_fin,date)", (today_s,))
+    if tot and abs_ * 100.0 / tot >= 20:
+        add('eleve', 'RH', f"Absentéisme élevé aujourd'hui : {abs_}/{tot} ({abs_*100//tot} %)", "Vérifier la cause (RH)")
+    _order = {'critique': 0, 'eleve': 1, 'moyen': 2, 'faible': 3, 'information': 4}
+    A.sort(key=lambda x: _order.get(x['niveau'], 5))
+    return A
+
+def _cd_recommandations(conn):
+    """Recommandations automatiques (règles)."""
+    R = []
+    for b in _cd_rows(conn, "SELECT department, amount_planned p, amount_spent s FROM dept_budgets WHERE COALESCE(is_active,1)=1 AND COALESCE(amount_planned,0)>0"):
+        pct = (b['s'] or 0) * 100.0 / b['p']
+        if pct >= 85:
+            R.append(f"Le budget du service {b['department']} est consommé à {pct:.0f} %. Une révision est recommandée.")
+    # Hausse des absences par service (ce mois vs effectif)
+    for s in _cd_rows(conn, "SELECT service, COUNT(*) n FROM absences WHERE substr(date,1,7)=strftime('%Y-%m','now') AND COALESCE(service,'')<>'' GROUP BY service ORDER BY n DESC LIMIT 3"):
+        if (s['n'] or 0) >= 5:
+            R.append(f"Le service {s['service']} présente un nombre élevé d'absences ce mois ({s['n']}).")
+    # Fournisseurs à impayés
+    for f in _cd_rows(conn, "SELECT fournisseur_nom, COUNT(*) n, SUM(reste) t FROM mg_credits WHERE COALESCE(reste,0)>0 GROUP BY fournisseur_nom ORDER BY t DESC LIMIT 3"):
+        R.append(f"Le fournisseur {f['fournisseur_nom'] or '?'} possède {f['n']} facture(s) impayée(s) ({f['t']:,.0f} XOF).")
+    # Stock bientôt épuisé
+    for it in _cd_rows(conn, "SELECT name FROM stock_items WHERE COALESCE(min_stock,0)>0 AND COALESCE(quantity,0) <= min_stock LIMIT 3"):
+        R.append(f"Le stock « {it['name']} » est au niveau d'alerte — réapprovisionnement recommandé.")
+    # Bonne performance
+    for d in _cd_rows(conn, "SELECT departement, SUM(CASE WHEN statut='terminee' THEN 1 ELSE 0 END)*100.0/COUNT(*) pct, COUNT(*) n FROM taches WHERE COALESCE(departement,'')<>'' GROUP BY departement HAVING n>=5 ORDER BY pct DESC LIMIT 1"):
+        if (d['pct'] or 0) >= 90:
+            R.append(f"Le service {d['departement']} a terminé {d['pct']:.0f} % de ses tâches. Excellente performance.")
+    return R[:12]
+
+def _cd_services(conn):
+    """Comparaison des départements (performance, présence, budget, tâches, interventions)."""
+    deps = set()
+    for r in _cd_rows(conn, "SELECT DISTINCT department d FROM employees WHERE COALESCE(department,'')<>''"): deps.add(r['d'])
+    for r in _cd_rows(conn, "SELECT DISTINCT departement d FROM taches WHERE COALESCE(departement,'')<>''"): deps.add(r['d'])
+    out = []
+    for d in deps:
+        tk_tot = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=?", (d,))
+        tk_ok = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=? AND statut='terminee'", (d,))
+        tk_pct = round(tk_ok * 100.0 / tk_tot, 1) if tk_tot else 0
+        bp = _cd_n(conn, "SELECT COALESCE(SUM(amount_planned),0) FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1", (d,))
+        bs = _cd_n(conn, "SELECT COALESCE(SUM(amount_spent),0) FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1", (d,))
+        budget_pct = round(bs * 100.0 / bp, 1) if bp else 0
+        effectif = _cd_n(conn, "SELECT COUNT(*) FROM employees WHERE department=?", (d,))
+        mg = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE department=?", (d,))
+        # score : réalisation tâches (0-50) + respect budget (0-50)
+        score = round(tk_pct * 0.5 + max(0, (100 - budget_pct)) * 0.5, 1)
+        out.append({'departement': d, 'effectif': effectif, 'tk_tot': tk_tot, 'tk_pct': tk_pct,
+                    'budget_pct': budget_pct, 'mg': mg, 'score': score})
+    out.sort(key=lambda x: -x['score'])
+    return out
+
+def _cd_briefing(conn):
+    """Briefing du jour : priorités, validations urgentes, retards, absences, échéances, interventions, alertes."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    b = {}
+    b['validations'] = (_cd_n(conn, "SELECT COUNT(*) FROM payslips WHERE status='en_attente_compta'")
+                        + _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE compta_status='a_valider'")
+                        + _cd_n(conn, "SELECT COUNT(*) FROM field_reports WHERE statut IN ('executee','traitee') AND facturable IS NULL"))
+    b['taches_retard'] = _cd_rows(conn, "SELECT id, titre FROM taches WHERE statut NOT IN ('terminee','annulee','refusee') AND date_limite<>'' AND date_limite < ? ORDER BY date_limite LIMIT 5", (today,))
+    b['absents'] = _cd_n(conn, "SELECT COUNT(DISTINCT employee_id) FROM absences WHERE ? BETWEEN date AND COALESCE(date_fin,date)", (today,))
+    b['echeances'] = _cd_rows(conn, "SELECT fournisseur_nom, date_echeance, reste FROM mg_credits WHERE COALESCE(reste,0)>0 AND date_echeance<>'' AND date_echeance <= ? ORDER BY date_echeance LIMIT 5", (today,))
+    b['int_critiques'] = _cd_rows(conn, "SELECT id, reference, client_name FROM interventions WHERE priority IN ('urgente','urgent','haute') AND status IN ('planifiee','en_cours') ORDER BY scheduled_date LIMIT 5")
+    b['int_jour'] = _cd_rows(conn, "SELECT id, reference, client_name, scheduled_time FROM interventions WHERE scheduled_date=? ORDER BY scheduled_time LIMIT 8", (today,))
+    return b
+
+def _cd_log(action, details=''):
+    try:
+        u = get_user_by_id(session['user_id']) if session.get('user_id') else None
+        conn = _gdb()
+        conn.execute("INSERT INTO cd_history (user_id,user_name,action,details,ip) VALUES (?,?,?,?,?)",
+                     (session.get('user_id'), u['full_name'] if u else '?', action, details, request.remote_addr))
+        conn.commit(); conn.close()
+    except Exception: pass
+
+
+@app.route('/centre-decision')
+@permission_required_any('centre_decision', 'admin')
+def centre_decision():
+    conn = _gdb()
+    metrics = _cd_metrics(conn)
+    alertes = _cd_alertes(conn)
+    recos = _cd_recommandations(conn)
+    briefing = _cd_briefing(conn)
+    services = _cd_services(conn)
+    conn.close()
+    _cd_log('consultation', 'Tableau de bord exécutif')
+    niveaux = {'critique': '#c53030', 'eleve': '#e8672a', 'moyen': '#f29f2f', 'faible': '#1565c0', 'information': '#1A7A6D'}
+    return render_template('centre_decision.html', page='centre_decision',
+        m=metrics, alertes=alertes, recos=recos, briefing=briefing, services=services, niveaux=niveaux)
+
+
+@app.route('/centre-decision/assistant', methods=['POST'])
+@permission_required_any('centre_decision', 'admin')
+def centre_decision_assistant():
+    """Assistant FOUATI : répond à partir des données réelles (heuristique + LLM si ANTHROPIC_API_KEY)."""
+    q = (request.form.get('question', '') or '').strip().lower()
+    if not q:
+        return jsonify({'ok': False, 'error': 'Posez une question.'})
+    conn = _gdb()
+    _cd_log('assistant', q[:200])
+    ans = None
+    try:
+        if 'performant' in q or 'meilleur' in q:
+            s = _cd_services(conn)
+            ans = ("Département le plus performant : " + (f"{s[0]['departement']} (score {s[0]['score']}/100, {s[0]['tk_pct']}% de tâches terminées)" if s else "aucune donnée.")) if s else "Aucune donnée."
+        elif 'dette' in q or 'impay' in q or 'fournisseur' in q:
+            rows = _cd_rows(conn, "SELECT fournisseur_nom, COUNT(*) n, SUM(reste) t FROM mg_credits WHERE COALESCE(reste,0)>0 GROUP BY fournisseur_nom ORDER BY t DESC LIMIT 5")
+            ans = "Fournisseurs avec le plus de dettes :\n" + ("\n".join(f"• {r['fournisseur_nom'] or '?'} : {r['t']:,.0f} XOF ({r['n']} facture(s))" for r in rows) if rows else "aucune dette.")
+        elif 'absence' in q or 'absent' in q:
+            rows = _cd_rows(conn, "SELECT e.first_name||' '||e.last_name nom, COUNT(*) n FROM absences a JOIN employees e ON e.id=a.employee_id WHERE substr(a.date,1,7)=strftime('%Y-%m','now') GROUP BY a.employee_id ORDER BY n DESC LIMIT 5")
+            ans = "Employés cumulant le plus d'absences ce mois :\n" + ("\n".join(f"• {r['nom']} : {r['n']}" for r in rows) if rows else "aucune.")
+        elif 'budget' in q or 'dépass' in q or 'depass' in q:
+            rows = _cd_rows(conn, "SELECT department, amount_planned p, amount_spent s FROM dept_budgets WHERE COALESCE(is_active,1)=1 AND COALESCE(amount_spent,0)>COALESCE(amount_planned,0) ORDER BY (amount_spent-amount_planned) DESC LIMIT 5")
+            ans = "Services dépassant leur budget :\n" + ("\n".join(f"• {r['department']} : {r['s']:,.0f}/{r['p']:,.0f} XOF" for r in rows) if rows else "aucun dépassement.")
+        elif 'dépense' in q or 'depense' in q or 'coût' in q:
+            rows = _cd_rows(conn, "SELECT category, SUM(amount) t FROM depenses WHERE substr(date,1,7)=strftime('%Y-%m','now') GROUP BY category ORDER BY t DESC LIMIT 6")
+            ans = "Principales dépenses ce mois :\n" + ("\n".join(f"• {r['category'] or 'Autre'} : {r['t']:,.0f} XOF" for r in rows) if rows else "aucune.")
+        elif 'retard' in q or 'projet' in q:
+            rows = _cd_rows(conn, "SELECT reference, client_name, scheduled_date FROM interventions WHERE scheduled_date<>'' AND scheduled_date < date('now') AND status IN ('planifiee','en_cours') ORDER BY scheduled_date LIMIT 6")
+            ans = "Interventions les plus en retard :\n" + ("\n".join(f"• {r['reference']} — {r['client_name']} (prévu {r['scheduled_date']})" for r in rows) if rows else "aucun retard.")
+    except Exception as _e:
+        print(f"[v171] assistant err: {_e}", flush=True)
+    conn.close()
+    # LLM (FOUATI) si configuré et pas de réponse heuristique nette
+    if ans is None:
+        api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+        if api_key:
+            ans = "FOUATI : je n'ai pas encore de règle pour cette question. (Réponse IA générique non implémentée sur données libres pour l'instant.)"
+        else:
+            ans = "Je n'ai pas de réponse pré-calculée pour cette question. Essayez : département le plus performant, dettes fournisseurs, absences, dépassements de budget, dépenses du mois, interventions en retard."
+    return jsonify({'ok': True, 'answer': ans})
+
+
+@app.route('/centre-decision/rapport.<fmt>')
+@permission_required_any('centre_decision', 'admin')
+def centre_decision_rapport(fmt):
+    import io
+    conn = _gdb()
+    m = _cd_metrics(conn); alertes = _cd_alertes(conn); recos = _cd_recommandations(conn); services = _cd_services(conn)
+    conn.close()
+    _cd_log('export', f"Rapport exécutif ({fmt})")
+    lignes_kpi = [
+        ('Employés (total)', m['emp_total']), ('Présents', m['emp_presents']), ('Absents', m['emp_absents']),
+        ('En congé', m['emp_conges']), ('Retards', m['emp_retards']),
+        ('Tâches du jour', m['tk_jour']), ('Tâches terminées', m['tk_termine']), ('Tâches en retard', m['tk_retard']),
+        ('Interventions (total)', m['int_total']), ('Interventions en attente', m['int_attente']), ('Interventions urgentes', m['int_urgent']),
+        ('Demandes MG en attente', m['mg_attente']), ('Dettes fournisseurs (XOF)', f"{m['mg_dettes']:,.0f}"),
+        ('Dépenses du mois (XOF)', f"{m['dep_mois']:,.0f}"), ('Budget consommé', f"{m['budget_pct']} %"),
+        ('Solde caisses (XOF)', f"{m['solde_caisse']:,.0f}"), ('Solde banque (XOF)', f"{m['solde_banque']:,.0f}"),
+        ('Documents à valider', m['doc_attente']),
+    ]
+    if fmt == 'csv':
+        import csv
+        sio = io.StringIO(); w = csv.writer(sio)
+        w.writerow(['Indicateur', 'Valeur'])
+        for k, v in lignes_kpi: w.writerow([k, v])
+        w.writerow([]); w.writerow(['ALERTES']); w.writerow(['Niveau', 'Module', 'Alerte', 'Action'])
+        for a in alertes: w.writerow([a['niveau'], a['module'], a['titre'], a['action']])
+        return Response('﻿' + sio.getvalue(), mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=centre-decision.csv'})
+    if fmt == 'xlsx':
+        from openpyxl import Workbook
+        wb = Workbook(); ws = wb.active; ws.title = 'KPI'; ws.append(['Indicateur', 'Valeur'])
+        for k, v in lignes_kpi: ws.append([k, v])
+        wa = wb.create_sheet('Alertes'); wa.append(['Niveau', 'Module', 'Alerte', 'Action'])
+        for a in alertes: wa.append([a['niveau'], a['module'], a['titre'], a['action']])
+        wr = wb.create_sheet('Recommandations'); wr.append(['Recommandation'])
+        for r in recos: wr.append([r])
+        wsvc = wb.create_sheet('Services'); wsvc.append(['Département', 'Effectif', 'Tâches %', 'Budget %', 'Score'])
+        for s in services: wsvc.append([s['departement'], s['effectif'], s['tk_pct'], s['budget_pct'], s['score']])
+        bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': 'attachment; filename=centre-decision.xlsx'})
+    if fmt == 'pdf':
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors as _c
+        bio = io.BytesIO(); doc = SimpleDocTemplate(bio, pagesize=A4, topMargin=14 * mm)
+        S = getSampleStyleSheet(); story = [Paragraph("Centre de Décision — Rapport exécutif", S['Title']),
+            Paragraph(datetime.now().strftime('%d/%m/%Y %H:%M'), S['Normal']), Spacer(1, 6 * mm)]
+        t1 = Table([['Indicateur', 'Valeur']] + [[k, str(v)] for k, v in lignes_kpi], colWidths=[110 * mm, 60 * mm])
+        t1.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), _c.HexColor('#1A7A6D')), ('TEXTCOLOR', (0, 0), (-1, 0), _c.white),
+            ('GRID', (0, 0), (-1, -1), 0.3, _c.grey), ('FONTSIZE', (0, 0), (-1, -1), 8)]))
+        story += [Paragraph("Indicateurs clés", S['Heading2']), t1, Spacer(1, 5 * mm)]
+        if alertes:
+            ta = Table([['Niveau', 'Module', 'Alerte']] + [[a['niveau'], a['module'], a['titre']] for a in alertes[:25]], colWidths=[22 * mm, 30 * mm, 118 * mm])
+            ta.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), _c.HexColor('#c53030')), ('TEXTCOLOR', (0, 0), (-1, 0), _c.white),
+                ('GRID', (0, 0), (-1, -1), 0.3, _c.grey), ('FONTSIZE', (0, 0), (-1, -1), 7), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+            story += [Paragraph("Alertes actives", S['Heading2']), ta, Spacer(1, 5 * mm)]
+        if recos:
+            story += [Paragraph("Recommandations", S['Heading2'])]
+            for r in recos: story.append(Paragraph("• " + r, S['Normal']))
+        doc.build(story); bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/pdf', headers={'Content-Disposition': 'attachment; filename=centre-decision.pdf'})
+    flash("Format non supporté.", "error"); return redirect('/centre-decision')
 
 
 # ======================== TABLEAU DE BORD EXÉCUTIF ========================
