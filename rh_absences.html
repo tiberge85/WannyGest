@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Absences{% endblock %}
+{% block content %}
+<style>
+.ab-kpi{background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);text-align:center;border-top:3px solid #1A7A6D}
+.ab-kpi .n{font-size:20px;font-weight:800}
+.ab-kpi .l{font-size:10px;color:#666;text-transform:uppercase;margin-top:2px}
+.ab-card{background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:14px}
+</style>
+<div class="page-header"><h1>🗓️ Gestion des absences</h1>
+<div style="display:flex;gap:6px;flex-wrap:wrap">
+    {% set qs = 'employe='+(f.employe or '')+'&departement='+(f.departement or '')+'&service='+(f.service or '')+'&categorie='+(f.categorie or '')+'&from='+(f.from or '')+'&to='+(f.to or '')+'&mois='+(f.mois or '')+'&annee='+(f.annee or '') %}
+    <a href="/rh/absences/export.pdf?{{ qs }}" class="btn btn-sm" style="background:#7b1fa2;color:#fff">📄 PDF</a>
+    <a href="/rh/absences/export.xlsx?{{ qs }}" class="btn btn-sm" style="background:#2e7d32;color:#fff">📊 Excel</a>
+    <a href="/rh/absences/export.csv?{{ qs }}" class="btn btn-sm btn-outline">📑 CSV</a>
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('addAbsM').classList.add('active')">+ Absence</button>
+</div></div>
+
+<!-- KPIs -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px">
+    <div class="ab-kpi"><div class="n" style="color:#1a3a5c">{{ stats.total }}</div><div class="l">Absences</div></div>
+    <div class="ab-kpi" style="border-top-color:#c53030"><div class="n" style="color:#c53030">{{ stats.injustifiees }}</div><div class="l">Injustifiées</div></div>
+    <div class="ab-kpi" style="border-top-color:#e8672a"><div class="n" style="color:#e8672a">{{ stats.retards }}</div><div class="l">Retards</div></div>
+    <div class="ab-kpi" style="border-top-color:#1565c0"><div class="n" style="color:#1565c0">{{ stats.conges }}</div><div class="l">Congés</div></div>
+    <div class="ab-kpi" style="border-top-color:#7b1fa2"><div class="n" style="color:#7b1fa2">{{ stats.maladies }}</div><div class="l">Maladies</div></div>
+    <div class="ab-kpi"><div class="n" style="color:#1A7A6D">{{ '%.1f'|format(stats.jours_perdus) }}</div><div class="l">Jours perdus</div></div>
+    <div class="ab-kpi" style="border-top-color:#b8561f"><div class="n" style="color:#b8561f">{{ stats.taux_absenteisme }}%</div><div class="l">Absentéisme</div></div>
+</div>
+
+<!-- Graphiques -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px" class="ab-charts">
+    <div class="ab-card"><div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">Répartition par catégorie</div><div style="height:220px"><canvas id="abCat"></canvas></div></div>
+    <div class="ab-card"><div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">Évolution mensuelle</div><div style="height:220px"><canvas id="abMois"></canvas></div></div>
+</div>
+
+<!-- Filtres -->
+<form method="get" class="ab-card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+    {% if is_rh %}
+    <div><label style="font-size:11px;color:#888;display:block">Employé</label>
+        <select name="employe" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><option value="">— Tous —</option>{% for e in employees %}<option value="{{ e.id }}" {% if f.employe==e.id|string %}selected{% endif %}>{{ e.first_name }} {{ e.last_name }}</option>{% endfor %}</select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Département</label>
+        <select name="departement" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><option value="">— Tous —</option>{% for d in departements %}<option value="{{ d }}" {% if f.departement==d %}selected{% endif %}>{{ d }}</option>{% endfor %}</select></div>
+    {% endif %}
+    <div><label style="font-size:11px;color:#888;display:block">Catégorie</label>
+        <select name="categorie" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"><option value="">— Toutes —</option>{% for c in categories %}<option value="{{ c.nom }}" {% if f.categorie==c.nom %}selected{% endif %}>{{ c.nom }}</option>{% endfor %}</select></div>
+    <div><label style="font-size:11px;color:#888;display:block">Mois</label><input type="month" name="mois" value="{{ f.mois }}" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Du</label><input type="date" name="from" value="{{ f.from }}" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Au</label><input type="date" name="to" value="{{ f.to }}" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></div>
+    <div><label style="font-size:11px;color:#888;display:block">Responsable</label><input type="text" name="responsable" value="{{ f.responsable }}" placeholder="Nom" style="padding:7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;width:110px"></div>
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
+    <a href="/rh/absences" class="btn btn-outline btn-sm">✖</a>
+</form>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:14px" class="ab-cols">
+<div>
+    <!-- Liste -->
+    <div class="ab-card" style="padding:0">
+        <div style="padding:12px 14px;font-weight:700;color:#1a3a5c">Absences ({{ absences|length }})</div>
+        <div class="table-wrap"><table style="width:100%;font-size:12px">
+        <thead><tr><th style="text-align:left">N°</th><th style="text-align:left">Employé</th><th style="text-align:left">Dépt</th><th style="text-align:left">Catégorie</th><th style="text-align:left">Date</th><th style="text-align:left">Statut</th>{% if is_rh %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+        {% for a in absences %}
+        <tr>
+            <td style="font-family:monospace">{{ a.numero or '—' }}</td>
+            <td><strong>{{ a.employee_name }}</strong>{% if a.matricule %} <span style="color:#888;font-size:10px">{{ a.matricule }}</span>{% endif %}</td>
+            <td>{{ a.department or a.service or '—' }}</td>
+            <td>{{ a.categorie or a.type or '—' }}</td>
+            <td>{{ a.date }}{% if a.date_fin %} → {{ a.date_fin }}{% endif %}</td>
+            <td><span style="padding:1px 7px;border-radius:8px;font-size:10px;{% if a.status in ('approuve','valide') %}background:#e8f5e9;color:#2e7d32{% elif a.status=='refuse' %}background:#fde8e8;color:#c53030{% else %}background:#fff3e0;color:#b8561f{% endif %}">{{ a.status or 'en_attente' }}</span></td>
+            {% if is_rh %}<td style="white-space:nowrap">
+                {% if a.status not in ('approuve','valide') %}<a href="/rh/absences/approve/{{ a.id }}/approuve" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅</a>{% endif %}
+                <a href="/rh/absences/delete/{{ a.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>
+            </td>{% endif %}
+        </tr>
+        {% else %}<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">Aucune absence pour ces critères.</td></tr>{% endfor %}
+        </tbody></table></div>
+    </div>
+</div>
+<div>
+    <!-- Archive mensuelle -->
+    <div class="ab-card">
+        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">🗄️ Archive mensuelle</div>
+        {% for mo, nb in archive %}
+        <a href="/rh/absences?mois={{ mo }}" style="display:flex;justify-content:space-between;padding:6px 8px;border-radius:6px;text-decoration:none;color:#333;font-size:12px;border-bottom:1px solid #f0f0f0">
+            <span>{{ mo }}</span><span style="font-weight:700;color:#1A7A6D">{{ nb }}</span>
+        </a>
+        {% else %}<div style="color:#999;font-size:12px">—</div>{% endfor %}
+    </div>
+    <!-- Top employés -->
+    {% if par_emp %}
+    <div class="ab-card">
+        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">Top employés (nb absences)</div>
+        {% for nom, nb in par_emp.items() %}
+        <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid #f5f5f5"><span>{{ nom }}</span><strong style="color:#c53030">{{ nb }}</strong></div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <!-- Catégories (RH) -->
+    {% if is_rh %}
+    <div class="ab-card">
+        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">🏷️ Catégories</div>
+        {% for c in categories %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;border-bottom:1px solid #f5f5f5">
+            <span style="{% if not c.actif %}color:#aaa;text-decoration:line-through{% endif %}">{{ c.nom }}</span>
+            <form method="post" action="/rh/absences/categories" style="display:inline"><input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="{{ c.id }}"><button type="submit" class="btn btn-sm btn-outline" style="font-size:9px">{{ '🚫' if c.actif else '↩️' }}</button></form>
+        </div>
+        {% endfor %}
+        <form method="post" action="/rh/absences/categories" style="display:flex;gap:4px;margin-top:8px">
+            <input type="hidden" name="action" value="add">
+            <input type="text" name="nom" placeholder="Nouvelle catégorie" required style="flex:1;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:11px">
+            <button type="submit" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:10px">+</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+</div>
+
+<!-- Modal ajout -->
+<div class="modal-bg" id="addAbsM"><div class="modal" style="max-width:560px"><h3>🗓️ Nouvelle absence</h3>
+<form method="post" action="/rh/absences/add">
+    {% if is_rh %}
+    <div class="form-group"><label>Employé *</label><select name="employee_id" required><option value="">—</option>{% for e in employees %}<option value="{{ e.id }}">{{ e.first_name }} {{ e.last_name }}{% if e.matricule %} ({{ e.matricule }}){% endif %}</option>{% endfor %}</select></div>
+    {% endif %}
+    <div class="form-row">
+        <div class="form-group"><label>Catégorie *</label><select name="categorie" required><option value="">—</option>{% for c in categories %}{% if c.actif %}<option value="{{ c.nom }}">{{ c.nom }}</option>{% endif %}{% endfor %}</select></div>
+        <div class="form-group"><label>Durée</label><select name="duree"><option value="journee">Journée</option><option value="demi_journee">Demi-journée</option><option value="heures">Heures</option></select></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Date début *</label><input type="date" name="date" required></div>
+        <div class="form-group"><label>Date fin</label><input type="date" name="date_fin"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Nombre d'heures</label><input type="number" name="heures" step="0.5" min="0" placeholder="Ex: 3"></div>
+        <div class="form-group"><label>Responsable hiérarchique</label><input type="text" name="responsable" placeholder="Nom du responsable"></div>
+    </div>
+    <div class="form-group"><label>Service</label><input type="text" name="service" placeholder="Service (à défaut : département)"></div>
+    <div class="form-group"><label>Motif détaillé</label><textarea name="motif" rows="2" data-fouati="general" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div class="form-group"><label>Observation</label><input type="text" name="observation" placeholder="Observation (optionnel)"></div>
+    <div class="form-group"><label><input type="checkbox" name="justificatif" value="1"> 📎 Justificatif fourni</label></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+</form></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+    var catL={{ par_cat.keys()|list|tojson }}, catV={{ par_cat.values()|list|tojson }};
+    var moL={{ par_mois.keys()|list|sort|tojson }}, moV=[];
+    var pm={{ par_mois|tojson }}; moL.forEach(function(m){moV.push(pm[m]);});
+    if(window.Chart){
+        if(catL.length) new Chart(document.getElementById('abCat'),{type:'doughnut',data:{labels:catL,datasets:[{data:catV,backgroundColor:['#c53030','#e8672a','#1565c0','#7b1fa2','#1A7A6D','#f29f2f','#2ecc71','#5e35b1','#00897b','#8d6e63']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{size:10}}}}}});
+        if(moL.length) new Chart(document.getElementById('abMois'),{type:'bar',data:{labels:moL,datasets:[{label:'Absences',data:moV,backgroundColor:'#1A7A6D'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}});
+    }
+})();
+</script>
+{% endblock %}

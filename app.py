@@ -1018,6 +1018,29 @@ try:
 except Exception as _e:
     print(f"[v170q] err migration montant_paye : {_e}", flush=True)
 
+# v170t : MODULE ABSENCES — catégories paramétrables + fiche enrichie.
+try:
+    from models import get_db as _v170t_db
+    _v170t = _v170t_db()
+    _v170t.execute("""CREATE TABLE IF NOT EXISTS absence_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT UNIQUE, actif INTEGER DEFAULT 1,
+        ordre INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime('now')))""")
+    _ABS_CATS = ['Maladie', 'Absence non déclarée', 'Permission', 'Congé', 'Accident de travail',
+                 'Formation', 'Mission extérieure', 'Retard', 'Absence autorisée', 'Autre motif']
+    if _v170t.execute("SELECT COUNT(*) FROM absence_categories").fetchone()[0] == 0:
+        for _i, _n in enumerate(_ABS_CATS):
+            try: _v170t.execute("INSERT OR IGNORE INTO absence_categories (nom, ordre) VALUES (?,?)", (_n, _i))
+            except Exception: pass
+    for _col in ["numero TEXT", "categorie TEXT", "date_fin TEXT", "heures REAL DEFAULT 0",
+                 "service TEXT", "poste TEXT", "responsable TEXT", "observation TEXT",
+                 "validation_rh INTEGER DEFAULT 0", "validation_resp INTEGER DEFAULT 0"]:
+        try: _v170t.execute(f"ALTER TABLE absences ADD COLUMN {_col}")
+        except Exception: pass
+    _v170t.commit(); _v170t.close()
+    print("[v170t] Module absences (catégories + colonnes) OK", flush=True)
+except Exception as _e:
+    print(f"[v170t] err module absences : {_e}", flush=True)
+
 
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
@@ -11203,6 +11226,43 @@ def rh_conges_status(lid, status):
 
 # ======================== ABSENCES ========================
 
+def _absence_categories(conn, actives_only=True):
+    try:
+        sql = "SELECT * FROM absence_categories" + (" WHERE actif=1" if actives_only else "") + " ORDER BY ordre, nom"
+        return [dict(r) for r in conn.execute(sql).fetchall()]
+    except Exception:
+        return []
+
+def _absences_query(conn, is_rh, eid, f):
+    """v170t : requête d'absences filtrée (multicritère). f = dict de filtres."""
+    where, params = [], []
+    if not is_rh:
+        where.append("a.employee_id=?"); params.append(eid)
+    if f.get('employe') and str(f['employe']).isdigit():
+        where.append("a.employee_id=?"); params.append(int(f['employe']))
+    if f.get('departement'):
+        where.append("COALESCE(e.department,'')=?"); params.append(f['departement'])
+    if f.get('service'):
+        where.append("COALESCE(a.service,'')=?"); params.append(f['service'])
+    if f.get('categorie'):
+        where.append("COALESCE(a.categorie, a.type, '')=?"); params.append(f['categorie'])
+    if f.get('responsable'):
+        where.append("COALESCE(a.responsable,'') LIKE ?"); params.append(f"%{f['responsable']}%")
+    if f.get('from'):
+        where.append("a.date>=?"); params.append(f['from'])
+    if f.get('to'):
+        where.append("a.date<=?"); params.append(f['to'])
+    if f.get('mois'):  # YYYY-MM
+        where.append("substr(a.date,1,7)=?"); params.append(f['mois'])
+    elif f.get('annee'):
+        where.append("substr(a.date,1,4)=?"); params.append(f['annee'])
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    return [dict(r) for r in conn.execute(
+        f"""SELECT a.*, e.first_name||' '||e.last_name as employee_name,
+            e.matricule, e.department, e.position AS emp_poste
+            FROM absences a LEFT JOIN employees e ON a.employee_id=e.id{wsql}
+            ORDER BY a.date DESC""", params).fetchall()]
+
 @app.route('/rh/absences')
 @login_required
 def rh_absences():
@@ -11210,22 +11270,55 @@ def rh_absences():
     user = get_user_by_id(session['user_id'])
     perms = get_role_permissions(user['role']) if user else []
     is_rh = 'fichiers' in perms or 'admin' in perms
-    
-    if is_rh:
-        absences = [dict(r) for r in conn.execute("""SELECT a.*, e.first_name||' '||e.last_name as employee_name
-            FROM absences a LEFT JOIN employees e ON a.employee_id=e.id ORDER BY a.date DESC""").fetchall()]
-    else:
-        # Find employee linked to this user
+    eid = 0
+    if not is_rh:
         emp = conn.execute("SELECT id FROM employees WHERE email=? OR first_name||' '||last_name=?",
-            (user.get('email',''), user.get('full_name',''))).fetchone()
+            (user.get('email', ''), user.get('full_name', ''))).fetchone()
         eid = emp['id'] if emp else 0
-        absences = [dict(r) for r in conn.execute("""SELECT a.*, e.first_name||' '||e.last_name as employee_name
-            FROM absences a LEFT JOIN employees e ON a.employee_id=e.id WHERE a.employee_id=? ORDER BY a.date DESC""", (eid,)).fetchall()]
-    
+    f = {k: (request.args.get(k, '') or '').strip() for k in
+         ('employe', 'departement', 'service', 'categorie', 'responsable', 'from', 'to', 'mois', 'annee')}
+    absences = _absences_query(conn, is_rh, eid, f)
+
+    def _cat_of(a): return (a.get('categorie') or a.get('type') or 'Autre motif')
+    def _jours(a):
+        try:
+            if a.get('date_fin') and a.get('date'):
+                from datetime import datetime as _dt
+                d1 = _dt.strptime(a['date'][:10], '%Y-%m-%d'); d2 = _dt.strptime(a['date_fin'][:10], '%Y-%m-%d')
+                return max(1, (d2 - d1).days + 1)
+        except Exception: pass
+        return 0.5 if (a.get('duree') == 'demi_journee') else 1
+    # Statistiques
+    stats = {'total': len(absences), 'jours_perdus': 0, 'retards': 0, 'conges': 0, 'maladies': 0, 'injustifiees': 0}
+    par_cat, par_dep, par_emp, par_mois = {}, {}, {}, {}
+    for a in absences:
+        cat = _cat_of(a); j = _jours(a)
+        stats['jours_perdus'] += j
+        par_cat[cat] = par_cat.get(cat, 0) + 1
+        dep = a.get('department') or '—'; par_dep[dep] = par_dep.get(dep, 0) + 1
+        emp = a.get('employee_name') or '—'; par_emp[emp] = par_emp.get(emp, 0) + 1
+        mo = (a.get('date') or '')[:7]; par_mois[mo] = par_mois.get(mo, 0) + 1
+        cl = cat.lower()
+        if 'retard' in cl: stats['retards'] += 1
+        if 'cong' in cl: stats['conges'] += 1
+        if 'malad' in cl: stats['maladies'] += 1
+        if 'non déclar' in cl or 'injustifi' in cl: stats['injustifiees'] += 1
+    # Archive mensuelle (groupée par mois, triée desc)
+    archive = sorted(par_mois.items(), key=lambda kv: kv[0], reverse=True)
+    # Taux d'absentéisme approx : jours perdus / (effectif * jours ouvrés de la période) — best effort
+    try:
+        nb_emp = conn.execute("SELECT COUNT(*) FROM employees WHERE COALESCE(status,'actif')!='inactif'").fetchone()[0] or 1
+    except Exception: nb_emp = 1
+    stats['taux_absenteisme'] = round(stats['jours_perdus'] / (nb_emp * 22) * 100, 1) if nb_emp else 0
+    categories = _absence_categories(conn, actives_only=False)
+    departements = [r[0] for r in conn.execute("SELECT DISTINCT department FROM employees WHERE COALESCE(department,'')<>'' ORDER BY department").fetchall()]
     pending_count = conn.execute("SELECT COUNT(*) FROM absences WHERE status='en_attente'").fetchone()[0]
     conn.close()
     employees = get_all_employees(status=None) if is_rh else []
-    return render_template('rh_conges.html', page='absences', absences=absences, employees=employees, is_rh=is_rh, pending_count=pending_count)
+    return render_template('rh_absences.html', page='absences', absences=absences, employees=employees,
+        is_rh=is_rh, pending_count=pending_count, categories=categories, departements=departements,
+        stats=stats, par_cat=par_cat, par_dep=par_dep, par_emp=dict(sorted(par_emp.items(), key=lambda kv: -kv[1])[:10]),
+        archive=archive, par_mois=par_mois, f=f)
 
 @app.route('/rh/absences/add', methods=['POST'])
 @login_required
@@ -11244,17 +11337,126 @@ def rh_absences_add():
         emp_id = emp['id'] if emp else 0
         status = 'en_attente'
     
-    conn.execute("""INSERT INTO absences (employee_id, date, type, motif, duree, justificatif, notes, created_by, status)
-        VALUES (?,?,?,?,?,?,?,?,?)""",
-        (emp_id, request.form['date'],
-         request.form.get('type','injustifiee'), request.form.get('motif',''),
-         request.form.get('duree','journee'),
+    # v170t : numéro auto + fiche enrichie (catégorie, dates, heures, service, responsable)
+    _year = (request.form.get('date', '') or datetime.now().strftime('%Y-%m-%d'))[:4]
+    _n = 0
+    for _r in conn.execute("SELECT numero FROM absences WHERE numero LIKE ?", (f"ABS-{_year}-%",)).fetchall():
+        try:
+            _v = int(str(_r['numero']).rsplit('-', 1)[-1])
+            if _v > _n: _n = _v
+        except Exception: pass
+    numero = f"ABS-{_year}-{_n + 1:04d}"
+    categorie = (request.form.get('categorie', '') or request.form.get('type', '') or 'Autre motif').strip()
+    # Service/poste/responsable : depuis le formulaire, sinon depuis la fiche employé
+    _emp = conn.execute("SELECT department, position FROM employees WHERE id=?", (emp_id,)).fetchone()
+    service = (request.form.get('service', '') or (_emp['department'] if _emp else '') or '').strip()
+    poste = (request.form.get('poste', '') or (_emp['position'] if _emp else '') or '').strip()
+    def _h(v):
+        try: return float(str(v).replace(',', '.') or 0)
+        except Exception: return 0.0
+    conn.execute("""INSERT INTO absences
+        (employee_id, numero, date, date_fin, type, categorie, motif, duree, heures,
+         service, poste, responsable, justificatif, notes, observation, created_by, status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (emp_id, numero, request.form['date'], request.form.get('date_fin', '') or None,
+         categorie, categorie, request.form.get('motif', ''),
+         request.form.get('duree', 'journee'), _h(request.form.get('heures')),
+         service, poste, request.form.get('responsable', ''),
          1 if request.form.get('justificatif') else 0,
-         request.form.get('notes',''), session['user_id'], status))
+         request.form.get('notes', ''), request.form.get('observation', ''),
+         session['user_id'], status))
     conn.commit(); conn.close()
     user = get_user_by_id(session['user_id'])
-    log_activity(session['user_id'], user['full_name'] if user else '?', 'Absence', f"Absence déclarée le {request.form['date']}", request.remote_addr)
-    flash("Demande d'absence enregistrée" if status == 'en_attente' else "Absence enregistrée", "success")
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Absence',
+                 f"Absence {numero} ({categorie}) le {request.form['date']}", request.remote_addr)
+    flash(f"Absence {numero} enregistrée" + (" (en attente de validation)" if status == 'en_attente' else ""), "success")
+    return redirect(url_for('rh_absences'))
+
+
+@app.route('/rh/absences/categories', methods=['POST'])
+@permission_required('fichiers')
+def rh_absence_categories():
+    """v170t : ajout / activation-désactivation d'une catégorie d'absence (paramétrable admin/RH)."""
+    conn = _gdb()
+    act = request.form.get('action', 'add')
+    if act == 'add':
+        nom = (request.form.get('nom', '') or '').strip()
+        if nom:
+            try: conn.execute("INSERT OR IGNORE INTO absence_categories (nom, ordre) VALUES (?, (SELECT COALESCE(MAX(ordre),0)+1 FROM absence_categories))", (nom,))
+            except Exception: pass
+    elif act == 'toggle':
+        cid = request.form.get('id', '')
+        if str(cid).isdigit():
+            conn.execute("UPDATE absence_categories SET actif=1-COALESCE(actif,1) WHERE id=?", (int(cid),))
+    conn.commit(); conn.close()
+    flash("Catégories mises à jour", "success")
+    return redirect(url_for('rh_absences'))
+
+
+@app.route('/rh/absences/export.<fmt>')
+@login_required
+def rh_absences_export(fmt):
+    """v170t : export des absences (filtres identiques à la liste) en CSV / Excel / PDF."""
+    conn = _gdb()
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    is_rh = 'fichiers' in perms or 'admin' in perms
+    eid = 0
+    if not is_rh:
+        emp = conn.execute("SELECT id FROM employees WHERE email=? OR first_name||' '||last_name=?",
+            (user.get('email', ''), user.get('full_name', ''))).fetchone()
+        eid = emp['id'] if emp else 0
+    f = {k: (request.args.get(k, '') or '').strip() for k in
+         ('employe', 'departement', 'service', 'categorie', 'responsable', 'from', 'to', 'mois', 'annee')}
+    rows = _absences_query(conn, is_rh, eid, f)
+    conn.close()
+    headers = ['N°', 'Employé', 'Matricule', 'Département', 'Service', 'Catégorie',
+               'Date début', 'Date fin', 'Jours', 'Heures', 'Motif', 'Statut', 'Créé le']
+    def _row(a):
+        return [a.get('numero') or '', a.get('employee_name') or '', a.get('matricule') or '',
+                a.get('department') or '', a.get('service') or '', a.get('categorie') or a.get('type') or '',
+                a.get('date') or '', a.get('date_fin') or '', a.get('duree') or '', a.get('heures') or 0,
+                a.get('motif') or '', a.get('status') or '', (a.get('created_at') or '')[:16]]
+    data = [_row(a) for a in rows]
+    if fmt == 'csv':
+        import csv, io as _io
+        sio = _io.StringIO(); w = csv.writer(sio); w.writerow(headers)
+        for d in data: w.writerow(d)
+        return Response('﻿' + sio.getvalue(), mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=absences.csv'})
+    if fmt == 'xlsx':
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+        import io as _io
+        wb = Workbook(); ws = wb.active; ws.title = 'Absences'; ws.append(headers)
+        for c in ws[1]: c.font = Font(bold=True)
+        for d in data: ws.append(d)
+        bio = _io.BytesIO(); wb.save(bio); bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': 'attachment; filename=absences.xlsx'})
+    if fmt == 'pdf':
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors as _c
+        import io as _io
+        bio = _io.BytesIO()
+        doc = SimpleDocTemplate(bio, pagesize=landscape(A4), topMargin=12 * mm, bottomMargin=10 * mm, leftMargin=8 * mm, rightMargin=8 * mm)
+        styles = getSampleStyleSheet()
+        _per = (f" — {f.get('mois') or f.get('annee') or ''}").rstrip(' —')
+        els = [Paragraph(f"<b>Registre des absences</b>{_per}", styles['Title']), Spacer(1, 6)]
+        tdata = [headers] + [[str(x) for x in d] for d in data]
+        t = Table(tdata, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), _c.HexColor('#1A7A6D')), ('TEXTCOLOR', (0, 0), (-1, 0), _c.white),
+            ('FONTSIZE', (0, 0), (-1, -1), 6.5), ('GRID', (0, 0), (-1, -1), 0.3, _c.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [_c.white, _c.HexColor('#f4f7f6')])]))
+        els.append(t)
+        doc.build(els); bio.seek(0)
+        return Response(bio.getvalue(), mimetype='application/pdf',
+            headers={'Content-Disposition': 'attachment; filename=absences.pdf'})
+    flash("Format non supporté", "error")
     return redirect(url_for('rh_absences'))
 
 @app.route('/rh/absences/approve/<int:aid>/<status>')
