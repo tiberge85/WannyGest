@@ -11443,7 +11443,7 @@ def permission_decision(pid):
     if not user or user['role'] not in _RH_ROLES:
         flash("⛔ Seule la RH (ou la direction) peut valider une demande.", "error"); return redirect('/permissions')
     action = request.form.get('action', '')
-    if action not in ('approuvee', 'refusee'):
+    if action not in ('approuvee', 'refusee', 'annuler'):
         flash("Action invalide", "error"); return redirect('/permissions')
     rh_motif = (request.form.get('rh_motif', '') or '').strip()
     if action == 'refusee' and not rh_motif:
@@ -11453,6 +11453,18 @@ def permission_decision(pid):
     if not row:
         conn.close(); flash("Demande introuvable", "error"); return redirect('/permissions')
     target = row['user_id']
+    # v170p : « Revenir sur la décision » — remet la demande en attente et efface la décision
+    if action == 'annuler':
+        conn.execute("""UPDATE permission_requests SET status='en_attente', rh_motif=NULL,
+            decided_by=NULL, decided_by_name=NULL, decided_at=NULL WHERE id=?""", (pid,))
+        conn.commit(); conn.close()
+        try:
+            notify_user(target, "↩️ Décision de permission annulée",
+                "La RH est revenue sur la décision — votre demande est de nouveau en attente.",
+                link='/permissions', type='rh', module='rh')
+        except: pass
+        flash("↩️ Décision annulée — la demande est remise en attente.", "success")
+        return redirect(request.referrer or '/permissions')
     conn.execute("""UPDATE permission_requests SET status=?, rh_motif=?, decided_by=?, decided_by_name=?,
         decided_at=datetime('now') WHERE id=?""",
         (action, rh_motif, session['user_id'], user['full_name'], pid))
@@ -11463,7 +11475,7 @@ def permission_decision(pid):
             rh_motif or f"Votre demande de permission a été {lbl}.", link='/permissions', type='rh', module='rh')
     except: pass
     flash(f"Demande {'approuvée' if action=='approuvee' else 'refusée'}", "success")
-    return redirect('/permissions')
+    return redirect(request.referrer or '/permissions')
 
 @app.route('/rh/paie')
 @permission_required_any('fichiers', 'comptabilite', 'comptabilite_view', 'comptabilite_edit', 'compta_pro', 'admin')

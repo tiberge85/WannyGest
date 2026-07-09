@@ -80,7 +80,12 @@
                         <button type="submit" name="action" value="refusee" class="btn btn-sm" style="background:#fde8e8;color:#c53030;font-size:11px;padding:3px 8px">❌ Refuser</button>
                     </div>
                 </form>
-                {% else %}<span style="color:#888;font-size:11px">—</span>{% endif %}
+                {% else %}
+                <form method="post" action="/permissions/{{ d.id }}/decision" onsubmit="return confirm('Revenir sur cette décision ? La demande repassera « en attente ».')" style="display:inline">
+                    <input type="hidden" name="action" value="annuler">
+                    <button type="submit" class="btn btn-sm" style="background:#fff3e0;color:#b8561f;font-size:11px;padding:3px 8px">↩️ Revenir sur la décision</button>
+                </form>
+                {% endif %}
             </td>
             {% endif %}
         </tr>
