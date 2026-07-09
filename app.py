@@ -11663,18 +11663,58 @@ def rh_bilan_pdf():
     mois = (request.args.get('mois', '') or '').strip()
     conn = _gdb()
     d = _bilan_data(conn, dept, annee, mois)
+    numero = _bilan_log(conn, 'service_pdf', dept, annee, mois, d['score'])
     conn.close()
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib import colors as _c
     import io as _io
     bio = _io.BytesIO()
-    doc = SimpleDocTemplate(bio, pagesize=A4, topMargin=14 * mm, bottomMargin=12 * mm, leftMargin=14 * mm, rightMargin=14 * mm)
+    doc = SimpleDocTemplate(bio, pagesize=A4, topMargin=12 * mm, bottomMargin=12 * mm, leftMargin=14 * mm, rightMargin=14 * mm)
     st = getSampleStyleSheet()
-    els = [Paragraph(f"<b>Bilan — {d['departement']}</b>", st['Title']),
-           Paragraph(f"{d['periode']} · Généré le {datetime.now().strftime('%d/%m/%Y %H:%M')} · Note {d['score']}/100", st['Normal']),
+    try:
+        company = get_doc_params().get('company_name', 'WannyGest')
+    except Exception:
+        company = 'WannyGest'
+    numero = numero or f"BIL-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    gen_dt = datetime.now().strftime('%d/%m/%Y %H:%M')
+    # QR d'authenticité (vers la page de vérification)
+    try:
+        verify_url = (request.host_url.rstrip('/') if request else '') + '/rh/bilan/verify/' + numero
+        import qrcode
+        _qr = qrcode.QRCode(version=1, box_size=6, border=1); _qr.add_data(verify_url); _qr.make(fit=True)
+        _qimg = _qr.make_image(fill_color='black', back_color='white')
+        _qbuf = _io.BytesIO(); _qimg.save(_qbuf, format='PNG'); _qbuf.seek(0)
+        qr_flow = Image(_qbuf, width=22 * mm, height=22 * mm)
+    except Exception:
+        qr_flow = Paragraph(numero, st['Normal'])
+    # Logo
+    logo_flow = Paragraph(f"<b>{company}</b>", st['Heading2'])
+    for _ln in ('logo_ramya.png', 'logo_wannygest.png'):
+        _lp = os.path.join(BASE_DIR, _ln)
+        if os.path.exists(_lp):
+            try:
+                logo_flow = Image(_lp, width=32 * mm, height=32 * mm, kind='proportional'); break
+            except Exception:
+                pass
+    _title_cell = [
+        Paragraph(f"<b>{company}</b>", st['Heading3']),
+        Paragraph(f"<b>BILAN D'ACTIVITÉ — {d['departement']}</b>", st['Heading2']),
+        Paragraph(f"Période : {d['periode']}", st['Normal']),
+        Paragraph(f"N° {numero} · Généré le {gen_dt} · Note {d['score']}/100", st['Normal']),
+    ]
+    header = Table([[logo_flow, _title_cell, qr_flow]], colWidths=[34 * mm, 118 * mm, 30 * mm])
+    header.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('ALIGN', (2, 0), (2, 0), 'RIGHT')]))
+    els = [header, Spacer(1, 4),
+           Table([['']], colWidths=[182 * mm], style=[('LINEBELOW', (0, 0), (-1, -1), 1.2, _c.HexColor('#1A7A6D'))]),
+           Spacer(1, 8),
+           Paragraph("<b>Sommaire exécutif</b>", st['Heading3']),
+           Paragraph(f"Ce bilan présente l'activité du service <b>{d['departement']}</b> sur la période <b>{d['periode']}</b> : "
+                     f"{d['rh']['nb_emp']} employé(s), {d['activites']['creees']} tâche(s) créée(s) dont {d['activites']['faites']} réalisée(s) "
+                     f"(taux d'exécution {d['activites']['taux_exec']}%), {d['rh']['absences']} absence(s). "
+                     f"<b>Note de performance globale : {d['score']}/100.</b>", st['Normal']),
            Spacer(1, 8)]
     def _sec(titre, rows):
         els.append(Paragraph(f"<b>{titre}</b>", st['Heading3']))
@@ -11695,9 +11735,56 @@ def rh_bilan_pdf():
     p = d['performance']
     _sec("Note de performance /100", [('Présence (20%)', p['presence']), ('Réalisation tâches (30%)', p['realisation']),
         ('Respect délais (20%)', p['delais']), ('Validation demandes (15%)', p['validation']), ('Discipline (15%)', p['discipline']), ('SCORE GLOBAL', f"{d['score']}/100")])
+    # Observations (espace)
+    els.append(Paragraph("<b>Observations du responsable</b>", st['Heading3']))
+    els.append(Table([['']], colWidths=[182 * mm], rowHeights=[24 * mm],
+                     style=[('BOX', (0, 0), (-1, -1), 0.5, _c.grey)]))
+    els.append(Spacer(1, 10))
+    # Signatures
+    sig = Table([[Paragraph("<b>Le Responsable du service</b><br/><br/><br/>__________________________", st['Normal']),
+                  Paragraph("<b>La Direction</b><br/><br/><br/>__________________________", st['Normal'])]],
+                colWidths=[91 * mm, 91 * mm])
+    sig.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    els.append(sig)
+    els.append(Spacer(1, 8))
+    els.append(Paragraph(f"<font size=8 color='#888'>Document généré automatiquement par {company} · N° {numero} · {gen_dt}. "
+                         f"Scannez le QR code en haut à droite pour vérifier l'authenticité de ce rapport.</font>", st['Normal']))
     doc.build(els); bio.seek(0)
     return Response(bio.getvalue(), mimetype='application/pdf',
         headers={'Content-Disposition': f'attachment; filename=bilan_{(dept or "general")}_{annee}{("-"+mois) if mois else ""}.pdf'})
+
+
+@app.route('/rh/bilan/verify/<numero>')
+def rh_bilan_verify(numero):
+    """v170u : vérification d'authenticité d'un rapport (scan du QR code du PDF)."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM bilan_reports WHERE numero=? ORDER BY id DESC LIMIT 1", (numero,)).fetchone()
+    conn.close()
+    rep = dict(row) if row else None
+    _auth = bool(rep)
+    _body = f"""<!doctype html><html lang=fr><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Vérification rapport {numero}</title>
+<style>body{{font-family:system-ui,Arial;background:#0f3460;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px}}
+.card{{background:#fff;color:#222;border-radius:16px;padding:26px 30px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3);text-align:center}}
+.ok{{color:#2e7d32}} .ko{{color:#c53030}} .k{{color:#888;font-size:12px}} .v{{font-weight:700;margin-bottom:8px}}</style></head>
+<body><div class=card>"""
+    if _auth:
+        _body += f"""<div style='font-size:52px'>✅</div>
+<h2 class=ok>Document authentique</h2>
+<div class=k>Numéro</div><div class=v>{rep['numero']}</div>
+<div class=k>Type</div><div class=v>{rep.get('type_rapport','')}</div>
+<div class=k>Département</div><div class=v>{rep.get('departement','')}</div>
+<div class=k>Période</div><div class=v>{rep.get('mois') or ''} {rep.get('annee') or ''}</div>
+<div class=k>Note</div><div class=v>{rep.get('score','')}/100</div>
+<div class=k>Généré par</div><div class=v>{rep.get('user_name','')}</div>
+<div class=k>Le</div><div class=v>{(rep.get('created_at') or '')[:16]}</div>"""
+    else:
+        _body += f"""<div style='font-size:52px'>❌</div>
+<h2 class=ko>Document non reconnu</h2>
+<p>Aucun rapport ne correspond au numéro <b>{numero}</b>.</p>"""
+    _body += "</div></body></html>"
+    return _body
 
 
 @app.route('/rh/absences/approve/<int:aid>/<status>')
