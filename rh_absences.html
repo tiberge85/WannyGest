@@ -16,16 +16,21 @@
     <button class="btn btn-primary btn-sm" onclick="document.getElementById('addAbsM').classList.add('active')">+ Absence</button>
 </div></div>
 
-<!-- KPIs -->
+<!-- KPIs (cliquables → filtre) -->
+{% set keep = [] %}
+{% for k in ['employe','departement','service','mois','annee','from','to','responsable','categorie'] %}{% if f[k] %}{% set _ = keep.append(k + '=' + f[k]) %}{% endif %}{% endfor %}
+{% set qbase = keep|join('&') %}
+<style>a.ab-kpi{text-decoration:none;display:block;transition:transform .1s,box-shadow .1s}a.ab-kpi:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}a.ab-kpi.on{outline:3px solid #1A7A6D;outline-offset:1px}</style>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px">
-    <div class="ab-kpi"><div class="n" style="color:#1a3a5c">{{ stats.total }}</div><div class="l">Absences</div></div>
-    <div class="ab-kpi" style="border-top-color:#c53030"><div class="n" style="color:#c53030">{{ stats.injustifiees }}</div><div class="l">Injustifiées</div></div>
-    <div class="ab-kpi" style="border-top-color:#e8672a"><div class="n" style="color:#e8672a">{{ stats.retards }}</div><div class="l">Retards</div></div>
-    <div class="ab-kpi" style="border-top-color:#1565c0"><div class="n" style="color:#1565c0">{{ stats.conges }}</div><div class="l">Congés</div></div>
-    <div class="ab-kpi" style="border-top-color:#7b1fa2"><div class="n" style="color:#7b1fa2">{{ stats.maladies }}</div><div class="l">Maladies</div></div>
-    <div class="ab-kpi"><div class="n" style="color:#1A7A6D">{{ '%.1f'|format(stats.jours_perdus) }}</div><div class="l">Jours perdus</div></div>
+    <a class="ab-kpi {% if not f.classe %}on{% endif %}" href="/rh/absences?{{ qbase }}"><div class="n" style="color:#1a3a5c">{{ stats.total }}</div><div class="l">Absences</div></a>
+    <a class="ab-kpi {% if f.classe=='injustifiees' %}on{% endif %}" href="/rh/absences?{{ qbase }}{% if qbase %}&{% endif %}classe=injustifiees" style="border-top-color:#c53030"><div class="n" style="color:#c53030">{{ stats.injustifiees }}</div><div class="l">Injustifiées</div></a>
+    <a class="ab-kpi {% if f.classe=='retards' %}on{% endif %}" href="/rh/absences?{{ qbase }}{% if qbase %}&{% endif %}classe=retards" style="border-top-color:#e8672a"><div class="n" style="color:#e8672a">{{ stats.retards }}</div><div class="l">Retards</div></a>
+    <a class="ab-kpi {% if f.classe=='conges' %}on{% endif %}" href="/rh/absences?{{ qbase }}{% if qbase %}&{% endif %}classe=conges" style="border-top-color:#1565c0"><div class="n" style="color:#1565c0">{{ stats.conges }}</div><div class="l">Congés</div></a>
+    <a class="ab-kpi {% if f.classe=='maladies' %}on{% endif %}" href="/rh/absences?{{ qbase }}{% if qbase %}&{% endif %}classe=maladies" style="border-top-color:#7b1fa2"><div class="n" style="color:#7b1fa2">{{ stats.maladies }}</div><div class="l">Maladies</div></a>
+    <a class="ab-kpi" href="/rh/absences?{{ qbase }}"><div class="n" style="color:#1A7A6D">{{ '%.1f'|format(stats.jours_perdus) }}</div><div class="l">Jours perdus</div></a>
     <div class="ab-kpi" style="border-top-color:#b8561f"><div class="n" style="color:#b8561f">{{ stats.taux_absenteisme }}%</div><div class="l">Absentéisme</div></div>
 </div>
+{% if f.classe %}<div style="margin:-6px 0 10px;font-size:12px"><a href="/rh/absences?{{ qbase }}" style="color:#1A7A6D;font-weight:700">✕ Retirer le filtre « {{ f.classe }} »</a></div>{% endif %}
 
 <!-- Graphiques -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px" class="ab-charts">

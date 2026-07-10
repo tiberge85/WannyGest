@@ -56,12 +56,13 @@
 
 {% if entrees %}
 <div class="card"><div class="card-header"><h3>Entrées du mois ({{ '{:,.0f}'.format(total_entrees) }} F)</h3></div><div class="card-body" style="padding:0"><div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
-<thead><tr><th>Réf</th><th>Date</th><th>Source</th><th>💰 Caisse</th><th style="text-align:right">Montant</th><th>Description</th><th>Moyen</th></tr></thead>
+<thead><tr><th>Réf</th><th>Date</th><th>Source</th><th>💰 Caisse</th><th style="text-align:right">Montant</th><th>Description</th><th>Moyen</th>{% if current_user and current_user.role in ('admin','dg','directeur') %}<th></th>{% endif %}</tr></thead>
 <tbody>{% for e in entrees %}<tr>
 <td style="font-size:10px">{{ e.reference }}</td><td>{{ e.date }}</td><td><strong>{{ e.source }}</strong></td>
 <td style="font-size:11px;color:#1a7a6d;font-weight:600">{{ e.caisse_name or '—' }}</td>
 <td style="text-align:right;font-weight:600;color:#2e7d32">+{{ '{:,.0f}'.format(e.montant) }} F</td>
 <td style="font-size:11px">{{ e.description or '-' }}</td><td style="font-size:11px">{{ e.payment_method or '-' }}</td>
+{% if current_user and current_user.role in ('admin','dg','directeur') %}<td style="text-align:center"><form method="post" action="/caisse-entree/{{ e.id }}/delete" onsubmit="return confirm('Supprimer cette entrée de caisse ? Le solde sera corrigé.')" style="display:inline"><button class="btn btn-sm" style="background:#c53030;color:#fff;font-size:10px" title="Supprimer">🗑️</button></form></td>{% endif %}
 </tr>{% endfor %}</tbody></table></div></div></div>
 {% else %}<div class="card"><div class="card-body" style="text-align:center;color:#999;padding:30px">Aucune entrée ce mois</div></div>{% endif %}
 

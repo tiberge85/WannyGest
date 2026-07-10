@@ -9417,6 +9417,43 @@ def caisse_entree_add():
     flash(f"Entrée {ref} enregistrée : {montant:,.0f} F{' · ' + caisse_nom if caisse_nom else ''}", "success")
     return redirect('/caisse-sortie?tab=entrees')
 
+
+@app.route('/caisse-entree/<int:eid>/delete', methods=['POST'])
+@login_required
+def caisse_entree_delete(eid):
+    """v170w : supprime une entrée de caisse — retire l'entrée + l'opération liée et
+    corrige le solde de la caisse. Réservé à l'admin (opération financière)."""
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    if not user or user['role'] not in ('admin', 'dg', 'directeur'):
+        flash("⚠️ Suppression réservée à l'administration.", "error")
+        return redirect('/caisse-sortie?tab=entrees')
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM caisse_entrees WHERE id=?", (eid,)).fetchone()
+    if not row:
+        conn.close(); flash("Entrée introuvable.", "error"); return redirect('/caisse-sortie?tab=entrees')
+    e = dict(row)
+    ref = e.get('reference'); montant = float(e.get('montant') or 0); cid = e.get('caisse_id')
+    # Corbeille (snapshot) avant suppression
+    try:
+        import json as _j
+        conn.execute("""INSERT INTO trash_snapshots (entity_type, entity_id, entity_name, snapshot_json, deleted_by, deleted_by_name, deleted_at)
+            VALUES ('caisse_entree', ?, ?, ?, ?, ?, datetime('now'))""",
+            (eid, ref or f"Entrée #{eid}", _j.dumps(e), session['user_id'], user['full_name']))
+    except Exception: pass
+    # Retirer l'opération liée (par référence) + corriger le solde
+    try:
+        if ref:
+            conn.execute("DELETE FROM caisse_operations WHERE reference=? AND type='entree'", (ref,))
+        if cid:
+            conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?", (montant, cid))
+    except Exception as _e:
+        print(f"[v170w] err suppression op caisse : {_e}", flush=True)
+    conn.execute("DELETE FROM caisse_entrees WHERE id=?", (eid,))
+    conn.commit(); conn.close()
+    log_activity(session['user_id'], user['full_name'], 'Caisse', f"Entrée supprimée {ref} — {montant:,.0f} F", request.remote_addr)
+    flash(f"🗑️ Entrée {ref} supprimée — solde de la caisse corrigé (−{montant:,.0f} F).", "success")
+    return redirect('/caisse-sortie?tab=entrees')
+
 # ======================== BILAN COMPTABLE ========================
 
 @app.route('/comptabilite/bilan')
@@ -11354,7 +11391,21 @@ def _absences_query(conn, is_rh, eid, f):
     if f.get('service'):
         where.append("COALESCE(a.service,'')=?"); params.append(f['service'])
     if f.get('categorie'):
-        where.append("COALESCE(a.categorie, a.type, '')=?"); params.append(f['categorie'])
+        # v170u : match tolérant (casse/espaces) sur categorie OU type (ancien champ)
+        where.append("(LOWER(TRIM(COALESCE(a.categorie,'')))=LOWER(TRIM(?)) OR LOWER(TRIM(COALESCE(a.type,'')))=LOWER(TRIM(?)))")
+        params += [f['categorie'], f['categorie']]
+    if f.get('classe'):
+        # v170u : filtre par CLASSE (compteurs cliquables) — même logique que les stats (sous-chaîne)
+        _field = "LOWER(COALESCE(a.categorie, a.type, ''))"
+        _cl = f['classe']
+        if _cl == 'injustifiees':
+            where.append(f"({_field} LIKE '%injustifi%' OR {_field} LIKE '%non déclar%')")
+        elif _cl == 'retards':
+            where.append(f"{_field} LIKE '%retard%'")
+        elif _cl == 'conges':
+            where.append(f"{_field} LIKE '%cong%'")
+        elif _cl == 'maladies':
+            where.append(f"{_field} LIKE '%malad%'")
     if f.get('responsable'):
         where.append("COALESCE(a.responsable,'') LIKE ?"); params.append(f"%{f['responsable']}%")
     if f.get('from'):
@@ -11385,7 +11436,7 @@ def rh_absences():
             (user.get('email', ''), user.get('full_name', ''))).fetchone()
         eid = emp['id'] if emp else 0
     f = {k: (request.args.get(k, '') or '').strip() for k in
-         ('employe', 'departement', 'service', 'categorie', 'responsable', 'from', 'to', 'mois', 'annee')}
+         ('employe', 'departement', 'service', 'categorie', 'classe', 'responsable', 'from', 'to', 'mois', 'annee')}
     absences = _absences_query(conn, is_rh, eid, f)
 
     def _cat_of(a): return (a.get('categorie') or a.get('type') or 'Autre motif')
@@ -11516,7 +11567,7 @@ def rh_absences_export(fmt):
             (user.get('email', ''), user.get('full_name', ''))).fetchone()
         eid = emp['id'] if emp else 0
     f = {k: (request.args.get(k, '') or '').strip() for k in
-         ('employe', 'departement', 'service', 'categorie', 'responsable', 'from', 'to', 'mois', 'annee')}
+         ('employe', 'departement', 'service', 'categorie', 'classe', 'responsable', 'from', 'to', 'mois', 'annee')}
     rows = _absences_query(conn, is_rh, eid, f)
     conn.close()
     headers = ['N°', 'Employé', 'Matricule', 'Département', 'Service', 'Catégorie',
@@ -11593,9 +11644,13 @@ def _bilan_data(conn, dept, annee, mois):
     emps = [dict(r) for r in conn.execute(
         "SELECT id, hire_date, status FROM employees WHERE COALESCE(department,'')=?" if dept else
         "SELECT id, hire_date, status FROM employees", ((dept,) if dept else ())).fetchall()]
-    nb_emp = len(emps)
-    nouveaux = sum(1 for e in emps if (e.get('hire_date') or '')[:10] >= d_from and (e.get('hire_date') or '')[:10] <= d_to)
-    departs = sum(1 for e in emps if (e.get('status') or '') in ('inactif', 'parti', 'demission', 'licencie'))
+    # v170u : ne compter dans l'effectif QUE les employés encore présents (exclure inactif/parti/…)
+    _INACTIF = ('inactif', 'parti', 'demission', 'démission', 'licencie', 'licencié', 'suspendu', 'archive', 'archivé', 'sorti', 'retraite', 'retraité')
+    def _is_actif(e): return (e.get('status') or 'actif').strip().lower() not in _INACTIF
+    actifs = [e for e in emps if _is_actif(e)]
+    nb_emp = len(actifs)
+    nouveaux = sum(1 for e in actifs if d_from <= (e.get('hire_date') or '')[:10] <= d_to)
+    departs = sum(1 for e in emps if not _is_actif(e))
     # Absences du département sur la période
     abs_rows = [dict(r) for r in conn.execute(
         f"""SELECT a.categorie, a.type, a.duree, a.date, a.date_fin FROM absences a
@@ -11710,8 +11765,9 @@ def _bilan_data(conn, dept, annee, mois):
         top = [dict(r) for r in conn.execute(
             f"""SELECT a.user_name, COUNT(*) done, COALESCE(SUM(t.points),0) pts
                 FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
-                LEFT JOIN users u ON u.id=a.user_id
-                WHERE a.statut='terminee' AND {tq}>=? AND {tq}<=? {("AND COALESCE(t.departement,'')=?" if dept else "")}
+                JOIN users u ON u.id=a.user_id
+                WHERE a.statut='terminee' AND COALESCE(u.is_active,1)=1
+                  AND {tq}>=? AND {tq}<=? {("AND COALESCE(t.departement,'')=?" if dept else "")}
                 GROUP BY a.user_id ORDER BY pts DESC, done DESC LIMIT 10""",
             ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchall()]
     except Exception:
