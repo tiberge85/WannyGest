@@ -11642,13 +11642,17 @@ def _bilan_data(conn, dept, annee, mois):
     D = {'departement': dept or 'Tous', 'periode': per_lbl, 'from': d_from, 'to': d_to}
     # --- RH ---
     emps = [dict(r) for r in conn.execute(
-        "SELECT id, hire_date, status FROM employees WHERE COALESCE(department,'')=?" if dept else
-        "SELECT id, hire_date, status FROM employees", ((dept,) if dept else ())).fetchall()]
+        "SELECT id, first_name, last_name, position, hire_date, status FROM employees WHERE COALESCE(department,'')=?" if dept else
+        "SELECT id, first_name, last_name, position, hire_date, status FROM employees", ((dept,) if dept else ())).fetchall()]
     # v170u : ne compter dans l'effectif QUE les employés encore présents (exclure inactif/parti/…)
     _INACTIF = ('inactif', 'parti', 'demission', 'démission', 'licencie', 'licencié', 'suspendu', 'archive', 'archivé', 'sorti', 'retraite', 'retraité')
     def _is_actif(e): return (e.get('status') or 'actif').strip().lower() not in _INACTIF
     actifs = [e for e in emps if _is_actif(e)]
     nb_emp = len(actifs)
+    # v170x : liste nominative de l'effectif compté (transparence — « qui figure dans le bilan »)
+    D['effectif_liste'] = [{'nom': ((e.get('first_name') or '') + ' ' + (e.get('last_name') or '')).strip() or '—',
+                            'poste': e.get('position') or '', 'statut': e.get('status') or 'actif',
+                            'embauche': (e.get('hire_date') or '')[:10]} for e in actifs]
     nouveaux = sum(1 for e in actifs if d_from <= (e.get('hire_date') or '')[:10] <= d_to)
     departs = sum(1 for e in emps if not _is_actif(e))
     # Absences du département sur la période

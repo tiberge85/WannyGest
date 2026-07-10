@@ -45,7 +45,21 @@
     <div class="bs-item"><div class="n">{{ d.rh.jours_perdus }}</div><div class="l">Jours perdus</div></div>
     <div class="bs-item"><div class="n" style="color:#2e7d32">{{ d.rh.taux_present }}%</div><div class="l">Présence</div></div>
     <div class="bs-item"><div class="n" style="color:#c53030">{{ d.rh.taux_absent }}%</div><div class="l">Absentéisme</div></div>
-</div></div>
+</div>
+{% if d.effectif_liste %}
+<details style="margin-top:10px">
+    <summary style="cursor:pointer;font-weight:700;color:#1A7A6D;font-size:13px">👥 Voir l'effectif compté ({{ d.effectif_liste|length }})</summary>
+    <div class="table-wrap" style="margin-top:6px"><table style="width:100%;font-size:12px">
+    <thead><tr style="background:#f0f4f8"><th style="padding:6px;text-align:left">Employé</th><th style="text-align:left">Poste</th><th style="text-align:left">Statut</th><th style="text-align:left">Embauche</th></tr></thead>
+    <tbody>{% for e in d.effectif_liste %}<tr style="border-top:1px solid #eee">
+        <td style="padding:6px"><strong>{{ e.nom }}</strong></td><td>{{ e.poste or '—' }}</td>
+        <td><span style="font-size:10px;padding:1px 7px;border-radius:8px;background:#e8f5e9;color:#2e7d32">{{ e.statut }}</span></td>
+        <td>{{ e.embauche or '—' }}</td>
+    </tr>{% endfor %}</tbody></table></div>
+    <div style="font-size:11px;color:#888;margin-top:4px">Seuls les employés « actifs » sont comptés. Un employé parti doit avoir son statut passé à « inactif » sur sa fiche.</div>
+</details>
+{% endif %}
+</div>
 
 <!-- Activités -->
 <div class="bs-sec"><h3>✅ Activités (tâches)</h3><div class="bs-grid">
