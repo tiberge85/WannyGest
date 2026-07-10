@@ -11644,9 +11644,18 @@ def _bilan_data(conn, dept, annee, mois):
     emps = [dict(r) for r in conn.execute(
         "SELECT id, first_name, last_name, position, hire_date, status FROM employees WHERE COALESCE(department,'')=?" if dept else
         "SELECT id, first_name, last_name, position, hire_date, status FROM employees", ((dept,) if dept else ())).fetchall()]
-    # v170u : ne compter dans l'effectif QUE les employés encore présents (exclure inactif/parti/…)
-    _INACTIF = ('inactif', 'parti', 'demission', 'démission', 'licencie', 'licencié', 'suspendu', 'archive', 'archivé', 'sorti', 'retraite', 'retraité')
-    def _is_actif(e): return (e.get('status') or 'actif').strip().lower() not in _INACTIF
+    # v170u/v170y : ne compter QUE les employés présents. Correspondance par INCLUSION + sans accents
+    # (ex. « Démissionné », « A démissionné », « Licencié » … tous captés par leur racine)
+    _INACTIF = ('inactif', 'demiss', 'licenci', 'suspend', 'archiv', 'sorti', 'retrait',
+                'congedi', 'radi', 'quitte', 'parti', 'depart', 'fin de contrat', 'fin contrat')
+    def _norm_st(v):
+        import unicodedata
+        return ''.join(c for c in unicodedata.normalize('NFD', (v or '').strip().lower()) if unicodedata.category(c) != 'Mn')
+    def _is_actif(e):
+        s = _norm_st(e.get('status') or 'actif')
+        if s in ('', 'actif', 'active', 'en poste', 'present', 'cdi', 'cdd', 'stage', 'stagiaire', 'titulaire'):
+            return True
+        return not any(k in s for k in _INACTIF)
     actifs = [e for e in emps if _is_actif(e)]
     nb_emp = len(actifs)
     # v170x : liste nominative de l'effectif compté (transparence — « qui figure dans le bilan »)
