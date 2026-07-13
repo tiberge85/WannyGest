@@ -1080,6 +1080,32 @@ except Exception as _e:
     print(f"[v170v] err : {_e}", flush=True)
 
 
+# v172 : rattacher les TÂCHES sans département à celui du personnel affecté
+# (pour que Objectifs par département & Bilan par service comptent les tâches assignées aux employés).
+try:
+    from models import get_db as _v172_db
+    _v172 = _v172_db()
+    try:
+        _v172.execute("""UPDATE taches SET departement=(
+                SELECT COALESCE(NULLIF(TRIM(u.department),''), NULLIF(TRIM(e.department),''))
+                FROM tache_assignees a
+                LEFT JOIN users u ON u.id=a.user_id
+                LEFT JOIN employees e ON (e.email=u.email OR e.first_name||' '||e.last_name=u.full_name)
+                WHERE a.tache_id=taches.id
+                  AND COALESCE(NULLIF(TRIM(u.department),''), NULLIF(TRIM(e.department),'')) IS NOT NULL
+                GROUP BY a.tache_id
+                ORDER BY COUNT(*) DESC LIMIT 1)
+            WHERE COALESCE(TRIM(departement),'')=''
+              AND EXISTS (SELECT 1 FROM tache_assignees a2 WHERE a2.tache_id=taches.id)""")
+        _v172.commit()
+    except Exception as _be:
+        print(f"[v172] backfill tâches : {_be}", flush=True)
+    _v172.close()
+    print("[v172] Rattachement département des tâches (assignés) OK", flush=True)
+except Exception as _e:
+    print(f"[v172] err : {_e}", flush=True)
+
+
 # ==================== v169 : MODULE GESTION DES TÂCHES ====================
 try:
     from models import get_db as _v169_db
@@ -29035,6 +29061,19 @@ def taches_dashboard():
         q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date, f_retard=f_retard)
 
 
+def _tache_dep_from_assignees(conn, tid):
+    """v172 : département dominant des assignés d'une tâche (via users.department, repli employees)."""
+    try:
+        rows = conn.execute("""SELECT COALESCE(NULLIF(TRIM(u.department),''), NULLIF(TRIM(e.department),'')) dep, COUNT(*) n
+            FROM tache_assignees a
+            LEFT JOIN users u ON u.id=a.user_id
+            LEFT JOIN employees e ON (e.email=u.email OR e.first_name||' '||e.last_name=u.full_name)
+            WHERE a.tache_id=? GROUP BY dep HAVING dep IS NOT NULL AND dep<>'' ORDER BY n DESC""", (tid,)).fetchall()
+        return rows[0]['dep'] if rows else ''
+    except Exception:
+        return ''
+
+
 @app.route('/gestion-taches/creer', methods=['POST'])
 @permission_required_any('taches_manage', 'admin')
 def tache_creer():
@@ -29105,6 +29144,12 @@ def tache_creer():
         ur = conn.execute("SELECT full_name FROM users WHERE id=?", (uid,)).fetchone()
         conn.execute("INSERT INTO tache_assignees (tache_id,user_id,user_name,statut) VALUES (?,?,?, 'nouvelle')",
                      (tid, uid, ur['full_name'] if ur else '?'))
+    # v172 : rattacher la tâche au département du personnel affecté (si non précisé) —
+    # pour que les OBJECTIFS et le BILAN par service comptent les tâches assignées aux employés.
+    if not departement:
+        _dep_auto = assign_dep or _tache_dep_from_assignees(conn, tid)
+        if _dep_auto:
+            conn.execute("UPDATE taches SET departement=? WHERE id=?", (_dep_auto, tid))
     _tache_save_files(conn, tid, 'fichiers')
     _tache_log(conn, tid, 'creation', f"Tâche créée et assignée à {len(target_ids)} employé(s)"
                + (f" · récurrence {recurrence}" if recurrence != 'aucune' else ''))
@@ -29165,6 +29210,11 @@ def tache_modifier(tid):
          (request.form.get('heure_limite', '') or '').strip(),
          (request.form.get('temps_estime', '') or '').strip(),
          (request.form.get('localisation', '') or '').strip(), points, tid))
+    # v172 : si le département n'est pas précisé, le déduire des assignés (rattachement bilan/objectifs)
+    if not (request.form.get('departement', '') or '').strip():
+        _dep_auto = _tache_dep_from_assignees(conn, tid)
+        if _dep_auto:
+            conn.execute("UPDATE taches SET departement=? WHERE id=?", (_dep_auto, tid))
     _tache_log(conn, tid, 'modification', f"Tâche modifiée par {user['full_name']}")
     conn.commit(); conn.close()
     flash("✅ Tâche modifiée.", "success")

@@ -62,7 +62,7 @@
     <div class="ab-card" style="padding:0">
         <div style="padding:12px 14px;font-weight:700;color:#1a3a5c">Absences ({{ absences|length }})</div>
         <div class="table-wrap"><table style="width:100%;font-size:12px">
-        <thead><tr><th style="text-align:left">N°</th><th style="text-align:left">Employé</th><th style="text-align:left">Dépt</th><th style="text-align:left">Catégorie</th><th style="text-align:left">Date</th><th style="text-align:left">Statut</th>{% if is_rh %}<th></th>{% endif %}</tr></thead>
+        <thead><tr><th style="text-align:left">N°</th><th style="text-align:left">Employé</th><th style="text-align:left">Dépt</th><th style="text-align:left">Catégorie</th><th style="text-align:left">Date</th><th style="text-align:left">Statut</th><th style="text-align:right">Action</th></tr></thead>
         <tbody>
         {% for a in absences %}
         <tr>
@@ -72,15 +72,46 @@
             <td>{{ a.categorie or a.type or '—' }}</td>
             <td>{{ a.date }}{% if a.date_fin %} → {{ a.date_fin }}{% endif %}</td>
             <td><span style="padding:1px 7px;border-radius:8px;font-size:10px;{% if a.status in ('approuve','valide') %}background:#e8f5e9;color:#2e7d32{% elif a.status=='refuse' %}background:#fde8e8;color:#c53030{% else %}background:#fff3e0;color:#b8561f{% endif %}">{{ a.status or 'en_attente' }}</span></td>
-            {% if is_rh %}<td style="white-space:nowrap">
-                {% if a.status not in ('approuve','valide') %}<a href="/rh/absences/approve/{{ a.id }}/approuve" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅</a>{% endif %}
-                <a href="/rh/absences/delete/{{ a.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>
-            </td>{% endif %}
+            <td style="white-space:nowrap;text-align:right">
+                <button type="button" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:9px" title="Voir le motif"
+                    onclick='abVoir(this)'
+                    data-num="{{ a.numero or '—' }}" data-emp="{{ a.employee_name }}" data-dep="{{ a.department or a.service or '—' }}"
+                    data-cat="{{ a.categorie or a.type or '—' }}" data-date="{{ a.date }}" data-fin="{{ a.date_fin or '' }}"
+                    data-heures="{{ a.heures or '' }}" data-resp="{{ a.responsable or '' }}" data-statut="{{ a.status or 'en_attente' }}"
+                    data-motif="{{ (a.motif or a.notes or '')|e }}" data-obs="{{ (a.observation or '')|e }}">👁️ Voir</button>
+                {% if is_rh %}{% if a.status not in ('approuve','valide') %}<a href="/rh/absences/approve/{{ a.id }}/approuve" class="btn btn-sm" style="background:#2e7d32;color:#fff;font-size:9px">✅</a>{% endif %}
+                <a href="/rh/absences/delete/{{ a.id }}" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>{% endif %}
+            </td>
         </tr>
         {% else %}<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">Aucune absence pour ces critères.</td></tr>{% endfor %}
         </tbody></table></div>
     </div>
 </div>
+
+<!-- Modal « Voir le motif » -->
+<div id="abModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:#fff;border-radius:14px;max-width:480px;width:92%;padding:0;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="background:#1A7A6D;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+      <strong id="abmTitle">Détail de l'absence</strong>
+      <span style="cursor:pointer;font-size:20px" onclick="document.getElementById('abModal').style.display='none'">&times;</span>
+    </div>
+    <div style="padding:16px;font-size:13px" id="abmBody"></div>
+  </div>
+</div>
+<script>
+function abVoir(btn){
+  var d=btn.dataset, esc=function(s){var e=document.createElement('div');e.textContent=s||'';return e.innerHTML;};
+  var row=function(l,v){return v?('<div style="margin-bottom:8px"><div style="font-size:10px;text-transform:uppercase;color:#888">'+l+'</div><div>'+v+'</div></div>'):'';};
+  document.getElementById('abmTitle').textContent='Absence '+(d.num||'')+' — '+(d.emp||'');
+  var per=esc(d.date)+(d.fin?(' → '+esc(d.fin)):'');
+  document.getElementById('abmBody').innerHTML=
+    row('Employé',esc(d.emp))+row('Département',esc(d.dep))+row('Catégorie',esc(d.cat))+
+    row('Période',per)+row('Heures',d.heures)+row('Responsable',esc(d.resp))+row('Statut',esc(d.statut))+
+    '<div style="margin-top:10px;padding:10px;background:#f4f7f6;border-radius:8px"><div style="font-size:10px;text-transform:uppercase;color:#1A7A6D;font-weight:700">Motif</div><div style="white-space:pre-wrap">'+(esc(d.motif)||'<em style=\"color:#999\">Aucun motif renseigné</em>')+'</div>'+
+    (d.obs?('<div style="font-size:10px;text-transform:uppercase;color:#888;margin-top:8px">Observation</div><div style="white-space:pre-wrap">'+esc(d.obs)+'</div>'):'')+'</div>';
+  document.getElementById('abModal').style.display='flex';
+}
+</script>
 <div>
     <!-- Archive mensuelle -->
     <div class="ab-card">
