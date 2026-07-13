@@ -30183,6 +30183,42 @@ def cd_objectif_add():
     return redirect('/centre-decision/objectifs')
 
 
+@app.route('/centre-decision/objectifs/auto', methods=['POST'])
+@permission_required_any('centre_decision', 'admin')
+def cd_objectifs_auto():
+    """v172c : génère automatiquement un objectif « Réalisation des tâches » (mensuel, source=tâches,
+    cible 100 %) pour chaque département qui n'en a pas encore. Idempotent."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    # départements connus (employés + users + tâches)
+    deps, _seen = [], set()
+    for q in ("SELECT DISTINCT department d FROM employees WHERE COALESCE(department,'')<>''",
+              "SELECT DISTINCT department d FROM users WHERE COALESCE(department,'')<>''",
+              "SELECT DISTINCT departement d FROM taches WHERE COALESCE(departement,'')<>''"):
+        for r in conn.execute(q).fetchall():
+            k = (r['d'] or '').strip().lower()
+            if k and k not in _seen:
+                _seen.add(k); deps.append(r['d'].strip())
+    # départements ayant déjà un objectif « tâches »
+    existants = {(r['departement'] or '').strip().lower()
+                 for r in conn.execute("SELECT departement FROM cd_objectifs WHERE source='taches'").fetchall()}
+    _, _, plabel = _cd_periode_bornes('mensuel')
+    n = 0
+    for dep in deps:
+        if dep.strip().lower() in existants:
+            continue
+        conn.execute("""INSERT INTO cd_objectifs (departement, libelle, periode, cible, realise, unite,
+            periode_label, source, created_by, created_by_name)
+            VALUES (?, 'Réalisation des tâches', 'mensuel', 100, 0, '%', ?, 'taches', ?, ?)""",
+            (dep, plabel, user['id'], user['full_name']))
+        n += 1
+    conn.commit(); conn.close()
+    _cd_log('objectifs_auto', f"{n} objectif(s) générés")
+    flash(f"⚡ {n} objectif(s) de tâches générés automatiquement." if n
+          else "Tous les départements ont déjà un objectif de tâches.", "success" if n else "info")
+    return redirect('/centre-decision/objectifs')
+
+
 @app.route('/centre-decision/objectifs/<int:oid>/edit', methods=['POST'])
 @permission_required_any('centre_decision', 'admin')
 def cd_objectif_edit(oid):

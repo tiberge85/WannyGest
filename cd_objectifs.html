@@ -9,7 +9,15 @@
 .ob-form input,.ob-form select{width:100%;padding:8px;border:1.5px solid #ddd;border-radius:8px;font-size:13px}
 </style>
 <div class="page-header"><h1>🎯 Objectifs par département</h1>
-<a href="/centre-decision" class="btn btn-outline btn-sm">← Centre de Décision</a></div>
+<div style="display:flex;gap:6px">
+    <form method="post" action="/centre-decision/objectifs/auto" onsubmit="return confirm('Générer un objectif de tâches (mensuel, cible 100%) pour chaque département qui n\'en a pas encore ?')" style="display:inline">
+        <button type="submit" class="btn btn-sm" style="background:#1A7A6D;color:#fff">⚡ Générer automatiquement</button></form>
+    <a href="/centre-decision" class="btn btn-outline btn-sm">← Centre de Décision</a>
+</div></div>
+<div style="background:#f0f7f5;border-left:4px solid #1A7A6D;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#555">
+    💡 Les objectifs se créent <strong>manuellement</strong> (ci-dessous) ou <strong>automatiquement</strong> via le bouton ⚡.
+    Le <strong>réalisé</strong> se calcule tout seul quand la source est « Auto — % tâches terminées » ou « Auto — respect du budget ».
+</div>
 
 <div class="card" style="margin-bottom:14px"><div class="card-body">
 <form method="post" action="/centre-decision/objectifs/add" class="ob-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;align-items:end">
