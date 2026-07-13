@@ -4419,7 +4419,7 @@ def migrate_v68():
 
 
 def migrate_v69():
-    """v69 : Module Moyens Généraux complet (workflow demande → validation → devis →
+    """v69 : Module Achat et approvisionnement complet (workflow demande → validation → devis →
     commande → réception → paiement → équipement).
     
     Tables créées :
@@ -4510,7 +4510,7 @@ def migrate_v69():
         )
     """)
     
-    # Permissions Moyens Généraux (insertion directe : role + permission)
+    # Permissions Achat et approvisionnement (insertion directe : role + permission)
     role_perms = {
         'admin':       ['mg_view', 'mg_demande', 'mg_valider', 'mg_gestion'],
         'directeur':   ['mg_view', 'mg_demande', 'mg_valider', 'mg_gestion'],

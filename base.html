@@ -691,14 +691,14 @@
             </div>
             {% endif %}
             
-            {# v116 : Section MOYENS GÉNÉRAUX — permission 'section_mg' OU sous-perms #}
+            {# v116 : Section ACHAT ET APPROVISIONNEMENT — permission 'section_mg' OU sous-perms #}
             {# v161 : visible aussi pour qui a 'fournisseurs'/'achats' (ex. commercial) #}
             {% set mg_core = ('section_mg' in permissions or 'moyens_generaux' in permissions or 'comptabilite' in permissions or 'mg_view' in permissions or 'admin' in permissions) %}
             {% if mg_core or 'fournisseurs' in permissions or 'achats' in permissions %}
-            <!-- Moyens Généraux (UNIFIÉ v59) -->
+            <!-- Achat et approvisionnement (UNIFIÉ v59) -->
             <div class="nav-section" id="sec-moyens" {% if user_role in ('moyens_generaux', 'mg', 'magasinier') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-moyens')">
-                    🏠 MOYENS GÉNÉRAUX
+                    🏠 ACHAT ET APPROVISIONNEMENT
                     {% if mg_pending_count and mg_pending_count > 0 %}
                         <span style="background:#c53030;color:#fff;padding:1px 6px;border-radius:10px;font-size:10px;margin-left:4px">{{ mg_pending_count }}</span>
                     {% endif %}

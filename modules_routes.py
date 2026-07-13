@@ -451,7 +451,7 @@ def todos_delete(tid):
     db_delete('user_todos', tid); return redirect(url_for('modules.todos'))
 
 
-# ======================== MOYENS GÉNÉRAUX ========================
+# ======================== ACHAT ET APPROVISIONNEMENT ========================
 
 @modules_bp.route('/moyens-generaux')
 @login_required

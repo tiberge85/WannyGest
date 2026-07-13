@@ -11,7 +11,7 @@
     <div>
         <div style="font-weight:800;font-size:15px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <span style="background:#fff;color:#e8672a;padding:4px 10px;border-radius:14px;font-weight:900;font-size:13px">{{ compta_demandes_pending }}</span>
-            💰 Demande{{ 's' if compta_demandes_pending > 1 else '' }} des Moyens Généraux à valider budgétairement
+            💰 Demande{{ 's' if compta_demandes_pending > 1 else '' }} des Achat et approvisionnement à valider budgétairement
         </div>
         <div style="font-size:12px;opacity:0.9;margin-top:4px">Validation budgétaire requise avant exécution</div>
     </div>
@@ -135,7 +135,7 @@ new Chart(document.getElementById('expenseChart'),{type:'doughnut',data:{
                     {% endif %}
                     {% if current_user and current_user.role in ('admin','dg','directeur','moyens_generaux','mg','magasinier') %}
                     <form method="post" action="/comptabilite/facture/{{ it.id }}/delete" style="display:inline" onsubmit="return confirm('🗑️ Supprimer définitivement la facture {{ it.reference }} ?');">
-                        <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030" title="Supprimer la facture (DG / Moyens Généraux / Admin)">🗑️</button>
+                        <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030" title="Supprimer la facture (DG / Achat et approvisionnement / Admin)">🗑️</button>
                     </form>
                     {% endif %}
                     {% else %}

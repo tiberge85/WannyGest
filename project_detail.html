@@ -100,15 +100,15 @@
         </form>
 
     {% elif project.status == 'demarre' %}
-        <p style="font-size:13px;color:#555">🚀 <strong>Le coordinateur</strong> valide le démarrage et notifie les Moyens Généraux.</p>
+        <p style="font-size:13px;color:#555">🚀 <strong>Le coordinateur</strong> valide le démarrage et notifie les Achat et approvisionnement.</p>
         <form method="post" action="/projects/{{ project.id }}/advance">
             <input type="hidden" name="to_status" value="preparation">
             <input type="text" name="comment" placeholder="Instructions MG" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:8px">
-            <button type="submit" class="btn btn-primary">🏪 Notifier les Moyens Généraux</button>
+            <button type="submit" class="btn btn-primary">🏪 Notifier les Achat et approvisionnement</button>
         </form>
 
     {% elif project.status == 'preparation' %}
-        <p style="font-size:13px;color:#555">📦 <strong>Les Moyens Généraux</strong> vérifient et réservent le matériel.</p>
+        <p style="font-size:13px;color:#555">📦 <strong>Les Achat et approvisionnement</strong> vérifient et réservent le matériel.</p>
         {% if project.materials %}
             <p style="font-size:12px;color:#666">Matériels : {{ project.materials|length }} · Réservés : {{ project.materials|selectattr('reserved', 'eq', 1)|list|length }}/{{ project.materials|length }}</p>
         {% else %}

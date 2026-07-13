@@ -99,7 +99,7 @@
             <div class="form-group"><label>Département <span style="font-size:11px;color:#888">(utilisé pour limiter l'accès aux budgets de son département)</span></label>
                 <select name="department">
                     <option value="">-- Non assigné --</option>
-                    {% for d in ['Administration','Direction Générale','Ressources Humaines','Comptabilité / Finance','Commercial','Technique','Informatique','Moyens Généraux','Recouvrement','Gestion de Projet','Secrétariat','Conciergerie','Marketing','Logistique','Autre'] %}<option value="{{ d }}" {% if edit_user.department == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+                    {% for d in ['Administration','Direction Générale','Ressources Humaines','Comptabilité / Finance','Commercial','Technique','Informatique','Achat et approvisionnement','Recouvrement','Gestion de Projet','Secrétariat','Conciergerie','Marketing','Logistique','Autre'] %}<option value="{{ d }}" {% if edit_user.department == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
                 </select>
             </div>
             <div class="form-group">

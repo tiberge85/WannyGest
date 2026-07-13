@@ -101,7 +101,7 @@
         <!-- État validation MG -->
         {% if demande.status == 'validee' %}
         <div class="card" style="margin-bottom:14px;border-left:4px solid #2e7d32">
-            <div class="card-header"><h3 style="margin:0;color:#2e7d32;font-size:13px">✅ Validation Moyens Généraux</h3></div>
+            <div class="card-header"><h3 style="margin:0;color:#2e7d32;font-size:13px">✅ Validation Achat et approvisionnement</h3></div>
             <div class="card-body" style="font-size:12px">
                 Demande validée en interne MG{% if demande.approved_by_name %} par <strong>{{ demande.approved_by_name }}</strong>{% endif %}{% if demande.approved_at %} le {{ demande.approved_at[:16] }}{% endif %}
                 {% if demande.compta_notes %}<br><strong>Notes MG pour comptabilité :</strong><br><em>{{ demande.compta_notes }}</em>{% endif %}

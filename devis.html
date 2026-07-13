@@ -5,12 +5,14 @@
 
 {# v89 : Widget Roadmap pour le commercial — voit ses projets en cours #}
 {% include '_my_projects_widget.html' %}
+<style>a.stat-card{text-decoration:none;color:inherit;transition:transform .1s,box-shadow .1s}a.stat-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}a.stat-card.on{outline:3px solid #1A7A6D;outline-offset:1px}</style>
 <div class="stats-grid">
-    <div class="stat-card"><div class="stat-icon blue">📝</div><div class="stat-info"><div class="stat-num">{{ d_stats.brouillon }}</div><div class="stat-label">Brouillons</div></div></div>
-    <div class="stat-card"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-num">{{ d_stats.envoye }}</div><div class="stat-label">Envoyés</div></div></div>
-    <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ d_stats.accepte }}</div><div class="stat-label">Acceptés</div></div></div>
-    <div class="stat-card"><div class="stat-icon red">❌</div><div class="stat-info"><div class="stat-num">{{ d_stats.refuse }}</div><div class="stat-label">Refusés</div></div></div>
+    <a href="/devis?tab={{ tab }}&statut=brouillon" class="stat-card {% if statut=='brouillon' %}on{% endif %}"><div class="stat-icon blue">📝</div><div class="stat-info"><div class="stat-num">{{ d_stats.brouillon }}</div><div class="stat-label">Brouillons</div></div></a>
+    <a href="/devis?tab={{ tab }}&statut=envoye" class="stat-card {% if statut=='envoye' %}on{% endif %}"><div class="stat-icon orange">📤</div><div class="stat-info"><div class="stat-num">{{ d_stats.envoye }}</div><div class="stat-label">Envoyés</div></div></a>
+    <a href="/devis?tab={{ tab }}&statut=accepte" class="stat-card {% if statut=='accepte' %}on{% endif %}"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ d_stats.accepte }}</div><div class="stat-label">Acceptés</div></div></a>
+    <a href="/devis?tab={{ tab }}&statut=refuse" class="stat-card {% if statut=='refuse' %}on{% endif %}"><div class="stat-icon red">❌</div><div class="stat-info"><div class="stat-num">{{ d_stats.refuse }}</div><div class="stat-label">Refusés</div></div></a>
 </div>
+{% if statut %}<div style="margin-bottom:12px"><a href="/devis?tab={{ tab }}" class="btn btn-outline btn-sm">✖ Retirer le filtre « {{ {'brouillon':'Brouillons','envoye':'Envoyés','accepte':'Acceptés','refuse':'Refusés'}[statut] }} »</a></div>{% endif %}
 <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
     <a href="/devis?tab=all" class="btn {% if tab=='all' %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous ({{ d_stats.total }})</a>
     <a href="/devis?tab=devis" class="btn {% if tab=='devis' %}btn-primary{% else %}btn-outline{% endif %}">Devis</a>
@@ -53,12 +55,16 @@
     <a href="/devis/edit/{{ d.id }}" class="btn btn-outline btn-sm" title="Modifier (nouvelle fenêtre)" target="_blank">✏️</a>
     <a href="/devis/pdf/{{ d.id }}" class="btn btn-primary btn-sm" title="PDF">📥</a>
     {% if d.status=='brouillon' %}
-    <a href="/devis/status/{{ d.id }}/envoye" class="btn btn-sm" style="background:#ff9800;color:#fff" title="Envoyé">📤</a>
+    <a href="/devis/status/{{ d.id }}/envoye" class="btn btn-sm" style="background:#ff9800;color:#fff" title="Marquer envoyé">📤</a>
     <a href="/devis/duplicate/{{ d.id }}" class="btn btn-outline btn-sm" title="Dupliquer">📋</a>
     {% endif %}
-    {% if d.status=='envoye' %}
-    <a href="/devis/status/{{ d.id }}/accepte" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Accepter">✅</a>
-    <a href="/devis/status/{{ d.id }}/refuse" class="btn btn-danger btn-sm" title="Refuser">❌</a>
+    {# v172d : accepter/refuser possible dès le brouillon (plus besoin de passer par « Envoyé ») #}
+    {% if d.status in ('brouillon','envoye') %}
+    <a href="/devis/status/{{ d.id }}/accepte" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Accepter le devis" onclick="return confirm('Marquer ce devis comme ACCEPTÉ ?')">✅</a>
+    <a href="/devis/status/{{ d.id }}/refuse" class="btn btn-danger btn-sm" title="Refuser le devis" onclick="return confirm('Marquer ce devis comme REFUSÉ ?')">❌</a>
+    {% endif %}
+    {% if d.status in ('accepte','refuse') %}
+    <a href="/devis/status/{{ d.id }}/brouillon" class="btn btn-outline btn-sm" title="Rouvrir (repasser en brouillon)">↩️</a>
     {% endif %}
     {% if 'convertir_devis' in permissions or 'admin' in permissions %}<a href="/devis/convert/{{ d.id }}" class="btn btn-sm" style="background:#1A7A6D;color:#fff" title="Facture" onclick="return confirm('Convertir ?')">💰</a>{% endif %}
     {% if d.status in ('brouillon','refuse') %}

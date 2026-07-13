@@ -447,7 +447,7 @@ try:
         'tech_chef':            ['roadmap_view', 'project_progress', 'project_report'],
         'centre_technique':     ['roadmap_view', 'project_progress', 'project_report'],
         'chef_chantier':        ['roadmap_view', 'project_progress', 'project_report'],
-        # Moyens Généraux : prépare matériel
+        # Achat et approvisionnement : prépare matériel
         'mg':                   ['roadmap_view', 'project_material'],
         'magasinier':           ['roadmap_view', 'project_material'],
         'moyens_generaux':      ['roadmap_view', 'project_material'],
@@ -1690,7 +1690,7 @@ try:
             'caisse_view', 'caisse_sortie_decision', 'caisse_sortie_comptabiliser',
             'corbeille_view', 'mg_view',
         ]
-        # Moyens Généraux
+        # Achat et approvisionnement
         mg_new_perms = [
             'mg_view', 'mg_demande', 'mg_valider', 'mg_gestion',
             'caisse_sortie',  # demander
@@ -3059,7 +3059,7 @@ try:
 except Exception as _e: print(f"[v162f-Perms] Err : {_e}", flush=True)
 
 
-# v162g : MODULE « Suivi des contrats fournisseurs » (Moyens Généraux)
+# v162g : MODULE « Suivi des contrats fournisseurs » (Achat et approvisionnement)
 try:
     from models import get_db as _v162g_db
     _v162g = _v162g_db()
@@ -4488,10 +4488,10 @@ PERM_CATEGORIES = {
         ('informatique', 'Module Informatique (parc IT, tickets)'),
     ],
     
-    '🏠 MOYENS GÉNÉRAUX (Section sidebar)': [
-        ('section_mg', 'Voir la section MOYENS GÉNÉRAUX dans la sidebar'),
-        ('moyens_generaux', 'Module Moyens Généraux (lecture)'),
-        ('moyens_generaux_edit', 'Moyens Généraux modification'),
+    '🏠 ACHAT ET APPROVISIONNEMENT (Section sidebar)': [
+        ('section_mg', 'Voir la section ACHAT ET APPROVISIONNEMENT dans la sidebar'),
+        ('moyens_generaux', 'Module Achat et approvisionnement (lecture)'),
+        ('moyens_generaux_edit', 'Achat et approvisionnement modification'),
         ('mg_view', 'Voir les demandes MG'),
         ('mg_demande', 'Créer une demande MG'),
         ('mg_valider', 'Valider/refuser une demande MG (en interne MG)'),
@@ -4886,7 +4886,7 @@ def project_access_required(f):
     return decorated
 
 
-# v148 : Décorateur pour bloquer les Moyens Généraux sur certaines actions
+# v148 : Décorateur pour bloquer les Achat et approvisionnement sur certaines actions
 def mg_forbidden(f):
     """v148 : Bloque les MG/magasinier sur les actions qui ne les concernent pas :
     - Assignation de techniciens à un projet
@@ -4900,7 +4900,7 @@ def mg_forbidden(f):
         if not user:
             return redirect(url_for('login'))
         if user['role'] in ('mg', 'moyens_generaux', 'magasinier'):
-            flash("⛔ Les Moyens Généraux ne peuvent pas effectuer cette action. "
+            flash("⛔ Les Achat et approvisionnement ne peuvent pas effectuer cette action. "
                   "Cette tâche est réservée au coordinateur de projet ou à la direction.", "error")
             # Redirige vers le projet si pid présent
             pid = kwargs.get('pid')
@@ -9010,10 +9010,10 @@ def comptabilite_facture_encaisser(fid):
 @app.route('/comptabilite/facture/<int:fid>/delete', methods=['POST'])
 @login_required
 def comptabilite_facture_delete(fid):
-    """v162 : suppression d'une facture — réservée au DG, aux Moyens Généraux et à l'admin."""
+    """v162 : suppression d'une facture — réservée au DG, aux Achat et approvisionnement et à l'admin."""
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'dg', 'directeur', 'moyens_generaux', 'mg', 'magasinier'):
-        flash("⚠️ Seuls le DG, les Moyens Généraux ou l'admin peuvent supprimer une facture.", "error")
+        flash("⚠️ Seuls le DG, les Achat et approvisionnement ou l'admin peuvent supprimer une facture.", "error")
         return redirect('/comptabilite?tab=all')
     conn = _gdb()
     inv = conn.execute("SELECT reference FROM invoices WHERE id=?", (fid,)).fetchone()
@@ -9031,10 +9031,10 @@ def comptabilite_facture_delete(fid):
 @app.route('/comptabilite/factures/delete-bulk', methods=['POST'])
 @login_required
 def comptabilite_factures_delete_bulk():
-    """v162 : suppression de PLUSIEURS factures à la fois — DG, Moyens Généraux et admin."""
+    """v162 : suppression de PLUSIEURS factures à la fois — DG, Achat et approvisionnement et admin."""
     user = get_user_by_id(session['user_id'])
     if not user or user['role'] not in ('admin', 'dg', 'directeur', 'moyens_generaux', 'mg', 'magasinier'):
-        flash("⚠️ Seuls le DG, les Moyens Généraux ou l'admin peuvent supprimer des factures.", "error")
+        flash("⚠️ Seuls le DG, les Achat et approvisionnement ou l'admin peuvent supprimer des factures.", "error")
         return redirect('/comptabilite?tab=all')
     ids = []
     for v in request.form.getlist('ids'):
@@ -10341,7 +10341,8 @@ def devis_page():
     """v155 : Onglet 'Mes devis' pour que le commercial retrouve ses créations + recherche."""
     tab = request.args.get('tab', 'all')
     search = (request.args.get('q', '') or '').strip()
-    
+    statut = (request.args.get('statut', '') or '').strip()  # v172d : filtre par statut (cartes cliquables)
+
     d_stats = get_devis_stats()
     
     # Récupérer la liste appropriée
@@ -10359,6 +10360,10 @@ def devis_page():
     else:
         devis_list = get_all_devis(None)
     
+    # v172d : filtre par statut (cartes cliquables Brouillons/Envoyés/Acceptés/Refusés)
+    if statut in ('brouillon', 'envoye', 'accepte', 'refuse'):
+        devis_list = [d for d in devis_list if (d.get('status') or 'brouillon') == statut]
+
     # v155 : Recherche libre
     if search:
         s_low = search.lower()
@@ -10376,8 +10381,8 @@ def devis_page():
         conn.close()
     except: mine_count = 0
     
-    return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list, 
-        d_stats=d_stats, search=search, mine_count=mine_count)
+    return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list,
+        d_stats=d_stats, search=search, mine_count=mine_count, statut=statut)
 
 @app.route('/devis/new', methods=['GET', 'POST'])
 @permission_required('proforma_edit')
@@ -11757,7 +11762,7 @@ def _bilan_data(conn, dept, annee, mois):
     taux_delai = round(int(_ot) / t_faites * 100, 1) if t_faites else 0
     D['activites'] = {'creees': t_creees, 'faites': t_faites, 'en_cours': t_cours, 'annulees': t_annul,
                       'refusees': t_refus, 'en_retard': t_retard, 'taux_exec': taux_exec, 'taux_delai': taux_delai, 'on_time': int(_ot)}
-    # --- MOYENS GÉNÉRAUX ---
+    # --- ACHAT ET APPROVISIONNEMENT ---
     def _mgc(cond=''):
         sql = "SELECT COUNT(*) FROM achats_demandes WHERE substr(COALESCE(created_at, date),1,10)>=? AND substr(COALESCE(created_at, date),1,10)<=?"
         p = [d_from, d_to]
@@ -12026,7 +12031,7 @@ def rh_bilan_pdf():
     _sec("Activités (tâches)", [('Créées', a['creees']), ('Réalisées', a['faites']), ('En cours', a['en_cours']),
         ('Annulées', a['annulees']), ('En retard', a['en_retard']), ('Taux d\'exécution', f"{a['taux_exec']}%"), ('Respect des délais', f"{a['taux_delai']}%")])
     m = d['mg']
-    _sec("Moyens généraux", [('Demandes', m['demandes']), ('Validées', m['validees']), ('Refusées', m['refusees']),
+    _sec("Achat et approvisionnement", [('Demandes', m['demandes']), ('Validées', m['validees']), ('Refusées', m['refusees']),
         ('Crédits fournisseurs', m['credits']), ('Montant engagé', f"{m['engage']:,.0f} F"), ('Payé', f"{m['paye']:,.0f} F"), ('Reste dû', f"{m['reste']:,.0f} F")])
     iv = d.get('interventions', {})
     if iv:
@@ -22389,7 +22394,7 @@ FIELD_REPORT_DEPARTEMENTS = {
     'comptabilite': ('🧮 Comptabilité', ['comptable', 'comptabilite']),
     'recouvrement': ('💰 Recouvrement', ['agent_recouvreur']),
     'rh':           ('👥 Ressources Humaines', ['rh']),
-    'moyens_generaux': ('🏭 Moyens Généraux', ['moyens_generaux', 'mg', 'magasinier']),
+    'moyens_generaux': ('🏭 Achat et approvisionnement', ['moyens_generaux', 'mg', 'magasinier']),
     'projets':      ('📁 Gestion de projets', ['gestionnaire_projet', 'resp_projet', 'coordinateur']),
     'direction':    ('🏛️ Direction', ['dg', 'directeur']),
     'informatique': ('🖥️ Informatique', ['informatique']),
@@ -25920,12 +25925,12 @@ def _compute_next_due(base_date_str, period_type, period_days, period_monthly_da
 # Phase technique = Gros œuvre (5a) → retour MG appareillage (5b) → Planif (5c) → Appareillage (5d)
 PROJECT_STEPS = [
     {'num': 1, 'key': 'valide',      'label': 'Projet validé',            'pct': 8,   'icon': '✅', 'service': 'commercial',    'service_label': '🏷️ Commercial',         'color': '#1976d2', 'next_label': '→ Transfert au coordinateur'},
-    {'num': 2, 'key': 'demarre',     'label': 'Démarrage validé',         'pct': 15,  'icon': '🚀', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Notification Moyens Généraux'},
-    {'num': 3, 'key': 'preparation', 'label': 'Préparation matériel',     'pct': 22,  'icon': '📦', 'service': 'mg',            'service_label': '🏪 Moyens Généraux',     'color': '#e8672a', 'next_label': '→ Retour coordinateur'},
+    {'num': 2, 'key': 'demarre',     'label': 'Démarrage validé',         'pct': 15,  'icon': '🚀', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Notification Achat et approvisionnement'},
+    {'num': 3, 'key': 'preparation', 'label': 'Préparation matériel',     'pct': 22,  'icon': '📦', 'service': 'mg',            'service_label': '🏪 Achat et approvisionnement',     'color': '#e8672a', 'next_label': '→ Retour coordinateur'},
     {'num': 4, 'key': 'planifie',    'label': 'Planifié',                 'pct': 30,  'icon': '📅', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Transfert au centre technique (gros œuvre)'},
     # v132 : étape 5 scindée — gros œuvre puis appareillage
     {'num': 5, 'key': 'execution_gros_oeuvre',  'label': '🏗️ Travaux gros œuvre en cours', 'pct': 40, 'icon': '🏗️', 'service': 'technique', 'service_label': '🛠️ Centre Technique', 'color': '#7b1fa2', 'next_label': '→ Notification MG (matériel appareillage)'},
-    {'num': 6, 'key': 'prep_appareillage',      'label': '📦 Préparation appareillage',     'pct': 50, 'icon': '📦', 'service': 'mg',         'service_label': '🏪 Moyens Généraux',  'color': '#e8672a', 'next_label': '→ Retour coordinateur (planif appareillage)'},
+    {'num': 6, 'key': 'prep_appareillage',      'label': '📦 Préparation appareillage',     'pct': 50, 'icon': '📦', 'service': 'mg',         'service_label': '🏪 Achat et approvisionnement',  'color': '#e8672a', 'next_label': '→ Retour coordinateur (planif appareillage)'},
     {'num': 7, 'key': 'planif_appareillage',    'label': '📅 Planif appareillage',          'pct': 58, 'icon': '📅', 'service': 'coordination','service_label':'👨‍💼 Coordinateur',     'color': '#1A7A6D', 'next_label': '→ Transfert technique (appareillage)'},
     {'num': 8, 'key': 'execution_appareillage', 'label': '⚙️ Travaux appareillage en cours', 'pct': 68, 'icon': '⚙️', 'service': 'technique','service_label':'🛠️ Centre Technique',   'color': '#7b1fa2', 'next_label': '→ Transfert au coordinateur (CQ)'},
     {'num': 9, 'key': 'qc_valide',   'label': 'Contrôle qualité validé',  'pct': 78,  'icon': '🔍', 'service': 'coordination',  'service_label': '👨‍💼 Coordinateur',       'color': '#1A7A6D', 'next_label': '→ Livraison obligatoire'},
@@ -26185,7 +26190,7 @@ def _project_advance(project_id, to_status, comment=''):
         # v132 : Gros œuvre + appareillage
         'execution_gros_oeuvre':   (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "🏗️ Gros œuvre en cours", "Démarrer les travaux de gros œuvre (étape 1/2 de la phase technique)."),
         'prep_appareillage':       (['mg', 'moyens_generaux', 'magasinier'] + COORD_ROLES, "📦 Gros œuvre terminé — Préparer le matériel d'appareillage", "Les travaux de gros œuvre sont terminés. Préparer et mettre à disposition le matériel pour l'étape d'appareillage (étape 2/2)."),
-        'planif_appareillage':     (COORD_ROLES, "📅 Matériel appareillage prêt — Planifier l'intervention", "Les Moyens Généraux ont livré le matériel d'appareillage. Planifiez la prochaine intervention pour l'étape d'appareillage."),
+        'planif_appareillage':     (COORD_ROLES, "📅 Matériel appareillage prêt — Planifier l'intervention", "Les Achat et approvisionnement ont livré le matériel d'appareillage. Planifiez la prochaine intervention pour l'étape d'appareillage."),
         'execution_appareillage':  (['technicien', 'tech_chef', 'centre_technique'] + COORD_ROLES, "⚙️ Appareillage en cours", "Démarrer les travaux d'appareillage (étape 2/2). L'étape de gros œuvre est déjà réalisée."),
         'travaux_fin':    (COORD_ROLES,                          "🏁 Travaux terminés — Contrôle qualité requis","Procéder au contrôle qualité avant livraison au client."),
         'qc_valide':      (COORD_ROLES,                          "🔍 Contrôle qualité validé — Programmer livraison","Le contrôle qualité est validé. Programmer le rendez-vous de livraison avec le client."),
@@ -26944,7 +26949,7 @@ def projects_create():
             try:
                 _project_notify(pid, [], 
                     f"🎯 Vous êtes affecté(e) au projet {ref}",
-                    f"Vous avez été désigné(e) coordinateur du projet \"{title}\". Validez le démarrage pour notifier les Moyens Généraux.",
+                    f"Vous avez été désigné(e) coordinateur du projet \"{title}\". Validez le démarrage pour notifier les Achat et approvisionnement.",
                     f"/projects/{pid}",
                     target_user_id=int(coord_id))
             except: pass
@@ -27203,7 +27208,7 @@ def project_advance(pid):
         # Vérifier qu'au moins 1 matériel a été ajouté (sinon avertir mais ne pas bloquer)
         nb_mat = conn.execute("SELECT COUNT(*) FROM wf_project_materials WHERE project_id=?", (pid,)).fetchone()[0]
         if nb_mat == 0:
-            flash("⚠️ Aucun matériel n'a été listé. Demandez aux Moyens Généraux de l'ajouter.", "warning")
+            flash("⚠️ Aucun matériel n'a été listé. Demandez aux Achat et approvisionnement de l'ajouter.", "warning")
     elif to_status == 'livre':
         # Vérifier que la livraison a bien été enregistrée (bon de livraison ou ABE)
         # On accepte le passage en livré, mais on flash un rappel
@@ -27212,7 +27217,7 @@ def project_advance(pid):
     # v148 : Bloquer MG sur les transitions hors préparation matériel
     if is_mg and to_status not in ('planifie', 'planif_appareillage'):
         conn.close()
-        flash("⛔ Les Moyens Généraux ne peuvent faire avancer le projet que sur les étapes de préparation matériel "
+        flash("⛔ Les Achat et approvisionnement ne peuvent faire avancer le projet que sur les étapes de préparation matériel "
               "(vers planification ou planification appareillage).", "error")
         return redirect(f'/projects/{pid}')
     
@@ -29877,7 +29882,7 @@ def _cd_metrics(conn):
     m['int_attente'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE status IN ('planifiee','en_cours','controle_qualite')")
     m['int_urgent'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE priority IN ('urgente','urgent','haute') AND status NOT IN ('livre','termine','terminee','cloturee','close','annulee','annule')")
     m['int_retard'] = _cd_n(conn, "SELECT COUNT(*) FROM interventions WHERE scheduled_date<>'' AND scheduled_date < ? AND status IN ('planifiee','en_cours')", (today,))
-    # Moyens généraux
+    # Achat et approvisionnement
     m['mg_attente'] = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('en_attente','soumise','transmise')")
     m['mg_valide'] = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('approuvee','validee','valide')")
     m['mg_refuse'] = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('refusee','rejetee')")
@@ -29930,7 +29935,7 @@ def _cd_alertes(conn):
     if _inr: add('eleve', 'Interventions', f"{_inr} intervention(s) en retard", "Reprogrammer / affecter un technicien")
     # Demandes MG bloquées (en attente > 3 jours)
     _mgb = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE status IN ('en_attente','soumise','transmise') AND DATE(created_at) <= ?", ((today-timedelta(days=3)).strftime('%Y-%m-%d'),))
-    if _mgb: add('moyen', 'Moyens Généraux', f"{_mgb} demande(s) bloquée(s) depuis > 3 jours", "Traiter les demandes en attente")
+    if _mgb: add('moyen', 'Achat et approvisionnement', f"{_mgb} demande(s) bloquée(s) depuis > 3 jours", "Traiter les demandes en attente")
     # Contrats arrivant à expiration (30 j)
     _d30 = (today+timedelta(days=30)).strftime('%Y-%m-%d')
     for ct in _cd_rows(conn, "SELECT reference, date_fin FROM supplier_contracts WHERE COALESCE(deleted_at,'')='' AND date_fin<>'' AND date_fin BETWEEN ? AND ? ORDER BY date_fin LIMIT 10", (today_s, _d30)):
@@ -33913,7 +33918,7 @@ def pointage_company_session_current(slug):
 
 DEPARTMENTS = ['Administration', 'Direction Générale', 'Ressources Humaines',
                'Comptabilité / Finance', 'Commercial', 'Technique',
-               'Informatique', 'Moyens Généraux', 'Gestion de Projet',
+               'Informatique', 'Achat et approvisionnement', 'Gestion de Projet',
                'Secrétariat', 'Conciergerie', 'Marketing', 'Logistique', 'Autre']
 
 
@@ -36219,7 +36224,7 @@ def fournisseurs_recap_pdf():
 @app.route('/mg/bilan-pdf')
 @permission_required_any('mg_view', 'mg_gestion', 'admin')
 def mg_bilan_pdf():
-    """Bilan général PDF de tout le contenu Moyens Généraux sur une période.
+    """Bilan général PDF de tout le contenu Achat et approvisionnement sur une période.
     Couvre : fournisseurs (achats/paiements), contrats, demandes internes,
     réceptions et équipements. Params : ?from=YYYY-MM-DD&to=YYYY-MM-DD"""
     from datetime import datetime as _dt, date as _date
@@ -36318,7 +36323,7 @@ def mg_bilan_pdf():
         doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
         story = []
         story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>", ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
-        story.append(Paragraph("Bilan général — Moyens Généraux", ParagraphStyle('h2', fontSize=12, textColor=NAVY, alignment=TA_CENTER)))
+        story.append(Paragraph("Bilan général — Achat et approvisionnement", ParagraphStyle('h2', fontSize=12, textColor=NAVY, alignment=TA_CENTER)))
         story.append(Paragraph(f"Période : du {date_from} au {date_to}", ParagraphStyle('p', fontSize=10, alignment=TA_CENTER, textColor=HexColor('#666666'))))
         story.append(Spacer(1, 7*mm))
 
@@ -36653,7 +36658,7 @@ def achats_contrat_add():
 
 
 # ============================================================
-# MOYENS GÉNÉRAUX - Module complet (v56)
+# ACHAT ET APPROVISIONNEMENT - Module complet (v56)
 # Workflow : Demande → Validation → Devis → Commande → Réception → Paiement → Équipement
 # ============================================================
 
@@ -36661,7 +36666,7 @@ def achats_contrat_add():
 @app.route('/mg/dashboard')
 @permission_required_any('mg_view', 'admin')
 def mg_dashboard():
-    """Dashboard Moyens Généraux : KPIs et accès aux modules."""
+    """Dashboard Achat et approvisionnement : KPIs et accès aux modules."""
     conn = _gdb()
     
     # KPIs
@@ -36961,7 +36966,7 @@ def mg_demandes_valider(did, action):
 @app.route('/mg/demandes/<int:did>/delete')
 @login_required
 def mg_demandes_delete(did):
-    # v170n : Moyens Généraux ne peut PLUS supprimer une demande interne.
+    # v170n : Achat et approvisionnement ne peut PLUS supprimer une demande interne.
     # Réservé à la direction (admin / dg / directeur).
     _u = get_user_by_id(session['user_id'])
     if not _u or _u['role'] not in ('admin', 'dg', 'directeur'):

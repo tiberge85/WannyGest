@@ -1,7 +1,7 @@
-{% extends "base.html" %}{% block title %}WannyGest - Moyens Généraux{% endblock %}{% block content %}
+{% extends "base.html" %}{% block title %}WannyGest - Achat et approvisionnement{% endblock %}{% block content %}
 <div class="page-header">
     <div>
-        <h1>📦 Moyens Généraux</h1>
+        <h1>📦 Achat et approvisionnement</h1>
         <p style="color:#666;font-size:13px">Workflow : Demande → Validation → Devis → Commande → Réception → Paiement → Équipement</p>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -10,11 +10,11 @@
     </div>
 </div>
 
-<!-- Modal Bilan général Moyens Généraux par période -->
+<!-- Modal Bilan général Achat et approvisionnement par période -->
 <div id="mgBilanModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
 <div style="background:#fff;border-radius:10px;padding:20px;max-width:480px;width:92%">
-    <h3 style="margin:0 0 12px;color:#7b1fa2">📊 Bilan général Moyens Généraux</h3>
-    <p style="font-size:12px;color:#666;margin-bottom:14px">Génère un PDF récapitulatif de tout le contenu Moyens Généraux sur la période choisie : fournisseurs, achats &amp; paiements, contrats, demandes internes, réceptions et équipements.</p>
+    <h3 style="margin:0 0 12px;color:#7b1fa2">📊 Bilan général Achat et approvisionnement</h3>
+    <p style="font-size:12px;color:#666;margin-bottom:14px">Génère un PDF récapitulatif de tout le contenu Achat et approvisionnement sur la période choisie : fournisseurs, achats &amp; paiements, contrats, demandes internes, réceptions et équipements.</p>
     <form method="get" action="/mg/bilan-pdf" target="_blank">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
             <div>
