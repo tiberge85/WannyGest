@@ -11661,6 +11661,18 @@ def _bilan_periode(annee, mois):
             return f"{annee}-{mm}-01", f"{annee}-{mm}-{last:02d}", f"{_MOIS[int(mm)]} {annee}"
     return f"{annee}-01-01", f"{annee}-12-31", f"Année {annee}"
 
+def _tache_dep_where(alias='t'):
+    """v172b : fragment SQL — la tâche <alias> relève d'un département, via SON champ departement
+    OU via le département d'un assigné (users/employees). Insensible à la casse/espaces.
+    Le paramètre `dept` doit être fourni 3 fois par l'appelant."""
+    return (f"(LOWER(TRIM(COALESCE({alias}.departement,'')))=LOWER(TRIM(?)) "
+            f"OR EXISTS (SELECT 1 FROM tache_assignees _a "
+            f"LEFT JOIN users _u ON _u.id=_a.user_id "
+            f"LEFT JOIN employees _e ON (_e.email=_u.email OR _e.first_name||' '||_e.last_name=_u.full_name) "
+            f"WHERE _a.tache_id={alias}.id AND (LOWER(TRIM(COALESCE(_u.department,'')))=LOWER(TRIM(?)) "
+            f"OR LOWER(TRIM(COALESCE(_e.department,'')))=LOWER(TRIM(?)))))")
+
+
 def _bilan_data(conn, dept, annee, mois):
     """v170u : agrège les indicateurs d'un département/service sur une période. Aucune ressaisie."""
     d_from, d_to, per_lbl = _bilan_periode(annee, mois)
@@ -11723,7 +11735,7 @@ def _bilan_data(conn, dept, annee, mois):
     def _tc(cond=''):
         sql = f"SELECT COUNT(*) FROM taches t WHERE {tq}>=? AND {tq}<=?"
         p = [d_from, d_to]
-        if dept: sql += " AND COALESCE(t.departement,'')=?"; p.append(dept)
+        if dept: sql += " AND " + _tache_dep_where('t'); p += [dept, dept, dept]
         if cond: sql += f" AND {cond}"
         return int(conn.execute(sql, p).fetchone()[0] or 0)
     t_creees = _tc(); t_faites = _tc("t.statut='terminee'"); t_cours = _tc("t.statut='en_cours'")
@@ -11731,12 +11743,12 @@ def _bilan_data(conn, dept, annee, mois):
     # à temps (on_time) via assignees
     _ot = conn.execute(
         f"""SELECT COUNT(*) FROM tache_assignees a JOIN taches t ON t.id=a.tache_id
-            WHERE a.statut='terminee' AND a.on_time=1 AND {tq}>=? AND {tq}<=? {("AND COALESCE(t.departement,'')=?" if dept else "")}""",
-        ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchone()[0] or 0
+            WHERE a.statut='terminee' AND a.on_time=1 AND {tq}>=? AND {tq}<=? {("AND " + _tache_dep_where('t') if dept else "")}""",
+        ((d_from, d_to, dept, dept, dept) if dept else (d_from, d_to))).fetchone()[0] or 0
     from datetime import datetime as _dtn
     t_retard = 0
-    for r in conn.execute(f"SELECT date_limite, heure_limite, statut FROM taches t WHERE {tq}>=? AND {tq}<=?" + (" AND COALESCE(departement,'')=?" if dept else ""),
-                          ((d_from, d_to, dept) if dept else (d_from, d_to))).fetchall():
+    for r in conn.execute(f"SELECT date_limite, heure_limite, statut FROM taches t WHERE {tq}>=? AND {tq}<=?" + (" AND " + _tache_dep_where('t') if dept else ""),
+                          ((d_from, d_to, dept, dept, dept) if dept else (d_from, d_to))).fetchall():
         try:
             if r['statut'] not in ('terminee', 'annulee') and r['date_limite'] and r['date_limite'][:10] < datetime.now().strftime('%Y-%m-%d'):
                 t_retard += 1
@@ -29977,18 +29989,24 @@ def _cd_recommandations(conn):
 
 def _cd_services(conn):
     """Comparaison des départements (performance, présence, budget, tâches, interventions)."""
-    deps = set()
-    for r in _cd_rows(conn, "SELECT DISTINCT department d FROM employees WHERE COALESCE(department,'')<>''"): deps.add(r['d'])
-    for r in _cd_rows(conn, "SELECT DISTINCT departement d FROM taches WHERE COALESCE(departement,'')<>''"): deps.add(r['d'])
+    deps, _seen = [], set()  # v172b : dédup insensible à la casse
+    for q in ("SELECT DISTINCT department d FROM employees WHERE COALESCE(department,'')<>''",
+              "SELECT DISTINCT departement d FROM taches WHERE COALESCE(departement,'')<>''",
+              "SELECT DISTINCT department d FROM users WHERE COALESCE(department,'')<>''"):
+        for r in _cd_rows(conn, q):
+            k = (r['d'] or '').strip().lower()
+            if k and k not in _seen:
+                _seen.add(k); deps.append(r['d'].strip())
+    _w = _tache_dep_where('t')
     out = []
     for d in deps:
-        tk_tot = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=?", (d,))
-        tk_ok = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=? AND statut='terminee'", (d,))
+        tk_tot = _cd_n(conn, f"SELECT COUNT(*) FROM taches t WHERE {_w}", (d, d, d))
+        tk_ok = _cd_n(conn, f"SELECT COUNT(*) FROM taches t WHERE {_w} AND t.statut='terminee'", (d, d, d))
         tk_pct = round(tk_ok * 100.0 / tk_tot, 1) if tk_tot else 0
         bp = _cd_n(conn, "SELECT COALESCE(SUM(amount_planned),0) FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1", (d,))
         bs = _cd_n(conn, "SELECT COALESCE(SUM(amount_spent),0) FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1", (d,))
         budget_pct = round(bs * 100.0 / bp, 1) if bp else 0
-        effectif = _cd_n(conn, "SELECT COUNT(*) FROM employees WHERE department=?", (d,))
+        effectif = _cd_n(conn, "SELECT COUNT(*) FROM employees WHERE LOWER(TRIM(COALESCE(department,'')))=LOWER(TRIM(?))", (d,))
         mg = _cd_n(conn, "SELECT COUNT(*) FROM achats_demandes WHERE department=?", (d,))
         # score : réalisation tâches (0-50) + respect budget (0-50)
         score = round(tk_pct * 0.5 + max(0, (100 - budget_pct)) * 0.5, 1)
@@ -30046,8 +30064,9 @@ def _cd_objectif_realise(conn, o):
     d = o.get('departement')
     d1, d2, _ = _cd_periode_bornes(o.get('periode') or 'mensuel')
     if src == 'taches':
-        tot = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=? AND date(created_at) BETWEEN ? AND ?", (d, d1, d2))
-        ok = _cd_n(conn, "SELECT COUNT(*) FROM taches WHERE departement=? AND statut='terminee' AND date(created_at) BETWEEN ? AND ?", (d, d1, d2))
+        _w = _tache_dep_where('t')  # v172b : rattachement robuste (casse + via assignés)
+        tot = _cd_n(conn, f"SELECT COUNT(*) FROM taches t WHERE {_w} AND date(t.created_at) BETWEEN ? AND ?", (d, d, d, d1, d2))
+        ok = _cd_n(conn, f"SELECT COUNT(*) FROM taches t WHERE {_w} AND t.statut='terminee' AND date(t.created_at) BETWEEN ? AND ?", (d, d, d, d1, d2))
         return round(ok * 100.0 / tot, 1) if tot else 0
     if src == 'budget':
         bp = _cd_n(conn, "SELECT COALESCE(SUM(amount_planned),0) FROM dept_budgets WHERE department=? AND COALESCE(is_active,1)=1", (d,))

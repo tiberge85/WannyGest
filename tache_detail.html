@@ -73,8 +73,6 @@
         <strong style="color:#1A7A6D">Mon statut : {{ my_assignee.statut }}</strong>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
             {% if t.statut not in ('terminee','annulee','refusee') %}
-            {% if my_assignee.statut in ('nouvelle',) %}
-                <form method="post" action="/gestion-taches/{{ t.id }}/action"><input type="hidden" name="action" value="accepter"><button class="td-act" style="background:#1565c0">✔️ Accepter</button></form>{% endif %}
             {% if my_assignee.statut in ('nouvelle','acceptee','pause') %}
                 <form method="post" action="/gestion-taches/{{ t.id }}/action"><input type="hidden" name="action" value="{% if my_assignee.statut=='pause' %}reprendre{% else %}commencer{% endif %}"><button class="td-act" style="background:#e8672a">▶ {% if my_assignee.statut=='pause' %}Reprendre{% else %}Commencer{% endif %}</button></form>{% endif %}
             {% if my_assignee.statut=='en_cours' %}
