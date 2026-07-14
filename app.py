@@ -36777,26 +36777,6 @@ def mg_dashboard():
 
 # === DEMANDES INTERNES ===
 
-@app.route('/mg/demandes/_debug_status')
-def mg_demandes_debug_status():
-    """v172 : diagnostic temporaire PUBLIC (à retirer) — valeurs exactes de status/compta_status.
-    N'expose que des libellés de statut agrégés, aucune donnée personnelle."""
-    conn = _gdb()
-    rows = conn.execute("SELECT status, COUNT(*) c FROM achats_demandes GROUP BY status ORDER BY c DESC").fetchall()
-    crows = conn.execute("SELECT compta_status, COUNT(*) c FROM achats_demandes GROUP BY compta_status ORDER BY c DESC").fetchall()
-    total = conn.execute("SELECT COUNT(*) FROM achats_demandes").fetchone()[0]
-    conn.close()
-    out = [f"TOTAL demandes = {total}", "", "=== status (valeur exacte, repr) ==="]
-    for r in rows:
-        out.append(f"{repr(r['status'])}  ->  {r['c']}")
-    out.append("")
-    out.append("=== compta_status (valeur exacte, repr) ===")
-    for r in crows:
-        out.append(f"{repr(r['compta_status'])}  ->  {r['c']}")
-    from flask import Response
-    return Response("\n".join(out), mimetype='text/plain')
-
-
 @app.route('/mg/demandes')
 @permission_required_any('mg_view', 'admin')
 def mg_demandes():
@@ -36820,20 +36800,36 @@ def mg_demandes():
             return 'validee'
         if s in ('refusee', 'refuse', 'rejete', 'rejetee', 'rejected', 'annulee', 'annule'):
             return 'refusee'
-        # tout le reste (en_attente, 'en attente', 'attente', 'pending', 'nouvelle', vide...) = en attente
+        # tout le reste (en_attente, 'en attente', 'attente', 'pending', 'a_valider', vide...) = en attente
+        return 'en_attente'
+
+    def _statut_effectif(d):
+        # v172 : dans cette organisation les demandes sont auto-validées côté MG
+        # (status = 'validee' quasi systématiquement). L'état qui distingue réellement
+        # les demandes est celui de la Comptabilité (compta_status). On combine les deux
+        # pour que les boutons En attente / Validées / Refusées segmentent vraiment :
+        #   - Refusée si refusée au MG OU par la Compta
+        #   - Validée si validée par la Compta
+        #   - sinon En attente (compta 'à valider' / non transmise, ou MG en attente)
+        mg = _norm_statut(d.get('status'))
+        compta = _norm_statut(d.get('compta_status'))
+        if mg == 'refusee' or compta == 'refusee':
+            return 'refusee'
+        if compta == 'validee':
+            return 'validee'
         return 'en_attente'
 
     for d in all_dem:
-        d['_norm_status'] = _norm_statut(d.get('status'))
+        d['_eff_status'] = _statut_effectif(d)
 
     # v171 : compteurs par statut (sur l'ensemble, cohérents avec le filtre)
     counts = {'toutes': len(all_dem), 'en_attente': 0, 'validee': 0, 'refusee': 0}
     for d in all_dem:
-        counts[d['_norm_status']] += 1
+        counts[d['_eff_status']] += 1
 
-    # Filtrage par statut normalisé
+    # Filtrage par statut effectif
     if statut in ('en_attente', 'validee', 'refusee'):
-        demandes = [d for d in all_dem if d['_norm_status'] == statut]
+        demandes = [d for d in all_dem if d['_eff_status'] == statut]
     else:
         demandes = all_dem
 
