@@ -36656,13 +36656,36 @@ def achats_commande_edit(cid):
             return redirect(f'/achats/commande/{cid}/edit')
     
     # GET : afficher le formulaire d'édition
+    # v171 : la table « fournisseurs » n'existe pas → on lit « suppliers »
+    # (table réellement alimentée par la page Fournisseurs, colonne « nom »).
     fournisseurs = [dict(r) for r in conn.execute(
-        "SELECT * FROM fournisseurs WHERE COALESCE(active,1)=1 ORDER BY name"
+        "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom"
     ).fetchall()]
     conn.close()
     
     return render_template('achats.html', page_mode='commande_edit',
                           bc=bc, fournisseurs=fournisseurs)
+
+
+@app.route('/achats/commande/<int:cid>/preview')
+@permission_required_any('achats', 'comptabilite')
+def achats_commande_preview(cid):
+    """v171 : aperçu (lecture seule) d'un bon de commande."""
+    conn = _gdb()
+    bc = conn.execute("SELECT * FROM achats_commandes WHERE id=?", (cid,)).fetchone()
+    if not bc:
+        conn.close()
+        flash("Bon de commande introuvable", "error")
+        return redirect('/achats?tab=commandes')
+    bc = dict(bc)
+    # Nom du fournisseur : suppliers (source réelle) puis fallback achats_fournisseurs
+    frow = conn.execute("SELECT nom AS name FROM suppliers WHERE id=?", (bc.get('fournisseur_id'),)).fetchone()
+    if not frow:
+        frow = conn.execute("SELECT name FROM achats_fournisseurs WHERE id=?", (bc.get('fournisseur_id'),)).fetchone()
+    bc['fournisseur_name'] = frow['name'] if frow else None
+    conn.close()
+    return render_template('achats.html', page_mode='commande_view', bc=bc)
+
 
 @app.route('/achats/contrat/add', methods=['POST'])
 @permission_required_any('achats_edit', 'comptabilite_edit')
@@ -36782,8 +36805,15 @@ def mg_demandes():
     # — avant on lisait achats_fournisseurs (vide) → les nouveaux fournisseurs n'apparaissaient pas.
     fournisseurs = [dict(r) for r in conn.execute(
         "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
+    # v171 : compteurs par statut pour les boutons de filtre (sur l'ensemble, pas seulement le filtre courant)
+    counts = {'toutes': 0, 'en_attente': 0, 'validee': 0, 'refusee': 0}
+    for r in conn.execute("SELECT status, COUNT(*) AS c FROM achats_demandes GROUP BY status").fetchall():
+        st, c = r['status'], r['c']
+        counts['toutes'] += c
+        if st in counts:
+            counts[st] += c
     conn.close()
-    return render_template('mg_demandes.html', demandes=demandes, current_statut=statut, fournisseurs=fournisseurs)
+    return render_template('mg_demandes.html', demandes=demandes, current_statut=statut, fournisseurs=fournisseurs, counts=counts)
 
 
 @app.route('/mg/demandes/add', methods=['POST'])

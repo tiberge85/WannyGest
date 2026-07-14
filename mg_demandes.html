@@ -16,15 +16,22 @@
 </div>
 
 <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
-    <a href="/mg/demandes" class="btn btn-sm {% if not current_statut %}btn-primary{% else %}btn-outline{% endif %}">📋 Toutes</a>
-    <a href="/mg/demandes?statut=en_attente" class="btn btn-sm {% if current_statut=='en_attente' %}btn-primary{% else %}btn-outline{% endif %}">⏳ En attente</a>
-    <a href="/mg/demandes?statut=validee" class="btn btn-sm {% if current_statut=='validee' %}btn-primary{% else %}btn-outline{% endif %}">✅ Validées</a>
-    <a href="/mg/demandes?statut=refusee" class="btn btn-sm {% if current_statut=='refusee' %}btn-primary{% else %}btn-outline{% endif %}">❌ Refusées</a>
+    {% set _cnt_style = 'display:inline-block;min-width:16px;padding:0 6px;margin-left:5px;border-radius:10px;background:#fff;color:#1a3a5c;font-size:11px;font-weight:700;vertical-align:middle' %}
+    <a href="/mg/demandes" class="btn btn-sm {% if not current_statut %}btn-primary{% else %}btn-outline{% endif %}">📋 Toutes<span style="{{ _cnt_style }}">{{ counts.toutes if counts else 0 }}</span></a>
+    <a href="/mg/demandes?statut=en_attente" class="btn btn-sm {% if current_statut=='en_attente' %}btn-primary{% else %}btn-outline{% endif %}">⏳ En attente<span style="{{ _cnt_style }}">{{ counts.en_attente if counts else 0 }}</span></a>
+    <a href="/mg/demandes?statut=validee" class="btn btn-sm {% if current_statut=='validee' %}btn-primary{% else %}btn-outline{% endif %}">✅ Validées<span style="{{ _cnt_style }}">{{ counts.validee if counts else 0 }}</span></a>
+    <a href="/mg/demandes?statut=refusee" class="btn btn-sm {% if current_statut=='refusee' %}btn-primary{% else %}btn-outline{% endif %}">❌ Refusées<span style="{{ _cnt_style }}">{{ counts.refusee if counts else 0 }}</span></a>
     <button class="btn btn-orange btn-sm" onclick="document.getElementById('addDM').classList.add('active')" style="margin-left:auto">+ Nouvelle demande</button>
 </div>
 
+<!-- v171 : filtre de recherche des demandes internes -->
+<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <input type="text" id="dmSearch" onkeyup="filterDM()" placeholder="🔍 Rechercher (réf, demandeur, fournisseur, site, description...)" style="flex:1;min-width:240px;max-width:460px;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:13px">
+    <span id="dmSearchCount" style="font-size:12px;color:#888"></span>
+</div>
+
 <div class="card"><div class="card-body">
-{% if demandes %}<div class="table-wrap"><table>
+{% if demandes %}<div class="table-wrap"><table id="dmTable">
 <thead><tr><th>Réf</th><th>Date</th><th>Département</th><th>Demandeur</th><th>Fournisseur</th><th>Site</th><th>Description</th><th>Urgence</th><th>Statut</th><th>Actions</th></tr></thead>
 <tbody>{% for d in demandes %}<tr>
 <td><strong>{{ d.reference }}</strong></td>
@@ -191,6 +198,26 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+</script>
+
+<!-- v171 : filtrage client des demandes internes -->
+<script>
+function filterDM(){
+    var input = document.getElementById('dmSearch');
+    if(!input) return;
+    var q = input.value.toLowerCase().trim();
+    var table = document.getElementById('dmTable');
+    if(!table) return;
+    var rows = table.querySelectorAll('tbody tr');
+    var shown = 0;
+    rows.forEach(function(tr){
+        var match = tr.textContent.toLowerCase().indexOf(q) > -1;
+        tr.style.display = match ? '' : 'none';
+        if(match) shown++;
+    });
+    var lbl = document.getElementById('dmSearchCount');
+    if(lbl) lbl.textContent = q ? (shown + ' résultat' + (shown>1?'s':'')) : '';
+}
 </script>
 
 {% endblock %}

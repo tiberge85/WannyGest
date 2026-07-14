@@ -70,6 +70,42 @@
 </form>
 </div></div>
 
+{% elif page_mode == 'commande_view' %}
+{# === APERÇU (LECTURE SEULE) D'UN BON DE COMMANDE === #}
+<div class="page-header">
+    <h1>👁️ Bon de commande {{ bc.reference }}</h1>
+    <a href="/achats?tab=commandes" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+<div class="card"><div class="card-body">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;align-items:center">
+        <div>
+            <div style="font-size:12px;color:#888">Référence</div>
+            <div style="font-size:18px;font-weight:800;color:#1a3a5c">{{ bc.reference }}</div>
+        </div>
+        <span class="badge-status {% if bc.status=='livree' %}sent{% elif bc.status=='annulee' %}{% else %}pending{% endif %}">{{ bc.status }}</span>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Fournisseur</label><div style="font-weight:600">{{ bc.fournisseur_name or '—' }}</div></div>
+        <div class="form-group"><label>Date</label><div>{{ bc.date or '—' }}</div></div>
+    </div>
+    <div class="form-group"><label>Articles / description</label>
+        <div style="white-space:pre-wrap;background:#f8faf9;padding:10px;border-radius:6px;min-height:40px">{{ bc.items_json or '—' }}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Total</label><div style="font-weight:700;color:#1a7a6d">{{ '{:,.0f}'.format(bc.total or 0) }} F</div></div>
+        <div class="form-group"><label>Date de livraison prévue</label><div>{{ bc.delivery_date or '—' }}</div></div>
+    </div>
+    <div class="form-group"><label>Notes</label><div>{{ bc.notes or '—' }}</div></div>
+    <div style="font-size:11px;color:#666;margin-top:8px">Créé le {{ bc.created_at[:10] if bc.created_at else '-' }}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        {% if bc.status != 'livree' %}<a href="/achats/commande/{{ bc.id }}/edit" class="btn btn-primary">✏️ Modifier</a>{% endif %}
+        {% if bc.status=='en_cours' %}
+        <a href="/achats/commande/{{ bc.id }}/status/livree" class="btn" style="background:#2e7d32;color:#fff">📦 Marquer livrée</a>
+        <a href="/achats/commande/{{ bc.id }}/status/annulee" class="btn" style="color:#c53030" onclick="return confirm('Annuler ce bon de commande ?')">❌ Annuler</a>
+        {% endif %}
+    </div>
+</div></div>
+
 {% else %}
 
 <div class="page-header"><h1>🛒 Module Achats</h1></div>
@@ -409,12 +445,13 @@ function filterStockCat(cat){
 </div><div class="card-body">
 {% if commandes %}<div class="table-wrap"><table>
 <thead><tr><th>Réf</th><th>Date</th><th>Fournisseur</th><th>Total</th><th>Livraison prévue</th><th>Statut</th><th>Actions</th></tr></thead>
-<tbody>{% for c in commandes %}<tr>
+<tbody>{% for c in commandes %}<tr style="cursor:pointer" onclick="location.href='/achats/commande/{{ c.id }}/preview'" title="Voir le bon de commande">
 <td><strong>{{ c.reference }}</strong></td><td>{{ c.date or '-' }}</td><td>{{ c.fournisseur_name or '-' }}</td>
 <td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(c.total) }} F</td>
 <td>{{ c.delivery_date or '-' }}</td>
 <td><span class="badge-status {% if c.status=='livree' %}sent{% elif c.status=='annulee' %}{% else %}pending{% endif %}">{{ c.status }}</span></td>
-<td style="display:flex;gap:3px;flex-wrap:wrap">
+<td style="display:flex;gap:3px;flex-wrap:wrap" onclick="event.stopPropagation()">
+    <a href="/achats/commande/{{ c.id }}/preview" class="btn btn-sm btn-outline" title="Voir">👁️</a>
     {% if c.status != 'livree' %}<a href="/achats/commande/{{ c.id }}/edit" class="btn btn-sm" style="background:#1976d2;color:#fff" title="Modifier">✏️</a>{% endif %}
     {% if c.status=='en_cours' %}<a href="/achats/commande/{{ c.id }}/status/livree" class="btn btn-sm" style="background:#2e7d32;color:#fff">📦 Livrée</a>
     <a href="/achats/commande/{{ c.id }}/status/annulee" class="btn btn-sm" style="color:#c53030">❌</a>{% endif %}
