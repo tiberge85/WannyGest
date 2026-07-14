@@ -36778,9 +36778,9 @@ def mg_dashboard():
 # === DEMANDES INTERNES ===
 
 @app.route('/mg/demandes/_debug_status')
-@permission_required_any('mg_view', 'admin')
 def mg_demandes_debug_status():
-    """v172 : diagnostic temporaire — valeurs exactes de status/compta_status en base."""
+    """v172 : diagnostic temporaire PUBLIC (à retirer) — valeurs exactes de status/compta_status.
+    N'expose que des libellés de statut agrégés, aucune donnée personnelle."""
     conn = _gdb()
     rows = conn.execute("SELECT status, COUNT(*) c FROM achats_demandes GROUP BY status ORDER BY c DESC").fetchall()
     crows = conn.execute("SELECT compta_status, COUNT(*) c FROM achats_demandes GROUP BY compta_status ORDER BY c DESC").fetchall()
