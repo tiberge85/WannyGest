@@ -39042,6 +39042,52 @@ def mg_soldes_fournisseur():
 
 
 # v160 : Historique des mouvements d'une caisse OU d'un compte bancaire fournisseur
+@app.route('/mg/_debug_paiements')
+@permission_required_any('mg_view', 'admin')
+def mg_debug_paiements():
+    """v172 : diagnostic temporaire (à retirer) — lignes de trésorerie d'un fournisseur,
+    pour repérer un éventuel double débit sur deux comptes. Réservé aux connectés."""
+    q = (request.args.get('q', 'SITECH') or '').strip()
+    conn = _gdb()
+    out = [f"RECHERCHE q = {q!r}", ""]
+    # Noms de comptes
+    banks = {r['id']: r['nom'] for r in conn.execute("SELECT id, nom FROM tresorerie_comptes_bancaires").fetchall()}
+    caisses = {r['id']: r['name'] for r in conn.execute("SELECT id, name FROM caisses").fetchall()}
+    out.append("=== tresorerie_mouvements (banque) correspondant ===")
+    rows = conn.execute("""SELECT id, date, banque_id, sens, source, montant, reference, COALESCE(libelle,'') libelle
+        FROM tresorerie_mouvements
+        WHERE libelle LIKE ? OR reference LIKE ? OR source LIKE '%fournisseur%'
+        ORDER BY date DESC, id DESC LIMIT 60""", (f'%{q}%', f'%{q}%')).fetchall()
+    for r in rows:
+        out.append(f"#{r['id']} {r['date']} | compte={r['banque_id']}({banks.get(r['banque_id'],'?')}) | {r['sens']} {r['montant']:,.0f} | src={r['source']} | ref={r['reference']} | {r['libelle']}")
+    out.append("")
+    out.append("=== caisse_operations correspondant ===")
+    crows = conn.execute("""SELECT id, created_at, caisse_id, type, amount, reference, category, COALESCE(description,'') d
+        FROM caisse_operations
+        WHERE description LIKE ? OR reference LIKE ? OR category LIKE '%fournisseur%'
+        ORDER BY id DESC LIMIT 60""", (f'%{q}%', f'%{q}%')).fetchall()
+    for r in crows:
+        out.append(f"#{r['id']} {r['created_at']} | caisse={r['caisse_id']}({caisses.get(r['caisse_id'],'?')}) | {r['type']} {r['amount']:,.0f} | cat={r['category']} | ref={r['reference']} | {r['d']}")
+    out.append("")
+    # Détection de doublons : même (montant, date, libellé) sur plusieurs comptes banque
+    out.append("=== doublons potentiels (même montant+date+libellé sur >1 compte banque) ===")
+    dups = conn.execute("""SELECT date, montant, COALESCE(libelle,'') libelle,
+             COUNT(DISTINCT banque_id) nb_comptes, GROUP_CONCAT(DISTINCT banque_id) comptes, COUNT(*) nb_lignes
+        FROM tresorerie_mouvements
+        WHERE source LIKE '%fournisseur%'
+        GROUP BY date, montant, libelle
+        HAVING COUNT(DISTINCT banque_id) > 1 OR COUNT(*) > 1
+        ORDER BY date DESC LIMIT 40""").fetchall()
+    if not dups:
+        out.append("(aucun doublon détecté sur source paiement/credit fournisseur)")
+    for r in dups:
+        cs = (r['comptes'] or '')
+        out.append(f"{r['date']} | {r['montant']:,.0f} | {r['libelle']} | {r['nb_lignes']} ligne(s) sur compte(s) {cs}")
+    conn.close()
+    from flask import Response
+    return Response("\n".join(out), mimetype='text/plain')
+
+
 @app.route('/mg/soldes/historique/<kind>/<int:item_id>')
 @permission_required_any('mg_view', 'admin')
 def mg_soldes_historique(kind, item_id):
