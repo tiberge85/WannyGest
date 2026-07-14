@@ -36782,36 +36782,45 @@ def mg_dashboard():
 def mg_demandes():
     conn = _gdb()
     statut = request.args.get('statut', '').strip()
-    if statut:
-        rows = conn.execute("""
-            SELECT d.*, u.username as requester_name,
-                f.nom as fournisseur_name,
-                COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
-            FROM achats_demandes d
-            LEFT JOIN users u ON d.requested_by = u.id
-            LEFT JOIN suppliers f ON d.fournisseur_id = f.id
-            WHERE d.status=? ORDER BY d.created_at DESC""", (statut,)).fetchall()
+    # v172 : on récupère TOUT puis on filtre/compte en Python sur un statut normalisé,
+    # pour être robuste aux variantes de libellé stockées ('refuse'/'refusée', 'approuve', vide...).
+    rows = conn.execute("""
+        SELECT d.*, u.username as requester_name,
+            f.nom as fournisseur_name,
+            COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
+        FROM achats_demandes d
+        LEFT JOIN users u ON d.requested_by = u.id
+        LEFT JOIN suppliers f ON d.fournisseur_id = f.id
+        ORDER BY d.created_at DESC""").fetchall()
+    all_dem = [dict(r) for r in rows]
+
+    def _norm_statut(s):
+        s = (s or '').strip().lower().replace('é', 'e').replace('è', 'e')
+        if s in ('validee', 'valide', 'approuve', 'approuvee', 'approved', 'accepte', 'acceptee'):
+            return 'validee'
+        if s in ('refusee', 'refuse', 'rejete', 'rejetee', 'rejected', 'annulee', 'annule'):
+            return 'refusee'
+        # tout le reste (en_attente, 'en attente', 'attente', 'pending', 'nouvelle', vide...) = en attente
+        return 'en_attente'
+
+    for d in all_dem:
+        d['_norm_status'] = _norm_statut(d.get('status'))
+
+    # v171 : compteurs par statut (sur l'ensemble, cohérents avec le filtre)
+    counts = {'toutes': len(all_dem), 'en_attente': 0, 'validee': 0, 'refusee': 0}
+    for d in all_dem:
+        counts[d['_norm_status']] += 1
+
+    # Filtrage par statut normalisé
+    if statut in ('en_attente', 'validee', 'refusee'):
+        demandes = [d for d in all_dem if d['_norm_status'] == statut]
     else:
-        rows = conn.execute("""
-            SELECT d.*, u.username as requester_name,
-                f.nom as fournisseur_name,
-                COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items
-            FROM achats_demandes d
-            LEFT JOIN users u ON d.requested_by = u.id
-            LEFT JOIN suppliers f ON d.fournisseur_id = f.id
-            ORDER BY d.created_at DESC""").fetchall()
-    demandes = [dict(r) for r in rows]
+        demandes = all_dem
+
     # v162 : liste des fournisseurs = table « suppliers » (celle alimentée par la page Fournisseurs)
     # — avant on lisait achats_fournisseurs (vide) → les nouveaux fournisseurs n'apparaissaient pas.
     fournisseurs = [dict(r) for r in conn.execute(
         "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom").fetchall()]
-    # v171 : compteurs par statut pour les boutons de filtre (sur l'ensemble, pas seulement le filtre courant)
-    counts = {'toutes': 0, 'en_attente': 0, 'validee': 0, 'refusee': 0}
-    for r in conn.execute("SELECT status, COUNT(*) AS c FROM achats_demandes GROUP BY status").fetchall():
-        st, c = r['status'], r['c']
-        counts['toutes'] += c
-        if st in counts:
-            counts[st] += c
     conn.close()
     return render_template('mg_demandes.html', demandes=demandes, current_statut=statut, fournisseurs=fournisseurs, counts=counts)
 
