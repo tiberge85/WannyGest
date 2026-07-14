@@ -4481,6 +4481,8 @@ PERM_CATEGORIES = {
         ('centre_technique_edit', 'Centre tech. modif'),
         ('controle_qualite', 'Contrôle qualité (intervention sur site)'),
         ('livraison_intervention', 'Livraison chantier (intervention sur site)'),
+        ('intervention_sans_cartographie',
+         '📍 Démarrer une intervention / faire un rapport SANS enregistrer le site sur la cartographie'),
     ],
     
     '🖥️ IT — INFORMATIQUE (Section sidebar)': [
@@ -17337,6 +17339,19 @@ def intervention_add():
     return redirect(request.form.get('redirect', '/interventions'))
 
 
+def _peut_sans_cartographie(user=None):
+    """v172e : le rôle est-il dispensé de l'enregistrement obligatoire du site sur la cartographie ?
+    Permission « intervention_sans_cartographie » (accordable par l'admin, ex. aux techniciens)."""
+    try:
+        u = user or get_user_by_id(session['user_id'])
+        if not u:
+            return False
+        perms = get_role_permissions(u['role']) or []
+        return 'intervention_sans_cartographie' in perms or 'admin' in perms
+    except Exception:
+        return False
+
+
 @app.route('/interventions/<int:iid>/carte-obligatoire', methods=['GET', 'POST'])
 @login_required
 def intervention_carte_obligatoire(iid):
@@ -17399,7 +17414,8 @@ def intervention_carte_obligatoire(iid):
     conn.close()
     prefill = {'site_name': _code, 'address': inter.get('site_address') or ''}
     return render_template('installation_obligatoire.html', page='interventions_tech',
-                           inter=inter, prefill=prefill, clients=clients)
+                           inter=inter, prefill=prefill, clients=clients,
+                           peut_passer=_peut_sans_cartographie())  # v172e
 
 
 def _notify_client(conn, iid, title, message):
@@ -17434,7 +17450,9 @@ def intervention_status(iid, status):
 
     # v170k : au DÉMARRAGE, le site doit être renseigné sur la cartographie.
     # Si déjà lié ou rapprochable automatiquement -> rien à demander ; sinon -> enregistrement obligatoire.
-    if status == 'en_cours':
+    # v172e : les rôles disposant de la permission « intervention_sans_cartographie » (ex. technicien)
+    # peuvent démarrer et faire leur rapport SANS enregistrer le site sur la cartographie.
+    if status == 'en_cours' and not _peut_sans_cartographie():
         _cg = _gdb()
         _iv = _cg.execute("SELECT installation_id, client_id, client_name, site_address, title, description "
                           "FROM interventions WHERE id=?", (iid,)).fetchone()

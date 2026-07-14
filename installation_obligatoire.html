@@ -43,8 +43,13 @@
     </div>
     <div class="form-group"><label>Notes *</label><textarea name="notes" rows="2" required placeholder="Observations sur le site / l'installation" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
 
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;flex-wrap:wrap">
         <a href="/interventions/tech" class="btn btn-outline">Annuler</a>
+        {# v172e : rôles disposant de la permission « intervention_sans_cartographie » #}
+        {% if peut_passer %}
+        <a href="/interventions/{{ inter.id }}/status/en_cours" class="btn btn-sm" style="background:#f29f2f;color:#fff"
+           onclick="return confirm('Démarrer sans enregistrer le site sur la cartographie ?')">⏭️ Démarrer sans cartographier</a>
+        {% endif %}
         <button type="submit" class="btn btn-primary">✅ Enregistrer le site et démarrer</button>
     </div>
 </form>
