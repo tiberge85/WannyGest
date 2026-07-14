@@ -36777,6 +36777,26 @@ def mg_dashboard():
 
 # === DEMANDES INTERNES ===
 
+@app.route('/mg/demandes/_debug_status')
+@permission_required_any('mg_view', 'admin')
+def mg_demandes_debug_status():
+    """v172 : diagnostic temporaire — valeurs exactes de status/compta_status en base."""
+    conn = _gdb()
+    rows = conn.execute("SELECT status, COUNT(*) c FROM achats_demandes GROUP BY status ORDER BY c DESC").fetchall()
+    crows = conn.execute("SELECT compta_status, COUNT(*) c FROM achats_demandes GROUP BY compta_status ORDER BY c DESC").fetchall()
+    total = conn.execute("SELECT COUNT(*) FROM achats_demandes").fetchone()[0]
+    conn.close()
+    out = [f"TOTAL demandes = {total}", "", "=== status (valeur exacte, repr) ==="]
+    for r in rows:
+        out.append(f"{repr(r['status'])}  ->  {r['c']}")
+    out.append("")
+    out.append("=== compta_status (valeur exacte, repr) ===")
+    for r in crows:
+        out.append(f"{repr(r['compta_status'])}  ->  {r['c']}")
+    from flask import Response
+    return Response("\n".join(out), mimetype='text/plain')
+
+
 @app.route('/mg/demandes')
 @permission_required_any('mg_view', 'admin')
 def mg_demandes():
