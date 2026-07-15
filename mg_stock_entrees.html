@@ -62,12 +62,14 @@
 <div class="modal-bg" id="addEnt"><div class="modal" style="max-width:600px"><h3>📥 Nouvelle entrée</h3>
 <form method="post" action="/mg/stock/entrees/add">
     <div class="form-group"><label>Article *</label>
-        <input type="text" id="entArtSearch" onkeyup="filterArt('entArtSearch','entArtSel')" placeholder="🔍 Rechercher un article par nom ou référence..." style="width:100%;margin-bottom:6px;padding:7px;border:1.5px solid #1A7A6D;border-radius:6px;font-size:13px">
-        <select name="article_id" id="entArtSel" required onchange="updatePU(this)">
-            <option value="">-- Choisir --</option>
-            {% for a in articles %}<option value="{{ a.id }}" data-pu="{{ a.prix_unitaire or 0 }}" data-label="{{ ((a.reference or '') ~ ' ' ~ (a.designation or ''))|lower }}">{{ a.reference }} — {{ a.designation }}</option>{% endfor %}
-        </select>
+        <div style="position:relative">
+            <input type="text" id="entSearch" autocomplete="off" placeholder="🔍 Taper le nom ou la référence de l'article…" style="width:100%;padding:8px;border:1.5px solid #1A7A6D;border-radius:6px;font-size:13px">
+            <input type="hidden" name="article_id" id="entId" required>
+            <div id="entList" style="display:none;position:absolute;z-index:60;left:0;right:0;max-height:220px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+        </div>
+        <div id="entChosen" style="font-size:12px;color:#2e7d32;margin-top:4px"></div>
     </div>
+    <script id="entData" type="application/json">[{% for a in articles %}{"id":{{ a.id }},"label":{{ ((a.reference or '') ~ ' — ' ~ (a.designation or ''))|tojson }},"pu":{{ a.prix_unitaire or 0 }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
     <div class="form-row">
         <div class="form-group"><label>Quantité *</label><input type="number" name="quantite" required min="1"></div>
         <div class="form-group"><label>Prix unitaire (FCFA)</label><input type="number" name="prix_unitaire" id="ent_pu" min="0" step="1" placeholder="Auto"></div>
@@ -82,30 +84,41 @@
 </form></div></div>
 
 <script>
-// v172 : filtre de recherche d'article dans un menu déroulant
-function filterArt(inpId, selId){
-    var q = (document.getElementById(inpId).value || '').toLowerCase().trim();
-    var sel = document.getElementById(selId);
-    if(!sel) return;
-    var firstMatch = null;
-    for(var i=0;i<sel.options.length;i++){
-        var o = sel.options[i];
-        if(!o.value){ o.hidden=false; continue; }
-        var lbl = o.getAttribute('data-label') || (o.textContent||'').toLowerCase();
-        var match = !q || lbl.indexOf(q) > -1;
-        o.hidden = !match;
-        if(match && !firstMatch) firstMatch = o;
+// v172bis : combobox de recherche fiable (type-ahead + liste cliquable)
+function initCombo(prefix, onPick){
+    var input=document.getElementById(prefix+'Search');
+    var list=document.getElementById(prefix+'List');
+    var hidden=document.getElementById(prefix+'Id');
+    var chosen=document.getElementById(prefix+'Chosen');
+    var data=[]; try{ data=JSON.parse(document.getElementById(prefix+'Data').textContent||'[]'); }catch(e){ data=[]; }
+    function render(q){
+        q=(q||'').toLowerCase().trim();
+        var items=data.filter(function(it){return !q || (it.label||'').toLowerCase().indexOf(q)>-1;}).slice(0,80);
+        if(!items.length){ list.innerHTML='<div style="padding:8px;color:#888">Aucun résultat</div>'; }
+        else { list.innerHTML=items.map(function(it){
+            return '<div class="combo-opt" data-id="'+it.id+'" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;'+(it.disabled?'color:#c53030;opacity:.55;cursor:not-allowed;':'')+'">'+it.label+'</div>';
+        }).join(''); }
+        list.style.display='block';
+        Array.prototype.forEach.call(list.querySelectorAll('.combo-opt'),function(el){
+            el.addEventListener('mousedown',function(ev){
+                ev.preventDefault();
+                var id=this.getAttribute('data-id');
+                var it=data.filter(function(d){return String(d.id)===String(id);})[0];
+                if(it&&it.disabled) return;
+                hidden.value=id; input.value=it?it.label:'';
+                if(chosen) chosen.textContent = it? ('✓ '+it.label) : '';
+                list.style.display='none';
+                if(onPick) onPick(it);
+            });
+        });
     }
-    if(sel.selectedIndex >= 0 && sel.options[sel.selectedIndex].hidden){
-        sel.value = firstMatch ? firstMatch.value : '';
-        if(window.updatePU) updatePU(sel);
-    }
+    input.addEventListener('input',function(){ hidden.value=''; if(chosen)chosen.textContent=''; render(this.value); });
+    input.addEventListener('focus',function(){ render(this.value); });
+    input.addEventListener('blur',function(){ setTimeout(function(){ list.style.display='none'; },180); });
 }
-function updatePU(sel) {
-    const opt = sel.options[sel.selectedIndex];
-    document.getElementById('ent_pu').placeholder = opt.dataset.pu || 'Auto';
-}
-// Pré-remplir date du jour
-document.querySelector('input[name="date_entree"]').value = new Date().toISOString().split('T')[0];
+document.addEventListener('DOMContentLoaded',function(){
+    initCombo('ent', function(it){ if(it) document.getElementById('ent_pu').placeholder = it.pu || 'Auto'; });
+    var d=document.querySelector('input[name="date_entree"]'); if(d) d.value=new Date().toISOString().split('T')[0];
+});
 </script>
 {% endblock %}

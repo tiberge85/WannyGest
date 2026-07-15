@@ -84,12 +84,15 @@
     <div class="form-group"><label>Département / Service</label><input type="text" name="department" placeholder="Ex: IT, Logistique..."></div>
 </div>
 <div class="form-row">
-    <div class="form-group"><label>Fournisseur</label>
-        <select name="fournisseur_id">
-            <option value="">— Aucun / à définir —</option>
-            {% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
-        </select>
+    <div class="form-group"><label>Fournisseur <span style="font-size:10px;color:#888">(optionnel)</span></label>
+        <div style="position:relative">
+            <input type="text" id="dmfSearch" autocomplete="off" placeholder="🔍 Rechercher un fournisseur… (laisser vide si à définir)" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:13px">
+            <input type="hidden" name="fournisseur_id" id="dmfId">
+            <div id="dmfList" style="display:none;position:absolute;z-index:60;left:0;right:0;max-height:200px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+        </div>
+        <div id="dmfChosen" style="font-size:12px;color:#2e7d32;margin-top:4px"></div>
     </div>
+    <script id="dmfData" type="application/json">[{% for f in fournisseurs %}{"id":{{ f.id }},"label":{{ (f.name or '')|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
     <div class="form-group"><label>Site concerné par la demande</label><input type="text" name="site_name" placeholder="Ex: Siège Cocody, Chantier Yopougon..."></div>
 </div>
 <div class="form-group">
@@ -218,6 +221,41 @@ function filterDM(){
     var lbl = document.getElementById('dmSearchCount');
     if(lbl) lbl.textContent = q ? (shown + ' résultat' + (shown>1?'s':'')) : '';
 }
+</script>
+
+<!-- v172bis : recherche fournisseur (combobox) dans la nouvelle demande -->
+<script>
+function initCombo(prefix, onPick){
+    var input=document.getElementById(prefix+'Search');
+    var list=document.getElementById(prefix+'List');
+    var hidden=document.getElementById(prefix+'Id');
+    var chosen=document.getElementById(prefix+'Chosen');
+    if(!input||!list||!hidden) return;
+    var data=[]; try{ data=JSON.parse(document.getElementById(prefix+'Data').textContent||'[]'); }catch(e){ data=[]; }
+    function render(q){
+        q=(q||'').toLowerCase().trim();
+        var items=data.filter(function(it){return !q || (it.label||'').toLowerCase().indexOf(q)>-1;}).slice(0,80);
+        list.innerHTML = items.length ? items.map(function(it){
+            return '<div class="combo-opt" data-id="'+it.id+'" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0">'+it.label+'</div>';
+        }).join('') : '<div style="padding:8px;color:#888">Aucun résultat</div>';
+        list.style.display='block';
+        Array.prototype.forEach.call(list.querySelectorAll('.combo-opt'),function(el){
+            el.addEventListener('mousedown',function(ev){
+                ev.preventDefault();
+                var id=this.getAttribute('data-id');
+                var it=data.filter(function(d){return String(d.id)===String(id);})[0];
+                hidden.value=id; input.value=it?it.label:'';
+                if(chosen) chosen.textContent = it? ('✓ '+it.label) : '';
+                list.style.display='none';
+                if(onPick) onPick(it);
+            });
+        });
+    }
+    input.addEventListener('input',function(){ hidden.value=''; if(chosen)chosen.textContent=''; render(this.value); });
+    input.addEventListener('focus',function(){ render(this.value); });
+    input.addEventListener('blur',function(){ setTimeout(function(){ list.style.display='none'; },180); });
+}
+document.addEventListener('DOMContentLoaded',function(){ initCombo('dmf'); });
 </script>
 
 {% endblock %}
