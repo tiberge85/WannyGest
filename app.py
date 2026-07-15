@@ -21796,6 +21796,63 @@ def mg_stock_sortie_add():
     return redirect('/mg/stock/sorties')
 
 
+@app.route('/mg/stock/entrees/<int:eid>/edit', methods=['POST'])
+@admin_only_required
+def mg_stock_entree_edit(eid):
+    """v172 : modifier une entrée de stock — réservé à l'admin.
+    Le stock étant recalculé (initial + entrées - sorties), la modif se répercute seule."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM mg_stock_entries WHERE id=?", (eid,)).fetchone()
+    if not row:
+        conn.close(); flash("Entrée introuvable", "error"); return redirect('/mg/stock/entrees')
+    row = dict(row)
+    try:
+        qt = int(request.form.get('quantite', 0) or 0)
+        if qt <= 0:
+            conn.close(); flash("Quantité invalide", "error"); return redirect('/mg/stock/entrees')
+        pu_raw = (request.form.get('prix_unitaire', '') or '').strip().replace(',', '.')
+        pu = float(pu_raw) if pu_raw else float(row.get('prix_unitaire') or 0)
+        conn.execute("""UPDATE mg_stock_entries SET quantite=?, prix_unitaire=?, date_entree=?,
+            fournisseur=?, observation=? WHERE id=?""",
+            (qt, pu, request.form.get('date_entree') or row.get('date_entree'),
+             request.form.get('fournisseur', ''), request.form.get('observation', ''), eid))
+        conn.commit(); conn.close()
+        flash("✅ Entrée modifiée", "success")
+    except Exception as e:
+        conn.close(); flash(f"Erreur : {e}", "error")
+    return redirect('/mg/stock/entrees')
+
+
+@app.route('/mg/stock/sorties/<int:sid>/edit', methods=['POST'])
+@admin_only_required
+def mg_stock_sortie_edit(sid):
+    """v172 : modifier une sortie de stock — réservé à l'admin. Contrôle le stock dispo."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM mg_stock_exits WHERE id=?", (sid,)).fetchone()
+    if not row:
+        conn.close(); flash("Sortie introuvable", "error"); return redirect('/mg/stock/sorties')
+    row = dict(row)
+    try:
+        qt = int(request.form.get('quantite', 0) or 0)
+        if qt <= 0:
+            conn.close(); flash("Quantité invalide", "error"); return redirect('/mg/stock/sorties')
+        # Stock disponible hors cette sortie = stock courant + ancienne quantité de cette sortie
+        dispo = _compute_stock_current(row.get('article_id'), conn) + int(row.get('quantite') or 0)
+        if qt > dispo:
+            conn.close()
+            flash(f"⚠️ Stock insuffisant : maximum {dispo} unité(s) pour cette sortie", "error")
+            return redirect('/mg/stock/sorties')
+        conn.execute("""UPDATE mg_stock_exits SET quantite=?, date_sortie=?, destination=?,
+            observation=? WHERE id=?""",
+            (qt, request.form.get('date_sortie') or row.get('date_sortie'),
+             request.form.get('destination', ''), request.form.get('observation', ''), sid))
+        conn.commit(); conn.close()
+        flash("✅ Sortie modifiée", "success")
+    except Exception as e:
+        conn.close(); flash(f"Erreur : {e}", "error")
+    return redirect('/mg/stock/sorties')
+
+
 @app.route('/mg/stock/export-pdf')
 @permission_required('stock_export')
 def mg_stock_export_pdf():

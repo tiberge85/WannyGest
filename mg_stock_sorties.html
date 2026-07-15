@@ -33,6 +33,7 @@
                     <th style="padding:10px;text-align:left">Destination</th>
                     <th style="padding:10px;text-align:left">Observation</th>
                     <th style="padding:10px;text-align:left">Par</th>
+                    {% if current_user and current_user.role == 'admin' %}<th style="padding:10px;text-align:center">Actions</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -47,9 +48,18 @@
                 <td style="padding:7px 10px">{{ s.destination or '-' }}</td>
                 <td style="padding:7px 10px;font-size:11px;color:#666">{{ s.observation or '' }}</td>
                 <td style="padding:7px 10px;font-size:11px;color:#888">{{ s.user_name or '-' }}</td>
+                {% if current_user and current_user.role == 'admin' %}
+                <td style="padding:7px 10px;text-align:center">
+                    <button type="button" class="btn btn-sm" style="background:#1976d2;color:#fff" title="Modifier"
+                        onclick='openEditSor(this)'
+                        data-id="{{ s.id }}" data-art="{{ s.reference }} — {{ s.designation }}" data-ref="{{ s.reference or '' }}"
+                        data-qt="{{ s.quantite }}" data-date="{{ s.date_sortie[:10] if s.date_sortie else '' }}"
+                        data-dest="{{ s.destination or '' }}" data-obs="{{ s.observation or '' }}">✏️</button>
+                </td>
+                {% endif %}
             </tr>
             {% else %}
-            <tr><td colspan="9" style="padding:30px;text-align:center;color:#888">Aucune sortie enregistrée</td></tr>
+            <tr><td colspan="{{ 10 if (current_user and current_user.role == 'admin') else 9 }}" style="padding:30px;text-align:center;color:#888">Aucune sortie enregistrée</td></tr>
             {% endfor %}
             </tbody>
         </table>
@@ -84,6 +94,38 @@
         <button type="submit" class="btn btn-primary" style="background:#e8672a">📤 Enregistrer sortie</button>
     </div>
 </form></div></div>
+
+{% if current_user and current_user.role == 'admin' %}
+<!-- v172 : modale d'édition (admin) -->
+<div class="modal-bg" id="editSor"><div class="modal" style="max-width:600px"><h3>✏️ Modifier la sortie <span id="es_ref" style="color:#e8672a"></span></h3>
+<form method="post" id="editSorForm" action="">
+    <div class="form-group"><label>Article</label><input type="text" id="es_art" disabled style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px;background:#f5f5f5"></div>
+    <div class="form-row">
+        <div class="form-group"><label>Quantité *</label><input type="number" name="quantite" id="es_qt" min="1" required></div>
+        <div class="form-group"><label>Date *</label><input type="date" name="date_sortie" id="es_date" required></div>
+    </div>
+    <div class="form-group"><label>Destination</label><input type="text" name="destination" id="es_dest" placeholder="Technicien / Client / N° projet"></div>
+    <div class="form-group"><label>Observation</label><textarea name="observation" id="es_obs" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <div style="background:#fff3cd;padding:8px;border-left:4px solid #e8672a;border-radius:6px;font-size:11px;color:#856404;margin-bottom:10px">⚠ La quantité ne peut excéder le stock disponible.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('editSor').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary" style="background:#e8672a">💾 Enregistrer</button>
+    </div>
+</form></div></div>
+<script>
+function openEditSor(btn){
+    var d=btn.dataset, f=document.getElementById('editSorForm');
+    f.action='/mg/stock/sorties/'+d.id+'/edit';
+    document.getElementById('es_ref').textContent=d.ref||'';
+    document.getElementById('es_art').value=d.art||'';
+    document.getElementById('es_qt').value=d.qt||'';
+    document.getElementById('es_date').value=d.date||'';
+    document.getElementById('es_dest').value=d.dest||'';
+    document.getElementById('es_obs').value=d.obs||'';
+    document.getElementById('editSor').classList.add('active');
+}
+</script>
+{% endif %}
 
 <script>
 // v172bis : combobox de recherche fiable (type-ahead + liste cliquable)
