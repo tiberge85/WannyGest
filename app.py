@@ -37165,13 +37165,21 @@ def mg_demande_edit(did):
                 try: prix = float(prices[i]) if i < len(prices) and prices[i] else 0
                 except: prix = 0
                 notes = (notes_list[i] if i < len(notes_list) else '').strip()
-                conn.execute("""INSERT INTO achats_demande_items 
+                conn.execute("""INSERT INTO achats_demande_items
                     (demande_id, designation, quantity, estimated_price, notes)
                     VALUES (?,?,?,?,?)""", (did, des, qty, prix, notes))
-            
+
+            # v172 : recalculer le montant total de la demande d'après les articles édités
+            # (avant, compta_montant_estime restait figé → le montant ne s'actualisait pas).
+            total_row = conn.execute(
+                "SELECT COALESCE(SUM(quantity * COALESCE(estimated_price,0)),0) AS total "
+                "FROM achats_demande_items WHERE demande_id=?", (did,)).fetchone()
+            new_total = float(total_row['total'] or 0)
+            conn.execute("UPDATE achats_demandes SET compta_montant_estime=? WHERE id=?", (new_total, did))
+
             conn.commit()
             conn.close()
-            flash(f"✅ Demande {demande['reference']} modifiée", "success")
+            flash(f"✅ Demande {demande['reference']} modifiée — montant : {new_total:,.0f} F", "success")
             return redirect(f"/mg/demandes/{did}/preview")
         except Exception as e:
             conn.close()

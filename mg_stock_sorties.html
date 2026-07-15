@@ -60,9 +60,10 @@
 <div class="modal-bg" id="addSor"><div class="modal" style="max-width:600px"><h3>📤 Nouvelle sortie</h3>
 <form method="post" action="/mg/stock/sorties/add">
     <div class="form-group"><label>Article *</label>
-        <select name="article_id" required>
+        <input type="text" id="sorArtSearch" onkeyup="filterArt('sorArtSearch','sorArtSel')" placeholder="🔍 Rechercher un article par nom ou référence..." style="width:100%;margin-bottom:6px;padding:7px;border:1.5px solid #e8672a;border-radius:6px;font-size:13px">
+        <select name="article_id" id="sorArtSel" required>
             <option value="">-- Choisir --</option>
-            {% for a in articles %}<option value="{{ a.id }}" {% if a.stock_actuel <= 0 %}disabled style="color:#c53030"{% endif %}>{{ a.reference }} — {{ a.designation }} (stock: {{ a.stock_actuel }})</option>{% endfor %}
+            {% for a in articles %}<option value="{{ a.id }}" data-label="{{ ((a.reference or '') ~ ' ' ~ (a.designation or ''))|lower }}" {% if a.stock_actuel <= 0 %}disabled style="color:#c53030"{% endif %}>{{ a.reference }} — {{ a.designation }} (stock: {{ a.stock_actuel }})</option>{% endfor %}
         </select>
     </div>
     <div class="form-row">
@@ -83,6 +84,24 @@
 </form></div></div>
 
 <script>
+// v172 : filtre de recherche d'article dans le menu déroulant
+function filterArt(inpId, selId){
+    var q = (document.getElementById(inpId).value || '').toLowerCase().trim();
+    var sel = document.getElementById(selId);
+    if(!sel) return;
+    var firstMatch = null;
+    for(var i=0;i<sel.options.length;i++){
+        var o = sel.options[i];
+        if(!o.value){ o.hidden=false; continue; }
+        var lbl = o.getAttribute('data-label') || (o.textContent||'').toLowerCase();
+        var match = !q || lbl.indexOf(q) > -1;
+        o.hidden = !match;
+        if(match && !firstMatch && !o.disabled) firstMatch = o;
+    }
+    if(sel.selectedIndex >= 0 && sel.options[sel.selectedIndex].hidden){
+        sel.value = firstMatch ? firstMatch.value : '';
+    }
+}
 document.querySelector('input[name="date_sortie"]').value = new Date().toISOString().split('T')[0];
 </script>
 {% endblock %}

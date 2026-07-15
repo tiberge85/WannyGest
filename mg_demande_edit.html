@@ -76,6 +76,11 @@
     </table></div>
     
     <p style="font-size:11px;color:#888;margin-top:8px">💡 Les lignes vides seront automatiquement ignorées lors de l'enregistrement.</p>
+    <div style="margin-top:10px;display:flex;justify-content:flex-end">
+        <div style="background:#fff8e1;border:2px solid #f29f2f;border-radius:8px;padding:8px 16px;font-size:14px">
+            💰 Montant total de la demande : <strong id="demTotal" style="color:#b8561f;font-size:16px">0 F</strong>
+        </div>
+    </div>
 </div></div>
 
 <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
@@ -93,10 +98,26 @@ function addItemRow() {
         <td style="padding:4px"><input type="number" name="item_quantity[]" value="1" min="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:center"></td>
         <td style="padding:4px"><input type="number" name="item_price[]" value="0" min="0" step="1" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;text-align:right"></td>
         <td style="padding:4px"><input type="text" name="item_notes[]" style="width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px"></td>
-        <td style="text-align:center;padding:4px"><button type="button" onclick="this.closest('tr').remove()" class="btn btn-sm" style="background:none;color:#c53030;font-size:14px;padding:2px 6px">🗑️</button></td>
+        <td style="text-align:center;padding:4px"><button type="button" onclick="this.closest('tr').remove();recalcDemTotal()" class="btn btn-sm" style="background:none;color:#c53030;font-size:14px;padding:2px 6px">🗑️</button></td>
     `;
     tbody.appendChild(row);
+    recalcDemTotal();
 }
+// v172 : total en direct = Σ (quantité × prix unitaire)
+function recalcDemTotal(){
+    var total = 0;
+    document.querySelectorAll('#itemsBody tr').forEach(function(tr){
+        var q = parseFloat((tr.querySelector('input[name="item_quantity[]"]')||{}).value)||0;
+        var p = parseFloat((tr.querySelector('input[name="item_price[]"]')||{}).value)||0;
+        total += q * p;
+    });
+    var el = document.getElementById('demTotal');
+    if(el) el.textContent = Math.round(total).toLocaleString('fr-FR').replace(/ /g,' ') + ' F';
+}
+document.addEventListener('input', function(e){
+    if(e.target && (e.target.name==='item_quantity[]' || e.target.name==='item_price[]')) recalcDemTotal();
+});
+document.addEventListener('DOMContentLoaded', recalcDemTotal);
 </script>
 
 {% endblock %}

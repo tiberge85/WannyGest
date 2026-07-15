@@ -62,9 +62,10 @@
 <div class="modal-bg" id="addEnt"><div class="modal" style="max-width:600px"><h3>📥 Nouvelle entrée</h3>
 <form method="post" action="/mg/stock/entrees/add">
     <div class="form-group"><label>Article *</label>
-        <select name="article_id" required onchange="updatePU(this)">
+        <input type="text" id="entArtSearch" onkeyup="filterArt('entArtSearch','entArtSel')" placeholder="🔍 Rechercher un article par nom ou référence..." style="width:100%;margin-bottom:6px;padding:7px;border:1.5px solid #1A7A6D;border-radius:6px;font-size:13px">
+        <select name="article_id" id="entArtSel" required onchange="updatePU(this)">
             <option value="">-- Choisir --</option>
-            {% for a in articles %}<option value="{{ a.id }}" data-pu="{{ a.prix_unitaire or 0 }}">{{ a.reference }} — {{ a.designation }}</option>{% endfor %}
+            {% for a in articles %}<option value="{{ a.id }}" data-pu="{{ a.prix_unitaire or 0 }}" data-label="{{ ((a.reference or '') ~ ' ' ~ (a.designation or ''))|lower }}">{{ a.reference }} — {{ a.designation }}</option>{% endfor %}
         </select>
     </div>
     <div class="form-row">
@@ -81,6 +82,25 @@
 </form></div></div>
 
 <script>
+// v172 : filtre de recherche d'article dans un menu déroulant
+function filterArt(inpId, selId){
+    var q = (document.getElementById(inpId).value || '').toLowerCase().trim();
+    var sel = document.getElementById(selId);
+    if(!sel) return;
+    var firstMatch = null;
+    for(var i=0;i<sel.options.length;i++){
+        var o = sel.options[i];
+        if(!o.value){ o.hidden=false; continue; }
+        var lbl = o.getAttribute('data-label') || (o.textContent||'').toLowerCase();
+        var match = !q || lbl.indexOf(q) > -1;
+        o.hidden = !match;
+        if(match && !firstMatch) firstMatch = o;
+    }
+    if(sel.selectedIndex >= 0 && sel.options[sel.selectedIndex].hidden){
+        sel.value = firstMatch ? firstMatch.value : '';
+        if(window.updatePU) updatePU(sel);
+    }
+}
 function updatePU(sel) {
     const opt = sel.options[sel.selectedIndex];
     document.getElementById('ent_pu').placeholder = opt.dataset.pu || 'Auto';
