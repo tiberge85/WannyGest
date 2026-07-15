@@ -10494,10 +10494,11 @@ def devis_new():
         from models import db_get_all
         stock_items = db_get_all('stock_items', order='name ASC')
     except: stock_items = []
+    catalog_items = _catalogue_articles()  # v172 : catalogue avec prix par type de client
     current_user = get_user_by_id(session['user_id'])
     default_commercial = current_user['full_name'] if current_user else ''
     return render_template('devis_new.html', page='devis', clients=clients, stock_items=stock_items,
-                           default_commercial=default_commercial)
+                           catalog_items=catalog_items, default_commercial=default_commercial)
 
 @app.route('/devis/pdf/<int:did>')
 @permission_required('proforma')
@@ -10616,6 +10617,25 @@ def devis_status(did, status):
         flash(f"Statut mis à jour : {status}", "success")
     return redirect(url_for('devis_page'))
 
+def _catalogue_articles():
+    """v172 : catalogue produits (mg_stock_articles) avec les prix de vente par type
+    de client (particulier / PME / grande entreprise). Sert à pré-remplir les prix
+    dans les devis selon la catégorie du client."""
+    try:
+        conn = _gdb()
+        rows = conn.execute("""SELECT reference, designation, COALESCE(unite,'') AS unite,
+                COALESCE(prix_unitaire,0)                 AS pu,
+                COALESCE(prix_vente_particulier,0)        AS pp,
+                COALESCE(prix_vente_pme,0)                AS ppme,
+                COALESCE(prix_vente_grande_entreprise,0)  AS pge
+            FROM mg_stock_articles
+            ORDER BY designation LIMIT 2000""").fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
 @app.route('/devis/edit/<int:did>', methods=['GET', 'POST'])
 @permission_required('proforma_edit')
 def devis_edit(did):
@@ -10694,10 +10714,11 @@ def devis_edit(did):
     clients = get_all_clients()
     from models import db_get_all
     stock_items = db_get_all('stock_items', order='name ASC')
+    catalog_items = _catalogue_articles()  # v172 : catalogue avec prix par type de client
     current_user = get_user_by_id(session['user_id'])
     default_commercial = devis.get('contact_commercial') or (current_user['full_name'] if current_user else '')
     return render_template('devis_edit.html', page='devis', devis=devis, items=items, clients=clients,
-                           stock_items=stock_items, default_commercial=default_commercial)
+                           stock_items=stock_items, catalog_items=catalog_items, default_commercial=default_commercial)
 
 @app.route('/devis/delete/<int:did>', methods=['GET', 'POST'])
 @permission_required_any('proforma_edit', 'admin')

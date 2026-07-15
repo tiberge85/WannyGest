@@ -27,7 +27,8 @@
                     data-contact="{{ c.contact_name or '' }}"
                     data-tel="{{ c.tel or '' }}"
                     data-email="{{ c.email or '' }}"
-                    data-address="{{ c.address or '' }}">
+                    data-address="{{ c.address or '' }}"
+                    data-status="{{ c.client_status or c.type or '' }}">
                     {% if c.client_code %}[{{ c.client_code }}] {% endif %}{{ c.name }}{% if c.contact_name %} — {{ c.contact_name }}{% endif %}
                 </option>
             {% endfor %}
@@ -55,13 +56,15 @@
     <div class="form-group"><label>Objet *</label><input type="text" name="objet" required placeholder="Ex: FOURNITURE ET INSTALLATION DE VIDEO-SURVEILLANCE"></div>
 
     <h3 style="color:#1a3a5c;margin:16px 0 10px;font-size:15px">📦 Articles</h3>
-    {% if stock_items %}
-    <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px">
-        <strong>📋 Sélection rapide depuis le stock :</strong>
-        <select id="stockSelect" onchange="fillFromStock()" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;margin-left:6px">
-            <option value="">— Choisir un article du stock —</option>
-            {% for s in stock_items %}<option value="{{ s.name }}" data-price="{{ s.unit_price|float }}" data-ref="{{ s.reference or '' }}">{{ s.name }} {% if s.reference %}({{ s.reference }}){% endif %} — {{ '{:,.0f}'.format(s.unit_price|float) }} F</option>{% endfor %}
+    {% if catalog_items %}
+    <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <strong>📋 Catalogue :</strong>
+        <select id="stockSelect" onchange="fillFromStock()" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px">
+            <option value="">— Choisir un article —</option>
+            {% for a in catalog_items %}<option value="{{ a.designation }}" data-pp="{{ a.pp|float }}" data-ppme="{{ a.ppme|float }}" data-pge="{{ a.pge|float }}" data-pu="{{ a.pu|float }}" data-ref="{{ a.reference or '' }}">{{ a.designation }} — Part {{ '{:,.0f}'.format(a.pp|float) }} / PME {{ '{:,.0f}'.format(a.ppme|float) }} / GE {{ '{:,.0f}'.format(a.pge|float) }} F</option>{% endfor %}
         </select>
+        <span id="tierBadge" style="font-size:11px;font-weight:700;color:#1a7a6d;background:#e3f2fd;padding:3px 8px;border-radius:10px">Prix : Particulier</span>
+        <span style="font-size:10px;color:#888">le prix se remplit selon le type de client</span>
     </div>
     {% endif %}
     <div id="items">
@@ -185,13 +188,24 @@ function filterClientSelect(){
         }
     }
 }
+// v172 : palier de prix selon le type (statut) du client sélectionné
+function _clientTier(){
+    var sel=document.getElementById('clientSel');var st='';
+    if(sel&&sel.value){var o=sel.options[sel.selectedIndex];st=(o.getAttribute('data-status')||'').toLowerCase();}
+    if(st.indexOf('gros')>-1||st.indexOf('grande')>-1) return {key:'pge',label:'Grande Entreprise'};
+    if(st.indexOf('entreprise')>-1) return {key:'ppme',label:'PME'};
+    if(st.indexOf('particulier')>-1) return {key:'pp',label:'Particulier'};
+    return {key:'pp',label:'Particulier (défaut)'};
+}
+function updateTierBadge(){var b=document.getElementById('tierBadge');if(b)b.textContent='Prix : '+_clientTier().label;}
 function fillFromStock() {
     var sel = document.getElementById('stockSelect');
     if (!sel || !sel.value) return;
     var opt = sel.options[sel.selectedIndex];
     var name = sel.value;
-    var price = parseFloat(opt.dataset.price || 0);
-    var ref = opt.dataset.ref || '';
+    var tier = _clientTier().key;
+    var price = parseFloat(opt.getAttribute('data-' + tier) || opt.getAttribute('data-pp') || 0) || 0;
+    var ref = opt.getAttribute('data-ref') || '';
     var lastDesig = document.getElementById('desig_' + itemCount);
     if (lastDesig && lastDesig.value) {
         addItem();
@@ -202,7 +216,7 @@ function fillFromStock() {
         var detail = document.getElementById('detail_' + itemCount);
         if (detail && ref) detail.value = ref;
         var prix = document.getElementById('prix_' + itemCount);
-        if (prix && price) prix.value = price;
+        if (prix) prix.value = price;
     }
     sel.value = '';
     if (window._recalcDevis) window._recalcDevis(); // v161 : maj cumul après ajout depuis stock
@@ -216,6 +230,7 @@ function fillClient() {
     if (!sel || !sel.value) {
         // Reset (but don't clear already-typed manual values aggressively)
         if (info) info.style.display = 'none';
+        updateTierBadge();
         return;
     }
     var opt = sel.options[sel.selectedIndex];
@@ -241,6 +256,8 @@ function fillClient() {
     if (address) parts.push('📍 ' + address);
     infoText.innerHTML = parts.join(' &nbsp;·&nbsp; ') || '<i>Aucune info complémentaire enregistrée</i>';
     info.style.display = '';
+    updateTierBadge();
 }
+document.addEventListener('DOMContentLoaded', function(){ if (typeof updateTierBadge==='function') updateTierBadge(); });
 </script>
 {% endblock %}
