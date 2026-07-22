@@ -19695,7 +19695,8 @@ def api_prospects_intake():
     sector   = g('sector','secteur','activite','activité','domaine','secteur_activite')
     position = g('position','poste','fonction','titre','role','rôle')
     address  = g('address','adresse','adresse_complete','adresse_complète')
-    besoin   = g('besoin','description','message','solution','service','services','demande')
+    besoin_txt   = g('besoin','description','message','demande')          # le texte du besoin
+    services_txt = g('services','service','solution','solutions')          # les solutions choisies
     if not (company or contact or tel or email):
         return _cors(jsonify({'ok': False, 'error': 'données insuffisantes (au moins nom, société, tél ou email)'})), 400
     known = {'company','societe','société','entreprise','organisation','structure','raison_sociale','entreprisenom','entreprise_nom',
@@ -19704,21 +19705,24 @@ def api_prospects_intake():
              'email','mail','courriel','e-mail','adresse_email','city','ville','localite','localité',
              'region','région','district','sector','secteur','activite','activité','domaine','secteur_activite',
              'position','poste','fonction','titre','role','rôle','address','adresse','adresse_complete','adresse_complète',
-             'besoin','description','message','solution','service','services','demande'}
+             'besoin','description','message','demande','services','service','solution','solutions'}
+    # Description = besoin + solutions choisies → visible dans l'onglet Profil du prospect
+    desc_parts = []
+    if besoin_txt:   desc_parts.append("Besoin : " + besoin_txt)
+    if services_txt: desc_parts.append("Solutions choisies : " + services_txt)
+    description = "\n".join(desc_parts)
     extras = [f"{k}: {v}" for k, v in low.items() if k not in known and v]
     notes = "Inscription en ligne — Marahoué Business Connect 2026"
-    if besoin:
-        notes += f"\nBesoin / services : {besoin}"
     if extras:
         notes += "\n" + "\n".join(extras)
     try:
         conn = _gdb()
         conn.execute("""INSERT INTO prospects
-            (company, contact_name, tel, contact_tel2, email, source, status, address, city, region, sector, position, notes, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+            (company, contact_name, tel, contact_tel2, email, source, status, address, city, region, sector, position, description, notes, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
             (company or contact or 'Prospect', contact, tel, whatsapp, email,
              'Formulaire en ligne (Marahoué Business Connect 2026)', 'nouveau',
-             address, city, region, sector, position, notes))
+             address, city, region, sector, position, description, notes))
         conn.commit(); conn.close()
     except Exception as e:
         return _cors(jsonify({'ok': False, 'error': str(e)})), 500
