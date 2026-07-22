@@ -19628,34 +19628,40 @@ def api_prospects_intake():
             if low.get(k):
                 return low[k]
         return ''
-    company  = g('company','societe','société','entreprise','organisation','structure','raison_sociale')
-    contact  = g('contact_name','nom','name','fullname','full_name','nom_complet','prenom_nom','prenoms_nom')
-    tel      = g('tel','telephone','téléphone','phone','numero','numéro','mobile','whatsapp','contact_tel')
+    company  = g('company','societe','société','entreprise','organisation','structure','raison_sociale','entreprisenom','entreprise_nom')
+    contact  = g('contact_name','nom','name','fullname','full_name','nom_complet','prenom_nom','prenoms_nom','nomprenom','nom_prenom')
+    tel      = g('tel','telephone','téléphone','phone','numero','numéro','mobile','contact_tel')
+    whatsapp = g('whatsapp','tel2','telephone2','contact_tel2')
     email    = g('email','mail','courriel','e-mail','adresse_email')
     city     = g('city','ville','localite','localité')
     region   = g('region','région','district')
     sector   = g('sector','secteur','activite','activité','domaine','secteur_activite')
     position = g('position','poste','fonction','titre','role','rôle')
+    address  = g('address','adresse','adresse_complete','adresse_complète')
+    besoin   = g('besoin','description','message','solution','service','services','demande')
     if not (company or contact or tel or email):
         return _cors(jsonify({'ok': False, 'error': 'données insuffisantes (au moins nom, société, tél ou email)'})), 400
-    known = {'company','societe','société','entreprise','organisation','structure','raison_sociale',
-             'contact_name','nom','name','fullname','full_name','nom_complet','prenom_nom','prenoms_nom',
-             'tel','telephone','téléphone','phone','numero','numéro','mobile','whatsapp','contact_tel',
+    known = {'company','societe','société','entreprise','organisation','structure','raison_sociale','entreprisenom','entreprise_nom',
+             'contact_name','nom','name','fullname','full_name','nom_complet','prenom_nom','prenoms_nom','nomprenom','nom_prenom',
+             'tel','telephone','téléphone','phone','numero','numéro','mobile','contact_tel','whatsapp','tel2','telephone2','contact_tel2',
              'email','mail','courriel','e-mail','adresse_email','city','ville','localite','localité',
              'region','région','district','sector','secteur','activite','activité','domaine','secteur_activite',
-             'position','poste','fonction','titre','role','rôle'}
+             'position','poste','fonction','titre','role','rôle','address','adresse','adresse_complete','adresse_complète',
+             'besoin','description','message','solution','service','services','demande'}
     extras = [f"{k}: {v}" for k, v in low.items() if k not in known and v]
     notes = "Inscription en ligne — Marahoué Business Connect 2026"
+    if besoin:
+        notes += f"\nBesoin / services : {besoin}"
     if extras:
         notes += "\n" + "\n".join(extras)
     try:
         conn = _gdb()
         conn.execute("""INSERT INTO prospects
-            (company, contact_name, tel, email, source, status, city, region, sector, position, notes, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
-            (company or contact or 'Prospect', contact, tel, email,
+            (company, contact_name, tel, contact_tel2, email, source, status, address, city, region, sector, position, notes, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+            (company or contact or 'Prospect', contact, tel, whatsapp, email,
              'Formulaire en ligne (Marahoué Business Connect 2026)', 'nouveau',
-             city, region, sector, position, notes))
+             address, city, region, sector, position, notes))
         conn.commit(); conn.close()
     except Exception as e:
         return _cors(jsonify({'ok': False, 'error': str(e)})), 500
