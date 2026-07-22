@@ -35498,6 +35498,45 @@ def pieces_caisse():
     conn.close()
     return render_template('pieces_caisse.html', page='pieces', pieces=pieces, total=total, by_cat=by_cat, caisses=caisses)
 
+@app.route('/comptabilite/pieces/_debug')
+@admin_only_required
+def pieces_caisse_debug():
+    """v172 : diagnostic temporaire — état du dossier des pièces / persistance uploads."""
+    from flask import Response
+    lines = []
+    pdir = os.path.join(app.config['UPLOAD_FOLDER'], 'pieces')
+    lines.append(f"PERSISTENT_DIR = {PERSISTENT_DIR}")
+    lines.append(f"UPLOAD_FOLDER  = {app.config['UPLOAD_FOLDER']}")
+    lines.append(f"pieces dir     = {pdir}")
+    lines.append(f"pieces dir existe : {os.path.isdir(pdir)}")
+    try:
+        from models import DB_PATH as _DBP
+        lines.append(f"DB_PATH        = {_DBP}  (existe: {os.path.exists(_DBP)})")
+    except Exception as _e:
+        lines.append(f"DB_PATH: {_e}")
+    q = (request.args.get('f', '') or '').strip()
+    if q:
+        lines.append(f"\nFichier demandé : {q} → existe : {os.path.exists(os.path.join(pdir, q))}")
+    lines.append("\n=== contenu du dossier pieces (max 60) ===")
+    try:
+        files = sorted(os.listdir(pdir))
+        lines.append(f"total fichiers : {len(files)}")
+        for name in files[:60]:
+            fp = os.path.join(pdir, name)
+            lines.append(f"  {name}  ({os.path.getsize(fp)} o)")
+    except Exception as _e:
+        lines.append(f"listing impossible : {_e}")
+    # combien de pièces référencées en base avec un file_path
+    try:
+        conn = _gdb()
+        n = conn.execute("SELECT COUNT(*) FROM pieces_caisse WHERE COALESCE(file_path,'')<>''").fetchone()[0]
+        conn.close()
+        lines.append(f"\npièces en base avec fichier : {n}")
+    except Exception as _e:
+        lines.append(f"count db: {_e}")
+    return Response("\n".join(lines), mimetype='text/plain')
+
+
 @app.route('/comptabilite/pieces/add', methods=['POST'])
 @permission_required('comptabilite')
 def pieces_caisse_add():
