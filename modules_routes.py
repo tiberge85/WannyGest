@@ -93,10 +93,14 @@ def taches_status(tid, status):
 @modules_bp.route('/prospects')
 @perm_required('clients')
 def prospects():
-    all_p = db_get_all('prospects')
-    stats = {s: db_count('prospects', {'status': s}) for s in ['nouveau','contacte','qualifie','proposition','gagne','perdu']}
+    valid = ['nouveau','contacte','qualifie','proposition','gagne','perdu']
+    status = (request.args.get('status', '') or '').strip()
+    where = {'status': status} if status in valid else None
+    all_p = db_get_all('prospects', where=where)
+    stats = {s: db_count('prospects', {'status': s}) for s in valid}
     stats['valeur'] = db_sum('prospects', 'estimated_value', {'status': 'gagne'})
-    return render_template('mod_prospects.html', page='prospects', prospects=all_p, stats=stats, users=get_all_users())
+    return render_template('mod_prospects.html', page='prospects', prospects=all_p, stats=stats,
+                           users=get_all_users(), current_status=(status if status in valid else ''))
 
 @modules_bp.route('/prospects/add', methods=['POST'])
 @perm_required('clients')

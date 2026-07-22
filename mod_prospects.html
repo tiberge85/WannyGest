@@ -6,8 +6,9 @@
 <div class="page-header"><h1>🎯 Prospects</h1></div>
 
 <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <a href="/prospects" style="padding:5px 13px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;border:1px solid #555;{% if not current_status %}background:#555;color:#fff{% else %}color:#555{% endif %}">📋 Toutes {{ stats.get('nouveau',0)+stats.get('contacte',0)+stats.get('qualifie',0)+stats.get('proposition',0)+stats.get('gagne',0)+stats.get('perdu',0) }}</a>
 {% for s, label, color in [('nouveau','Nouveau','#1A7A6D'),('contacte','Contacté','#e8672a'),('qualifie','Qualifié','#7b1fa2'),('proposition','Proposition','#B8860B'),('gagne','Gagné','#2e7d32'),('perdu','Perdu','#c53030')] %}
-    <span style="padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid {{ color }};color:{{ color }}">{{ stats.get(s, 0) }} {{ label }}</span>
+    <a href="/prospects?status={{ s }}" title="Filtrer : {{ label }}" style="padding:5px 13px;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none;border:1px solid {{ color }};{% if current_status==s %}background:{{ color }};color:#fff{% else %}color:{{ color }}{% endif %}">{{ stats.get(s, 0) }} {{ label }}</a>
 {% endfor %}
 </div>
 
