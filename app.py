@@ -3514,23 +3514,32 @@ def get_user_pending_tasks(user_id, user_role=None):
         
         # v142 / v150 / v152 : Comptabilité — factures à éditer (FRI)
         # v152 : Exclure les factures reportées au lendemain (deadline > today)
+        # v172 : ne bloquer la clôture sur les factures à éditer QUE si le rôle a encore
+        # la permission d'édition de facture (facture_edit). Si elle a été retirée à la
+        # comptabilité, on ne lui demande plus de terminer ces tâches.
         if user_role in ('comptable', 'comptabilite') and not is_admin_silent:
             try:
-                today_dt = datetime.now().strftime('%Y-%m-%d')
-                rows = conn.execute("""SELECT fri.id, fri.amount, fr.reference as fr_ref, fr.client_name
-                    FROM field_report_invoices fri
-                    JOIN field_reports fr ON fr.id = fri.field_report_id
-                    WHERE fri.status='a_facturer' AND fri.emitted_at IS NULL
-                          AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= ?)
-                    ORDER BY fri.created_at LIMIT 30""", (today_dt,)).fetchall()
-                for r in rows:
-                    result['validations'].append({
-                        'id': r['id'], 'task_type': 'facture_a_editer',
-                        'label': f"🧾 Facture à éditer {r['fr_ref']} — {r['client_name']} ({r['amount']:,.0f} XOF)",
-                        'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
-                        'priority': 'high',
-                    })
-            except: pass
+                from models import has_permission as _hp_fe
+                _can_edit_invoices = _hp_fe(user_role, 'facture_edit')
+            except Exception:
+                _can_edit_invoices = False
+            if _can_edit_invoices:
+                try:
+                    today_dt = datetime.now().strftime('%Y-%m-%d')
+                    rows = conn.execute("""SELECT fri.id, fri.amount, fr.reference as fr_ref, fr.client_name
+                        FROM field_report_invoices fri
+                        JOIN field_reports fr ON fr.id = fri.field_report_id
+                        WHERE fri.status='a_facturer' AND fri.emitted_at IS NULL
+                              AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= ?)
+                        ORDER BY fri.created_at LIMIT 30""", (today_dt,)).fetchall()
+                    for r in rows:
+                        result['validations'].append({
+                            'id': r['id'], 'task_type': 'facture_a_editer',
+                            'label': f"🧾 Facture à éditer {r['fr_ref']} — {r['client_name']} ({r['amount']:,.0f} XOF)",
+                            'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
+                            'priority': 'high',
+                        })
+                except: pass
             # Acomptes en attente de comptabilisation
             try:
                 rows = conn.execute("""SELECT id, reference, montant, libelle
