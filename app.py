@@ -19721,7 +19721,7 @@ def api_prospects_intake():
             (company, contact_name, tel, contact_tel2, email, source, status, address, city, region, sector, position, description, notes, created_at)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
             (company or contact or 'Prospect', contact, tel, whatsapp, email,
-             'Formulaire en ligne (Marahoué Business Connect 2026)', 'nouveau',
+             'Forum Marahoué Business', 'nouveau',
              address, city, region, sector, position, description, notes))
         conn.commit(); conn.close()
     except Exception as e:
