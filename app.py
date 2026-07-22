@@ -5629,6 +5629,54 @@ def add_security_headers(response):
 def not_found(e):
     return f"<h1>Page non trouvée</h1><a href='/'>Retour à l'accueil</a>", 404
 
+
+@app.route('/version')
+def app_version():
+    """v172 : version déployée (commit Render) — public, pour vérifier les déploiements."""
+    from flask import Response
+    commit = os.environ.get('RENDER_GIT_COMMIT', '') or 'inconnu'
+    return Response(f"commit={commit}\n", mimetype='text/plain')
+
+
+@app.route('/comptabilite/_debug_cloture')
+@admin_only_required
+def comptabilite_debug_cloture():
+    """v172 : diagnostic temporaire — pourquoi la comptabilité a des tâches de clôture."""
+    from flask import Response
+    from models import has_permission as _hp
+    conn = _gdb()
+    out = []
+    out.append("=== permissions facture par rôle ===")
+    for role in ('comptable', 'comptabilite'):
+        for perm in ('facture_edit', 'comptabilite', 'recouvrement_edit'):
+            try:
+                out.append(f"{role} a '{perm}' : {_hp(role, perm)}")
+            except Exception as e:
+                out.append(f"{role}/{perm}: {e}")
+    out.append("")
+    out.append("=== source des tâches 'facture à éditer' ===")
+    try:
+        n = conn.execute("""SELECT COUNT(*) FROM field_report_invoices fri
+            WHERE fri.status='a_facturer' AND fri.emitted_at IS NULL
+              AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= date('now'))""").fetchone()[0]
+        out.append(f"factures à éditer (a_facturer, non émises, échéance<=aujourd'hui) : {n}")
+    except Exception as e:
+        out.append(f"err factures: {e}")
+    try:
+        na = conn.execute("SELECT COUNT(*) FROM caisse_operations WHERE statut='en_attente_compta'").fetchone()[0]
+        out.append(f"acomptes en attente compta : {na}")
+    except Exception as e:
+        out.append(f"err acomptes: {e}")
+    out.append("")
+    out.append("=== rôles des utilisateurs comptables ===")
+    try:
+        for r in conn.execute("SELECT id, full_name, role FROM users WHERE role IN ('comptable','comptabilite') AND COALESCE(is_active,1)=1").fetchall():
+            out.append(f"#{r['id']} {r['full_name']} → rôle '{r['role']}'")
+    except Exception as e:
+        out.append(f"err users: {e}")
+    conn.close()
+    return Response("\n".join(out), mimetype='text/plain')
+
 @app.route('/')
 def welcome():
     if 'user_id' in session:
