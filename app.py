@@ -770,6 +770,32 @@ except Exception as _e:
     print(f"[v99-Marges] Erreur : {_e}", flush=True)
 
 
+# ==================== v172 : sortie de stock — destinataire + prix de vente ====================
+try:
+    from models import get_db as _v172_db
+    _v172_conn = _v172_db()
+    for col, ddl in [
+        ('destinataire_type', "TEXT"),        # 'client' | 'particulier' | 'technicien'
+        ('client_id', "INTEGER"),
+        ('particulier_nom', "TEXT"),
+        ('particulier_tel', "TEXT"),
+        ('particulier_adresse', "TEXT"),
+        ('technicien_id', "INTEGER"),
+        ('payant', "INTEGER DEFAULT 0"),
+        ('prix_vente_unitaire', "REAL DEFAULT 0"),
+        ('montant_total', "REAL DEFAULT 0"),
+    ]:
+        try:
+            _v172_conn.execute(f"ALTER TABLE mg_stock_exits ADD COLUMN {col} {ddl}")
+        except Exception:
+            pass  # colonne déjà présente
+    _v172_conn.commit()
+    _v172_conn.close()
+    print("[v172] Colonnes destinataire/prix sur mg_stock_exits OK", flush=True)
+except Exception as _e:
+    print(f"[v172] Erreur ALTER mg_stock_exits : {_e}", flush=True)
+
+
 # ==================== v99 : MODULE REMONTÉES D'INFORMATIONS TERRAIN ====================
 try:
     from models import get_db as _v99b_db
@@ -21757,13 +21783,25 @@ def mg_stock_sorties():
     for s in exits:
         s['total'] = (s.get('quantite') or 0) * (s.get('prix_unitaire') or 0)
     articles = [dict(r) for r in conn.execute("""SELECT id, reference, designation, unite,
+        COALESCE(prix_vente_particulier,0)       AS pp,
+        COALESCE(prix_vente_pme,0)               AS ppme,
+        COALESCE(prix_vente_grande_entreprise,0) AS pge,
         stock_initial + COALESCE((SELECT SUM(quantite) FROM mg_stock_entries WHERE article_id=mg_stock_articles.id),0)
         - COALESCE((SELECT SUM(quantite) FROM mg_stock_exits WHERE article_id=mg_stock_articles.id),0) as stock_actuel
         FROM mg_stock_articles ORDER BY designation""").fetchall()]
     total_value = sum(s['total'] for s in exits)
+    # v172 : clients (avec catégorie) + techniciens pour le choix du destinataire
+    clients = [dict(r) for r in conn.execute(
+        "SELECT id, name, COALESCE(client_status,'') AS client_status FROM clients ORDER BY name").fetchall()]
+    try:
+        techniciens = [dict(r) for r in conn.execute(
+            "SELECT id, full_name FROM users WHERE COALESCE(is_active,1)=1 "
+            "AND role IN ('technicien','tech_chef','centre_technique') ORDER BY full_name").fetchall()]
+    except Exception:
+        techniciens = []
     conn.close()
     return render_template('mg_stock_sorties.html', page='mg_stock_sorties',
-        exits=exits, articles=articles, total_value=total_value)
+        exits=exits, articles=articles, total_value=total_value, clients=clients, techniciens=techniciens)
 
 
 @app.route('/mg/stock/sorties/add', methods=['POST'])
@@ -21781,16 +21819,55 @@ def mg_stock_sortie_add():
             flash(f"⚠️ Stock insuffisant : il reste {stock_actuel} unité(s)", "error")
             return redirect('/mg/stock/sorties')
         conn = _gdb()
-        conn.execute("""INSERT INTO mg_stock_exits 
-            (article_id, quantite, date_sortie, destination, observation, user_id, created_at)
-            VALUES (?,?,?,?,?,?,datetime('now'))""",
+        # v172 : prix de vente selon le destinataire (catalogue)
+        art = conn.execute("""SELECT COALESCE(prix_vente_particulier,0) pp,
+            COALESCE(prix_vente_pme,0) ppme, COALESCE(prix_vente_grande_entreprise,0) pge
+            FROM mg_stock_articles WHERE id=?""", (aid,)).fetchone()
+        pp = float(art['pp'] or 0); ppme = float(art['ppme'] or 0); pge = float(art['pge'] or 0)
+        dtype = (request.form.get('destinataire_type', '') or '').strip()
+        client_id = None; part_nom = part_tel = part_adr = ''; tech_id = None; payant = 0
+        prix = 0.0; dest_label = ''
+        if dtype == 'client':
+            cid_raw = request.form.get('client_id', '') or ''
+            client_id = int(cid_raw) if cid_raw.isdigit() else None
+            crow = conn.execute("SELECT name, COALESCE(client_status,'') st FROM clients WHERE id=?", (client_id,)).fetchone() if client_id else None
+            st = (crow['st'].lower() if crow else '')
+            if 'gros' in st or 'grande' in st: prix = pge
+            elif 'entreprise' in st: prix = ppme
+            else: prix = pp
+            payant = 1
+            dest_label = 'Client : ' + (crow['name'] if crow else '?')
+        elif dtype == 'particulier':
+            part_nom = (request.form.get('particulier_nom', '') or '').strip()
+            part_tel = (request.form.get('particulier_tel', '') or '').strip()
+            part_adr = (request.form.get('particulier_adresse', '') or '').strip()
+            prix = pp; payant = 1
+            dest_label = 'Particulier : ' + (part_nom or '?')
+        elif dtype == 'technicien':
+            tid_raw = request.form.get('technicien_id', '') or ''
+            tech_id = int(tid_raw) if tid_raw.isdigit() else None
+            payant = 1 if request.form.get('payant') in ('1', 'on', 'true') else 0
+            if payant:
+                pv_raw = (request.form.get('prix_vente_unitaire', '') or '').strip().replace(',', '.')
+                prix = float(pv_raw) if pv_raw else pp
+            else:
+                prix = 0.0
+            trow = conn.execute("SELECT full_name FROM users WHERE id=?", (tech_id,)).fetchone() if tech_id else None
+            dest_label = 'Technicien : ' + (trow['full_name'] if trow else '?') + (' (payant)' if payant else ' (gratuit)')
+        else:
+            dest_label = (request.form.get('destination', '') or '').strip()  # rétrocompat
+        montant = qt * prix
+        conn.execute("""INSERT INTO mg_stock_exits
+            (article_id, quantite, date_sortie, destination, observation, user_id, created_at,
+             destinataire_type, client_id, particulier_nom, particulier_tel, particulier_adresse,
+             technicien_id, payant, prix_vente_unitaire, montant_total)
+            VALUES (?,?,?,?,?,?,datetime('now'),?,?,?,?,?,?,?,?,?)""",
             (aid, qt,
              request.form.get('date_sortie') or datetime.now().strftime('%Y-%m-%d'),
-             request.form.get('destination',''),
-             request.form.get('observation',''),
-             session.get('user_id')))
+             dest_label, request.form.get('observation', ''), session.get('user_id'),
+             dtype or None, client_id, part_nom, part_tel, part_adr, tech_id, payant, prix, montant))
         conn.commit(); conn.close()
-        flash(f"✅ Sortie de {qt} unité(s) enregistrée", "success")
+        flash(f"✅ Sortie de {qt} unité(s) enregistrée" + (f" — {montant:,.0f} F" if montant else ""), "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect('/mg/stock/sorties')

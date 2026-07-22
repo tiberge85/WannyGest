@@ -77,14 +77,66 @@
         </div>
         <div id="sorChosen" style="font-size:12px;color:#2e7d32;margin-top:4px"></div>
     </div>
-    <script id="sorData" type="application/json">[{% for a in articles %}{"id":{{ a.id }},"label":{{ ((a.reference or '') ~ ' — ' ~ (a.designation or '') ~ ' (stock: ' ~ (a.stock_actuel|string) ~ ')')|tojson }},"disabled":{{ 'true' if (a.stock_actuel or 0) <= 0 else 'false' }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
+    <script id="sorData" type="application/json">[{% for a in articles %}{"id":{{ a.id }},"label":{{ ((a.reference or '') ~ ' — ' ~ (a.designation or '') ~ ' (stock: ' ~ (a.stock_actuel|string) ~ ')')|tojson }},"disabled":{{ 'true' if (a.stock_actuel or 0) <= 0 else 'false' }},"pp":{{ a.pp|float }},"ppme":{{ a.ppme|float }},"pge":{{ a.pge|float }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
+    <script id="cliData" type="application/json">[{% for c in clients %}{"id":{{ c.id }},"label":{{ (c.name or '')|tojson }},"st":{{ (c.client_status or '')|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
     <div class="form-row">
-        <div class="form-group"><label>Quantité *</label><input type="number" name="quantite" required min="1"></div>
+        <div class="form-group"><label>Quantité *</label><input type="number" name="quantite" id="sorQt" required min="1" oninput="sorRecalc()"></div>
         <div class="form-group"><label>Date *</label><input type="date" name="date_sortie" required></div>
     </div>
-    <div class="form-group"><label>Destination</label>
-        <input type="text" name="destination" placeholder="Technicien / Client / N° projet">
+
+    <!-- v172 : destinataire -->
+    <div class="form-group"><label>Destinataire *</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+            <label style="flex:1;min-width:120px;border:1.5px solid #ddd;border-radius:8px;padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:6px"><input type="radio" name="destinataire_type" value="client" onchange="sorDestType()"> 🏢 Client</label>
+            <label style="flex:1;min-width:120px;border:1.5px solid #ddd;border-radius:8px;padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:6px"><input type="radio" name="destinataire_type" value="particulier" onchange="sorDestType()"> 👤 Particulier</label>
+            <label style="flex:1;min-width:120px;border:1.5px solid #ddd;border-radius:8px;padding:8px 10px;cursor:pointer;display:flex;align-items:center;gap:6px"><input type="radio" name="destinataire_type" value="technicien" onchange="sorDestType()"> 🔧 Technicien</label>
+        </div>
     </div>
+
+    <!-- Bloc CLIENT -->
+    <div id="blkClient" class="dest-blk" style="display:none">
+        <div class="form-group"><label>Client *</label>
+            <div style="position:relative">
+                <input type="text" id="cliSearch" autocomplete="off" placeholder="🔍 Rechercher un client…" style="width:100%;padding:8px;border:1.5px solid #1A7A6D;border-radius:6px;font-size:13px">
+                <input type="hidden" name="client_id" id="cliId">
+                <div id="cliList" style="display:none;position:absolute;z-index:60;left:0;right:0;max-height:200px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+            </div>
+            <div id="cliChosen" style="font-size:12px;color:#2e7d32;margin-top:4px"></div>
+        </div>
+    </div>
+
+    <!-- Bloc PARTICULIER -->
+    <div id="blkParticulier" class="dest-blk" style="display:none">
+        <div class="form-row">
+            <div class="form-group" style="flex:2"><label>Nom du particulier *</label><input type="text" name="particulier_nom" id="partNom"></div>
+            <div class="form-group"><label>Téléphone</label><input type="text" name="particulier_tel"></div>
+        </div>
+        <div class="form-group"><label>Adresse</label><input type="text" name="particulier_adresse"></div>
+    </div>
+
+    <!-- Bloc TECHNICIEN -->
+    <div id="blkTechnicien" class="dest-blk" style="display:none">
+        <div class="form-group"><label>Technicien *</label>
+            <select name="technicien_id" id="techSel" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+                <option value="">— Choisir —</option>
+                {% for t in techniciens %}<option value="{{ t.id }}">{{ t.full_name }}</option>{% endfor %}
+            </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#fff8ed;border:1px solid #ffe4b5;border-radius:8px;padding:8px 10px">
+            <input type="checkbox" name="payant" id="techPayant" value="1" onchange="sorTechPayant();sorRecalc()"> Sortie <strong>payante</strong> (sinon gratuite)
+        </label>
+        <div class="form-group" id="techPrixWrap" style="display:none;margin-top:8px">
+            <label>Prix unitaire à facturer (FCFA)</label>
+            <input type="number" name="prix_vente_unitaire" id="techPrix" min="0" step="1" oninput="sorRecalc()" placeholder="Prix particulier par défaut">
+        </div>
+    </div>
+
+    <!-- Prix / total dynamique -->
+    <div id="sorPriceBox" style="display:none;background:#1A7A6D;color:#fff;border-radius:8px;padding:10px 14px;margin:10px 0;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span>Prix unitaire : <strong id="sorPU">0 F</strong> <span id="sorTier" style="opacity:.85;font-size:11px"></span></span>
+        <span>Total : <strong id="sorMontant" style="font-size:17px">0 F</strong></span>
+    </div>
+
     <div class="form-group"><label>Observation</label><textarea name="observation" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px" placeholder="Motif, chantier, intervention..."></textarea></div>
     <div style="background:#fff3cd;padding:10px;border-left:4px solid #e8672a;border-radius:6px;font-size:11px;color:#856404;margin-bottom:12px">
         ⚠ La sortie ne peut excéder le stock actuel disponible.
@@ -160,9 +212,66 @@ function initCombo(prefix, onPick){
     input.addEventListener('focus',function(){ render(this.value); });
     input.addEventListener('blur',function(){ setTimeout(function(){ list.style.display='none'; },180); });
 }
+// v172 : gestion du destinataire + prix de vente selon le catalogue
+var SOR = { art:null, dtype:'', cliSt:'' };
+function fmtF(n){ return Math.round(n||0).toLocaleString('fr-FR').replace(/ /g,' ') + ' F'; }
+function sorUnitPrice(){
+    var a=SOR.art; if(!a) return {price:0, tier:''};
+    if(SOR.dtype==='client'){
+        var st=(SOR.cliSt||'').toLowerCase();
+        if(st.indexOf('gros')>-1 || st.indexOf('grande')>-1) return {price:a.pge, tier:'Grande Entreprise'};
+        if(st.indexOf('entreprise')>-1) return {price:a.ppme, tier:'PME'};
+        if(st.indexOf('particulier')>-1) return {price:a.pp, tier:'Particulier'};
+        return {price:a.pp, tier:'Particulier (défaut)'};
+    }
+    if(SOR.dtype==='particulier') return {price:a.pp, tier:'Particulier'};
+    if(SOR.dtype==='technicien'){
+        var payant=document.getElementById('techPayant').checked;
+        if(!payant) return {price:0, tier:'Gratuit'};
+        var raw=document.getElementById('techPrix').value;
+        var v=parseFloat(raw);
+        if(!raw || isNaN(v)) return {price:a.pp, tier:'Particulier (défaut)'};
+        return {price:v, tier:'Saisi'};
+    }
+    return {price:0, tier:''};
+}
+function sorRecalc(){
+    var box=document.getElementById('sorPriceBox');
+    if(!SOR.dtype || !SOR.art){ box.style.display='none'; return; }
+    var up=sorUnitPrice();
+    var qt=parseFloat((document.getElementById('sorQt')||{}).value)||0;
+    box.style.display='flex';
+    document.getElementById('sorPU').textContent=fmtF(up.price);
+    document.getElementById('sorTier').textContent=up.tier?('· '+up.tier):'';
+    document.getElementById('sorMontant').textContent=fmtF(up.price*qt);
+    if(SOR.dtype==='technicien' && document.getElementById('techPayant').checked){
+        var tp=document.getElementById('techPrix'); if(tp && !tp.value) tp.placeholder=fmtF(SOR.art.pp)+' (défaut)';
+    }
+}
+function sorDestType(){
+    var r=document.querySelector('input[name="destinataire_type"]:checked');
+    SOR.dtype = r ? r.value : '';
+    document.getElementById('blkClient').style.display     = SOR.dtype==='client'?'':'none';
+    document.getElementById('blkParticulier').style.display= SOR.dtype==='particulier'?'':'none';
+    document.getElementById('blkTechnicien').style.display = SOR.dtype==='technicien'?'':'none';
+    sorRecalc();
+}
+function sorTechPayant(){
+    document.getElementById('techPrixWrap').style.display = document.getElementById('techPayant').checked ? '' : 'none';
+}
+function sorValidate(){
+    if(!document.getElementById('sorId').value){ alert('Choisissez un article.'); return false; }
+    if(!SOR.dtype){ alert('Choisissez un destinataire (Client, Particulier ou Technicien).'); return false; }
+    if(SOR.dtype==='client' && !document.getElementById('cliId').value){ alert('Sélectionnez le client.'); return false; }
+    if(SOR.dtype==='particulier' && !document.getElementById('partNom').value.trim()){ alert('Renseignez le nom du particulier.'); return false; }
+    if(SOR.dtype==='technicien' && !document.getElementById('techSel').value){ alert('Sélectionnez le technicien.'); return false; }
+    return true;
+}
 document.addEventListener('DOMContentLoaded',function(){
-    initCombo('sor');
+    initCombo('sor', function(it){ SOR.art = it || null; sorRecalc(); });
+    initCombo('cli', function(it){ SOR.cliSt = (it && it.st) || ''; sorRecalc(); });
     var d=document.querySelector('input[name="date_sortie"]'); if(d) d.value=new Date().toISOString().split('T')[0];
+    var f=document.querySelector('#addSor form'); if(f) f.addEventListener('submit',function(e){ if(!sorValidate()) e.preventDefault(); });
 });
 </script>
 {% endblock %}
