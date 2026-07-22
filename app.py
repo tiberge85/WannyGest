@@ -5748,6 +5748,7 @@ import secrets as _csrf_secrets
 CSRF_EXEMPT_PATHS = {
     '/api/notifications/count',
     '/api/correcteur',
+    '/api/prospects/intake',   # v172 : réception d'un formulaire externe (site Vercel)
 }
 # Endpoints publics qui font POST avant que la session existe
 CSRF_BOOTSTRAP_ENDPOINTS = {'login', 'portail_login', 'portail_register'}
@@ -19599,6 +19600,67 @@ def tech_center_edit(sid):
 def tech_center_delete(sid):
     conn = _gdb(); conn.execute("DELETE FROM tech_center WHERE id=?", (sid,)); conn.commit(); conn.close()
     flash("Supprimé","success"); return redirect(url_for('tech_center'))
+
+@app.route('/api/prospects/intake', methods=['POST', 'OPTIONS'])
+def api_prospects_intake():
+    """v172 : réception d'un prospect depuis un formulaire externe (ex. site Vercel).
+    Public. Protégé par une clé partagée si la variable d'env INTAKE_KEY est définie.
+    CORS activé pour un POST depuis un navigateur d'un autre domaine."""
+    def _cors(resp):
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Intake-Key'
+        return resp
+    if request.method == 'OPTIONS':
+        return _cors(app.make_response(('', 204)))
+    # Clé partagée (optionnelle) : activée seulement si INTAKE_KEY est configurée
+    expected = os.environ.get('INTAKE_KEY', '')
+    if expected:
+        provided = request.headers.get('X-Intake-Key', '') or request.args.get('key', '')
+        if provided != expected:
+            return _cors(jsonify({'ok': False, 'error': 'clé invalide'})), 403
+    data = request.get_json(silent=True) or request.form.to_dict() or {}
+    if not isinstance(data, dict):
+        return _cors(jsonify({'ok': False, 'error': 'format invalide'})), 400
+    low = { (k or '').strip().lower(): (str(v).strip() if v is not None else '') for k, v in data.items() }
+    def g(*keys):
+        for k in keys:
+            if low.get(k):
+                return low[k]
+        return ''
+    company  = g('company','societe','société','entreprise','organisation','structure','raison_sociale')
+    contact  = g('contact_name','nom','name','fullname','full_name','nom_complet','prenom_nom','prenoms_nom')
+    tel      = g('tel','telephone','téléphone','phone','numero','numéro','mobile','whatsapp','contact_tel')
+    email    = g('email','mail','courriel','e-mail','adresse_email')
+    city     = g('city','ville','localite','localité')
+    region   = g('region','région','district')
+    sector   = g('sector','secteur','activite','activité','domaine','secteur_activite')
+    position = g('position','poste','fonction','titre','role','rôle')
+    if not (company or contact or tel or email):
+        return _cors(jsonify({'ok': False, 'error': 'données insuffisantes (au moins nom, société, tél ou email)'})), 400
+    known = {'company','societe','société','entreprise','organisation','structure','raison_sociale',
+             'contact_name','nom','name','fullname','full_name','nom_complet','prenom_nom','prenoms_nom',
+             'tel','telephone','téléphone','phone','numero','numéro','mobile','whatsapp','contact_tel',
+             'email','mail','courriel','e-mail','adresse_email','city','ville','localite','localité',
+             'region','région','district','sector','secteur','activite','activité','domaine','secteur_activite',
+             'position','poste','fonction','titre','role','rôle'}
+    extras = [f"{k}: {v}" for k, v in low.items() if k not in known and v]
+    notes = "Inscription en ligne — Marahoué Business Connect 2026"
+    if extras:
+        notes += "\n" + "\n".join(extras)
+    try:
+        conn = _gdb()
+        conn.execute("""INSERT INTO prospects
+            (company, contact_name, tel, email, source, status, city, region, sector, position, notes, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+            (company or contact or 'Prospect', contact, tel, email,
+             'Formulaire en ligne (Marahoué Business Connect 2026)', 'nouveau',
+             city, region, sector, position, notes))
+        conn.commit(); conn.close()
+    except Exception as e:
+        return _cors(jsonify({'ok': False, 'error': str(e)})), 500
+    return _cors(jsonify({'ok': True, 'message': 'Prospect enregistré'}))
+
 
 @app.route('/prospects/view/<int:pid>')
 @login_required
