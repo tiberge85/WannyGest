@@ -78,6 +78,7 @@
                     <th style="padding:12px 8px;text-align:left;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Catégorie</th>
                     <th style="padding:12px 8px;text-align:center;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Unité</th>
                     <th style="padding:12px 8px;text-align:right;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800">Stock</th>
+                    <th style="padding:12px 8px;text-align:right;background:#1A7A6D;color:#fff;font-size:12px;font-weight:800" title="Seuil d'alerte">Seuil</th>
                     <th style="padding:12px 8px;text-align:right;background:#0f5a51;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff" title="Prix d'achat (entrant)">P.U. Achat</th>
                     <th style="padding:12px 8px;text-align:right;background:#1976d2;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff" title="Prix de vente Particulier">👤 P.V. Partic.</th>
                     <th style="padding:12px 8px;text-align:right;background:#e8672a;color:#fff;font-size:12px;font-weight:800;border-left:2px solid #fff" title="Prix de vente PME">🏢 P.V. PME</th>
@@ -93,6 +94,7 @@
                 <td style="padding:7px 8px;color:#666;font-size:10px">{{ a.categorie or '-' }}</td>
                 <td style="text-align:center;padding:7px 8px;font-size:10px">{{ a.unite or 'UNITE' }}</td>
                 <td style="text-align:right;padding:7px 8px;font-weight:600">{{ a.stock_initial or 0 }}</td>
+                <td style="text-align:right;padding:7px 8px;font-weight:600;color:#b8561f">{{ a.seuil_alerte if a.seuil_alerte is not none else 2 }}</td>
                 <td style="text-align:right;padding:7px 8px;background:#f0f7f5;font-weight:700;color:#0f5a51">{{ '{:,.0f}'.format(a.prix_unitaire or 0).replace(',', ' ') }}</td>
                 <td style="text-align:right;padding:7px 8px;background:#e3f2fd;font-weight:700;color:#1565c0">{{ '{:,.0f}'.format(a.prix_vente_particulier or 0).replace(',', ' ') }}</td>
                 <td style="text-align:right;padding:7px 8px;background:#fff3e0;font-weight:700;color:#b8561f">{{ '{:,.0f}'.format(a.prix_vente_pme or 0).replace(',', ' ') }}</td>
@@ -104,7 +106,7 @@
                         data-designation="{{ a.designation|e }}"
                         data-categorie="{{ a.categorie or '' }}"
                         data-unite="{{ a.unite or 'UNITE' }}"
-                        data-seuil="{{ a.seuil_alerte or 2 }}"
+                        data-seuil="{{ a.seuil_alerte if a.seuil_alerte is not none else 2 }}"
                         data-prix="{{ a.prix_unitaire or 0 }}"
                         data-notes="{{ a.notes or '' }}"
                         data-stock-initial="{{ a.stock_initial or 0 }}"
@@ -248,7 +250,7 @@ document.addEventListener('DOMContentLoaded', function() {
             editArt(
                 this.dataset.id, this.dataset.reference || '',
                 this.dataset.designation || '', this.dataset.categorie || '',
-                this.dataset.unite || 'UNITE', parseInt(this.dataset.seuil) || 2,
+                this.dataset.unite || 'UNITE', (this.dataset.seuil !== undefined && this.dataset.seuil !== '') ? parseInt(this.dataset.seuil) : 2,
                 parseFloat(this.dataset.prix) || 0, this.dataset.notes || '',
                 parseInt(this.dataset.stockInitial) || 0
             );
