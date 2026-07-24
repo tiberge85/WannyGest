@@ -3674,23 +3674,31 @@ def get_user_pending_tasks(user_id, user_role=None):
             except: pass
             # v168 : factures À ÉDITER (status='a_facturer') — l'agent recouvreur peut les éditer
             # (recouvrement_edit) → elles doivent bloquer la clôture tant qu'elles ne sont pas traitées.
-            # (on exclut celles reportées au lendemain : deadline_edit > aujourd'hui)
+            # v172 : seulement si le rôle a encore la permission 'recouvrement_edit'
+            # (si on la retire, l'utilisateur n'est plus bloqué par l'édition de factures).
             try:
-                _today = datetime.now().strftime('%Y-%m-%d')
-                rows = conn.execute("""SELECT fri.id, fri.amount, fr.reference as fr_ref, fr.client_name
-                    FROM field_report_invoices fri
-                    JOIN field_reports fr ON fr.id = fri.field_report_id
-                    WHERE fri.status='a_facturer' AND fri.emitted_at IS NULL
-                          AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= ?)
-                    ORDER BY fri.created_at LIMIT 30""", (_today,)).fetchall()
-                for r in rows:
-                    result['validations'].append({
-                        'id': r['id'], 'task_type': 'facture_a_editer',
-                        'label': f"🧾 Facture à éditer {r['fr_ref']} — {r['client_name']} ({r['amount']:,.0f} XOF)",
-                        'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
-                        'priority': 'high',
-                    })
-            except: pass
+                from models import has_permission as _hp_re
+                _can_edit_recouv = _hp_re(user_role, 'recouvrement_edit')
+            except Exception:
+                _can_edit_recouv = False
+            if _can_edit_recouv:
+                # (on exclut celles reportées au lendemain : deadline_edit > aujourd'hui)
+                try:
+                    _today = datetime.now().strftime('%Y-%m-%d')
+                    rows = conn.execute("""SELECT fri.id, fri.amount, fr.reference as fr_ref, fr.client_name
+                        FROM field_report_invoices fri
+                        JOIN field_reports fr ON fr.id = fri.field_report_id
+                        WHERE fri.status='a_facturer' AND fri.emitted_at IS NULL
+                              AND (fri.deadline_edit IS NULL OR fri.deadline_edit <= ?)
+                        ORDER BY fri.created_at LIMIT 30""", (_today,)).fetchall()
+                    for r in rows:
+                        result['validations'].append({
+                            'id': r['id'], 'task_type': 'facture_a_editer',
+                            'label': f"🧾 Facture à éditer {r['fr_ref']} — {r['client_name']} ({r['amount']:,.0f} XOF)",
+                            'link': '/recouvrement/factures-a-editer', 'status': 'à éditer',
+                            'priority': 'high',
+                        })
+                except: pass
         
         # v142 / v150 : Caissière — paiements en attente de validation
         if user_role == 'caissiere' and not is_admin_silent:
