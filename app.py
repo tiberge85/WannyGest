@@ -5674,6 +5674,25 @@ def comptabilite_debug_cloture():
             out.append(f"#{r['id']} {r['full_name']} → rôle '{r['role']}'")
     except Exception as e:
         out.append(f"err users: {e}")
+    # v172 : recherche d'un utilisateur précis (?user=nom) + ses permissions
+    q = (request.args.get('user', '') or '').strip()
+    if q:
+        out.append("")
+        out.append(f"=== utilisateur recherché : {q!r} ===")
+        try:
+            urs = conn.execute("SELECT id, full_name, role, COALESCE(is_active,1) act FROM users WHERE LOWER(full_name) LIKE ?",
+                               (f"%{q.lower()}%",)).fetchall()
+            if not urs:
+                out.append("(aucun utilisateur trouvé)")
+            for u in urs:
+                out.append(f"#{u['id']} {u['full_name']} → rôle '{u['role']}' (actif={u['act']})")
+                for perm in ('facture_edit', 'recouvrement_edit', 'comptabilite', 'recouvrement', 'recouvrement_view'):
+                    try:
+                        out.append(f"    a '{perm}' : {_hp(u['role'], perm)}")
+                    except Exception as e:
+                        out.append(f"    {perm}: {e}")
+        except Exception as e:
+            out.append(f"err recherche user: {e}")
     conn.close()
     return Response("\n".join(out), mimetype='text/plain')
 
