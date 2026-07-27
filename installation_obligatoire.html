@@ -59,14 +59,31 @@
 function useMyPos(){
     var s=document.getElementById('oGeo');
     if(!navigator.geolocation){ s.textContent='⚠️ Géolocalisation non disponible sur cet appareil.'; return; }
-    s.textContent='📡 Localisation en cours…';
-    navigator.geolocation.getCurrentPosition(function(p){
+    // Le GPS n'est autorisé que sur une connexion sécurisée (https). Sur http, le navigateur refuse.
+    if(window.isSecureContext===false){
+        s.innerHTML='⚠️ La localisation nécessite une adresse sécurisée. Ouvrez le site en <strong>https://</strong> (pas http://) puis réessayez.';
+        return;
+    }
+    function ok(p){
         document.getElementById('oLat').value=p.coords.latitude.toFixed(6);
         document.getElementById('oLng').value=p.coords.longitude.toFixed(6);
         s.textContent='✅ Position capturée (précision ~'+Math.round(p.coords.accuracy)+' m).';
-    }, function(err){
-        s.textContent='⚠️ Impossible d\'obtenir la position ('+err.message+'). Saisissez les coordonnées manuellement.';
-    }, {enableHighAccuracy:true, timeout:10000, maximumAge:0});
+    }
+    function fail(err){
+        var m;
+        if(err && err.code===1){ m='Vous avez refusé (ou bloqué) l\'accès à la position. Touchez l\'icône 🔒 / ⓘ à gauche de l\'adresse → Autorisations → Localisation → Autoriser, puis réessayez.'; }
+        else if(err && err.code===2){ m='Position indisponible. Activez le GPS / la localisation de l\'appareil et vérifiez votre réseau, puis réessayez.'; }
+        else if(err && err.code===3){ m='Le GPS met trop de temps à répondre (souvent en intérieur). Réessayez à l\'extérieur, ou saisissez la position manuellement.'; }
+        else { m=(err&&err.message)||'Erreur inconnue.'; }
+        s.innerHTML='⚠️ '+m;
+    }
+    s.textContent='📡 Localisation en cours… (patientez, cela peut prendre 20 s)';
+    // 1re tentative : haute précision (GPS). Si elle échoue/expire, on retente en mode réseau (moins précis mais rapide).
+    navigator.geolocation.getCurrentPosition(ok, function(err){
+        s.textContent='📡 GPS lent, tentative via le réseau…';
+        navigator.geolocation.getCurrentPosition(ok, fail,
+            {enableHighAccuracy:false, timeout:20000, maximumAge:120000});
+    }, {enableHighAccuracy:true, timeout:20000, maximumAge:0});
 }
 </script>
 {% endblock %}

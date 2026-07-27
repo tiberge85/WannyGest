@@ -465,17 +465,31 @@ document.addEventListener('DOMContentLoaded', function() {
 </div></div>
 
 <script>
+function _geoMsg(err){
+    if (err && err.code===1) return 'Vous avez refusé (ou bloqué) l\'accès à la position. Touchez l\'icône 🔒 / ⓘ à gauche de l\'adresse → Autorisations → Localisation → Autoriser, puis réessayez.';
+    if (err && err.code===2) return 'Position indisponible. Activez le GPS / la localisation de l\'appareil et vérifiez votre réseau, puis réessayez.';
+    if (err && err.code===3) return 'Le GPS met trop de temps à répondre (souvent en intérieur). Réessayez à l\'extérieur, ou saisissez la position manuellement.';
+    return (err && err.message) || 'Erreur inconnue.';
+}
+function _geoLocate(onOk, onFail){
+    if (!navigator.geolocation) { onFail({message:'Géolocalisation non supportée par ce navigateur.'}); return false; }
+    if (window.isSecureContext===false){ onFail({message:'La localisation nécessite une adresse sécurisée. Ouvrez le site en https:// (pas http://).'}); return false; }
+    // Haute précision d'abord, repli automatique en mode réseau si le GPS échoue/expire.
+    navigator.geolocation.getCurrentPosition(onOk, function(){
+        navigator.geolocation.getCurrentPosition(onOk, onFail, { enableHighAccuracy:false, timeout:20000, maximumAge:120000 });
+    }, { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
+    return true;
+}
 function useMyPosition() {
     var st = document.getElementById('geoStatus');
-    if (!navigator.geolocation) { if (st) st.textContent = '⚠️ Géolocalisation non supportée par ce navigateur.'; return; }
-    if (st) st.textContent = '⏳ Localisation en cours...';
-    navigator.geolocation.getCurrentPosition(function(pos) {
+    if (st) st.textContent = '⏳ Localisation en cours… (jusqu\'à 20 s)';
+    _geoLocate(function(pos) {
         document.getElementById('inLat').value = pos.coords.latitude.toFixed(6);
         document.getElementById('inLng').value = pos.coords.longitude.toFixed(6);
         if (st) st.innerHTML = '✅ Position capturée (précision ±' + Math.round(pos.coords.accuracy) + ' m). Le site sera localisable sur la carte.';
     }, function(err) {
-        if (st) st.textContent = '⚠️ Impossible d\'obtenir la position : ' + err.message + '. Saisissez la latitude/longitude manuellement.';
-    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+        if (st) st.innerHTML = '⚠️ ' + _geoMsg(err);
+    });
 }
 
 function openEdit(inst) {
@@ -504,15 +518,14 @@ function openGps(id, name, lat, lng, zone) {
 }
 function gpsUsePosition() {
     var st = document.getElementById('gpsStatus');
-    if (!navigator.geolocation) { st.textContent = '⚠️ Géolocalisation non supportée.'; return; }
-    st.textContent = '⏳ Localisation en cours...';
-    navigator.geolocation.getCurrentPosition(function(pos) {
+    st.textContent = '⏳ Localisation en cours… (jusqu\'à 20 s)';
+    _geoLocate(function(pos) {
         document.getElementById('gLat').value = pos.coords.latitude.toFixed(6);
         document.getElementById('gLng').value = pos.coords.longitude.toFixed(6);
         st.innerHTML = '✅ Position capturée (±' + Math.round(pos.coords.accuracy) + ' m).';
     }, function(err) {
-        st.textContent = '⚠️ ' + err.message + ' — saisissez la position manuellement.';
-    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+        st.innerHTML = '⚠️ ' + _geoMsg(err);
+    });
 }
 
 function openInt(id, name) {
