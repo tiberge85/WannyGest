@@ -5699,6 +5699,21 @@ def comptabilite_debug_cloture():
                         out.append(f"    a '{perm}' : {_hp(u['role'], perm)}")
                     except Exception as e:
                         out.append(f"    {perm}: {e}")
+                # v172 : liste réelle des tâches de clôture de cet utilisateur
+                try:
+                    tks = get_user_pending_tasks(u['id'], u['role'])
+                    out.append("    --- tâches de clôture ---")
+                    any_t = False
+                    for cat, items in tks.items():
+                        if not isinstance(items, list):
+                            continue
+                        for it in items:
+                            any_t = True
+                            out.append(f"    [{cat}/{it.get('task_type')}] {it.get('label')}")
+                    if not any_t:
+                        out.append("    (aucune tâche)")
+                except Exception as e:
+                    out.append(f"    tâches err: {e}")
         except Exception as e:
             out.append(f"err recherche user: {e}")
     conn.close()
@@ -11621,7 +11636,8 @@ def rh_absences():
         stats['jours_perdus'] += j
         par_cat[cat] = par_cat.get(cat, 0) + 1
         dep = a.get('department') or '—'; par_dep[dep] = par_dep.get(dep, 0) + 1
-        emp = a.get('employee_name') or '—'; par_emp[emp] = par_emp.get(emp, 0) + 1
+        # v172 : top employés compté en JOURS d'absence (et non en nombre d'enregistrements)
+        emp = a.get('employee_name') or '—'; par_emp[emp] = par_emp.get(emp, 0) + j
         mo = (a.get('date') or '')[:7]; par_mois[mo] = par_mois.get(mo, 0) + 1
         cl = cat.lower()
         if 'retard' in cl: stats['retards'] += 1
@@ -11642,7 +11658,9 @@ def rh_absences():
     employees = get_all_employees(status=None) if is_rh else []
     return render_template('rh_absences.html', page='absences', absences=absences, employees=employees,
         is_rh=is_rh, pending_count=pending_count, categories=categories, departements=departements,
-        stats=stats, par_cat=par_cat, par_dep=par_dep, par_emp=dict(sorted(par_emp.items(), key=lambda kv: -kv[1])[:10]),
+        stats=stats, par_cat=par_cat, par_dep=par_dep,
+        par_emp={k: (int(v) if float(v).is_integer() else round(v, 1))
+                 for k, v in sorted(par_emp.items(), key=lambda kv: -kv[1])[:10]},
         archive=archive, par_mois=par_mois, f=f)
 
 @app.route('/rh/absences/add', methods=['POST'])

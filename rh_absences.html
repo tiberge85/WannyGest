@@ -125,7 +125,7 @@ function abVoir(btn){
     <!-- Top employés -->
     {% if par_emp %}
     <div class="ab-card">
-        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">Top employés (nb absences)</div>
+        <div style="font-size:13px;font-weight:700;color:#1a3a5c;margin-bottom:8px">Top employés (jours d'absence)</div>
         {% for nom, nb in par_emp.items() %}
         <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid #f5f5f5"><span>{{ nom }}</span><strong style="color:#c53030">{{ nb }}</strong></div>
         {% endfor %}
