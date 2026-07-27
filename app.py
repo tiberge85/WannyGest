@@ -11621,12 +11621,29 @@ def rh_absences():
 
     def _cat_of(a): return (a.get('categorie') or a.get('type') or 'Autre motif')
     def _jours(a):
+        # v172 : compte tous les jours de l'absence SAUF les dimanches (le samedi compte).
+        from datetime import datetime as _dt, timedelta as _td
         try:
-            if a.get('date_fin') and a.get('date'):
-                from datetime import datetime as _dt
-                d1 = _dt.strptime(a['date'][:10], '%Y-%m-%d'); d2 = _dt.strptime(a['date_fin'][:10], '%Y-%m-%d')
-                return max(1, (d2 - d1).days + 1)
-        except Exception: pass
+            d1s = (a.get('date') or '')[:10]
+            d2s = ((a.get('date_fin') or '')[:10]) or d1s
+            if d1s:
+                d1 = _dt.strptime(d1s, '%Y-%m-%d')
+                d2 = _dt.strptime(d2s, '%Y-%m-%d')
+                if d2 < d1:
+                    d2 = d1
+                n = 0
+                cur = d1
+                while cur <= d2:
+                    if cur.weekday() != 6:  # 6 = dimanche → exclu
+                        n += 1
+                    cur += _td(days=1)
+                if n == 0:
+                    return 0  # que des dimanches
+                if d1 == d2 and a.get('duree') == 'demi_journee':
+                    return 0.5
+                return n
+        except Exception:
+            pass
         return 0.5 if (a.get('duree') == 'demi_journee') else 1
     # Statistiques
     stats = {'total': len(absences), 'jours_perdus': 0, 'retards': 0, 'conges': 0, 'maladies': 0, 'injustifiees': 0}
