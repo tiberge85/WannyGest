@@ -41,7 +41,10 @@
         <h3>📦 Articles du proforma</h3>
         {% if items %}
         <p style="color:#666;font-size:11px;margin-bottom:8px">
-            💡 Articles détectés depuis la visite. <strong>Lignes vertes</strong> = trouvés dans le stock (prix auto-rempli).
+            💡 Articles détectés depuis le rapport de visite (besoins, équipements, observations).
+            <strong>Lignes vertes</strong> = reconnus dans le catalogue → prix auto-rempli
+            {% if nb_matched %}(<strong>{{ nb_matched }}</strong> reconnu{{ 's' if nb_matched > 1 }}){% endif %}.
+            Vérifiez les quantités et complétez au besoin.
         </p>
         {% endif %}
         <div id="itemsList">

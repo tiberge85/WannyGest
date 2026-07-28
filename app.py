@@ -10330,19 +10330,25 @@ def visite_convert_to_devis(vid):
         return redirect(f'/devis/edit/{did}')
     
     # GET : afficher le formulaire pré-rempli avec données visite
-    # Auto-détecter les items à partir du champ "equipment" ou "needs"
-    suggested_items = []
-    equipment = (visit.get('equipment') or '').strip()
-    needs = (visit.get('needs') or '').strip()
-    
-    # Parser les équipements (un par ligne ou séparés par virgule)
-    sources = []
-    if equipment: sources.extend([l.strip() for l in equipment.replace(',', '\n').split('\n') if l.strip()])
-    if needs and not equipment: sources.extend([l.strip() for l in needs.replace(',', '\n').split('\n') if l.strip()])
-    
-    # v173 : catalogue = mg_stock_articles (l'ancienne requête interrogeait « stock_articles »
-    # qui n'existe pas → erreur avalée → prix toujours à 0). On récupère aussi le prix selon
-    # le TYPE du client de la visite (particulier / PME / grande entreprise).
+    # v173b : rapprochement automatique visite ↔ catalogue produits.
+    import re as _re
+    equipment    = (visit.get('equipment') or '').strip()
+    needs        = (visit.get('needs') or '').strip()
+    observations = (visit.get('observations') or '').strip()
+
+    # Découper besoins + équipements en lignes (un article par ligne / virgule / point-virgule / puce)
+    def _split_lines(txt):
+        if not txt: return []
+        txt = txt.replace(';', '\n').replace('•', '\n').replace('- ', '\n')
+        out = []
+        for chunk in txt.split('\n'):
+            for part in chunk.split(','):
+                p = part.strip(' \t.-•*')
+                if p: out.append(p)
+        return out
+    sources = _split_lines(equipment) + _split_lines(needs)
+
+    # v173 : catalogue = mg_stock_articles + prix selon le TYPE du client de la visite.
     def _tier_key_from_status(st):
         st = (st or '').lower()
         if 'gros' in st or 'grande' in st: return 'pge', 'Grande Entreprise'
@@ -10360,36 +10366,90 @@ def visite_convert_to_devis(vid):
     tier_key, tier_label = _tier_key_from_status(client_status)
 
     catalog_items = _catalogue_articles()  # reference, designation, unite, pu, pp, ppme, pge
-    # prix de vente applicable au client de cette visite (fallback : particulier puis prix d'achat)
     for ci in catalog_items:
         ci['prix_client'] = float(ci.get(tier_key) or ci.get('pp') or ci.get('pu') or 0)
 
-    for src in sources[:10]:  # Max 10 items pré-remplis
-        # Chercher dans le catalogue (match exact puis partiel)
-        match = None
-        src_low = src.lower()
+    import unicodedata as _ud
+    def _norm(s):
+        # minuscule + suppression des accents (é→e, ô→o…) pour un rapprochement tolérant
+        s = (s or '').lower().strip()
+        s = ''.join(c for c in _ud.normalize('NFD', s) if _ud.category(c) != 'Mn')
+        return _re.sub(r'\s+', ' ', s)
+    def _stem(w):
+        return w[:-1] if len(w) > 4 and w.endswith('s') else w  # pluriel simple : caméras→camera
+    def _detect_qty(line):
+        # « 3 caméras », « caméra x2 », « 2x câble », « qté 4 » → quantité
+        m = _re.search(r'(?:x\s*|qt[eé]?\s*[:.]?\s*|n[°o]\s*)(\d{1,3})', line, _re.I)
+        if not m: m = _re.search(r'\b(\d{1,3})\s*(?:x\b|unit|pcs|pi[eè]ces?)', line, _re.I)
+        if not m: m = _re.search(r'^\s*(\d{1,3})\b', line)  # nombre en début de ligne
+        try:
+            q = int(m.group(1)) if m else 1
+            return q if 1 <= q <= 999 else 1
+        except Exception:
+            return 1
+    def _best_match(line):
+        ln = _norm(line)
+        if not ln: return None
+        # 1) égalité, 2) désignation contenue dans la ligne, 3) ligne contenue dans désignation,
+        # 4) recouvrement de mots significatifs (>=2 mots communs de 4+ lettres)
+        best, best_score = None, 0
+        lw = set(_stem(w) for w in _re.findall(r'[a-z0-9]{3,}', ln))
         for ci in catalog_items:
-            if (ci['designation'] or '').lower() == src_low:
-                match = ci; break
-        if not match:
-            for ci in catalog_items:
-                if src_low in (ci['designation'] or '').lower():
-                    match = ci; break
+            dn = _norm(ci.get('designation'))
+            if not dn: continue
+            if dn == ln: return ci
+            score = 0
+            if dn in ln or ln in dn:
+                score = 90
+            else:
+                dw = set(_stem(w) for w in _re.findall(r'[a-z0-9]{3,}', dn))
+                common = lw & dw
+                if len(common) >= 2: score = 50 + len(common)
+                elif len(common) == 1 and len(dw) <= 2: score = 40
+            if score > best_score:
+                best, best_score = ci, score
+        return best if best_score >= 40 else None
+
+    suggested_items = []
+    seen_designations = set()
+    for src in sources[:20]:
+        match = _best_match(src)
+        qty = _detect_qty(src)
+        desig = (match['designation'] if match else src)
+        key = _norm(desig)
+        if key in seen_designations:  # éviter les doublons
+            continue
+        seen_designations.add(key)
         suggested_items.append({
-            'designation': src,
-            'qty': 1,
+            'designation': desig,
+            'qty': qty,
             'prix': float(match['prix_client'] or 0) if match else 0,
             'detail': (match['reference'] if match and match.get('reference') else ''),
             'remise': 0,
             'from_stock': bool(match),
         })
-    
+
+    # v173b : balayage complémentaire — repérer tout article du catalogue CITÉ dans le texte
+    # du rapport (besoins + équipements + observations), même noyé dans une phrase.
+    full_text = _norm(' '.join([equipment, needs, observations]))
+    if full_text:
+        for ci in catalog_items:
+            dn = _norm(ci.get('designation'))
+            if len(dn) >= 4 and dn in full_text and dn not in seen_designations:
+                seen_designations.add(dn)
+                suggested_items.append({
+                    'designation': ci['designation'], 'qty': 1,
+                    'prix': float(ci['prix_client'] or 0),
+                    'detail': ci.get('reference') or '', 'remise': 0, 'from_stock': True,
+                })
+
     if not suggested_items:
-        # Au moins une ligne vide
         suggested_items.append({'designation':'','qty':1,'prix':0,'detail':'','remise':0,'from_stock':False})
-    
+
+    nb_matched = sum(1 for it in suggested_items if it['from_stock'])
     return render_template('visite_to_devis.html', page='visites',
-        visit=visit, items=suggested_items, catalog_items=catalog_items, tier_label=tier_label)
+        visit=visit, items=suggested_items, catalog_items=catalog_items,
+        tier_label=tier_label, nb_matched=nb_matched)
 
 
 # ======================== LANGUE ========================

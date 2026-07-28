@@ -57,15 +57,22 @@
 
     <h3 style="color:#1a3a5c;margin:16px 0 10px;font-size:15px">📦 Articles</h3>
     {% if catalog_items %}
-    <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <strong>📋 Catalogue :</strong>
-        <select id="stockSelect" onchange="fillFromStock()" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px">
-            <option value="">— Choisir un article —</option>
-            {% for a in catalog_items %}<option value="{{ a.designation }}" data-pp="{{ a.pp|float }}" data-ppme="{{ a.ppme|float }}" data-pge="{{ a.pge|float }}" data-pu="{{ a.pu|float }}" data-ref="{{ a.reference or '' }}">{{ a.designation }} — Part {{ '{:,.0f}'.format(a.pp|float) }} / PME {{ '{:,.0f}'.format(a.ppme|float) }} / GE {{ '{:,.0f}'.format(a.pge|float) }} F</option>{% endfor %}
-        </select>
-        <span id="tierBadge" style="font-size:11px;font-weight:700;color:#1a7a6d;background:#e3f2fd;padding:3px 8px;border-radius:10px">Prix : Particulier</span>
-        <span style="font-size:10px;color:#888">le prix se remplit selon le type de client</span>
+    {# v173b : recherche fiable (type-ahead + liste cliquable) au lieu du menu déroulant #}
+    <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <strong>📋 Catalogue :</strong>
+            <div style="position:relative;flex:1;min-width:240px">
+                <input type="text" id="catSearch" placeholder="Tapez le nom d'un article…" autocomplete="off"
+                       style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px">
+                <div id="catList" style="display:none;position:absolute;z-index:50;left:0;right:0;top:100%;background:#fff;border:1px solid #ccc;border-radius:6px;max-height:240px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12)"></div>
+            </div>
+            <span id="tierBadge" style="font-size:11px;font-weight:700;color:#1a7a6d;background:#e3f2fd;padding:3px 8px;border-radius:10px">Prix : Particulier</span>
+        </div>
+        <div style="font-size:10px;color:#888;margin-top:4px">Tapez le nom, choisissez dans la liste → une ligne s'ajoute avec le prix selon le type de client.</div>
     </div>
+    <script type="application/json" id="catData">
+        [{% for a in catalog_items %}{"id":{{ loop.index0 }},"label":{{ (a.designation ~ ' — Part ' ~ '{:,.0f}'.format(a.pp|float) ~ ' / PME ' ~ '{:,.0f}'.format(a.ppme|float) ~ ' / GE ' ~ '{:,.0f}'.format(a.pge|float) ~ ' F')|tojson }},"designation":{{ a.designation|tojson }},"pp":{{ a.pp|float }},"ppme":{{ a.ppme|float }},"pge":{{ a.pge|float }},"pu":{{ a.pu|float }},"ref":{{ (a.reference or '')|tojson }}}{{ "," if not loop.last }}{% endfor %}]
+    </script>
     {% endif %}
     <div id="items">
         <div class="item-row" style="display:flex;gap:6px;margin-bottom:8px;align-items:end;flex-wrap:wrap">
@@ -198,29 +205,50 @@ function _clientTier(){
     return {key:'pp',label:'Particulier (défaut)'};
 }
 function updateTierBadge(){var b=document.getElementById('tierBadge');if(b)b.textContent='Prix : '+_clientTier().label;}
-function fillFromStock() {
-    var sel = document.getElementById('stockSelect');
-    if (!sel || !sel.value) return;
-    var opt = sel.options[sel.selectedIndex];
-    var name = sel.value;
+// v173b : ajoute une ligne pré-remplie depuis un article du catalogue
+function pickCatalogArticle(art){
+    if(!art) return;
     var tier = _clientTier().key;
-    var price = parseFloat(opt.getAttribute('data-' + tier) || opt.getAttribute('data-pp') || 0) || 0;
-    var ref = opt.getAttribute('data-ref') || '';
+    var price = parseFloat(art[tier] || art.pp || art.pu || 0) || 0;
     var lastDesig = document.getElementById('desig_' + itemCount);
-    if (lastDesig && lastDesig.value) {
-        addItem();
-        lastDesig = document.getElementById('desig_' + itemCount);
-    }
+    if (lastDesig && lastDesig.value) { addItem(); lastDesig = document.getElementById('desig_' + itemCount); }
     if (lastDesig) {
-        lastDesig.value = name;
+        lastDesig.value = art.designation;
         var detail = document.getElementById('detail_' + itemCount);
-        if (detail && ref) detail.value = ref;
+        if (detail && art.ref) detail.value = art.ref;
         var prix = document.getElementById('prix_' + itemCount);
         if (prix) prix.value = price;
     }
-    sel.value = '';
-    if (window._recalcDevis) window._recalcDevis(); // v161 : maj cumul après ajout depuis stock
+    if (window._recalcDevis) window._recalcDevis();
 }
+// Recherche type-ahead fiable (input + liste cliquable)
+(function(){
+    var input=document.getElementById('catSearch');
+    var list=document.getElementById('catList');
+    if(!input||!list) return;
+    var data=[]; try{ data=JSON.parse(document.getElementById('catData').textContent||'[]'); }catch(e){ data=[]; }
+    function render(q){
+        q=(q||'').toLowerCase().trim();
+        var items=data.filter(function(it){return !q||(it.label||'').toLowerCase().indexOf(q)>-1;}).slice(0,80);
+        if(!items.length){ list.innerHTML='<div style="padding:8px;color:#888">Aucun résultat</div>'; }
+        else { list.innerHTML=items.map(function(it){
+            return '<div class="cat-opt" data-id="'+it.id+'" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0">'+it.label+'</div>';
+        }).join(''); }
+        list.style.display='block';
+        Array.prototype.forEach.call(list.querySelectorAll('.cat-opt'),function(el){
+            el.addEventListener('mousedown',function(ev){
+                ev.preventDefault();
+                var id=this.getAttribute('data-id');
+                var it=data.filter(function(d){return String(d.id)===String(id);})[0];
+                pickCatalogArticle(it);
+                input.value=''; list.style.display='none';
+            });
+        });
+    }
+    input.addEventListener('input',function(){ render(this.value); });
+    input.addEventListener('focus',function(){ render(this.value); });
+    input.addEventListener('blur',function(){ setTimeout(function(){ list.style.display='none'; },180); });
+})();
 
 // ==== Auto-remplissage complet quand un client est sélectionné ====
 function fillClient() {
