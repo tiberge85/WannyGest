@@ -58,9 +58,10 @@
         </div>
         <button type="button" class="btn-add" onclick="addItem()">➕ Ajouter une ligne</button>
         
+        {% if tier_label %}<p style="font-size:11px;color:#1a7a6d;margin:4px 0">💰 Prix appliqués : <strong>{{ tier_label }}</strong> (selon le type du client)</p>{% endif %}
         <datalist id="catalogList">
-            {% for ci in catalog_items[:200] %}
-            <option value="{{ ci.designation }}" data-prix="{{ ci.prix_vente or ci.prix_unitaire or 0 }}">
+            {% for ci in catalog_items[:400] %}
+            <option value="{{ ci.designation }}" data-prix="{{ ci.prix_client or ci.pp or ci.pu or 0 }}">
             {% endfor %}
         </datalist>
     </div>
@@ -136,7 +137,8 @@ document.addEventListener('change', function(e) {
                 if (prix > 0) {
                     const row = e.target.closest('.item-row');
                     const prixField = row.querySelector('input[name*="_prix"]');
-                    if (prixField && !prixField.value) prixField.value = prix;
+                    // v173 : remplir si le champ est vide OU à 0 (avant, « 0 » bloquait le remplissage)
+                    if (prixField && (!prixField.value || parseFloat(prixField.value) === 0)) prixField.value = prix;
                     row.classList.add('item-stock');
                     recalc();
                 }

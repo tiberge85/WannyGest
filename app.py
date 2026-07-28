@@ -10340,30 +10340,46 @@ def visite_convert_to_devis(vid):
     if equipment: sources.extend([l.strip() for l in equipment.replace(',', '\n').split('\n') if l.strip()])
     if needs and not equipment: sources.extend([l.strip() for l in needs.replace(',', '\n').split('\n') if l.strip()])
     
-    # Récupérer le catalogue stock pour suggestions de prix
-    catalog_items = []
+    # v173 : catalogue = mg_stock_articles (l'ancienne requête interrogeait « stock_articles »
+    # qui n'existe pas → erreur avalée → prix toujours à 0). On récupère aussi le prix selon
+    # le TYPE du client de la visite (particulier / PME / grande entreprise).
+    def _tier_key_from_status(st):
+        st = (st or '').lower()
+        if 'gros' in st or 'grande' in st: return 'pge', 'Grande Entreprise'
+        if 'entreprise' in st or 'pme' in st: return 'ppme', 'PME'
+        return 'pp', 'Particulier'
+    client_status = ''
     try:
-        conn = _gdb()
-        rows = conn.execute("""SELECT id, designation, prix_unitaire, prix_vente, unite, stock_qty 
-            FROM stock_articles WHERE COALESCE(is_active,1)=1 
-            ORDER BY designation LIMIT 500""").fetchall()
-        catalog_items = [dict(r) for r in rows]
-        conn.close()
-    except: pass
-    
+        cid = visit.get('client_id')
+        if cid:
+            conn = _gdb()
+            r = conn.execute("SELECT client_status FROM clients WHERE id=?", (cid,)).fetchone()
+            conn.close()
+            if r: client_status = (dict(r).get('client_status') or '')
+    except Exception: pass
+    tier_key, tier_label = _tier_key_from_status(client_status)
+
+    catalog_items = _catalogue_articles()  # reference, designation, unite, pu, pp, ppme, pge
+    # prix de vente applicable au client de cette visite (fallback : particulier puis prix d'achat)
+    for ci in catalog_items:
+        ci['prix_client'] = float(ci.get(tier_key) or ci.get('pp') or ci.get('pu') or 0)
+
     for src in sources[:10]:  # Max 10 items pré-remplis
-        # Chercher dans le catalogue (match partiel)
+        # Chercher dans le catalogue (match exact puis partiel)
         match = None
         src_low = src.lower()
         for ci in catalog_items:
-            if (ci['designation'] or '').lower() == src_low or src_low in (ci['designation'] or '').lower():
-                match = ci
-                break
+            if (ci['designation'] or '').lower() == src_low:
+                match = ci; break
+        if not match:
+            for ci in catalog_items:
+                if src_low in (ci['designation'] or '').lower():
+                    match = ci; break
         suggested_items.append({
             'designation': src,
             'qty': 1,
-            'prix': float(match['prix_vente'] or match['prix_unitaire'] or 0) if match else 0,
-            'detail': '',
+            'prix': float(match['prix_client'] or 0) if match else 0,
+            'detail': (match['reference'] if match and match.get('reference') else ''),
             'remise': 0,
             'from_stock': bool(match),
         })
@@ -10373,7 +10389,7 @@ def visite_convert_to_devis(vid):
         suggested_items.append({'designation':'','qty':1,'prix':0,'detail':'','remise':0,'from_stock':False})
     
     return render_template('visite_to_devis.html', page='visites',
-        visit=visit, items=suggested_items, catalog_items=catalog_items)
+        visit=visit, items=suggested_items, catalog_items=catalog_items, tier_label=tier_label)
 
 
 # ======================== LANGUE ========================
@@ -10627,18 +10643,18 @@ def devis_new():
                            catalog_items=catalog_items, default_commercial=default_commercial)
 
 @app.route('/devis/pdf/<int:did>')
-@permission_required('proforma')
+@permission_required_any('proforma', 'proforma_edit')  # v173 : voir OU éditer suffit pour exporter
 def devis_pdf(did):
     devis = get_devis_by_id(did)
     if not devis:
         flash("Devis non trouvé", "error")
         return redirect(url_for('devis_page'))
-    
+
     export_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'devis')
     os.makedirs(export_dir, exist_ok=True)
     output = os.path.join(export_dir, f"{devis['reference']}.pdf")
-    
-    devis['date'] = devis.get('created_at', '')[:10]
+
+    devis['date'] = (devis.get('created_at') or '')[:10]
     # PDF options: prefer DB-stored values; fallback to sensible defaults
     devis.setdefault('tva_active', devis.get('tva_active') or False)
     devis.setdefault('tva_rate', devis.get('tva_rate') or 18)

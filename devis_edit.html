@@ -53,13 +53,22 @@
     {% if catalog_items %}
     <div style="margin-bottom:10px;background:#f8faf9;padding:8px 12px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <strong>📋 Catalogue :</strong>
-        <select id="stockSelect" onchange="fillFromStock()" style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px">
-            <option value="">— Choisir un article —</option>
-            {% for a in catalog_items %}<option value="{{ a.designation }}" data-pp="{{ a.pp|float }}" data-ppme="{{ a.ppme|float }}" data-pge="{{ a.pge|float }}" data-pu="{{ a.pu|float }}" data-ref="{{ a.reference or '' }}">{{ a.designation }} — Part {{ '{:,.0f}'.format(a.pp|float) }} / PME {{ '{:,.0f}'.format(a.ppme|float) }} / GE {{ '{:,.0f}'.format(a.pge|float) }} F</option>{% endfor %}
-        </select>
+        {# v173 : recherche par nom (saisie) au lieu d'un menu déroulant #}
+        <input type="text" id="stockSearch" list="catalogDL" placeholder="Tapez le nom d'un article…"
+               onchange="fillFromStock()" autocomplete="off"
+               style="padding:5px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px;min-width:240px">
+        <datalist id="catalogDL">
+            {% for a in catalog_items %}<option value="{{ a.designation }}">{{ '{:,.0f}'.format(a.pp|float) }} / {{ '{:,.0f}'.format(a.ppme|float) }} / {{ '{:,.0f}'.format(a.pge|float) }} F</option>{% endfor %}
+        </datalist>
         <span id="tierBadge" style="font-size:11px;font-weight:700;color:#1a7a6d;background:#e3f2fd;padding:3px 8px;border-radius:10px">Prix : Particulier</span>
         <span style="font-size:10px;color:#888">le prix se remplit selon le type de client</span>
-    </div>{% endif %}
+    </div>
+    <script>
+    // v173 : table de correspondance désignation → prix par palier + référence
+    var CATALOG = {
+        {% for a in catalog_items %}{{ a.designation|tojson }}: {pp:{{ a.pp|float }}, ppme:{{ a.ppme|float }}, pge:{{ a.pge|float }}, pu:{{ a.pu|float }}, ref:{{ (a.reference or '')|tojson }}}{{ "," if not loop.last }}{% endfor %}
+    };
+    </script>{% endif %}
     <div id="items">
     {% for item in items %}
         <div class="item-row" style="display:flex;gap:6px;margin-bottom:8px;align-items:end;flex-wrap:wrap">
@@ -271,12 +280,19 @@ function _clientTier(){
 }
 function updateTierBadge(){var b=document.getElementById('tierBadge');if(b)b.textContent='Prix : '+_clientTier().label;}
 function fillFromStock(){
-    var s=document.getElementById('stockSelect');if(!s||!s.value)return;var o=s.options[s.selectedIndex];
+    var s=document.getElementById('stockSearch');if(!s||!s.value)return;
+    var name=s.value.trim();
+    var art=CATALOG[name];
+    // tolérance : recherche insensible à la casse si pas de correspondance exacte
+    if(!art){var low=name.toLowerCase();for(var k in CATALOG){if(k.toLowerCase()===low){art=CATALOG[k];name=k;break;}}}
+    if(!art){var low2=name.toLowerCase();for(var k2 in CATALOG){if(k2.toLowerCase().indexOf(low2)>-1){art=CATALOG[k2];name=k2;break;}}}
+    if(!art){return;} // pas trouvé → on laisse la saisie telle quelle
     var tier=_clientTier().key;
-    var price=parseFloat(o.getAttribute('data-'+tier)||o.getAttribute('data-pp')||0)||0;
+    var price=parseFloat(art[tier]||art.pp||art.pu||0)||0;
     var d=document.getElementById('desig_'+itemCount);if(d&&d.value){addItem();d=document.getElementById('desig_'+itemCount);}
-    if(d){d.value=s.value;var det=document.getElementById('detail_'+itemCount);if(det&&o.getAttribute('data-ref'))det.value=o.getAttribute('data-ref');
-    var p=document.getElementById('prix_'+itemCount);if(p)p.value=price;}s.value='';
+    if(d){d.value=name;var det=document.getElementById('detail_'+itemCount);if(det&&art.ref)det.value=art.ref;
+    var p=document.getElementById('prix_'+itemCount);if(p)p.value=price;}
+    s.value='';
     if(window._recalcDevis)window._recalcDevis();}
 
 // Auto-remplissage quand on change de client
