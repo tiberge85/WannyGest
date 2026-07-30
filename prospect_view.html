@@ -84,7 +84,8 @@
 <td><span class="badge-status {% if o.status=='acceptee' %}sent{% else %}pending{% endif %}">{{ o.status }}</span></td>
 <td style="font-size:10px">{{ (o.date_emission or (o.created_at[:10] if o.created_at else '')) }}</td>
 <td style="white-space:nowrap">
-    {% if o.ref %}<a href="/prospects/view/{{ prospect.id }}/proforma/{{ o.id }}" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 6px">👁️</a>{% endif %}
+    {% if o.ref %}<a href="/prospects/view/{{ prospect.id }}/proforma/{{ o.id }}" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 6px" title="Voir">👁️</a>
+    <a href="/prospects/view/{{ prospect.id }}/proforma/{{ o.id }}/pdf" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 6px" title="Exporter en PDF">📥</a>{% endif %}
     <a href="/prospects/view/{{ prospect.id }}/delete/offer/{{ o.id }}" style="color:#c53030;font-size:10px" onclick="return confirm('Supprimer ?')">🗑️</a>
 </td>
 </tr>{% endfor %}</tbody></table>{% else %}<p style="color:#999;text-align:center;padding:20px">Aucune offre</p>{% endif %}

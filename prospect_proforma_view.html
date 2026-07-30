@@ -5,7 +5,11 @@
 <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
     <a href="/prospects/view/{{ prospect.id }}?tab=offres" class="btn btn-outline btn-sm">← Retour</a>
     <h2 style="margin:0;font-size:16px;color:#1A7A6D">📄 Proforma {{ offer.ref or '#' ~ offer.id }}</h2>
-    <span class="badge-status pending" style="margin-left:auto">{{ offer.status or 'brouillon' }}</span>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="badge-status pending">{{ offer.status or 'brouillon' }}</span>
+        <a href="/prospects/view/{{ prospect.id }}/proforma/{{ offer.id }}/pdf" class="btn btn-primary btn-sm" title="Télécharger le PDF à envoyer au client">📥 Exporter en PDF</a>
+        <a href="/prospects/view/{{ prospect.id }}/proforma/{{ offer.id }}/publish" class="btn btn-outline btn-sm" title="La retrouver dans la section Proforma (modifier, envoyer, convertir en facture)">📋 Ouvrir dans Proforma</a>
+    </div>
 </div>
 
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">

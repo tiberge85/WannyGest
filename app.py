@@ -20001,7 +20001,11 @@ def prospect_proforma_new(pid):
                  total_ht, remise_amount, remise_pct_glob, petites_fourn, taxe_amount, total_ttc,
                  ref, request.form.get('notes','')))
             conn.commit()
+            new_oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             conn.close()
+            # v173c : refléter automatiquement dans la section Proforma (table devis) → PDF/envoi dispo
+            try: _offer_to_devis(pid, new_oid)
+            except Exception: pass
             flash(f"✅ Proforma {ref} créée — Total TTC : {total_ttc:,.0f} XOF", "success")
             return redirect(f'/prospects/view/{pid}?tab=offres')
         except Exception as e:
@@ -20039,6 +20043,102 @@ def prospect_proforma_view(pid, oid):
     conn.close()
     return render_template('prospect_proforma_view.html', page='prospects',
         prospect=dict(p) if p else {}, offer=o_dict, items=items)
+
+
+def _offer_to_devis(pid, oid, do_create=True):
+    """v173c : reflète une proforma prospect (table prospect_offers) dans la table `devis`
+    (doc_type=proforma) afin qu'elle apparaisse dans la section Proforma et hérite de
+    l'export PDF / envoi. Idempotent : ne recrée pas si déjà relié. Retourne (devis_id, ref)."""
+    from models import create_devis, get_devis_by_id
+    conn = _gdb()
+    # colonne de liaison prospect_offers.devis_id
+    try:
+        conn.execute("SELECT devis_id FROM prospect_offers LIMIT 1")
+    except Exception:
+        try: conn.execute("ALTER TABLE prospect_offers ADD COLUMN devis_id INTEGER")
+        except Exception: pass
+    row = conn.execute("SELECT * FROM prospect_offers WHERE id=? AND prospect_id=?", (oid, pid)).fetchone()
+    if not row:
+        conn.close(); return (None, None)
+    o = dict(row)
+    # déjà relié à un devis existant ?
+    did = o.get('devis_id')
+    if did:
+        ex = get_devis_by_id(did)
+        if ex:
+            conn.close(); return (did, ex.get('reference'))
+    if not do_create:
+        conn.close(); return (None, None)
+    prow = conn.execute("SELECT * FROM prospects WHERE id=?", (pid,)).fetchone()
+    prospect = dict(prow) if prow else {}
+    conn.close()  # on ferme avant create_devis (qui ouvre sa propre connexion)
+
+    try: raw_items = json.loads(o.get('items_json') or '[]')
+    except Exception: raw_items = []
+    mapped = []
+    for idx, it in enumerate(raw_items, 1):
+        q = float(it.get('qty', 0) or 0); pu = float(it.get('prix', 0) or 0)
+        rpct = float(it.get('remise_pct', 0) or 0)
+        remise_abs = round(q * pu * rpct / 100, 0)
+        mapped.append({'num': idx, 'designation': it.get('designation', ''),
+                       'detail': it.get('description', ''),
+                       'qty': int(q) if q == int(q) else q, 'prix': pu, 'remise': remise_abs})
+    client_name = o.get('client_for') or prospect.get('company') or prospect.get('contact_name') or 'Prospect'
+    objet = o.get('subject') or o.get('title') or 'Proforma'
+    did, ref = create_devis(
+        None, client_name, '', (o.get('assigned_to') or ''),
+        objet, json.dumps(mapped),
+        float(o.get('total_ht') or 0), float(o.get('petites_fournitures') or 0),
+        float(o.get('total_ttc') or 0), 0.0, float(o.get('remise_amount') or 0),
+        (o.get('notes') or ''), o.get('created_by') or session.get('user_id'), 'proforma')
+    # TVA (taxe_amount) + rétro-lien
+    tx = float(o.get('taxe_amount') or 0)
+    try:
+        c2 = _gdb()
+        c2.execute("UPDATE devis SET tva_active=?, tva_rate=?, tva_amount=? WHERE id=?",
+                   (1 if tx > 0 else 0, 18, tx, did))
+        c2.execute("UPDATE prospect_offers SET devis_id=? WHERE id=?", (did, oid))
+        c2.commit(); c2.close()
+    except Exception: pass
+    return (did, ref)
+
+
+@app.route('/prospects/view/<int:pid>/proforma/<int:oid>/publish')
+@login_required
+def prospect_proforma_publish(pid, oid):
+    """Publie la proforma prospect dans la section Proforma (table devis)."""
+    did, ref = _offer_to_devis(pid, oid)
+    if did:
+        flash(f"✅ Proforma publiée dans la section Proforma ({ref}). Vous pouvez l'exporter/l'envoyer.", "success")
+        return redirect(f'/devis/edit/{did}')
+    flash("Proforma introuvable", "error")
+    return redirect(f'/prospects/view/{pid}?tab=offres')
+
+
+@app.route('/prospects/view/<int:pid>/proforma/<int:oid>/pdf')
+@login_required
+def prospect_proforma_pdf(pid, oid):
+    """Export PDF d'une proforma prospect (au format RAMYA), pour l'envoyer au client."""
+    did, ref = _offer_to_devis(pid, oid)
+    if not did:
+        flash("Proforma introuvable", "error")
+        return redirect(f'/prospects/view/{pid}?tab=offres')
+    from models import get_devis_by_id
+    devis = get_devis_by_id(did)
+    if not devis:
+        flash("Proforma introuvable", "error")
+        return redirect(f'/prospects/view/{pid}?tab=offres')
+    export_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'devis')
+    os.makedirs(export_dir, exist_ok=True)
+    output = os.path.join(export_dir, f"{devis['reference']}.pdf")
+    devis['date'] = (devis.get('created_at') or '')[:10]
+    if not devis.get('redacteur'):
+        u = get_user_by_id(devis.get('created_by')) if devis.get('created_by') else None
+        devis['redacteur'] = u['full_name'] if u else ''
+    logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png", "logo_wannygest.png"]
+                   if os.path.exists(os.path.join(BASE_DIR, n))), None)
+    generate_devis_pdf(devis, output, logo_path=logo_r, doc_params=get_doc_params())
+    return send_file(output, as_attachment=True, download_name=f"{devis['reference']}.pdf")
 
 
 @app.route('/prospects/view/<int:pid>/reminder/add', methods=['POST'])
