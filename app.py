@@ -7186,15 +7186,65 @@ def clients_toggle_type(cid):
     return redirect('/clients')
 
 
+def _sync_client_from_prospects(cid):
+    """v173d : si ce client provient d'un prospect gagné, rattache ses proformas
+    (prospect_offers → devis) au client pour qu'elles apparaissent dans son profil.
+    Idempotent et auto-réparateur (fonctionne aussi pour les clients déjà convertis)."""
+    import re as _re
+    try:
+        conn = _gdb()
+        cl = conn.execute("SELECT id, name, notes FROM clients WHERE id=?", (cid,)).fetchone()
+        if not cl:
+            conn.close(); return
+        cl = dict(cl)
+        pids = set()
+        for m in _re.finditer(r'prospect\s*#?\s*(\d+)', (cl.get('notes') or ''), _re.I):
+            try: pids.add(int(m.group(1)))
+            except Exception: pass
+        cname = (cl.get('name') or '').strip()
+        if cname:
+            try:
+                for r in conn.execute(
+                    "SELECT id FROM prospects WHERE LOWER(TRIM(COALESCE(company,'')))=LOWER(?) "
+                    "OR LOWER(TRIM(COALESCE(contact_name,'')))=LOWER(?)", (cname, cname)).fetchall():
+                    pids.add(r['id'])
+            except Exception: pass
+        offers = []
+        for pid in pids:
+            try:
+                for r in conn.execute("SELECT id FROM prospect_offers WHERE prospect_id=? AND COALESCE(ref,'')!=''",
+                                      (pid,)).fetchall():
+                    offers.append((pid, r['id']))
+            except Exception: pass
+        conn.close()
+    except Exception:
+        return
+    for pid, oid in offers:
+        try:
+            did, _ref = _offer_to_devis(pid, oid)
+            if did:
+                c2 = _gdb()
+                c2.execute("UPDATE devis SET client_id=?, client_name=? WHERE id=?", (cid, cname, did))
+                c2.commit(); c2.close()
+        except Exception: pass
+
+
 @app.route('/clients/<int:cid>')
 @permission_required('clients')
 def client_profile(cid):
+    _ensure_contract_file_cols()
+    _sync_client_from_prospects(cid)  # v173d : rattache les proformas du prospect gagné
     conn = _gdb()
     client = conn.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
     if not client: flash("Client non trouvé","error"); return redirect('/clients')
     client = dict(client)
     tab = request.args.get('tab', 'profil')
-    data = {'tab': tab, 'client': client}
+    data = {'tab': tab, 'client': client, 'now_year': datetime.now().strftime('%Y')}
+    try:
+        _cu = get_user_by_id(session['user_id'])
+        data['can_contrat'] = has_permission(_cu['role'], 'contrats') if _cu else False
+    except Exception:
+        data['can_contrat'] = False
     
     # Notes
     try: data['notes'] = [dict(r) for r in conn.execute("SELECT n.*, u.full_name as author FROM client_notes n LEFT JOIN users u ON n.created_by=u.id WHERE n.client_id=? ORDER BY n.created_at DESC", (cid,)).fetchall()]
@@ -7210,9 +7260,16 @@ def client_profile(cid):
         "SELECT * FROM invoices WHERE client_id=? OR (COALESCE(client_id,0)=0 AND LOWER(TRIM(client_name))=LOWER(TRIM(?))) ORDER BY created_at DESC",
         (cid, _cname)).fetchall()]
     except: data['factures'] = []
-    # Contrats
-    try: data['contrats'] = [dict(r) for r in conn.execute("SELECT * FROM achats_contrats WHERE fournisseur_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
-    except: data['contrats'] = []
+    # Contrats CLIENT (v173d : la vraie table est `contracts` — l'ancienne requête lisait
+    # achats_contrats/fournisseur → toujours vide). On exclut le BLOB du document (lourd).
+    try:
+        data['contrats'] = [dict(r) for r in conn.execute(
+            "SELECT id, reference, start_date, end_date, monthly_rate, status, description, "
+            "contract_file_name, created_at FROM contracts WHERE client_id=? "
+            "ORDER BY COALESCE(display_order,0), created_at DESC", (cid,)).fetchall()]
+    except Exception:
+        try: data['contrats'] = [dict(r) for r in conn.execute("SELECT * FROM contracts WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
+        except Exception: data['contrats'] = []
     # Visites
     try: data['visites'] = [dict(r) for r in conn.execute("SELECT * FROM visits WHERE client_id=? ORDER BY created_at DESC", (cid,)).fetchall()]
     except: data['visites'] = []
@@ -7950,7 +8007,18 @@ def floating_windows_js():
 @app.route('/contrats')
 @permission_required('contrats')
 def contrats_page():
-    contracts = get_all_contracts()
+    _ensure_contract_file_cols()
+    # v173d : liste sans le BLOB du document (lourd) — on garde juste le nom pour le lien 📎
+    try:
+        c = _gdb()
+        contracts = [dict(r) for r in c.execute(
+            "SELECT ct.id, ct.client_id, ct.reference, ct.start_date, ct.end_date, ct.monthly_rate, "
+            "ct.description, ct.status, ct.display_order, ct.created_at, ct.contract_file_name, "
+            "cl.name as client_name FROM contracts ct LEFT JOIN clients cl ON ct.client_id=cl.id "
+            "ORDER BY COALESCE(ct.display_order,0) ASC, ct.status, ct.end_date").fetchall()]
+        c.close()
+    except Exception:
+        contracts = get_all_contracts()
     clients = get_all_clients()
     return render_template('contrats.html', page='contrats', contracts=contracts, clients=clients,
                            current_year=datetime.now().strftime('%Y'))
@@ -8008,6 +8076,67 @@ def _next_contrat_ref(prefix, year):
             pass
     return f"{prefix}-{year}-{maxn + 1:03d}"
 
+# v173d : document du contrat validé — stocké EN BASE (le système de fichiers de l'hébergement
+# est éphémère, les fichiers uploadés seraient perdus au redéploiement).
+def _ensure_contract_file_cols():
+    try:
+        c = _gdb()
+        for coldef in ["contract_file_name TEXT", "contract_file_data BLOB"]:
+            col = coldef.split()[0]
+            try: c.execute(f"SELECT {col} FROM contracts LIMIT 1")
+            except Exception:
+                try: c.execute(f"ALTER TABLE contracts ADD COLUMN {coldef}")
+                except Exception: pass
+        c.commit(); c.close()
+    except Exception: pass
+
+def _contract_id_by_ref(ref):
+    try:
+        c = _gdb()
+        r = c.execute("SELECT id FROM contracts WHERE reference=? ORDER BY id DESC LIMIT 1", (ref,)).fetchone()
+        c.close()
+        return r['id'] if r else None
+    except Exception:
+        return None
+
+def _save_uploaded_contract_file(contract_id):
+    """Enregistre le fichier 'contract_file' du formulaire dans la table contracts (BLOB)."""
+    if not contract_id: return None
+    if 'contract_file' in request.files and request.files['contract_file'].filename:
+        f = request.files['contract_file']
+        data = f.read()
+        if data:
+            _ensure_contract_file_cols()
+            try:
+                c = _gdb()
+                c.execute("UPDATE contracts SET contract_file_name=?, contract_file_data=? WHERE id=?",
+                          (secure_filename(f.filename), data, contract_id))
+                c.commit(); c.close()
+                return f.filename
+            except Exception: pass
+    return None
+
+@app.route('/contrats/<int:cid>/file')
+@permission_required('contrats')
+def contrats_file(cid):
+    """Ouvre/télécharge le document validé d'un contrat (stocké en base)."""
+    _ensure_contract_file_cols()
+    try:
+        c = _gdb()
+        r = c.execute("SELECT contract_file_name, contract_file_data FROM contracts WHERE id=?", (cid,)).fetchone()
+        c.close()
+    except Exception:
+        r = None
+    if not r or not r['contract_file_data']:
+        flash("Aucun document joint à ce contrat", "error")
+        return redirect(request.referrer or '/contrats')
+    import mimetypes
+    name = r['contract_file_name'] or f"contrat_{cid}"
+    mt = mimetypes.guess_type(name)[0] or 'application/octet-stream'
+    return Response(bytes(r['contract_file_data']), mimetype=mt,
+                    headers={'Content-Disposition': f'inline; filename="{name}"'})
+
+
 @app.route('/contrats/add', methods=['POST'])
 @permission_required('contrats')
 def contrats_add():
@@ -8023,11 +8152,27 @@ def contrats_add():
         request.form.get('description', ''),
         session['user_id']
     )
+    # v173d : joindre le document du contrat validé (optionnel)
+    _save_uploaded_contract_file(_contract_id_by_ref(reference))
     user = get_user_by_id(session['user_id'])
     log_activity(session['user_id'], user['full_name'] if user else '?',
                 'Contrat', 'Nouveau contrat ajouté', request.remote_addr)
     flash("Contrat ajouté", "success")
     return redirect(url_for('contrats_page'))
+
+
+@app.route('/clients/<int:cid>/contract/add', methods=['POST'])
+@permission_required('contrats')
+def client_contract_add(cid):
+    """Ajouter un contrat validé directement depuis le profil client."""
+    reference = _next_contrat_ref(request.form.get('ref_prefix', 'CTR-PO'),
+                                  request.form.get('ref_year', ''))
+    create_contract(cid, reference, request.form.get('start_date', ''),
+                    request.form.get('end_date', ''), float(request.form.get('monthly_rate', 0) or 0),
+                    request.form.get('description', ''), session['user_id'])
+    _save_uploaded_contract_file(_contract_id_by_ref(reference))
+    flash(f"✅ Contrat {reference} ajouté au client", "success")
+    return redirect(f'/clients/{cid}?tab=contrats')
 
 @app.route('/contrats/edit/<int:cid>', methods=['GET', 'POST'])
 @permission_required('contrats')

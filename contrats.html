@@ -13,7 +13,7 @@
     <div class="card-body">
         {% if contracts %}
         <div class="table-wrap"><div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher un contrat..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><table id="dataTable">
-            <thead><tr><th style="width:50px">Ordre</th><th>Client</th><th>Référence</th><th>Début</th><th>Fin</th><th>Tarif/mois</th><th>Statut</th><th>Actions</th></tr></thead>
+            <thead><tr><th style="width:50px">Ordre</th><th>Client</th><th>Référence</th><th>Début</th><th>Fin</th><th>Tarif/mois</th><th>Statut</th><th>Document</th><th>Actions</th></tr></thead>
             <tbody>
             {% for c in contracts %}
             <tr>
@@ -24,6 +24,7 @@
                 <td>{{ c.end_date or '-' }}</td>
                 <td>{{ '{:,.0f}'.format(c.monthly_rate) }} FCFA</td>
                 <td>{% if c.status == 'actif' %}<span class="badge-status sent">Actif</span>{% elif c.status == 'expire' %}<span class="badge-status pending">Expiré</span>{% else %}<span class="badge-status" style="background:#f0f0f0;color:#666">{{ c.status }}</span>{% endif %}</td>
+                <td>{% if c.contract_file_name %}<a href="/contrats/{{ c.id }}/file" target="_blank" class="btn btn-outline btn-sm" style="padding:3px 7px" title="Ouvrir le document">📎</a>{% else %}<span style="color:#bbb">—</span>{% endif %}</td>
                 <td style="display:flex;gap:4px;flex-wrap:wrap">
                     {% if not loop.first %}<a href="/contrats/{{ c.id }}/move/up" class="btn btn-outline btn-sm" title="Monter" style="padding:3px 7px">▲</a>{% else %}<span style="width:26px"></span>{% endif %}
                     {% if not loop.last %}<a href="/contrats/{{ c.id }}/move/down" class="btn btn-outline btn-sm" title="Descendre" style="padding:3px 7px">▼</a>{% else %}<span style="width:26px"></span>{% endif %}
@@ -42,7 +43,7 @@
 <!-- Modal ajout -->
 <div class="modal-bg" id="addModal"><div class="modal">
     <h3>➕ Nouveau contrat</h3>
-    <form method="post" action="/contrats/add">
+    <form method="post" action="/contrats/add" enctype="multipart/form-data">
         <div class="form-group"><label>Client *</label>
             <select name="client_id" required>
                 <option value="">-- Choisir --</option>
@@ -67,6 +68,9 @@
             <div class="form-group"><label>Date fin</label><input type="date" name="end_date"></div>
         </div>
         <div class="form-group"><label>Description</label><textarea name="description" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px"></textarea></div>
+        <div class="form-group"><label>📎 Document du contrat validé (PDF / image, optionnel)</label>
+            <input type="file" name="contract_file" accept=".pdf,image/*" style="padding:7px;border:1.5px solid #ddd;border-radius:8px;width:100%">
+            <small style="color:#888;font-size:11px">Le contrat signé par le client. Il sera consultable ici et dans le profil du client.</small></div>
         <div style="display:flex;gap:10px;justify-content:flex-end">
             <button type="button" class="btn btn-outline" onclick="document.getElementById('addModal').classList.remove('active')">Annuler</button>
             <button type="submit" class="btn btn-primary">Enregistrer</button>

@@ -491,12 +491,38 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
 </div></div>
 
 {% elif tab == 'contrats' %}
-<div class="card"><div class="card-header"><h3>📑 Contrats</h3></div><div class="card-body" style="padding:0">
+<div class="card"><div class="card-header"><h3>📑 Contrats</h3></div><div class="card-body">
+{% if can_contrat %}
+<form method="post" action="/clients/{{ client.id }}/contract/add" enctype="multipart/form-data" style="margin-bottom:14px;padding:12px;background:#f8faf9;border-radius:8px">
+    <div style="font-size:12px;color:#1A7A6D;font-weight:600;margin-bottom:8px">➕ Ajouter un contrat validé par le client</div>
+    <div class="form-row">
+        <div class="form-group"><label>Type *</label>
+            <select name="ref_prefix" required><option value="CTR-PO">CTR-PO</option><option value="CTR-TRK">CTR-TRK</option><option value="CTR-ENT">CTR-ENT</option></select></div>
+        <div class="form-group"><label>Année *</label>
+            <input type="number" name="ref_year" min="2000" max="2100" value="{{ now_year }}" required></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Date début</label><input type="date" name="start_date"></div>
+        <div class="form-group"><label>Date fin</label><input type="date" name="end_date"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Tarif mensuel (FCFA)</label><input type="number" name="monthly_rate" step="1" placeholder="0"></div>
+        <div class="form-group"><label>📎 Document validé (PDF/image)</label><input type="file" name="contract_file" accept=".pdf,image/*" style="padding:6px;border:1.5px solid #ddd;border-radius:7px;width:100%"></div>
+    </div>
+    <div class="form-group"><label>Description</label><textarea name="description" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+    <button type="submit" class="btn btn-primary btn-sm">Enregistrer le contrat</button>
+</form>
+{% endif %}
 {% if contrats %}
-<div class="table-wrap"><table><thead><tr><th>Réf</th><th>Début</th><th>Fin</th><th>Montant</th><th>Statut</th></tr></thead>
-<tbody>{% for ct in contrats %}<tr><td><strong>{{ ct.reference or '-' }}</strong></td><td>{{ ct.start_date or '-' }}</td><td>{{ ct.end_date or '-' }}</td>
-<td style="text-align:right">{{ '{:,.0f}'.format(ct.amount or ct.total or 0) }} F</td><td>{{ ct.status or '-' }}</td></tr>{% endfor %}</tbody></table></div>
-{% else %}<p style="text-align:center;color:#999;padding:20px">Aucun contrat</p>{% endif %}
+<div class="table-wrap"><table><thead><tr><th>Réf</th><th>Début</th><th>Fin</th><th>Tarif/mois</th><th>Statut</th><th>Document</th></tr></thead>
+<tbody>{% for ct in contrats %}<tr>
+<td><strong>{{ ct.reference or '-' }}</strong>{% if ct.description %}<br><span style="font-size:10px;color:#888">{{ ct.description }}</span>{% endif %}</td>
+<td>{{ ct.start_date or '-' }}</td><td>{{ ct.end_date or '-' }}</td>
+<td style="text-align:right">{{ '{:,.0f}'.format(ct.monthly_rate or 0) }} F</td>
+<td>{% if ct.status == 'actif' %}<span class="badge-status sent">Actif</span>{% else %}{{ ct.status or '-' }}{% endif %}</td>
+<td>{% if ct.contract_file_name %}<a href="/contrats/{{ ct.id }}/file" target="_blank" class="btn btn-sm btn-outline" style="font-size:9px">📎 Ouvrir</a>{% else %}<span style="color:#bbb">—</span>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:20px">Aucun contrat pour ce client</p>{% endif %}
 </div></div>
 
 {% elif tab == 'projets' %}
