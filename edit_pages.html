@@ -62,7 +62,7 @@
 {% elif page == 'contrats' and contract %}
 <div class="page-header"><h1>✏️ Modifier le contrat</h1></div>
 <div class="card" style="max-width:550px"><div class="card-body">
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
         <div class="form-group"><label>Client</label>
             <select name="client_id" required>{% for c in clients %}<option value="{{ c.id }}" {% if c.id == contract.client_id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></div>
         <div class="form-row">
@@ -78,6 +78,9 @@
                 {% for s in ['actif','expire','suspendu','termine'] %}<option value="{{ s }}" {% if contract.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
             </select></div>
         <div class="form-group"><label>Description</label><textarea name="description" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:14px">{{ contract.description or '' }}</textarea></div>
+        <div class="form-group"><label>📎 Document du contrat validé (PDF/image)</label>
+            {% if contract.contract_file_name %}<div style="font-size:12px;margin-bottom:5px">Document actuel : <a href="/contrats/{{ contract.id }}/file" target="_blank">{{ contract.contract_file_name }}</a> — choisissez un fichier ci-dessous pour le remplacer.</div>{% endif %}
+            <input type="file" name="contract_file" accept=".pdf,image/*" style="padding:7px;border:1.5px solid #ddd;border-radius:8px;width:100%"></div>
         <div style="display:flex;gap:10px"><a href="/contrats" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-primary">💾 Sauvegarder</button></div>
     </form>
 </div></div>

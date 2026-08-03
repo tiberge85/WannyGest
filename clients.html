@@ -8,6 +8,7 @@
         <div style="display:flex;gap:6px;flex-wrap:wrap">
             {% if can_edit %}
             <a href="/clients/export" class="btn btn-sm" style="background:#2e7d32;color:#fff" title="Exporter la base clients en Excel">📤 Exporter</a>
+            <a href="/clients/reconcilier" class="btn btn-outline btn-sm" title="Recréer les clients manquants à partir des factures et proformas déjà émises" onclick="return confirm('Recréer les clients manquants à partir des factures/proformas existantes ?')">🔄 Récupérer clients factures/proformas</a>
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('importM').classList.add('active')">📥 Import</button>
             <button class="btn btn-primary btn-sm" onclick="document.getElementById('addModal').classList.add('active')">+ Client</button>
             {% else %}

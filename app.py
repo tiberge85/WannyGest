@@ -3144,6 +3144,61 @@ try:
 except Exception as _e: print(f"[v162g-Contrats] Err : {_e}", flush=True)
 
 
+# v173e : réconciliation — TOUT client ayant déjà eu une facture ou une proforma doit
+# exister dans la table clients (et donc avoir un profil consultable). Historiquement,
+# des factures/proformas étaient créées avec juste un nom (client_id vide, aucun client).
+def _backfill_clients_from_docs():
+    from models import get_db as _gdbf
+    conn = _gdbf()
+    _skip = {'', '-', '--', 'n/a', 'na', 'prospect', 'client', 'client comptant',
+             'comptant', 'divers', 'inconnu', 'test', 'aucun'}
+    existing = set()
+    try:
+        for r in conn.execute("SELECT LOWER(TRIM(name)) FROM clients WHERE COALESCE(name,'')!=''").fetchall():
+            existing.add(r[0])
+    except Exception:
+        conn.close(); return 0
+    names = {}  # nom_minuscule -> nom d'origine
+    for tbl in ('devis', 'invoices'):
+        try:
+            for r in conn.execute(f"SELECT DISTINCT client_name FROM {tbl} WHERE COALESCE(client_name,'')!=''").fetchall():
+                nm = (r[0] or '').strip()
+                low = nm.lower()
+                if len(low) < 2 or low in _skip:
+                    continue
+                names.setdefault(low, nm)
+        except Exception:
+            pass
+    created = 0
+    for low, nm in names.items():
+        if low in existing:
+            continue
+        try:
+            conn.execute("INSERT INTO clients (name, notes, created_by) VALUES (?,?,0)",
+                         (nm, "Client créé automatiquement (avait déjà une facture/proforma)"))
+            existing.add(low); created += 1
+        except Exception:
+            pass
+    conn.commit()
+    # Relier les documents orphelins (client_id vide) au client correspondant, par nom
+    for tbl in ('devis', 'invoices'):
+        try:
+            conn.execute(f"""UPDATE {tbl} SET client_id=(
+                    SELECT id FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM({tbl}.client_name)) LIMIT 1)
+                WHERE COALESCE(client_id,0)=0 AND COALESCE(client_name,'')!=''
+                  AND EXISTS (SELECT 1 FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM({tbl}.client_name)))""")
+        except Exception:
+            pass
+    conn.commit(); conn.close()
+    return created
+
+try:
+    _n173e = _backfill_clients_from_docs()
+    print(f"[v173e-Clients] Réconciliation clients (factures/proformas) : +{_n173e} client(s)", flush=True)
+except Exception as _e:
+    print(f"[v173e-Clients] Err : {_e}", flush=True)
+
+
 # v161 : demandes de permission (autorisation d'absence) — ouvert à tous, validé par la RH
 try:
     from models import get_db as _gdb_v161p
@@ -7044,6 +7099,18 @@ def fichiers_marquer(job_id):
 
 # ======================== CLIENTS ========================
 
+@app.route('/clients/reconcilier')
+@permission_required('clients')
+def clients_reconcilier():
+    """v173e : (re)crée les clients manquants à partir des factures/proformas existantes."""
+    try:
+        n = _backfill_clients_from_docs()
+        flash(f"✅ Réconciliation terminée : {n} client(s) ajouté(s) depuis les factures/proformas.", "success")
+    except Exception as e:
+        flash(f"Erreur réconciliation : {e}", "error")
+    return redirect('/clients')
+
+
 @app.route('/clients')
 @permission_required('clients')
 def clients_page():
@@ -8190,8 +8257,10 @@ def contrats_edit(cid):
             monthly_rate=float(request.form.get('monthly_rate', 0) or 0),
             description=request.form.get('description', ''),
             status=request.form.get('status', 'actif'))
+        _save_uploaded_contract_file(cid)  # v173d : joindre/remplacer le document validé
         flash("Contrat modifié", "success")
         return redirect(url_for('contrats_page'))
+    _ensure_contract_file_cols()
     clients = get_all_clients()
     return render_template('edit_pages.html', page='contrats', contract=contract, clients=clients)
 
