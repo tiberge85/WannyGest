@@ -3157,18 +3157,31 @@ def _backfill_clients_from_docs():
         for r in conn.execute("SELECT LOWER(TRIM(name)) FROM clients WHERE COALESCE(name,'')!=''").fetchall():
             existing.add(r[0])
     except Exception:
-        conn.close(); return 0
-    names = {}  # nom_minuscule -> nom d'origine
-    for tbl in ('devis', 'invoices'):
+        conn.close(); return {'created': 0}
+    # Sources de noms : devis/proformas, factures classiques, factures Terrain (via field_reports)
+    sources = {
+        'devis':     "SELECT DISTINCT client_name FROM devis WHERE COALESCE(client_name,'')!=''",
+        'factures':  "SELECT DISTINCT client_name FROM invoices WHERE COALESCE(client_name,'')!=''",
+        'terrain':   """SELECT DISTINCT fr.client_name FROM field_reports fr
+                        WHERE COALESCE(fr.client_name,'')!=''
+                          AND fr.id IN (SELECT field_report_id FROM field_report_invoices)""",
+    }
+    names = {}   # nom_minuscule -> nom d'origine
+    breakdown = {}
+    for key, sql in sources.items():
+        found = 0
         try:
-            for r in conn.execute(f"SELECT DISTINCT client_name FROM {tbl} WHERE COALESCE(client_name,'')!=''").fetchall():
+            for r in conn.execute(sql).fetchall():
                 nm = (r[0] or '').strip()
                 low = nm.lower()
                 if len(low) < 2 or low in _skip:
                     continue
+                if low not in existing and low not in names:
+                    found += 1
                 names.setdefault(low, nm)
         except Exception:
             pass
+        breakdown[key] = found
     created = 0
     for low, nm in names.items():
         if low in existing:
@@ -3181,7 +3194,7 @@ def _backfill_clients_from_docs():
             pass
     conn.commit()
     # Relier les documents orphelins (client_id vide) au client correspondant, par nom
-    for tbl in ('devis', 'invoices'):
+    for tbl in ('devis', 'invoices', 'field_reports'):
         try:
             conn.execute(f"""UPDATE {tbl} SET client_id=(
                     SELECT id FROM clients WHERE LOWER(TRIM(name))=LOWER(TRIM({tbl}.client_name)) LIMIT 1)
@@ -3190,11 +3203,11 @@ def _backfill_clients_from_docs():
         except Exception:
             pass
     conn.commit(); conn.close()
-    return created
+    return {'created': created, 'breakdown': breakdown}
 
 try:
-    _n173e = _backfill_clients_from_docs()
-    print(f"[v173e-Clients] Réconciliation clients (factures/proformas) : +{_n173e} client(s)", flush=True)
+    _r173e = _backfill_clients_from_docs()
+    print(f"[v173e-Clients] Réconciliation clients (factures/proformas) : +{_r173e.get('created',0)} client(s) — détail {_r173e.get('breakdown')}", flush=True)
 except Exception as _e:
     print(f"[v173e-Clients] Err : {_e}", flush=True)
 
@@ -7104,8 +7117,14 @@ def fichiers_marquer(job_id):
 def clients_reconcilier():
     """v173e : (re)crée les clients manquants à partir des factures/proformas existantes."""
     try:
-        n = _backfill_clients_from_docs()
-        flash(f"✅ Réconciliation terminée : {n} client(s) ajouté(s) depuis les factures/proformas.", "success")
+        r = _backfill_clients_from_docs()
+        n = r.get('created', 0)
+        b = r.get('breakdown', {}) or {}
+        detail = f" (proformas/devis : {b.get('devis',0)}, factures : {b.get('factures',0)}, terrain : {b.get('terrain',0)})"
+        if n:
+            flash(f"✅ Réconciliation terminée : {n} client(s) ajouté(s){detail}.", "success")
+        else:
+            flash(f"Réconciliation terminée : aucun nouveau client à ajouter — tous les clients des factures/proformas existent déjà{detail}.", "success")
     except Exception as e:
         flash(f"Erreur réconciliation : {e}", "error")
     return redirect('/clients')
@@ -7322,11 +7341,30 @@ def client_profile(cid):
         "SELECT * FROM devis WHERE client_id=? OR (COALESCE(client_id,0)=0 AND LOWER(TRIM(client_name))=LOWER(TRIM(?))) ORDER BY created_at DESC",
         (cid, _cname)).fetchall()]
     except: data['devis'] = []
-    # Factures (idem)
+    # Factures classiques (comptabilité)
     try: data['factures'] = [dict(r) for r in conn.execute(
         "SELECT * FROM invoices WHERE client_id=? OR (COALESCE(client_id,0)=0 AND LOWER(TRIM(client_name))=LOWER(TRIM(?))) ORDER BY created_at DESC",
         (cid, _cname)).fetchall()]
     except: data['factures'] = []
+    # v173e : factures TERRAIN (field_report_invoices reliées via field_reports) — sinon elles
+    # n'apparaissaient jamais dans le profil du client.
+    try:
+        for r in conn.execute("""
+            SELECT fri.id AS id, fri.invoice_number, fri.amount, fri.status, fri.recovery_status,
+                   fri.created_at, fri.emitted_at
+            FROM field_report_invoices fri JOIN field_reports fr ON fri.field_report_id = fr.id
+            WHERE fr.client_id=? OR (COALESCE(fr.client_id,0)=0 AND LOWER(TRIM(fr.client_name))=LOWER(TRIM(?)))
+            ORDER BY fri.created_at DESC""", (cid, _cname)).fetchall():
+            t = dict(r)
+            data['factures'].append({
+                'id': t['id'],
+                'reference': t.get('invoice_number') or ('Terrain #' + str(t['id'])),
+                'created_at': t.get('emitted_at') or t.get('created_at'),
+                'amount': t.get('amount') or 0,
+                'status': t.get('recovery_status') or t.get('status') or '',
+                '_terrain': True,
+            })
+    except Exception: pass
     # Contrats CLIENT (v173d : la vraie table est `contracts` — l'ancienne requête lisait
     # achats_contrats/fournisseur → toujours vide). On exclut le BLOB du document (lourd).
     try:

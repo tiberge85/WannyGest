@@ -463,10 +463,10 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
 <div class="card"><div class="card-header"><h3>💰 Factures</h3></div><div class="card-body" style="padding:0">
 {% if factures %}
 <div class="table-wrap"><table><thead><tr><th>Réf</th><th>Date</th><th>Montant</th><th>Statut</th><th>Actions</th></tr></thead>
-<tbody>{% for f in factures %}<tr><td><strong>{{ f.reference }}</strong></td><td>{{ f.created_at[:10] if f.created_at else '-' }}</td>
+<tbody>{% for f in factures %}<tr><td><strong>{{ f.reference }}</strong>{% if f._terrain %} <span style="font-size:9px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:8px">Terrain</span>{% endif %}</td><td>{{ f.created_at[:10] if f.created_at else '-' }}</td>
 <td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(f.amount or 0) }} F</td>
 <td><span class="badge-status {{ f.status }}">{{ f.status }}</span></td>
-<td><a href="/comptabilite/facture/view/{{ f.id }}" class="btn btn-sm btn-outline" style="font-size:9px">👁️</a></td></tr>{% endfor %}</tbody></table></div>
+<td>{% if f._terrain %}<a href="/recouvrement/facture/{{ f.id }}/preview" class="btn btn-sm btn-outline" style="font-size:9px">👁️</a>{% else %}<a href="/comptabilite/facture/view/{{ f.id }}" class="btn btn-sm btn-outline" style="font-size:9px">👁️</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune facture</p>{% endif %}
 </div></div>
 
