@@ -14,26 +14,113 @@ from datetime import datetime
 PERSISTENT_DIR = os.environ.get('PERSISTENT_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data'))
 DB_PATH = os.path.join(PERSISTENT_DIR, 'ramya.db')
 
+# ============================================================
+# v174 — Fondation multi-agences (Phase 0, ISO-FONCTIONNELLE)
+# ------------------------------------------------------------
+# Chaque agence possède sa PROPRE base SQLite. Une petite base de
+# contrôle centrale (_control.db) catalogue les agences ; elle ne
+# contient AUCUNE donnée métier ni financière.
+# En Phase 0 il n'existe qu'UNE agence (n°1) qui pointe la base
+# historique (ramya.db) → le comportement reste STRICTEMENT identique
+# à l'existant. get_db() route vers la base de l'agence active (session)
+# et retombe TOUJOURS, en cas de doute, sur la base historique (sûr).
+# ============================================================
+CONTROL_DB_PATH = os.path.join(PERSISTENT_DIR, '_control.db')
+
+_CONTROL_READY = False
+_AGENCY_PATH_CACHE = {}
+
+def _ensure_control_db():
+    """Crée _control.db + la table `agencies` et amorce l'agence n°1 (idempotent)."""
+    global _CONTROL_READY
+    if _CONTROL_READY:
+        return
+    try:
+        os.makedirs(PERSISTENT_DIR, exist_ok=True)
+        c = sqlite3.connect(CONTROL_DB_PATH, timeout=10.0)
+        c.execute("""CREATE TABLE IF NOT EXISTS agencies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE,
+            nom TEXT NOT NULL,
+            db_filename TEXT NOT NULL,
+            adresse TEXT, telephone TEXT, email TEXT, logo TEXT,
+            active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TEXT
+        )""")
+        n = c.execute("SELECT COUNT(*) FROM agencies").fetchone()[0]
+        if not n:
+            # Agence n°1 = base historique conservée telle quelle.
+            c.execute("INSERT INTO agencies (id, code, nom, db_filename, active) "
+                      "VALUES (1, 'AG1', 'Agence principale', ?, 1)",
+                      (os.path.basename(DB_PATH),))
+        c.commit(); c.close()
+        _CONTROL_READY = True
+    except Exception:
+        # Ne jamais bloquer : get_db() retombera sur DB_PATH.
+        pass
+
+def current_agency_id():
+    """Agence active, lue dans la session Flask.
+    Hors contexte requête (migrations, tâches de fond) ou si non définie
+    → agence n°1. En Phase 0, aucune session ne fixe encore agency_id,
+    donc cette fonction renvoie toujours 1 → comportement inchangé."""
+    try:
+        from flask import has_request_context, session
+        if has_request_context():
+            aid = session.get('agency_id')
+            if aid:
+                return int(aid)
+    except Exception:
+        pass
+    return 1
+
+def agency_db_path(agency_id):
+    """Chemin de la base d'une agence. Fallback = base historique (sûr)."""
+    try:
+        aid = int(agency_id)
+    except Exception:
+        return DB_PATH
+    if aid in _AGENCY_PATH_CACHE:
+        return _AGENCY_PATH_CACHE[aid]
+    path = DB_PATH
+    try:
+        _ensure_control_db()
+        c = sqlite3.connect(CONTROL_DB_PATH, timeout=10.0)
+        c.row_factory = sqlite3.Row
+        r = c.execute("SELECT db_filename FROM agencies "
+                      "WHERE id=? AND active=1 AND deleted_at IS NULL", (aid,)).fetchone()
+        c.close()
+        if r and r['db_filename']:
+            path = os.path.join(PERSISTENT_DIR, r['db_filename'])
+    except Exception:
+        path = DB_PATH
+    _AGENCY_PATH_CACHE[aid] = path
+    return path
+
 
 _DB_DIR_READY = False
-_WAL_READY = False
+_WAL_DONE = set()
 
 def get_db():
-    # v170 : PERF — ne plus réémettre PRAGMA journal_mode=WAL à CHAQUE connexion (écriture coûteuse).
-    # WAL est une propriété persistante de la base : il suffit de le poser une fois par process.
-    global _DB_DIR_READY, _WAL_READY
+    # v170 : PERF — poser PRAGMA journal_mode=WAL une seule fois par base (et non par connexion).
+    # v174 : la base ouverte est celle de l'agence active (Phase 0 : toujours l'agence n°1).
+    global _DB_DIR_READY
+    _ensure_control_db()
+    path = agency_db_path(current_agency_id())
     if not _DB_DIR_READY:
-        try: os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        try: os.makedirs(os.path.dirname(path), exist_ok=True)
         except Exception: pass
         _DB_DIR_READY = True
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn = sqlite3.connect(path, timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=10000")  # v140 - attendre 10s avant lock error
     conn.execute("PRAGMA synchronous=NORMAL")  # v170 - sûr en WAL, nettement plus rapide en écriture
-    if not _WAL_READY:
+    if path not in _WAL_DONE:
         try: conn.execute("PRAGMA journal_mode=WAL")
         except Exception: pass
-        _WAL_READY = True
+        _WAL_DONE.add(path)
     return conn
 
 
