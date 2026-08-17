@@ -20119,6 +20119,136 @@ def api_prospects_intake():
     return _cors(jsonify({'ok': True, 'message': 'Prospect enregistré'}))
 
 
+# v173g : rapport sur les prospects du Forum Marahoué Business
+_FORUM_SOURCE = 'Forum Marahoué Business'
+_PROSPECT_STATUTS = [('nouveau', 'Nouveau', '#1A7A6D'), ('contacte', 'Contacté', '#e8672a'),
+                     ('qualifie', 'Qualifié', '#7b1fa2'), ('proposition', 'Proposition', '#B8860B'),
+                     ('gagne', 'Gagné', '#2e7d32'), ('perdu', 'Perdu', '#c53030')]
+
+def _parse_besoin_solutions(desc):
+    import re as _re
+    d = desc or ''
+    besoin, sol = '', ''
+    mb = _re.search(r'Besoin\s*:\s*(.*?)(?:\n|Solutions choisies|$)', d, _re.I | _re.S)
+    ms = _re.search(r'Solutions choisies\s*:\s*(.*)', d, _re.I | _re.S)
+    if mb: besoin = mb.group(1).strip()
+    if ms: sol = ms.group(1).strip()
+    if not besoin and not sol:
+        besoin = d.strip()
+    return besoin, sol
+
+def _forum_prospects_data():
+    conn = _gdb()
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM prospects WHERE COALESCE(source,'')=? ORDER BY datetime(created_at) DESC",
+            (_FORUM_SOURCE,)).fetchall()]
+    except Exception:
+        rows = []
+    conn.close()
+    by_status = {k: 0 for k, _, _ in _PROSPECT_STATUTS}
+    by_sector, by_city, by_month = {}, {}, {}
+    besoin_count = 0
+    for p in rows:
+        st = (p.get('status') or 'nouveau')
+        by_status[st] = by_status.get(st, 0) + 1
+        sec = ((p.get('sector') or '').strip() or '—')
+        by_sector[sec] = by_sector.get(sec, 0) + 1
+        city = ((p.get('city') or '').strip() or '—')
+        by_city[city] = by_city.get(city, 0) + 1
+        mo = (p.get('created_at') or '')[:7]
+        if mo: by_month[mo] = by_month.get(mo, 0) + 1
+        b, s = _parse_besoin_solutions(p.get('description'))
+        p['_besoin'] = b; p['_solutions'] = s
+        if b or s: besoin_count += 1
+    total = len(rows)
+    return {
+        'rows': rows, 'total': total, 'by_status': by_status,
+        'STAT': _PROSPECT_STATUTS, 'gagnes': by_status.get('gagne', 0),
+        'taux': round(by_status.get('gagne', 0) / total * 100, 1) if total else 0,
+        'top_sector': sorted(by_sector.items(), key=lambda x: -x[1])[:10],
+        'top_city': sorted(by_city.items(), key=lambda x: -x[1])[:10],
+        'months': sorted(by_month.items()),
+        'besoin_count': besoin_count, 'source': _FORUM_SOURCE,
+    }
+
+@app.route('/prospects/rapport-forum')
+@permission_required_any('clients', 'section_crm', 'admin')
+def prospects_rapport_forum():
+    data = _forum_prospects_data()
+    return render_template('prospects_rapport_forum.html', page='prospects',
+                           now=datetime.now().strftime('%d/%m/%Y à %H:%M'), **data)
+
+@app.route('/prospects/rapport-forum/pdf')
+@permission_required_any('clients', 'section_crm', 'admin')
+def prospects_rapport_forum_pdf():
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.colors import HexColor, white
+    d = _forum_prospects_data()
+    export_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'export')
+    os.makedirs(export_dir, exist_ok=True)
+    output = os.path.join(export_dir, 'rapport_prospects_forum.pdf')
+    doc = SimpleDocTemplate(output, pagesize=landscape(A4),
+                            leftMargin=12*mm, rightMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
+    story = []
+    TEAL = HexColor('#1A7A6D')
+    h1 = ParagraphStyle('h1', fontSize=17, fontName='Helvetica-Bold', textColor=TEAL, spaceAfter=2)
+    sub = ParagraphStyle('sub', fontSize=9, textColor=HexColor('#666'), spaceAfter=10)
+    h2 = ParagraphStyle('h2', fontSize=12, fontName='Helvetica-Bold', textColor=TEAL, spaceBefore=10, spaceAfter=6)
+    cell = ParagraphStyle('cell', fontSize=8, leading=10)
+    cellb = ParagraphStyle('cellb', fontSize=8, leading=10, fontName='Helvetica-Bold')
+    wheader = ParagraphStyle('wh', fontSize=8, fontName='Helvetica-Bold', textColor=white)
+    story.append(Paragraph("Rapport prospects — Forum Marahoué Business", h1))
+    story.append(Paragraph(f"Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} — {d['total']} prospect(s)", sub))
+    # KPIs + statuts
+    kpi = [['Total', str(d['total'])], ['Gagnés', str(d['gagnes'])], ['Taux de conversion', f"{d['taux']} %"],
+           ['Avec besoin exprimé', str(d['besoin_count'])]]
+    for k, lbl, col in d['STAT']:
+        kpi.append([lbl, str(d['by_status'].get(k, 0))])
+    kt = Table([[Paragraph(a, cellb), Paragraph(b, cell)] for a, b in kpi], colWidths=[55*mm, 25*mm])
+    kt.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, HexColor('#ddd')),
+                            ('BACKGROUND', (0,0), (0,-1), HexColor('#f2f7f6')),
+                            ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3)]))
+    story.append(Paragraph("Synthèse", h2))
+    story.append(kt)
+    # Liste des prospects
+    story.append(Paragraph("Liste des prospects", h2))
+    header = ['#', 'Entreprise', 'Contact', 'Téléphone', 'Secteur', 'Ville', 'Statut', 'Besoin / Solutions', 'Date']
+    tdata = [[Paragraph(h, wheader) for h in header]]
+    stat_lbl = {k: lbl for k, lbl, _ in d['STAT']}
+    for i, p in enumerate(d['rows'], 1):
+        bs = ' / '.join([x for x in [p.get('_besoin', ''), p.get('_solutions', '')] if x])[:180]
+        tdata.append([
+            Paragraph(str(i), cell),
+            Paragraph((p.get('company') or '—')[:40], cellb),
+            Paragraph((p.get('contact_name') or '—')[:28], cell),
+            Paragraph((p.get('tel') or '—')[:20], cell),
+            Paragraph((p.get('sector') or '—')[:22], cell),
+            Paragraph((p.get('city') or '—')[:18], cell),
+            Paragraph(stat_lbl.get(p.get('status'), p.get('status') or '—'), cell),
+            Paragraph(bs or '—', cell),
+            Paragraph((p.get('created_at') or '')[:10], cell),
+        ])
+    col_w = [8*mm, 42*mm, 32*mm, 26*mm, 28*mm, 22*mm, 22*mm, 60*mm, 20*mm]
+    t = Table(tdata, colWidths=col_w, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), TEAL),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, HexColor('#f6faf9')]),
+        ('GRID', (0,0), (-1,-1), 0.25, HexColor('#e0e0e0')),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING',(0,0),(-1,-1),3),('BOTTOMPADDING',(0,0),(-1,-1),3),
+        ('LEFTPADDING',(0,0),(-1,-1),4),('RIGHTPADDING',(0,0),(-1,-1),4),
+    ]))
+    story.append(t)
+    logo_r = next((os.path.join(BASE_DIR, n) for n in ["logo_ramya.png","logo_wannygest.png"] if os.path.exists(os.path.join(BASE_DIR, n))), None)
+    doc.build(story)
+    return send_file(output, as_attachment=True, download_name="rapport_prospects_forum.pdf")
+
+
 @app.route('/prospects/view/<int:pid>')
 @login_required
 def prospect_view(pid):
@@ -23562,6 +23692,90 @@ def api_client_full_info(cid):
         return jsonify({'error': str(e)}), 500
 
 
+# v173f : photos d'illustration des remontées — stockées EN BASE (filesystem éphémère).
+def _ensure_fr_file_data_col():
+    try:
+        c = _gdb()
+        try: c.execute("SELECT filedata FROM field_reports_files LIMIT 1")
+        except Exception:
+            try: c.execute("ALTER TABLE field_reports_files ADD COLUMN filedata BLOB")
+            except Exception: pass
+        c.commit(); c.close()
+    except Exception: pass
+
+def _save_field_report_images(report_id, field_name='images'):
+    """Enregistre les images uploadées (compressées) dans field_reports_files (BLOB). Retourne le nb."""
+    if not report_id: return 0
+    files = request.files.getlist(field_name)
+    if not files: return 0
+    _ensure_fr_file_data_col()
+    saved = 0
+    for f in files:
+        if not f or not f.filename: continue
+        raw = f.read()
+        if not raw: continue
+        data = raw; mime = f.mimetype or 'image/jpeg'; name = secure_filename(f.filename)
+        # Compression / redimensionnement (max 1600px, JPEG qualité 80) si c'est une image
+        try:
+            from PIL import Image as _PILImg
+            import io as _io
+            im = _PILImg.open(_io.BytesIO(raw))
+            im = im.convert('RGB')
+            w, h = im.size
+            m = max(w, h)
+            if m > 1600:
+                ratio = 1600.0 / m
+                im = im.resize((int(w * ratio), int(h * ratio)))
+            buf = _io.BytesIO()
+            im.save(buf, format='JPEG', quality=80, optimize=True)
+            data = buf.getvalue()
+            mime = 'image/jpeg'
+            if not name.lower().endswith(('.jpg', '.jpeg')): name = (name.rsplit('.', 1)[0] if '.' in name else name) + '.jpg'
+        except Exception:
+            # pas une image lisible → on garde le fichier brut (cap 8 Mo)
+            if len(raw) > 8 * 1024 * 1024: continue
+        try:
+            c = _gdb()
+            c.execute("""INSERT INTO field_reports_files
+                (report_id, filename, filepath, filesize, mimetype, filedata, uploaded_by, uploaded_at)
+                VALUES (?,?,?,?,?,?,?,datetime('now'))""",
+                (report_id, name, '', len(data), mime, data, session.get('user_id')))
+            c.commit(); c.close()
+            saved += 1
+        except Exception: pass
+    return saved
+
+@app.route('/field-reports/file/<int:fid>')
+@permission_required_any('field_report_view_all', 'field_report_view_mine', 'field_report_create')
+def field_report_file(fid):
+    """Sert une image/pièce jointe d'une remontée (depuis la base)."""
+    _ensure_fr_file_data_col()
+    try:
+        c = _gdb()
+        r = c.execute("SELECT filename, mimetype, filedata FROM field_reports_files WHERE id=?", (fid,)).fetchone()
+        c.close()
+    except Exception:
+        r = None
+    if not r or not r['filedata']:
+        flash("Fichier introuvable", "error")
+        return redirect(request.referrer or '/field-reports')
+    return Response(bytes(r['filedata']), mimetype=(r['mimetype'] or 'application/octet-stream'),
+                    headers={'Content-Disposition': f'inline; filename="{r["filename"] or ("piece_"+str(fid))}"'})
+
+@app.route('/field-reports/<int:rid>/file/add', methods=['POST'])
+@permission_required_any('field_report_view_all', 'field_report_view_mine', 'field_report_create')
+def field_report_file_add(rid):
+    """Ajoute des photos à une remontée existante."""
+    n = _save_field_report_images(rid, 'images')
+    if n:
+        try: _field_report_log(rid, 'Photos ajoutées', f"{n} image(s)")
+        except Exception: pass
+        flash(f"✅ {n} photo(s) ajoutée(s)", "success")
+    else:
+        flash("Aucune image ajoutée", "error")
+    return redirect(f'/field-reports/{rid}')
+
+
 @app.route('/field-reports/new', methods=['GET', 'POST'])
 @permission_required('field_report_create')
 def field_report_new():
@@ -23675,6 +23889,10 @@ def field_report_new():
         conn.commit()
         conn.close()
 
+        # v173f : photos d'illustration jointes à la remontée
+        try: _save_field_report_images(report_id, 'images')
+        except Exception as _e: print(f"[v173f] images remontée err : {_e}", flush=True)
+
         _field_report_log(report_id, 'Création', f"Type: {FIELD_REPORT_TYPES.get(type_info, type_info)}, Priorité: {priorite}")
         _field_report_notify(report_id, 'created')
 
@@ -23753,9 +23971,13 @@ def field_report_detail(rid):
     history = [dict(r) for r in conn.execute(
         "SELECT * FROM field_reports_history WHERE report_id=? ORDER BY created_at DESC", (rid,)).fetchall()]
     
-    # Pièces jointes
-    files = [dict(r) for r in conn.execute(
-        "SELECT * FROM field_reports_files WHERE report_id=? ORDER BY uploaded_at DESC", (rid,)).fetchall()]
+    # Pièces jointes (v173f : sans le BLOB, juste les métadonnées pour l'affichage)
+    try:
+        files = [dict(r) for r in conn.execute(
+            "SELECT id, filename, mimetype, filesize, uploaded_at FROM field_reports_files WHERE report_id=? ORDER BY uploaded_at DESC", (rid,)).fetchall()]
+    except Exception:
+        files = [dict(r) for r in conn.execute(
+            "SELECT * FROM field_reports_files WHERE report_id=? ORDER BY uploaded_at DESC", (rid,)).fetchall()]
     
     # v131 : Liste des techniciens (pour transformer en intervention)
     technicians = []
@@ -37469,10 +37691,12 @@ def achats_commande_edit(cid):
             return redirect(f'/achats/commande/{cid}/edit')
     
     # GET : afficher le formulaire d'édition
-    # v171 : la table « fournisseurs » n'existe pas → on lit « suppliers »
-    # (table réellement alimentée par la page Fournisseurs, colonne « nom »).
+    # v173h : cohérence du module Achats — la création et la liste des bons utilisent
+    # « achats_fournisseurs ». On lit la MÊME table ici pour que l'édition ne réattribue
+    # plus le bon à un autre fournisseur (les id de achats_fournisseurs et suppliers ne
+    # coïncident pas : le même numéro désigne deux entreprises différentes).
     fournisseurs = [dict(r) for r in conn.execute(
-        "SELECT id, nom AS name FROM suppliers WHERE COALESCE(is_active,1)=1 ORDER BY nom"
+        "SELECT id, name FROM achats_fournisseurs ORDER BY name"
     ).fetchall()]
     conn.close()
     
@@ -37491,10 +37715,11 @@ def achats_commande_preview(cid):
         flash("Bon de commande introuvable", "error")
         return redirect('/achats?tab=commandes')
     bc = dict(bc)
-    # Nom du fournisseur : suppliers (source réelle) puis fallback achats_fournisseurs
-    frow = conn.execute("SELECT nom AS name FROM suppliers WHERE id=?", (bc.get('fournisseur_id'),)).fetchone()
+    # v173h : nom du fournisseur résolu sur « achats_fournisseurs » (même table que la
+    # création et la liste), fallback « suppliers » pour d'éventuels bons créés autrement.
+    frow = conn.execute("SELECT name FROM achats_fournisseurs WHERE id=?", (bc.get('fournisseur_id'),)).fetchone()
     if not frow:
-        frow = conn.execute("SELECT name FROM achats_fournisseurs WHERE id=?", (bc.get('fournisseur_id'),)).fetchone()
+        frow = conn.execute("SELECT nom AS name FROM suppliers WHERE id=?", (bc.get('fournisseur_id'),)).fetchone()
     bc['fournisseur_name'] = frow['name'] if frow else None
     conn.close()
     return render_template('achats.html', page_mode='commande_view', bc=bc)
