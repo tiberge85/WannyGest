@@ -37842,6 +37842,41 @@ def super_admin_agences_edit(aid):
         flash(f"❌ {e}", "error")
     return redirect(url_for('super_admin_agences'))
 
+@app.route('/super-admin/consolidation')
+@login_required
+def super_admin_consolidation():
+    """Vue consolidée LECTURE SEULE : agrège les indicateurs de toutes les agences.
+    Chaque base d'agence est lue directement (aucune écriture)."""
+    if not _is_super_admin():
+        flash("Accès réservé au super administrateur (agence principale).", "error")
+        return redirect(url_for('dashboard'))
+    from models import list_agencies, agency_db_path
+    import sqlite3 as _sq
+    rows = []
+    tot = {'clients': 0, 'remontees': 0, 'factures': 0.0, 'decaissements': 0.0, 'solde_caisses': 0.0}
+    for a in list_agencies():
+        k = {'clients': 0, 'remontees': 0, 'factures': 0.0, 'decaissements': 0.0, 'solde_caisses': 0.0}
+        try:
+            c = _sq.connect(agency_db_path(a['id']), timeout=10.0)
+            def _sc(q):
+                try:
+                    r = c.execute(q).fetchone()
+                    return (r[0] or 0) if r else 0
+                except Exception:
+                    return 0
+            k['clients'] = _sc("SELECT COUNT(*) FROM clients")
+            k['remontees'] = _sc("SELECT COUNT(*) FROM field_reports")
+            k['factures'] = _sc("SELECT COALESCE(SUM(amount),0) FROM invoices")
+            k['decaissements'] = _sc("SELECT COALESCE(SUM(montant),0) FROM caisse_sorties WHERE status='valide'")
+            k['solde_caisses'] = _sc("SELECT COALESCE(SUM(solde_actuel),0) FROM caisses")
+            c.close()
+        except Exception:
+            pass
+        for key in tot:
+            tot[key] += k[key]
+        rows.append({'agence': a, 'k': k})
+    return render_template('super_admin_consolidation.html', rows=rows, tot=tot)
+
 
 @app.route('/achats/contrat/add', methods=['POST'])
 @permission_required_any('achats_edit', 'comptabilite_edit')
