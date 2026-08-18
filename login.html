@@ -41,6 +41,16 @@
             {% endfor %}{% endif %}{% endwith %}
             
             <form method="post" action="/login">
+                {% if agences and agences|length > 1 %}
+                <div class="form-group">
+                    <label>Agence</label>
+                    <select name="agency_id" required style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:7px;font-size:15px;box-sizing:border-box;background:#fff">
+                        {% for a in agences %}
+                        <option value="{{ a.id }}">{{ a.nom }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
                 <div class="form-group">
                     <label>Nom d'utilisateur</label>
                     <input type="text" name="username" required autofocus placeholder="Votre identifiant">

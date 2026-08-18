@@ -6059,10 +6059,21 @@ def _force_arrival_pointage():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # v174 Phase 3 : agences disponibles (sélecteur affiché s'il y en a plusieurs)
+    from models import list_agencies as _list_agencies
+    agences = _list_agencies()
     if request.method == 'POST':
         username = request.form['username']
         ip = request.remote_addr
-        
+        # v174 Phase 3 : agence choisie → l'authentification est routée vers SA base.
+        try:
+            sel_agency = int(request.form.get('agency_id', 1) or 1)
+        except Exception:
+            sel_agency = 1
+        if sel_agency not in {a['id'] for a in agences}:
+            sel_agency = 1
+        session['agency_id'] = sel_agency
+
         # Rate limiting par IP (anti brute-force distribué)
         if not _check_login_rate_limit(ip):
             flash("⛔ Trop de tentatives échouées depuis votre adresse IP. Réessayez dans 5 minutes.", "error")
@@ -6087,11 +6098,13 @@ def login():
                 session['_pending_2fa_user_id'] = user['id']
                 session['_pending_2fa_username'] = user['full_name']
                 session['_pending_2fa_ip'] = ip
+                session['_pending_2fa_agency'] = sel_agency  # v174 Phase 3
+                session['agency_id'] = sel_agency            # v174 Phase 3 : router la vérif 2FA vers la bonne base
                 return redirect(url_for('login_2fa'))
             # Régénération du session ID pour empêcher la session fixation
             session.clear()
             session['user_id'] = user['id']
-            session['agency_id'] = 1  # v174 Phase 1 : agence active (une seule agence pour l'instant → n°1)
+            session['agency_id'] = sel_agency  # v174 Phase 3 : agence choisie au login
             session['last_active'] = datetime.now().isoformat()
             session.permanent = True
             log_activity(user['id'], user['full_name'], 'Connexion', f"Connexion réussie", ip)
@@ -6113,6 +6126,7 @@ def login():
                 session['client_user_id'] = cu['id']
                 session['client_id'] = cu['client_id']
                 session['client_name'] = cu['full_name']
+                session['agency_id'] = sel_agency  # v174 Phase 3 : agence choisie au login
                 session.permanent = True
                 conn.execute("UPDATE client_users SET last_login=? WHERE id=?", (datetime.now().isoformat(), cu['id']))
                 conn.commit(); conn.close()
@@ -6131,7 +6145,7 @@ def login():
         except: pass
         remaining = 5 - get_failed_attempts(username)
         flash(f"Identifiants incorrects ({remaining} tentative(s) restante(s))", "error")
-    return render_template('login.html')
+    return render_template('login.html', agences=agences)
 
 @app.route('/register', methods=['GET', 'POST'])
 @login_required
@@ -6184,9 +6198,10 @@ def login_2fa():
                 # OK, finaliser la session
                 ip = session.get('_pending_2fa_ip', request.remote_addr)
                 username = session.get('_pending_2fa_username', user.get('full_name','?'))
+                pending_agency = session.get('_pending_2fa_agency', 1)  # v174 Phase 3
                 session.clear()
                 session['user_id'] = pending_uid
-                session['agency_id'] = 1  # v174 Phase 1 : agence active (une seule agence pour l'instant → n°1)
+                session['agency_id'] = pending_agency  # v174 Phase 3 : agence choisie au login
                 session['last_active'] = datetime.now().isoformat()
                 session.permanent = True
                 log_activity(pending_uid, username, 'Connexion 2FA', "2FA validé", ip)
@@ -37752,6 +37767,16 @@ def super_admin_agences():
     from models import list_agencies
     agences = list_agencies(include_inactive=True)
     return render_template('super_admin_agences.html', agences=agences)
+
+@app.context_processor
+def _inject_agency_context():
+    """Rend l'agence active + le nombre d'agences disponibles dans tous les gabarits."""
+    try:
+        from models import get_agency, list_agencies
+        aid = int(session.get('agency_id', 1) or 1)
+        return {'active_agency': get_agency(aid), 'agencies_total': len(list_agencies())}
+    except Exception:
+        return {'active_agency': None, 'agencies_total': 1}
 
 @app.route('/super-admin/agences/create', methods=['POST'])
 @login_required
