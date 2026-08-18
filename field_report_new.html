@@ -36,7 +36,7 @@
     Le <strong>Gestionnaire de Projet</strong> analysera votre remontée et la transformera en projet, intervention ou opportunité commerciale.
 </div>
 
-<form method="post" action="/field-reports/new">
+<form method="post" action="/field-reports/new" enctype="multipart/form-data">
 
 <!-- BLOC SÉLECTION CLIENT -->
 <div class="card" style="margin-bottom:14px">
@@ -204,6 +204,13 @@
             <label>Description détaillée *</label>
             <textarea name="description" rows="6" required data-fouati="remontee" style="width:100%;padding:10px;border:1.5px solid #ddd;border-radius:7px;font-family:inherit"
                 placeholder="Décrivez précisément l'information remontée : contexte, observations, attentes du client, opportunité commerciale potentielle, etc."></textarea>
+        </div>
+        <!-- v173f : photos d'illustration (optionnel) -->
+        <div class="form-group">
+            <label>📷 Photos d'illustration (optionnel)</label>
+            <input type="file" name="images" accept="image/*" multiple capture="environment"
+                   style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;background:#fff">
+            <div style="font-size:11px;color:#888;margin-top:4px">Vous pouvez ajouter une ou plusieurs photos (prises sur place ou depuis la galerie). Elles seront visibles dans le détail de la remontée.</div>
         </div>
         <!-- v162 : départements concernés (notification prioritaire) -->
         <div class="form-group" style="background:#fff8e1;border:1.5px solid #f29f2f;border-radius:10px;padding:14px 16px">
