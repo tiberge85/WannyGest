@@ -6091,6 +6091,7 @@ def login():
             # Régénération du session ID pour empêcher la session fixation
             session.clear()
             session['user_id'] = user['id']
+            session['agency_id'] = 1  # v174 Phase 1 : agence active (une seule agence pour l'instant → n°1)
             session['last_active'] = datetime.now().isoformat()
             session.permanent = True
             log_activity(user['id'], user['full_name'], 'Connexion', f"Connexion réussie", ip)
@@ -6185,6 +6186,7 @@ def login_2fa():
                 username = session.get('_pending_2fa_username', user.get('full_name','?'))
                 session.clear()
                 session['user_id'] = pending_uid
+                session['agency_id'] = 1  # v174 Phase 1 : agence active (une seule agence pour l'instant → n°1)
                 session['last_active'] = datetime.now().isoformat()
                 session.permanent = True
                 log_activity(pending_uid, username, 'Connexion 2FA', "2FA validé", ip)
@@ -37723,6 +37725,52 @@ def achats_commande_preview(cid):
     bc['fournisseur_name'] = frow['name'] if frow else None
     conn.close()
     return render_template('achats.html', page_mode='commande_view', bc=bc)
+
+
+# ============================================================
+# v174 (Phase 2) — Console Super Admin : gestion des agences
+# (Le super admin est, pour l'instant, l'admin de l'agence mère n°1.
+#  Sera affiné en Phase 3 avec le login multi-agences.)
+# ============================================================
+def _is_super_admin():
+    try:
+        u = get_user_by_id(session.get('user_id'))
+        if not u:
+            return False
+        if u['role'] not in ('admin', 'dg'):
+            return False
+        return int(session.get('agency_id', 1) or 1) == 1
+    except Exception:
+        return False
+
+@app.route('/super-admin/agences')
+@login_required
+def super_admin_agences():
+    if not _is_super_admin():
+        flash("Accès réservé au super administrateur (agence principale).", "error")
+        return redirect(url_for('dashboard'))
+    from models import list_agencies
+    agences = list_agencies(include_inactive=True)
+    return render_template('super_admin_agences.html', agences=agences)
+
+@app.route('/super-admin/agences/create', methods=['POST'])
+@login_required
+def super_admin_agences_create():
+    if not _is_super_admin():
+        flash("Accès réservé au super administrateur.", "error")
+        return redirect(url_for('dashboard'))
+    from models import create_agency
+    nom = request.form.get('nom', '').strip()
+    code = request.form.get('code', '').strip()
+    adresse = request.form.get('adresse', '').strip()
+    telephone = request.form.get('telephone', '').strip()
+    email = request.form.get('email', '').strip()
+    try:
+        aid = create_agency(nom, code, adresse, telephone, email)
+        flash(f"✅ Agence « {nom} » créée : base dédiée initialisée, compte admin par défaut « admin / admin2026 ».", "success")
+    except Exception as e:
+        flash(f"❌ Impossible de créer l'agence : {e}", "error")
+    return redirect(url_for('super_admin_agences'))
 
 
 @app.route('/achats/contrat/add', methods=['POST'])

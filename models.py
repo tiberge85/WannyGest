@@ -9,6 +9,7 @@ import sqlite3
 import os
 import hashlib
 import secrets
+import threading
 from datetime import datetime
 
 PERSISTENT_DIR = os.environ.get('PERSISTENT_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data'))
@@ -61,11 +62,22 @@ def _ensure_control_db():
         # Ne jamais bloquer : get_db() retombera sur DB_PATH.
         pass
 
+# v174 (Phase 1/2) : forçage temporaire de l'agence (ex. provisionnement d'une
+# nouvelle base). Thread-local pour rester sûr sous gunicorn threads.
+_forced_agency = threading.local()
+
+def set_forced_agency(aid):
+    _forced_agency.value = int(aid) if aid else None
+
+def clear_forced_agency():
+    _forced_agency.value = None
+
 def current_agency_id():
-    """Agence active, lue dans la session Flask.
-    Hors contexte requête (migrations, tâches de fond) ou si non définie
-    → agence n°1. En Phase 0, aucune session ne fixe encore agency_id,
-    donc cette fonction renvoie toujours 1 → comportement inchangé."""
+    """Agence active. Priorité : agence forcée (provisionnement) > session Flask.
+    Hors contexte requête (migrations, tâches de fond) ou si non définie → agence n°1."""
+    fa = getattr(_forced_agency, 'value', None)
+    if fa:
+        return fa
     try:
         from flask import has_request_context, session
         if has_request_context():
@@ -123,6 +135,82 @@ def get_db():
         _WAL_DONE.add(path)
     return conn
 
+
+# ============================================================
+# v174 (Phase 2) — Gestion des agences (registre central _control.db)
+# ============================================================
+def list_agencies(include_inactive=False):
+    """Liste des agences depuis le registre central."""
+    _ensure_control_db()
+    try:
+        c = sqlite3.connect(CONTROL_DB_PATH, timeout=10.0); c.row_factory = sqlite3.Row
+        q = "SELECT * FROM agencies WHERE deleted_at IS NULL"
+        if not include_inactive:
+            q += " AND active=1"
+        rows = [dict(r) for r in c.execute(q + " ORDER BY id").fetchall()]
+        c.close()
+        return rows
+    except Exception:
+        return []
+
+def get_agency(aid):
+    _ensure_control_db()
+    try:
+        c = sqlite3.connect(CONTROL_DB_PATH, timeout=10.0); c.row_factory = sqlite3.Row
+        r = c.execute("SELECT * FROM agencies WHERE id=?", (int(aid),)).fetchone()
+        c.close()
+        return dict(r) if r else None
+    except Exception:
+        return None
+
+def create_agency(nom, code, adresse='', telephone='', email=''):
+    """Crée une agence : enregistrement au registre + provisionnement d'une base
+    dédiée (schéma copié depuis l'agence n°1 + admin par défaut). Retourne l'id."""
+    nom = (nom or '').strip()
+    if not nom:
+        raise ValueError("Le nom de l'agence est requis.")
+    code = (code or '').strip() or nom
+    _ensure_control_db()
+    c = sqlite3.connect(CONTROL_DB_PATH, timeout=10.0); c.row_factory = sqlite3.Row
+    if c.execute("SELECT id FROM agencies WHERE code=?", (code,)).fetchone():
+        c.close()
+        raise ValueError("Ce code d'agence existe déjà.")
+    cur = c.execute("""INSERT INTO agencies (code, nom, db_filename, adresse, telephone, email, active)
+                       VALUES (?,?,?,?,?,?,1)""", (code, nom, 'PENDING', adresse or '', telephone or '', email or ''))
+    aid = cur.lastrowid
+    fname = f"agence_{aid:03d}.db"
+    c.execute("UPDATE agencies SET db_filename=? WHERE id=?", (fname, aid))
+    c.commit(); c.close()
+    _AGENCY_PATH_CACHE.pop(aid, None)
+    provision_agency_db(aid)
+    return aid
+
+def provision_agency_db(aid):
+    """Initialise la base d'une nouvelle agence :
+    1) copie du SCHÉMA de l'agence n°1 (toutes les tables/index, y compris celles
+       créées côté app.py) — SANS les données ;
+    2) init_db() sur cette base (idempotent) → permissions par défaut + admin par défaut."""
+    dst = agency_db_path(aid)
+    # 1) Copie du schéma depuis la base de référence (agence n°1)
+    try:
+        src_c = sqlite3.connect(DB_PATH, timeout=10.0)
+        schema = src_c.execute(
+            "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND type IN ('table','index','trigger','view')"
+        ).fetchall()
+        src_c.close()
+        dst_c = sqlite3.connect(dst, timeout=10.0)
+        for (sql,) in schema:
+            try: dst_c.execute(sql)
+            except Exception: pass
+        dst_c.commit(); dst_c.close()
+    except Exception:
+        pass
+    # 2) Semences (permissions + admin par défaut) sur la base de l'agence
+    set_forced_agency(aid)
+    try:
+        init_db()
+    finally:
+        clear_forced_agency()
 
 def init_db():
     """Crée les tables si elles n'existent pas."""

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Agences{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h1 style="margin:0">🏢 Gestion des agences</h1>
+    <button onclick="document.getElementById('addAgM').classList.add('active')" class="btn btn-primary btn-sm">➕ Nouvelle agence</button>
+</div>
+
+<div class="card" style="background:#f2f7f6;border-left:4px solid #1A7A6D;margin-bottom:14px">
+<div class="card-body" style="font-size:13px;color:#555">
+    Chaque agence dispose de sa <strong>propre base de données</strong> : les données (clients, projets, caisse, comptabilité…) sont totalement cloisonnées entre agences.
+    L'agence <strong>n°1</strong> correspond à vos données actuelles. Une nouvelle agence démarre vierge, avec un compte administrateur par défaut
+    (<strong>admin</strong> / <strong>admin2026</strong>) à personnaliser dès la première connexion.
+</div>
+</div>
+
+<div class="card"><div class="card-body" style="padding:0">
+<div class="table-wrap"><table style="font-size:13px;width:100%">
+<thead><tr>
+    <th style="padding:10px">#</th><th>Nom</th><th>Code</th><th>Téléphone</th><th>Email</th><th>Base de données</th><th>Statut</th>
+</tr></thead>
+<tbody>
+{% for a in agences %}
+<tr style="border-bottom:1px solid #f0f0f0">
+    <td style="padding:8px 10px;font-weight:700">{{ a.id }}</td>
+    <td><strong>{{ a.nom }}</strong>{% if a.id == 1 %} <span style="background:#1A7A6D;color:#fff;padding:1px 7px;border-radius:9px;font-size:10px">principale</span>{% endif %}</td>
+    <td>{{ a.code or '—' }}</td>
+    <td>{{ a.telephone or '—' }}</td>
+    <td>{{ a.email or '—' }}</td>
+    <td style="font-family:monospace;font-size:11px;color:#888">{{ a.db_filename }}</td>
+    <td>
+        {% if a.active %}<span style="background:#eaf6ec;color:#2e7d32;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700">Active</span>
+        {% else %}<span style="background:#fde8e8;color:#c53030;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700">Inactive</span>{% endif %}
+    </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+</div></div>
+
+<!-- Modale création -->
+<div class="modal-bg" id="addAgM">
+  <div class="modal">
+    <h3 style="margin:0 0 4px">🏢 Nouvelle agence</h3>
+    <p style="font-size:12px;color:#888;margin:0 0 14px">Une base de données dédiée sera créée et initialisée automatiquement.</p>
+    <form method="post" action="/super-admin/agences/create">
+      <div class="form-group">
+        <label>Nom de l'agence *</label>
+        <input type="text" name="nom" required placeholder="Ex. WannyGest Abidjan" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px">
+      </div>
+      <div class="form-group">
+        <label>Code court *</label>
+        <input type="text" name="code" required placeholder="Ex. ABJ" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px">
+        <div style="font-size:11px;color:#888;margin-top:4px">Identifiant unique et court de l'agence.</div>
+      </div>
+      <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:160px"><label>Téléphone</label><input type="text" name="telephone" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px"></div>
+        <div class="form-group" style="flex:1;min-width:160px"><label>Email</label><input type="email" name="email" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px"></div>
+      </div>
+      <div class="form-group">
+        <label>Adresse</label>
+        <input type="text" name="adresse" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+        <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">Créer l'agence</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
