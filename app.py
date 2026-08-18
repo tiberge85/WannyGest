@@ -37790,13 +37790,25 @@ def super_admin_agences():
 
 @app.context_processor
 def _inject_agency_context():
-    """Rend l'agence active + le nombre d'agences disponibles dans tous les gabarits."""
+    """Rend l'agence active, le nombre d'agences et l'existence d'une photo de profil dans tous les gabarits."""
+    ctx = {'active_agency': None, 'agencies_total': 1, 'current_user_has_photo': False}
     try:
         from models import get_agency, list_agencies
         aid = int(session.get('agency_id', 1) or 1)
-        return {'active_agency': get_agency(aid), 'agencies_total': len(list_agencies())}
+        ctx['active_agency'] = get_agency(aid)
+        ctx['agencies_total'] = len(list_agencies())
     except Exception:
-        return {'active_agency': None, 'agencies_total': 1}
+        pass
+    try:
+        uid = session.get('user_id')
+        if uid:
+            c = _gdb()
+            r = c.execute("SELECT photo FROM users WHERE id=?", (uid,)).fetchone()
+            c.close()
+            ctx['current_user_has_photo'] = bool(r and r['photo'])
+    except Exception:
+        pass
+    return ctx
 
 @app.route('/super-admin/agences/create', methods=['POST'])
 @login_required
