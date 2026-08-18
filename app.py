@@ -23721,18 +23721,26 @@ def _ensure_fr_file_data_col():
     except Exception: pass
 
 def _save_field_report_images(report_id, field_name='images'):
-    """Enregistre les images uploadées (compressées) dans field_reports_files (BLOB). Retourne le nb."""
+    """Enregistre les images uploadées dans field_reports_files (BLOB). Retourne le nb enregistré.
+    v173f2 : support HEIC/HEIF (iPhone), plus de rejet silencieux des gros fichiers, erreurs journalisées."""
     if not report_id: return 0
     files = request.files.getlist(field_name)
     if not files: return 0
     _ensure_fr_file_data_col()
+    # Support des photos iPhone (.HEIC/.HEIF) si le plugin est installé
+    try:
+        import pillow_heif  # noqa
+        pillow_heif.register_heif_opener()
+    except Exception:
+        pass
+    HARD_CAP = 25 * 1024 * 1024  # 25 Mo max par fichier (garde-fou)
     saved = 0
     for f in files:
         if not f or not f.filename: continue
         raw = f.read()
         if not raw: continue
-        data = raw; mime = f.mimetype or 'image/jpeg'; name = secure_filename(f.filename)
-        # Compression / redimensionnement (max 1600px, JPEG qualité 80) si c'est une image
+        data = raw; mime = f.mimetype or 'image/jpeg'; name = secure_filename(f.filename) or f'photo_{report_id}.jpg'
+        # Compression / redimensionnement (max 1600px, JPEG qualité 80) si lisible comme image
         try:
             from PIL import Image as _PILImg
             import io as _io
@@ -23748,9 +23756,13 @@ def _save_field_report_images(report_id, field_name='images'):
             data = buf.getvalue()
             mime = 'image/jpeg'
             if not name.lower().endswith(('.jpg', '.jpeg')): name = (name.rsplit('.', 1)[0] if '.' in name else name) + '.jpg'
-        except Exception:
-            # pas une image lisible → on garde le fichier brut (cap 8 Mo)
-            if len(raw) > 8 * 1024 * 1024: continue
+        except Exception as _e:
+            # Format non lisible par PIL (ex. HEIC sans plugin) → on conserve le fichier brut,
+            # tant qu'il reste sous la limite (au lieu de l'ignorer en silence).
+            if len(raw) > HARD_CAP:
+                print(f"[v173f] image ignorée (> 25 Mo, non compressible) : {name} — {_e}", flush=True)
+                continue
+            data = raw
         try:
             c = _gdb()
             c.execute("""INSERT INTO field_reports_files
@@ -23759,7 +23771,8 @@ def _save_field_report_images(report_id, field_name='images'):
                 (report_id, name, '', len(data), mime, data, session.get('user_id')))
             c.commit(); c.close()
             saved += 1
-        except Exception: pass
+        except Exception as _e:
+            print(f"[v173f] échec enregistrement image « {name} » : {_e}", flush=True)
     return saved
 
 @app.route('/field-reports/file/<int:fid>')
@@ -23906,8 +23919,15 @@ def field_report_new():
         conn.commit()
         conn.close()
 
-        # v173f : photos d'illustration jointes à la remontée
-        try: _save_field_report_images(report_id, 'images')
+        # v173f : photos d'illustration jointes à la remontée (avec retour visible)
+        try:
+            _nimg = len(request.files.getlist('images'))
+            _nsaved = _save_field_report_images(report_id, 'images')
+            if _nimg:
+                if _nsaved:
+                    flash(f"📷 {_nsaved} photo(s) enregistrée(s).", "success")
+                else:
+                    flash("⚠️ Les photos sélectionnées n'ont pas pu être enregistrées.", "error")
         except Exception as _e: print(f"[v173f] images remontée err : {_e}", flush=True)
 
         _field_report_log(report_id, 'Création', f"Type: {FIELD_REPORT_TYPES.get(type_info, type_info)}, Priorité: {priorite}")
@@ -37795,6 +37815,31 @@ def super_admin_agences_create():
         flash(f"✅ Agence « {nom} » créée : base dédiée initialisée, compte admin par défaut « admin / admin2026 ».", "success")
     except Exception as e:
         flash(f"❌ Impossible de créer l'agence : {e}", "error")
+    return redirect(url_for('super_admin_agences'))
+
+@app.route('/super-admin/agences/<int:aid>/edit', methods=['POST'])
+@login_required
+def super_admin_agences_edit(aid):
+    if not _is_super_admin():
+        flash("Accès réservé au super administrateur.", "error")
+        return redirect(url_for('dashboard'))
+    from models import update_agency
+    nom = request.form.get('nom', '').strip()
+    if not nom:
+        flash("Le nom de l'agence est requis.", "error")
+        return redirect(url_for('super_admin_agences'))
+    try:
+        update_agency(
+            aid,
+            nom=nom,
+            code=request.form.get('code', '').strip() or None,
+            adresse=request.form.get('adresse', '').strip(),
+            telephone=request.form.get('telephone', '').strip(),
+            email=request.form.get('email', '').strip(),
+        )
+        flash("✅ Agence mise à jour.", "success")
+    except Exception as e:
+        flash(f"❌ {e}", "error")
     return redirect(url_for('super_admin_agences'))
 
 

@@ -212,6 +212,28 @@ def provision_agency_db(aid):
     finally:
         clear_forced_agency()
 
+def update_agency(aid, nom=None, code=None, adresse=None, telephone=None, email=None):
+    """Met à jour les infos d'une agence dans le registre central (renommage, coordonnées)."""
+    aid = int(aid)
+    _ensure_control_db()
+    c = sqlite3.connect(CONTROL_DB_PATH, timeout=10.0); c.row_factory = sqlite3.Row
+    if code:
+        ex = c.execute("SELECT id FROM agencies WHERE code=? AND id<>?", (code, aid)).fetchone()
+        if ex:
+            c.close()
+            raise ValueError("Ce code d'agence est déjà utilisé par une autre agence.")
+    fields, vals = [], []
+    for k, v in [('nom', nom), ('code', code), ('adresse', adresse), ('telephone', telephone), ('email', email)]:
+        if v is not None:
+            fields.append(f"{k}=?"); vals.append(v)
+    if not fields:
+        c.close(); return
+    fields.append("updated_at=datetime('now')")
+    vals.append(aid)
+    c.execute(f"UPDATE agencies SET {', '.join(fields)} WHERE id=?", vals)
+    c.commit(); c.close()
+    _AGENCY_PATH_CACHE.pop(aid, None)
+
 def init_db():
     """Crée les tables si elles n'existent pas."""
     conn = get_db()
