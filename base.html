@@ -256,6 +256,11 @@
             <img src="/static/logo_wannygest.png" alt="WannyGest" onerror="this.parentElement.innerHTML='<h2 style=color:#fff>WannyGest</h2>'">
         </div>
         <div class="sidebar-user">
+            <a href="/mon-profil" title="Ma photo de profil" style="display:block;text-align:center;margin-bottom:7px;text-decoration:none">
+                <img src="/user/photo/{{ current_user.id }}" alt=""
+                     style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.35);background:rgba(255,255,255,0.12)"
+                     onerror="this.style.display='none'">
+            </a>
             <div class="name">{{ current_user.full_name }}</div>
             <div class="role">{{ current_user.role }}</div>
             {% if active_agency %}

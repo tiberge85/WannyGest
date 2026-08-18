@@ -37878,6 +37878,109 @@ def super_admin_consolidation():
     return render_template('super_admin_consolidation.html', rows=rows, tot=tot)
 
 
+# ============================================================
+# v175 — Photo de profil de l'utilisateur connecté (stockée en base)
+# ============================================================
+def _ensure_user_photo_cols():
+    """Ajoute les colonnes photo (BLOB) et photo_mime à la table users (idempotent)."""
+    try:
+        c = _gdb()
+        for col, typ in [('photo', 'BLOB'), ('photo_mime', 'TEXT')]:
+            try:
+                c.execute(f"SELECT {col} FROM users LIMIT 1")
+            except Exception:
+                try: c.execute(f"ALTER TABLE users ADD COLUMN {col} {typ}")
+                except Exception: pass
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+@app.route('/mon-profil')
+@login_required
+def mon_profil():
+    _ensure_user_photo_cols()
+    u = get_user_by_id(session['user_id'])
+    has_photo = False
+    try:
+        c = _gdb()
+        r = c.execute("SELECT photo FROM users WHERE id=?", (session['user_id'],)).fetchone()
+        c.close()
+        has_photo = bool(r and r['photo'])
+    except Exception:
+        pass
+    return render_template('mon_profil.html', u=u, has_photo=has_photo)
+
+@app.route('/mon-profil/photo', methods=['POST'])
+@login_required
+def mon_profil_photo():
+    _ensure_user_photo_cols()
+    f = request.files.get('photo')
+    if not f or not f.filename:
+        flash("Aucune image sélectionnée.", "error")
+        return redirect('/mon-profil')
+    raw = f.read()
+    if not raw:
+        flash("Fichier vide.", "error")
+        return redirect('/mon-profil')
+    data = raw; mime = f.mimetype or 'image/jpeg'
+    try:
+        import pillow_heif  # support HEIC iPhone
+        pillow_heif.register_heif_opener()
+    except Exception:
+        pass
+    try:
+        from PIL import Image as _PILImg
+        import io as _io
+        im = _PILImg.open(_io.BytesIO(raw)).convert('RGB')
+        # recadrage carré centré + redimensionnement 400x400
+        w, h = im.size; s = min(w, h)
+        left = (w - s) // 2; top = (h - s) // 2
+        im = im.crop((left, top, left + s, top + s)).resize((400, 400))
+        buf = _io.BytesIO(); im.save(buf, format='JPEG', quality=82, optimize=True)
+        data = buf.getvalue(); mime = 'image/jpeg'
+    except Exception:
+        if len(raw) > 8 * 1024 * 1024:
+            flash("Image illisible ou trop lourde (8 Mo max).", "error")
+            return redirect('/mon-profil')
+    try:
+        c = _gdb()
+        c.execute("UPDATE users SET photo=?, photo_mime=? WHERE id=?", (data, mime, session['user_id']))
+        c.commit(); c.close()
+        flash("✅ Photo de profil mise à jour.", "success")
+    except Exception as e:
+        flash(f"❌ Impossible d'enregistrer la photo : {e}", "error")
+    return redirect('/mon-profil')
+
+@app.route('/mon-profil/photo/supprimer', methods=['POST'])
+@login_required
+def mon_profil_photo_delete():
+    _ensure_user_photo_cols()
+    try:
+        c = _gdb()
+        c.execute("UPDATE users SET photo=NULL, photo_mime=NULL WHERE id=?", (session['user_id'],))
+        c.commit(); c.close()
+        flash("Photo de profil supprimée.", "success")
+    except Exception:
+        pass
+    return redirect('/mon-profil')
+
+@app.route('/user/photo/<int:uid>')
+@login_required
+def user_photo(uid):
+    """Sert la photo de profil d'un utilisateur (de l'agence active). 404 si aucune."""
+    _ensure_user_photo_cols()
+    try:
+        c = _gdb()
+        r = c.execute("SELECT photo, photo_mime FROM users WHERE id=?", (uid,)).fetchone()
+        c.close()
+    except Exception:
+        r = None
+    if not r or not r['photo']:
+        abort(404)
+    return Response(bytes(r['photo']), mimetype=(r['photo_mime'] or 'image/jpeg'),
+                    headers={'Cache-Control': 'private, max-age=60'})
+
+
 @app.route('/achats/contrat/add', methods=['POST'])
 @permission_required_any('achats_edit', 'comptabilite_edit')
 def achats_contrat_add():
