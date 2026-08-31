@@ -348,7 +348,7 @@
             {# v119 : Section GESTION DU TEMPS FUSIONNÉE dans IT — voir plus bas #}
             
             {# v116 : Section CRM — permission 'section_crm' OU sous-perms #}
-            {% if 'section_crm' in permissions or 'visites' in permissions or 'proforma' in permissions or 'clients' in permissions or 'admin' in permissions %}
+            {% if 'section_crm' in permissions or 'visites' in permissions or 'proforma' in permissions or 'clients' in permissions or 'contrats' in permissions or 'admin' in permissions %}
             <!-- CRM -->
             <div class="nav-section" id="sec-crm" {% if user_role in ('commercial',) %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-crm')">🎯 CRM <span class="arrow">▼</span></div>
