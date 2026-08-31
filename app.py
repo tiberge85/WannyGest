@@ -37920,19 +37920,33 @@ def _copy_row(dst, table, row_dict, override=None):
                       [data[k] for k in keys])
     return cur.lastrowid
 
+def _norm_tel(t):
+    """Normalise un numéro : garde les chiffres, conserve les 8 derniers (numéros ivoiriens)."""
+    d = ''.join(ch for ch in (t or '') if ch.isdigit())
+    return d[-8:] if len(d) >= 8 else d
+
 def _forum_scan(src_id):
-    """Lit l'agence source : prospects du Forum + clients correspondants (par nom) + comptes du dossier."""
+    """Lit l'agence source : prospects du Forum + clients correspondants (nom OU téléphone) + comptes du dossier."""
     import sqlite3 as _sq
     from models import agency_db_path
     c = _sq.connect(agency_db_path(src_id), timeout=10.0); c.row_factory = _sq.Row
     prospects = [dict(r) for r in c.execute(
         "SELECT * FROM prospects WHERE COALESCE(source,'')=?", (_FORUM_XFER_SOURCE,)).fetchall()]
     companies = {(p.get('company') or '').strip().lower() for p in prospects if (p.get('company') or '').strip()}
+    # téléphones des prospects (numéro principal + éventuel 2e numéro)
+    tels = set()
+    for p in prospects:
+        for key in ('tel', 'contact_tel2', 'telephone', 'phone'):
+            v = _norm_tel(p.get(key))
+            if v:
+                tels.add(v)
     clients = []
-    if companies:
+    if companies or tels:
         for cl in c.execute("SELECT * FROM clients").fetchall():
             cl = dict(cl)
-            if (cl.get('name') or '').strip().lower() in companies:
+            nm = (cl.get('name') or '').strip().lower()
+            ctel = _norm_tel(cl.get('tel'))
+            if (nm and nm in companies) or (ctel and ctel in tels):
                 clients.append(cl)
     client_ids = [cl['id'] for cl in clients]
     dossier = {}
