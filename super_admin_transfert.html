@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}WannyGest - Transfert Forum{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h1 style="margin:0">🔁 Transfert « Forum Marahoué »</h1>
+    <a href="/super-admin/agences" class="btn btn-outline btn-sm">← Agences</a>
+</div>
+
+<div class="card" style="background:#f2f7f6;border-left:4px solid #1A7A6D;margin-bottom:14px">
+<div class="card-body" style="font-size:13px;color:#555">
+    Copie les <strong>prospects du Forum Marahoué Business</strong> et les <strong>clients correspondants</strong> (par nom d'entreprise),
+    avec leur <strong>dossier commercial</strong> (notes, rappels, pièces jointes, contacts, équipements, demandes), d'une agence vers une autre.
+    <strong>Copie non destructive</strong> : rien n'est supprimé de l'agence source, et la comptabilité (factures, contrats) n'est pas touchée.
+</div>
+</div>
+
+<!-- Sélection des agences -->
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+<form method="get" action="/super-admin/transfert-forum" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end">
+    <div class="form-group" style="flex:1;min-width:200px">
+        <label>Agence source (d'où viennent les données)</label>
+        <select name="src" required style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;background:#fff">
+            <option value="">— Choisir —</option>
+            {% for a in agences %}<option value="{{ a.id }}" {% if src==a.id %}selected{% endif %}>{{ a.nom }}</option>{% endfor %}
+        </select>
+    </div>
+    <div style="font-size:20px;color:#1A7A6D;padding-bottom:8px">➜</div>
+    <div class="form-group" style="flex:1;min-width:200px">
+        <label>Agence cible (Bouaflé)</label>
+        <select name="dst" required style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px;background:#fff">
+            <option value="">— Choisir —</option>
+            {% for a in agences %}<option value="{{ a.id }}" {% if dst==a.id %}selected{% endif %}>{{ a.nom }}</option>{% endfor %}
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary" style="margin-bottom:0">🔍 Aperçu</button>
+</form>
+</div></div>
+
+{% if src and dst and src == dst %}
+<div class="card" style="background:#fde8e8;border-left:4px solid #c53030"><div class="card-body" style="color:#c53030;font-size:13px">
+    L'agence source et l'agence cible doivent être <strong>différentes</strong>.
+</div></div>
+{% endif %}
+
+{% if preview %}
+<!-- Aperçu -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
+    <div style="background:#eef4fb;border-left:4px solid #2b6cb0;border-radius:8px;padding:12px">
+        <div style="font-size:24px;font-weight:800;color:#2b6cb0">{{ preview.prospects|length }}</div>
+        <div style="font-size:12px;color:#555">Prospects du Forum</div>
+    </div>
+    <div style="background:#f2f7f6;border-left:4px solid #1A7A6D;border-radius:8px;padding:12px">
+        <div style="font-size:24px;font-weight:800;color:#1A7A6D">{{ preview.clients|length }}</div>
+        <div style="font-size:12px;color:#555">Clients correspondants</div>
+    </div>
+    <div style="background:#fff8e1;border-left:4px solid #B8860B;border-radius:8px;padding:12px">
+        <div style="font-size:24px;font-weight:800;color:#B8860B">{{ preview.dossier_total }}</div>
+        <div style="font-size:12px;color:#555">Éléments de dossier</div>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+    <div class="card"><div class="card-header"><h3 style="margin:0;font-size:14px;color:#1A7A6D">Prospects ({{ preview.prospects|length }})</h3></div>
+    <div class="card-body" style="max-height:260px;overflow:auto">
+        {% if preview.prospects %}<ul style="margin:0;padding-left:18px;font-size:12px">
+        {% for p in preview.prospects %}<li>{{ p.company }}{% if p.tel %} — {{ p.tel }}{% endif %}</li>{% endfor %}
+        </ul>{% else %}<p style="color:#999;font-size:12px">Aucun prospect Forum dans cette agence.</p>{% endif %}
+    </div></div>
+    <div class="card"><div class="card-header"><h3 style="margin:0;font-size:14px;color:#1A7A6D">Clients correspondants ({{ preview.clients|length }})</h3></div>
+    <div class="card-body" style="max-height:260px;overflow:auto">
+        {% if preview.clients %}<ul style="margin:0;padding-left:18px;font-size:12px">
+        {% for c in preview.clients %}<li>{{ c.name }}</li>{% endfor %}
+        </ul>{% else %}<p style="color:#999;font-size:12px">Aucun client au nom d'un prospect Forum.</p>{% endif %}
+    </div></div>
+</div>
+
+<div class="card"><div class="card-body">
+    <div style="font-size:12px;color:#666;margin-bottom:10px">Détail du dossier commercial à copier :
+        {% for t, n in preview.dossier.items() %}<span style="display:inline-block;background:#f0f4f3;border-radius:10px;padding:2px 9px;margin:2px;font-size:11px">{{ t }} : <strong>{{ n }}</strong></span>{% endfor %}
+    </div>
+    {% if preview.prospects or preview.clients %}
+    <form method="post" action="/super-admin/transfert-forum/execute"
+          onsubmit="return confirm('Confirmer la copie vers l\'agence cible ? (Rien ne sera supprimé de la source.)')">
+        <input type="hidden" name="src" value="{{ src }}">
+        <input type="hidden" name="dst" value="{{ dst }}">
+        <button type="submit" class="btn btn-primary">✅ Confirmer le transfert (copie)</button>
+        <span style="font-size:11px;color:#888;margin-left:10px">Les doublons (même entreprise / même nom déjà présents dans la cible) sont automatiquement ignorés.</span>
+    </form>
+    {% else %}
+    <p style="color:#999;font-size:13px;margin:0">Rien à transférer pour cette sélection.</p>
+    {% endif %}
+</div></div>
+{% endif %}
+
+{% endblock %}

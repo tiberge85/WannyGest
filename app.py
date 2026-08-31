@@ -37891,6 +37891,147 @@ def super_admin_consolidation():
 
 
 # ============================================================
+# v176 — Transfert « Forum Marahoué » entre agences (super-admin)
+# Copie (non destructif) : prospects du Forum + clients correspondants
+# + dossier COMMERCIAL (notes, rappels, pièces jointes, contacts,
+# équipements, demandes). Ne touche PAS au financier ni a l'agence source.
+# ============================================================
+_FORUM_XFER_SOURCE = 'Forum Marahoué Business'
+_FORUM_XFER_DOSSIER = ['client_notes', 'client_reminders', 'client_attachments',
+                       'client_equipments', 'client_requests']
+
+def _tbl_cols(conn, table):
+    try:
+        return [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    except Exception:
+        return []
+
+def _copy_row(dst, table, row_dict, override=None):
+    override = override or {}
+    cols_dst = set(_tbl_cols(dst, table))
+    data = {k: v for k, v in row_dict.items() if k != 'id' and k in cols_dst}
+    for k, v in override.items():
+        if k in cols_dst:
+            data[k] = v
+    keys = list(data.keys())
+    if not keys:
+        return None
+    cur = dst.execute(f"INSERT INTO {table} ({','.join(keys)}) VALUES ({','.join(['?']*len(keys))})",
+                      [data[k] for k in keys])
+    return cur.lastrowid
+
+def _forum_scan(src_id):
+    """Lit l'agence source : prospects du Forum + clients correspondants (par nom) + comptes du dossier."""
+    import sqlite3 as _sq
+    from models import agency_db_path
+    c = _sq.connect(agency_db_path(src_id), timeout=10.0); c.row_factory = _sq.Row
+    prospects = [dict(r) for r in c.execute(
+        "SELECT * FROM prospects WHERE COALESCE(source,'')=?", (_FORUM_XFER_SOURCE,)).fetchall()]
+    companies = {(p.get('company') or '').strip().lower() for p in prospects if (p.get('company') or '').strip()}
+    clients = []
+    if companies:
+        for cl in c.execute("SELECT * FROM clients").fetchall():
+            cl = dict(cl)
+            if (cl.get('name') or '').strip().lower() in companies:
+                clients.append(cl)
+    client_ids = [cl['id'] for cl in clients]
+    dossier = {}
+    for t in _FORUM_XFER_DOSSIER:
+        n = 0
+        if client_ids and 'client_id' in _tbl_cols(c, t):
+            try:
+                ph = ','.join(['?'] * len(client_ids))
+                n = c.execute(f"SELECT COUNT(*) FROM {t} WHERE client_id IN ({ph})", client_ids).fetchone()[0]
+            except Exception:
+                n = 0
+        dossier[t] = n
+    c.close()
+    return prospects, clients, dossier
+
+def _forum_execute(src_id, dst_id):
+    """Copie effective vers l'agence cible. Non destructif côté source. Anti-doublon par nom."""
+    import sqlite3 as _sq
+    from models import agency_db_path
+    prospects, clients, _ = _forum_scan(src_id)
+    src = _sq.connect(agency_db_path(src_id), timeout=10.0); src.row_factory = _sq.Row
+    dst = _sq.connect(agency_db_path(dst_id), timeout=10.0); dst.row_factory = _sq.Row
+    res = {'prospects': 0, 'clients': 0, 'dossier': 0, 'prospects_ignores': 0, 'clients_existants': 0}
+    # Anti-doublon prospects (par entreprise+tel)
+    existing_p = set()
+    for r in dst.execute("SELECT company, tel FROM prospects").fetchall():
+        existing_p.add((r['company'] or '').strip().lower() + '|' + (r['tel'] or ''))
+    for p in prospects:
+        key = (p.get('company') or '').strip().lower() + '|' + (p.get('tel') or '')
+        if key in existing_p:
+            res['prospects_ignores'] += 1; continue
+        _copy_row(dst, 'prospects', p); res['prospects'] += 1
+    # Clients : map ancien->nouveau (dossier attaché seulement aux clients NOUVELLEMENT créés)
+    existing_c = {}
+    for r in dst.execute("SELECT id, name FROM clients").fetchall():
+        existing_c[(r['name'] or '').strip().lower()] = r['id']
+    new_ids = {}
+    for cl in clients:
+        nm = (cl.get('name') or '').strip().lower()
+        if nm in existing_c:
+            res['clients_existants'] += 1; continue
+        newid = _copy_row(dst, 'clients', cl)
+        if newid:
+            new_ids[cl['id']] = newid; res['clients'] += 1
+    # Dossier commercial des clients nouvellement créés
+    for t in _FORUM_XFER_DOSSIER:
+        if 'client_id' not in _tbl_cols(src, t) or 'client_id' not in _tbl_cols(dst, t):
+            continue
+        for old_cid, new_cid in new_ids.items():
+            try:
+                rows = [dict(r) for r in src.execute(f"SELECT * FROM {t} WHERE client_id=?", (old_cid,)).fetchall()]
+            except Exception:
+                rows = []
+            for r in rows:
+                if _copy_row(dst, t, r, override={'client_id': new_cid}):
+                    res['dossier'] += 1
+    dst.commit(); dst.close(); src.close()
+    return res
+
+@app.route('/super-admin/transfert-forum', methods=['GET'])
+@login_required
+def super_admin_transfert_forum():
+    if not _is_super_admin():
+        flash("Accès réservé au super administrateur (agence principale).", "error")
+        return redirect(url_for('dashboard'))
+    from models import list_agencies
+    agences = list_agencies()
+    src = request.args.get('src', type=int)
+    dst = request.args.get('dst', type=int)
+    preview = None
+    if src and dst and src != dst:
+        prospects, clients, dossier = _forum_scan(src)
+        preview = {'prospects': prospects, 'clients': clients, 'dossier': dossier,
+                   'dossier_total': sum(dossier.values())}
+    return render_template('super_admin_transfert.html', agences=agences, src=src, dst=dst, preview=preview)
+
+@app.route('/super-admin/transfert-forum/execute', methods=['POST'])
+@login_required
+def super_admin_transfert_forum_execute():
+    if not _is_super_admin():
+        flash("Accès réservé au super administrateur.", "error")
+        return redirect(url_for('dashboard'))
+    src = request.form.get('src', type=int)
+    dst = request.form.get('dst', type=int)
+    if not src or not dst or src == dst:
+        flash("Sélectionnez une agence source et une agence cible différentes.", "error")
+        return redirect(url_for('super_admin_transfert_forum'))
+    try:
+        res = _forum_execute(src, dst)
+        flash(f"✅ Transfert terminé : {res['prospects']} prospect(s) et {res['clients']} client(s) copiés, "
+              f"{res['dossier']} élément(s) de dossier. "
+              f"({res['prospects_ignores']} prospect(s) déjà présents ignorés, "
+              f"{res['clients_existants']} client(s) déjà existants non dupliqués.)", "success")
+    except Exception as e:
+        flash(f"❌ Erreur pendant le transfert : {e}", "error")
+    return redirect(url_for('super_admin_transfert_forum', src=src, dst=dst))
+
+
+# ============================================================
 # v175 — Photo de profil de l'utilisateur connecté (stockée en base)
 # ============================================================
 def _ensure_user_photo_cols():
