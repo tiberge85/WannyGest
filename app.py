@@ -30725,39 +30725,49 @@ def _fouati_call(system_prompt, user_msg, max_tokens=800, temperature=0.3):
     except ImportError:
         return '', "Module 'requests' non installé sur le serveur."
     import json as _json
+    # v170g : liste des fournisseurs à essayer DANS L'ORDRE, avec repli automatique.
+    # Si Groq échoue (clé invalide, modèle 404, panne…) et qu'Anthropic est configuré,
+    # on bascule sur Anthropic au lieu de laisser FOUATI indisponible.
+    def _groq_txt(r): return (r.json().get('choices', [{}])[0].get('message', {}) or {}).get('content', '')
+    def _anth_txt(r): return ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text')
+    providers = []
     if groq_key:
-        provider, host = 'Groq', 'api.groq.com'
-        url = 'https://api.groq.com/openai/v1/chat/completions'
-        headers = {'Authorization': f'Bearer {groq_key}', 'content-type': 'application/json'}
-        payload = _json.dumps({'model': os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile'),
-            'max_tokens': max_tokens, 'temperature': temperature,
-            'messages': [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_msg}]})
-        def _txt(r): return (r.json().get('choices', [{}])[0].get('message', {}) or {}).get('content', '')
-    else:
-        provider, host = 'Anthropic', 'api.anthropic.com'
-        url = 'https://api.anthropic.com/v1/messages'
-        headers = {'x-api-key': anthropic_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'}
-        payload = _json.dumps({'model': os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001'),
-            'max_tokens': max_tokens, 'system': system_prompt, 'messages': [{'role': 'user', 'content': user_msg}]})
-        def _txt(r): return ''.join(b.get('text', '') for b in r.json().get('content', []) if b.get('type') == 'text')
-    last = None
-    for _attempt in range(2):
-        try:
-            r = _rq.post(url, headers=headers, data=payload, timeout=20)
-            if r.status_code != 200:
-                _d = ''
-                try: _d = (r.json().get('error', {}) or {}).get('message', '')[:160]
-                except: _d = (r.text or '')[:160]
-                print(f"[v170] FOUATI {provider} HTTP {r.status_code}: {_d}", flush=True)
-                return '', f"FOUATI ({provider}) indisponible (HTTP {r.status_code}). {_d}".strip()
-            return (_txt(r) or '').strip(), None
-        except _rq.exceptions.Timeout:
-            last = "délai dépassé"; continue
-        except _rq.exceptions.ConnectionError:
-            last = f"connexion impossible à {host}"; continue
-        except Exception as _e:
-            last = str(_e)[:160]; print(f"[v170] FOUATI err: {_e}", flush=True); break
-    return '', f"Erreur FOUATI : {last}"
+        providers.append(('Groq', 'api.groq.com', 'https://api.groq.com/openai/v1/chat/completions',
+            {'Authorization': f'Bearer {groq_key}', 'content-type': 'application/json'},
+            _json.dumps({'model': os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+                'max_tokens': max_tokens, 'temperature': temperature,
+                'messages': [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_msg}]}),
+            _groq_txt))
+    if anthropic_key:
+        providers.append(('Anthropic', 'api.anthropic.com', 'https://api.anthropic.com/v1/messages',
+            {'x-api-key': anthropic_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            _json.dumps({'model': os.environ.get('TACHES_IA_MODEL', 'claude-haiku-4-5-20251001'),
+                'max_tokens': max_tokens, 'system': system_prompt, 'messages': [{'role': 'user', 'content': user_msg}]}),
+            _anth_txt))
+    last_err = "FOUATI indisponible."
+    for provider, host, url, headers, payload, _txt in providers:
+        moved_on = False
+        for _attempt in range(2):
+            try:
+                r = _rq.post(url, headers=headers, data=payload, timeout=20)
+                if r.status_code != 200:
+                    _d = ''
+                    try: _d = (r.json().get('error', {}) or {}).get('message', '')[:160]
+                    except: _d = (r.text or '')[:160]
+                    print(f"[v170] FOUATI {provider} HTTP {r.status_code}: {_d}", flush=True)
+                    last_err = f"FOUATI ({provider}) indisponible (HTTP {r.status_code}). {_d}".strip()
+                    moved_on = True; break  # → fournisseur suivant (repli)
+                return (_txt(r) or '').strip(), None
+            except _rq.exceptions.Timeout:
+                last_err = f"FOUATI ({provider}) : délai dépassé"; continue
+            except _rq.exceptions.ConnectionError:
+                last_err = f"FOUATI ({provider}) : connexion impossible à {host}"; continue
+            except Exception as _e:
+                last_err = f"FOUATI ({provider}) : {str(_e)[:160]}"
+                print(f"[v170] FOUATI err: {_e}", flush=True); moved_on = True; break
+        if not moved_on:
+            continue
+    return '', last_err
 
 
 def _restore_accents_fr(text):
