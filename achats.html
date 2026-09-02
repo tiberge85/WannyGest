@@ -20,12 +20,15 @@
     <div class="form-row">
         <div class="form-group">
             <label>Fournisseur *</label>
-            <select name="fournisseur_id" required {% if bc.status=='livree' %}disabled{% endif %}>
+            <div class="four-wrap" style="position:relative">
+            {% if bc.status != 'livree' %}<input type="text" class="four-search" placeholder="🔍 Tapez le nom du fournisseur..." autocomplete="off" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:5px">{% endif %}
+            <select name="fournisseur_id" required class="four-select" {% if bc.status=='livree' %}disabled{% endif %}>
                 <option value="">— Choisir —</option>
                 {% for f in fournisseurs %}
                 <option value="{{ f.id }}" {% if f.id == bc.fournisseur_id %}selected{% endif %}>{{ f.name }}</option>
                 {% endfor %}
             </select>
+            </div>
         </div>
         <div class="form-group">
             <label>Date</label>
@@ -431,7 +434,7 @@ function filterStockCat(cat){
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun devis fournisseur</p>{% endif %}
 </div></div>
 <div class="modal-bg" id="addDevM"><div class="modal"><h3>📄 Devis fournisseur</h3><form method="post" action="/achats/devis/add">
-<div class="form-row"><div class="form-group"><label>Fournisseur *</label><select name="fournisseur_id" required><option value="">—</option>{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></div>
+<div class="form-row"><div class="form-group"><label>Fournisseur *</label><div class="four-wrap" style="position:relative"><input type="text" class="four-search" placeholder="🔍 Tapez le nom du fournisseur..." autocomplete="off" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:5px"><select name="fournisseur_id" required class="four-select"><option value="">—</option>{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></div></div>
 <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ now }}"></div></div>
 <div class="form-group"><label>Articles / description</label><textarea name="items_description" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px" placeholder="Liste des articles..."></textarea></div>
 <div class="form-row"><div class="form-group"><label>Total HT (FCFA)</label><input type="number" name="total_ht" step="1" required></div>
@@ -460,7 +463,7 @@ function filterStockCat(cat){
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun bon de commande</p>{% endif %}
 </div></div>
 <div class="modal-bg" id="addCM"><div class="modal"><h3>🚚 Bon de commande</h3><form method="post" action="/achats/commande/add">
-<div class="form-row"><div class="form-group"><label>Fournisseur *</label><select name="fournisseur_id" required><option value="">—</option>{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></div>
+<div class="form-row"><div class="form-group"><label>Fournisseur *</label><div class="four-wrap" style="position:relative"><input type="text" class="four-search" placeholder="🔍 Tapez le nom du fournisseur..." autocomplete="off" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:5px"><select name="fournisseur_id" required class="four-select"><option value="">—</option>{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></div></div>
 <div class="form-group"><label>Date</label><input type="date" name="date" value="{{ now }}"></div></div>
 <div class="form-group"><label>Articles commandés</label><textarea name="items_description" rows="3" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px"></textarea></div>
 <div class="form-row"><div class="form-group"><label>Total (FCFA)</label><input type="number" name="total" step="1" required></div>
@@ -484,7 +487,7 @@ function filterStockCat(cat){
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun contrat</p>{% endif %}
 </div></div>
 <div class="modal-bg" id="addCtM"><div class="modal"><h3>📑 Contrat fournisseur</h3><form method="post" action="/achats/contrat/add">
-<div class="form-row"><div class="form-group"><label>Fournisseur *</label><select name="fournisseur_id" required><option value="">—</option>{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></div>
+<div class="form-row"><div class="form-group"><label>Fournisseur *</label><div class="four-wrap" style="position:relative"><input type="text" class="four-search" placeholder="🔍 Tapez le nom du fournisseur..." autocomplete="off" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:7px;margin-bottom:5px"><select name="fournisseur_id" required class="four-select"><option value="">—</option>{% for f in fournisseurs %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></div></div>
 <div class="form-group"><label>Titre *</label><input type="text" name="title" required></div></div>
 <div class="form-group"><label>Description</label><textarea name="description" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px"></textarea></div>
 <div class="form-row"><div class="form-group"><label>Date début</label><input type="date" name="start_date"></div>
@@ -516,4 +519,26 @@ function filterStockCat(cat){
 {% endif %}
 
 {% endif %}
+
+<script>
+// v178 : recherche par saisie sur les listes fournisseurs (bon de commande, devis, contrats)
+(function(){
+  function wire(inp){
+    var wrap = inp.closest('.four-wrap'); if(!wrap) return;
+    var sel = wrap.querySelector('select.four-select'); if(!sel) return;
+    inp.addEventListener('input', function(){
+      var q = inp.value.trim().toLowerCase();
+      var first = null;
+      Array.from(sel.options).forEach(function(o){
+        if(!o.value){ o.hidden = q.length > 0; return; }
+        var match = o.textContent.toLowerCase().indexOf(q) !== -1;
+        o.hidden = !match;
+        if(match && !first) first = o;
+      });
+      if(q && first) sel.value = first.value;
+    });
+  }
+  document.querySelectorAll('input.four-search').forEach(wire);
+})();
+</script>
 {% endblock %}

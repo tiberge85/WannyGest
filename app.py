@@ -37562,6 +37562,25 @@ def mg_bilan_pdf():
         return redirect(url_for('mg_dashboard'))
 
 
+def _sync_suppliers_into_achats_fournisseurs(conn):
+    """v178 : recopie (par nom) les fournisseurs de la table « suppliers » (page Fournisseurs)
+    dans « achats_fournisseurs » — la source des listes du module Achats — afin que la liste
+    des bons de commande soit COMPLETE. Idempotent, non destructif (aucun bon existant modifié)."""
+    try:
+        existing = {(r['name'] or '').strip().lower()
+                    for r in conn.execute("SELECT name FROM achats_fournisseurs").fetchall()}
+        added = 0
+        for s in conn.execute("SELECT nom, telephone, email FROM suppliers WHERE COALESCE(is_active,1)=1").fetchall():
+            nm = (s['nom'] or '').strip()
+            if nm and nm.lower() not in existing:
+                conn.execute("INSERT INTO achats_fournisseurs (name, tel, email, status) VALUES (?,?,?,'actif')",
+                             (nm, (s['telephone'] or ''), (s['email'] or '')))
+                existing.add(nm.lower()); added += 1
+        if added:
+            conn.commit()
+    except Exception:
+        pass
+
 @app.route('/achats')
 @permission_required_any('achats', 'comptabilite')
 def achats_page():
@@ -37577,6 +37596,7 @@ def achats_page():
     data['stock_total'] = sum((s.get('quantity',0) or 0) * (s.get('unit_price',0) or 0) for s in data['stock_items'])
     try: data['stock_categories'] = [dict(r) for r in conn.execute("SELECT * FROM stock_categories ORDER BY name").fetchall()]
     except: data['stock_categories'] = []
+    _sync_suppliers_into_achats_fournisseurs(conn)  # v178 : liste complète (inclut les fournisseurs de la page Fournisseurs)
     data['fournisseurs'] = [dict(r) for r in conn.execute("SELECT * FROM achats_fournisseurs ORDER BY name").fetchall()]
     data['demandes'] = [dict(r) for r in conn.execute("""SELECT ad.*, u.full_name as requester FROM achats_demandes ad 
         LEFT JOIN users u ON ad.requested_by=u.id ORDER BY ad.created_at DESC LIMIT 50""").fetchall()]
@@ -37742,6 +37762,7 @@ def achats_commande_edit(cid):
     # « achats_fournisseurs ». On lit la MÊME table ici pour que l'édition ne réattribue
     # plus le bon à un autre fournisseur (les id de achats_fournisseurs et suppliers ne
     # coïncident pas : le même numéro désigne deux entreprises différentes).
+    _sync_suppliers_into_achats_fournisseurs(conn)  # v178 : liste complète
     fournisseurs = [dict(r) for r in conn.execute(
         "SELECT id, name FROM achats_fournisseurs ORDER BY name"
     ).fetchall()]
