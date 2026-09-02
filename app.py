@@ -30672,7 +30672,7 @@ def taches_ia_suggest():
         url = 'https://api.groq.com/openai/v1/chat/completions'
         headers = {'Authorization': f'Bearer {groq_key}', 'content-type': 'application/json'}
         payload = _json.dumps({
-            'model': os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+            'model': os.environ.get('GROQ_MODEL', 'qwen/qwen3.8-27b'),
             'max_tokens': 700, 'temperature': 0.4,
             'response_format': {'type': 'json_object'},
             'messages': [{'role': 'system', 'content': sys}, {'role': 'user', 'content': brief[:2000]}]})
@@ -30734,7 +30734,7 @@ def _fouati_call(system_prompt, user_msg, max_tokens=800, temperature=0.3):
     if groq_key:
         providers.append(('Groq', 'api.groq.com', 'https://api.groq.com/openai/v1/chat/completions',
             {'Authorization': f'Bearer {groq_key}', 'content-type': 'application/json'},
-            _json.dumps({'model': os.environ.get('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+            _json.dumps({'model': os.environ.get('GROQ_MODEL', 'qwen/qwen3.8-27b'),
                 'max_tokens': max_tokens, 'temperature': temperature,
                 'messages': [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_msg}]}),
             _groq_txt))
