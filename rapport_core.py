@@ -2242,8 +2242,14 @@ def calc_dpci_stats(emp, schedule=None, hourly_cost=0, hp=0, hp_weekend=0, sched
             sched_break_end = t2m(_be) if _be else 0
             has_pause = bool(_bs and _be)
         else:
-            sched_start = default_sched_start
-            sched_end = default_sched_end
+            # v177 : pas d'EDT saisi pour ce jour → utiliser le PLANNING DU FICHIER
+            # (« Heure d'arrivée/départ obligatoire » lu dans chaque ligne) AVANT de
+            # retomber sur le défaut 07:00-17:00. Corrige le bug où les heures se figeaient
+            # à 07:00-17:00 sans tenir compte des fichiers fusionnés.
+            _rec_ss = (rec.get('sched_start') or '').strip()
+            _rec_se = (rec.get('sched_end') or '').strip()
+            sched_start = t2m(_rec_ss) if _rec_ss else default_sched_start
+            sched_end = t2m(_rec_se) if _rec_se else default_sched_end
             sched_break_start = default_sched_break_start
             sched_break_end = default_sched_break_end
             has_pause = default_has_pause
