@@ -25804,7 +25804,7 @@ def _sync_remontee_status_from_intervention(intervention_id):
         int_row = conn.execute("SELECT status, technician_id FROM interventions WHERE id=?", (intervention_id,)).fetchone()
         if not int_row: 
             conn.close(); return
-        if int_row['status'] not in ('terminee', 'termine', 'livre', 'cloturee'):
+        if int_row['status'] not in ('terminee', 'termine', 'livre', 'cloturee', 'travaux_termines'):
             conn.close(); return
         report = conn.execute(
             "SELECT id, reference, auteur_id, client_name, statut, executed_at FROM field_reports WHERE linked_intervention_id=?",
