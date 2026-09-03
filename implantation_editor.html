@@ -50,6 +50,15 @@
 <div class="topbar">
   <a href="/implantation" class="imp-btn">← Études</a>
   <strong style="font-size:16px">🗺️ {{ study.title }}</strong>
+  <span style="display:flex;align-items:center;gap:4px">
+    <span style="font-size:12px;color:#666">Niveau :</span>
+    <select id="lvlSel" class="stpill" title="Niveau / étage">
+      {% for lv in levels %}<option value="{{ lv.id }}"{% if lv.id == current_level %} selected{% endif %}>{{ lv.name }}{% if not lv.has_plan %} (sans plan){% endif %}</option>{% endfor %}
+    </select>
+    <button class="imp-btn" id="btnAddLvl" title="Ajouter un niveau / étage" style="padding:4px 8px">＋</button>
+    {% if current_level != 'base' %}<button class="imp-btn" id="btnRenLvl" title="Renommer ce niveau" style="padding:4px 8px">✎</button>
+    <button class="imp-btn warn" id="btnDelLvl" title="Supprimer ce niveau" style="padding:4px 8px">🗑️</button>{% endif %}
+  </span>
   <span class="badge-scale" id="scaleBadge">Échelle : non calibrée</span>
   <span style="flex:1"></span>
   <button class="imp-btn" id="btnDori" title="Afficher les zones DORI des caméras">🎯 DORI</button>
@@ -90,7 +99,7 @@
     {% if not study.has_plan %}
     <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;text-align:center">
       <div style="font-size:15px;color:#555">Aucun plan chargé pour cette étude.</div>
-      <form method="post" action="/implantation/{{ study.id }}/plan" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:8px;align-items:center">
+      <form method="post" action="/implantation/{{ study.id }}/plan?level={{ current_level }}" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:8px;align-items:center">
         <input type="file" name="plan" accept="image/*,application/pdf" required style="padding:8px;border:1.5px solid #ddd;border-radius:7px">
         <button type="submit" class="imp-btn primary">📤 Charger le plan (image ou PDF)</button>
       </form>
@@ -102,7 +111,7 @@
       <button class="imp-btn" id="zoomIn">＋</button>
       <button class="imp-btn" id="zoomOut">－</button>
       <button class="imp-btn" id="zoomFit">⤢ Ajuster</button>
-      <form method="post" action="/implantation/{{ study.id }}/plan" enctype="multipart/form-data" style="display:inline">
+      <form method="post" action="/implantation/{{ study.id }}/plan?level={{ current_level }}" enctype="multipart/form-data" style="display:inline">
         <label class="imp-btn" style="cursor:pointer">🔄 Remplacer le plan<input type="file" name="plan" accept="image/*,application/pdf" onchange="this.form.submit()" style="display:none"></label>
       </form>
     </div>
@@ -132,6 +141,8 @@ const PLAN_W = {{ study.plan_w or 1000 }};
 const PLAN_H = {{ study.plan_h or 700 }};
 const HAS_PLAN = {{ 'true' if study.has_plan else 'false' }};
 const STUDY_STATUS = {{ (study.status or 'Brouillon')|tojson }};
+const CURRENT_LEVEL = {{ current_level|tojson }};
+const PLAN_IMG = {{ plan_img_url|tojson }};
 let S = {{ scene_json|safe }};
 if(!S || typeof S !== 'object') S = {};
 S.systems = S.systems || [
@@ -375,7 +386,7 @@ function doriPath(o,band,dir,hfovDeg){
   return '<path d="M '+o.x+' '+o.y+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2+' Z" fill="'+band.col+'55" stroke="'+band.col+'" stroke-width="0.8"/>';
 }
 function renderObjects(){
-  let bg = HAS_PLAN ? '<image href="/implantation/'+STUDY_ID+'/plan/img" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
+  let bg = HAS_PLAN ? '<image href="'+PLAN_IMG+'" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
   let cover='', dori='', wifi='', wifiDefs='', liaisons='', marks='';
   const ppm=S.scale.px_per_m;
   // couche WiFi (sous tout)
@@ -642,20 +653,40 @@ document.getElementById('btnAddSys').onclick=()=>{ const name=prompt('Nom du nou
   S.systems.push({id:uid('sys'),name:name,color:colors[S.systems.length%colors.length],visible:true,coverage:'none',icon:'default'});
   renderSystems(); renderPalette(); };
 
-document.getElementById('btnSave').onclick=()=>{ fetch('/implantation/'+STUDY_ID+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
+const SAVE_URL='/implantation/'+STUDY_ID+'/save?level='+encodeURIComponent(CURRENT_LEVEL);
+document.getElementById('btnSave').onclick=()=>{ fetch(SAVE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
    .then(r=>r.json()).then(d=>{ const b=document.getElementById('btnSave'); b.textContent=d.ok?'✅ Enregistré':'❌ Erreur'; setTimeout(()=>b.textContent='💾 Enregistrer',1600); }); };
+
+// ---- Niveaux / étages ----
+document.getElementById('lvlSel').onchange=(e)=>{ location.href='/implantation/'+STUDY_ID+'?level='+encodeURIComponent(e.target.value); };
+document.getElementById('btnAddLvl').onclick=()=>{
+  const name=prompt('Nom du nouveau niveau / étage (ex. 1er étage) :','Niveau'); if(!name) return;
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf'; inp.style.display='none';
+  inp.onchange=()=>{ const fd=new FormData(); fd.append('name',name); if(inp.files[0]) fd.append('plan',inp.files[0]);
+    fetch('/implantation/'+STUDY_ID+'/level/new',{method:'POST',body:fd}).then(r=>{ location.href=r.url||('/implantation/'+STUDY_ID); }); };
+  // proposer de choisir un plan tout de suite (facultatif)
+  if(confirm('Charger le plan de ce niveau maintenant ? (Annuler = niveau vide)')) inp.click();
+  else { const fd=new FormData(); fd.append('name',name); fetch('/implantation/'+STUDY_ID+'/level/new',{method:'POST',body:fd}).then(r=>{ location.href=r.url||('/implantation/'+STUDY_ID); }); }
+};
+{% if current_level != 'base' %}
+document.getElementById('btnRenLvl').onclick=()=>{ const name=prompt('Nouveau nom du niveau :'); if(!name) return;
+  const fd=new FormData(); fd.append('name',name);
+  fetch('/implantation/'+STUDY_ID+'/level/'+CURRENT_LEVEL+'/rename',{method:'POST',body:fd}).then(()=>location.reload()); };
+document.getElementById('btnDelLvl').onclick=()=>{ if(!confirm('Supprimer définitivement ce niveau et son plan ?')) return;
+  const fd=new FormData(); fetch('/implantation/'+STUDY_ID+'/level/'+CURRENT_LEVEL+'/delete',{method:'POST',body:fd}).then(()=>location.href='/implantation/'+STUDY_ID); };
+{% endif %}
 
 const stSel=document.getElementById('stSel'); stSel.value=STUDY_STATUS;
 stSel.onchange=()=>{ fetch('/implantation/'+STUDY_ID+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:stSel.value})}).then(r=>r.json()).then(d=>{ if(!d.ok) alert('Statut non enregistré.'); }); };
 
 document.getElementById('btnControls').onclick=()=>{ const ov=document.getElementById('ovl'); document.getElementById('ovlTitle').textContent='🔎 Contrôles de cohérence';
   document.getElementById('ovlBody').innerHTML='<div style="color:#999">Analyse…</div>'; ov.classList.add('on');
-  fetch('/implantation/'+STUDY_ID+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
-   .then(()=>fetch('/implantation/'+STUDY_ID+'/controls')).then(r=>r.json()).then(d=>{ const b=document.getElementById('ovlBody');
+  fetch(SAVE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
+   .then(()=>fetch('/implantation/'+STUDY_ID+'/controls?level='+encodeURIComponent(CURRENT_LEVEL))).then(r=>r.json()).then(d=>{ const b=document.getElementById('ovlBody');
      b.innerHTML=(d.alerts||[]).map(a=>{ const ic={error:'⛔',warn:'⚠️',info:'ℹ️',ok:'✅'}[a.level]||'•'; return '<div class="al '+a.level+'">'+ic+' <span>'+a.msg+'</span></div>'; }).join('')||'<div class="al ok">✅ Aucune anomalie.</div>'; }); };
 
 document.getElementById('btnPublish').onclick=()=>{ const label=prompt('Nom de la version publiée :','Version '+(new Date()).toISOString().slice(0,10)); if(label===null) return;
-  fetch('/implantation/'+STUDY_ID+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
+  fetch(SAVE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
    .then(()=>fetch('/implantation/'+STUDY_ID+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:label})}))
    .then(r=>r.json()).then(d=>{ if(d.ok){ stSel.value='Publié'; alert('📌 Version '+d.version_no+' publiée.'); } else alert('Échec de la publication.'); }); };
 

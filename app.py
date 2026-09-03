@@ -38096,6 +38096,12 @@ def _ensure_implantation_tables():
             study_id INTEGER, version_no INTEGER, label TEXT,
             scene_json TEXT, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS implantation_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            study_id INTEGER, name TEXT, ord INTEGER DEFAULT 0,
+            plan_image BLOB, plan_mime TEXT, plan_w INTEGER, plan_h INTEGER,
+            scene_json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
         c.commit(); c.close()
     except Exception:
         pass
@@ -38169,55 +38175,144 @@ def implantation_new():
     c.commit(); c.close()
     return redirect(f'/implantation/{sid}')
 
+def _imp_levels_list(sid, conn):
+    """Retourne la liste des niveaux : base (étude) + plans additionnels."""
+    r = conn.execute("SELECT level, plan_image FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    base_name = (r['level'] if r and r['level'] else 'Niveau 1') if r else 'Niveau 1'
+    lv = [{'id': 'base', 'name': base_name, 'has_plan': bool(r and r['plan_image'])}]
+    for p in conn.execute("SELECT id, name, plan_image FROM implantation_plans WHERE study_id=? ORDER BY ord, id", (sid,)).fetchall():
+        lv.append({'id': str(p['id']), 'name': p['name'] or ('Niveau ' + str(p['id'])), 'has_plan': bool(p['plan_image'])})
+    return lv
+
 @app.route('/implantation/<int:sid>')
 @permission_required_any('projets', 'resp_projet', 'admin')
 def implantation_editor(sid):
     _ensure_implantation_tables()
+    level = request.args.get('level') or 'base'
     c = _gdb()
     r = c.execute("SELECT id, reference, title, client_name, building, level, status, scene_json, plan_w, plan_h, plan_image FROM implantation_studies WHERE id=?", (sid,)).fetchone()
-    c.close()
     if not r:
-        flash("Étude introuvable.", "error")
-        return redirect('/implantation')
+        c.close(); flash("Étude introuvable.", "error"); return redirect('/implantation')
     study = dict(r)
-    study['has_plan'] = bool(study.get('plan_image'))
+    levels = _imp_levels_list(sid, c)
+    if level != 'base':
+        try:
+            pr = c.execute("SELECT id, name, scene_json, plan_w, plan_h, plan_image FROM implantation_plans WHERE id=? AND study_id=?", (int(level), sid)).fetchone()
+        except Exception:
+            pr = None
+        if not pr:
+            c.close(); return redirect(f'/implantation/{sid}')
+        study['plan_w'] = pr['plan_w']; study['plan_h'] = pr['plan_h']
+        study['has_plan'] = bool(pr['plan_image'])
+        scene = pr['scene_json'] or '{}'
+        plan_img_url = f'/implantation/{sid}/level/{level}/img'
+    else:
+        study['has_plan'] = bool(study.get('plan_image'))
+        scene = study.get('scene_json') or '{}'
+        plan_img_url = f'/implantation/{sid}/plan/img'
     study.pop('plan_image', None)
-    scene = study.get('scene_json') or '{}'
-    return render_template('implantation_editor.html', study=study, scene_json=scene)
+    c.close()
+    return render_template('implantation_editor.html', study=study, scene_json=scene,
+                           levels=levels, current_level=level, plan_img_url=plan_img_url)
 
-@app.route('/implantation/<int:sid>/plan', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
-def implantation_plan_upload(sid):
-    _ensure_implantation_tables()
-    f = request.files.get('plan')
-    if not f or not f.filename:
-        flash("Aucun fichier.", "error"); return redirect(f'/implantation/{sid}')
+def _imp_process_plan(f):
+    """Traite un fichier plan (image ou PDF) -> (raw_jpeg, mime, w, h) ou (None, message_erreur, 0, 0)."""
     raw = f.read(); mime = f.mimetype or ''
-    if 'pdf' in mime or f.filename.lower().endswith('.pdf'):
+    if 'pdf' in mime or (f.filename or '').lower().endswith('.pdf'):
         png = _pdf_first_page_to_png(raw)
         if not png:
-            flash("Ce PDF n'a pas pu être converti sur le serveur. Merci de charger une image du plan (PNG ou JPEG).", "error")
-            return redirect(f'/implantation/{sid}')
+            return None, "Ce PDF n'a pas pu être converti sur le serveur. Merci de charger une image (PNG ou JPEG).", 0, 0
         raw, mime = png, 'image/png'
     try:
         from PIL import Image as _PImg
         import io as _io
         im = _PImg.open(_io.BytesIO(raw)).convert('RGB')
-        # réduire si très grand (garde le BLOB raisonnable, coords en pixels image)
         maxdim = 1800
         if max(im.size) > maxdim:
             ratio = maxdim / max(im.size)
             im = im.resize((int(im.size[0]*ratio), int(im.size[1]*ratio)))
         w, h = im.size
-        buf = _io.BytesIO(); im.save(buf, 'JPEG', quality=85); raw = buf.getvalue(); mime = 'image/jpeg'
+        buf = _io.BytesIO(); im.save(buf, 'JPEG', quality=85)
+        return buf.getvalue(), 'image/jpeg', w, h
     except Exception as e:
-        flash(f"Image illisible : {e}", "error"); return redirect(f'/implantation/{sid}')
+        return None, "Image illisible : %s" % e, 0, 0
+
+@app.route('/implantation/<int:sid>/plan', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_plan_upload(sid):
+    _ensure_implantation_tables()
+    level = request.args.get('level') or 'base'
+    f = request.files.get('plan')
+    if not f or not f.filename:
+        flash("Aucun fichier.", "error"); return redirect(f'/implantation/{sid}?level={level}')
+    raw, mime, w, h = _imp_process_plan(f)
+    if raw is None:
+        flash(mime, "error"); return redirect(f'/implantation/{sid}?level={level}')
     c = _gdb()
-    c.execute("UPDATE implantation_studies SET plan_image=?, plan_mime=?, plan_w=?, plan_h=?, updated_at=datetime('now') WHERE id=?",
-              (raw, mime, w, h, sid))
+    if level != 'base':
+        try:
+            c.execute("UPDATE implantation_plans SET plan_image=?, plan_mime=?, plan_w=?, plan_h=? WHERE id=? AND study_id=?",
+                      (raw, mime, w, h, int(level), sid))
+        except Exception:
+            pass
+    else:
+        c.execute("UPDATE implantation_studies SET plan_image=?, plan_mime=?, plan_w=?, plan_h=?, updated_at=datetime('now') WHERE id=?",
+                  (raw, mime, w, h, sid))
     c.commit(); c.close()
     flash("✅ Plan chargé.", "success")
+    return redirect(f'/implantation/{sid}?level={level}')
+
+@app.route('/implantation/<int:sid>/level/new', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_level_new(sid):
+    _ensure_implantation_tables()
+    import json as _json
+    name = (request.form.get('name') or '').strip() or 'Nouveau niveau'
+    f = request.files.get('plan')
+    raw = mime = None; w = h = 0
+    if f and f.filename:
+        raw, mime, w, h = _imp_process_plan(f)
+        if raw is None:
+            flash(mime, "error"); return redirect(f'/implantation/{sid}')
+    c = _gdb()
+    # partager les systèmes de la base pour la cohérence
+    base = c.execute("SELECT scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    systems = []
+    try: systems = (_json.loads(base['scene_json'] or '{}') or {}).get('systems', [])
+    except Exception: systems = []
+    scene = _json.dumps({'systems': systems, 'objects': [], 'scale': {'px_per_m': None}}, ensure_ascii=False)
+    ordv = c.execute("SELECT COALESCE(MAX(ord),0)+1 AS n FROM implantation_plans WHERE study_id=?", (sid,)).fetchone()['n']
+    cur = c.execute("INSERT INTO implantation_plans (study_id, name, ord, plan_image, plan_mime, plan_w, plan_h, scene_json) VALUES (?,?,?,?,?,?,?,?)",
+                    (sid, name, ordv, raw, mime, w, h, scene))
+    pid = cur.lastrowid
+    c.commit(); c.close()
+    return redirect(f'/implantation/{sid}?level={pid}')
+
+@app.route('/implantation/<int:sid>/level/<int:pid>/rename', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_level_rename(sid, pid):
+    name = (request.form.get('name') or '').strip()
+    if name:
+        c = _gdb(); c.execute("UPDATE implantation_plans SET name=? WHERE id=? AND study_id=?", (name, pid, sid)); c.commit(); c.close()
+    return redirect(f'/implantation/{sid}?level={pid}')
+
+@app.route('/implantation/<int:sid>/level/<int:pid>/delete', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_level_delete(sid, pid):
+    c = _gdb(); c.execute("DELETE FROM implantation_plans WHERE id=? AND study_id=?", (pid, sid)); c.commit(); c.close()
+    flash("Niveau supprimé.", "success")
     return redirect(f'/implantation/{sid}')
+
+@app.route('/implantation/<int:sid>/level/<int:pid>/img')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_level_img(sid, pid):
+    c = _gdb()
+    r = c.execute("SELECT plan_image, plan_mime FROM implantation_plans WHERE id=? AND study_id=?", (pid, sid)).fetchone()
+    c.close()
+    if not r or not r['plan_image']:
+        abort(404)
+    return Response(bytes(r['plan_image']), mimetype=(r['plan_mime'] or 'image/jpeg'),
+                    headers={'Cache-Control': 'private, max-age=120'})
 
 @app.route('/implantation/<int:sid>/plan/img')
 @permission_required_any('projets', 'resp_projet', 'admin')
@@ -38235,10 +38330,15 @@ def implantation_plan_img(sid):
 def implantation_save(sid):
     import json as _json
     try:
+        level = request.args.get('level') or 'base'
         scene = request.get_json(force=True, silent=True) or {}
         c = _gdb()
-        c.execute("UPDATE implantation_studies SET scene_json=?, updated_at=datetime('now') WHERE id=?",
-                  (_json.dumps(scene, ensure_ascii=False), sid))
+        if level != 'base':
+            c.execute("UPDATE implantation_plans SET scene_json=? WHERE id=? AND study_id=?",
+                      (_json.dumps(scene, ensure_ascii=False), int(level), sid))
+        else:
+            c.execute("UPDATE implantation_studies SET scene_json=?, updated_at=datetime('now') WHERE id=?",
+                      (_json.dumps(scene, ensure_ascii=False), sid))
         c.commit(); c.close()
         return jsonify({'ok': True})
     except Exception as e:
@@ -38586,29 +38686,46 @@ def _imp_render_rack_png(scene, title=''):
                 d.text((x0+38, ry0+14 if uh > 1 else ry0+3), md, font=fS, fill=(235, 235, 235)) if uh > 1 else None
     return im
 
+def _imp_agg_scene(sid):
+    """Scène agrégée (systèmes de la base + objets de tous les niveaux) + titre."""
+    import json as _json
+    c = _gdb()
+    r = c.execute("SELECT title, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    if not r:
+        c.close(); return None, {}
+    try: base = _json.loads(r['scene_json'] or '{}')
+    except Exception: base = {}
+    systems = base.get('systems', [])
+    objects = list(base.get('objects', []))
+    try:
+        for p in c.execute("SELECT scene_json FROM implantation_plans WHERE study_id=? ORDER BY ord, id", (sid,)).fetchall():
+            try: psc = _json.loads(p['scene_json'] or '{}')
+            except Exception: psc = {}
+            objects.extend(psc.get('objects', []))
+    except Exception:
+        pass
+    c.close()
+    return (r['title'] or ''), {'systems': systems, 'objects': objects, 'scale': base.get('scale', {})}
+
 @app.route('/implantation/<int:sid>/topology.png')
 @permission_required_any('projets', 'resp_projet', 'admin')
 def implantation_topology_png(sid):
-    import json as _json, io as _io
-    c = _gdb(); r = c.execute("SELECT title, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
-    if not r:
+    import io as _io
+    title, scene = _imp_agg_scene(sid)
+    if title is None:
         abort(404)
-    try: scene = _json.loads(r['scene_json'] or '{}')
-    except Exception: scene = {}
-    im = _imp_render_topology_png(scene, 'Topologie — ' + (r['title'] or ''))
+    im = _imp_render_topology_png(scene, 'Topologie — ' + title)
     b = _io.BytesIO(); im.save(b, 'PNG')
     return Response(b.getvalue(), mimetype='image/png', headers={'Cache-Control': 'no-store'})
 
 @app.route('/implantation/<int:sid>/rack.png')
 @permission_required_any('projets', 'resp_projet', 'admin')
 def implantation_rack_png(sid):
-    import json as _json, io as _io
-    c = _gdb(); r = c.execute("SELECT title, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
-    if not r:
+    import io as _io
+    title, scene = _imp_agg_scene(sid)
+    if title is None:
         abort(404)
-    try: scene = _json.loads(r['scene_json'] or '{}')
-    except Exception: scene = {}
-    im = _imp_render_rack_png(scene, 'Baies — ' + (r['title'] or ''))
+    im = _imp_render_rack_png(scene, 'Baies — ' + title)
     b = _io.BytesIO(); im.save(b, 'PNG')
     return Response(b.getvalue(), mimetype='image/png', headers={'Cache-Control': 'no-store'})
 
@@ -38624,13 +38741,35 @@ def implantation_views(sid):
 @permission_required_any('projets', 'resp_projet', 'admin')
 def implantation_scene_json(sid):
     import json as _json
-    c = _gdb(); r = c.execute("SELECT scene_json, plan_w, plan_h FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
+    lvl = request.args.get('level')
+    c = _gdb()
+    r = c.execute("SELECT scene_json, plan_w, plan_h FROM implantation_studies WHERE id=?", (sid,)).fetchone()
     if not r:
-        return jsonify({'scene': {}}), 404
-    try: scene = _json.loads(r['scene_json'] or '{}')
-    except Exception: scene = {}
-    scene['plan_w'] = r['plan_w'] or 1000
-    scene['plan_h'] = r['plan_h'] or 700
+        c.close(); return jsonify({'scene': {}}), 404
+    # niveaux disponibles
+    cand = []
+    try: base = _json.loads(r['scene_json'] or '{}')
+    except Exception: base = {}
+    cand.append(('base', base, r['plan_w'] or 1000, r['plan_h'] or 700))
+    try:
+        for p in c.execute("SELECT id, scene_json, plan_w, plan_h FROM implantation_plans WHERE study_id=? ORDER BY ord, id", (sid,)).fetchall():
+            try: psc = _json.loads(p['scene_json'] or '{}')
+            except Exception: psc = {}
+            cand.append((str(p['id']), psc, p['plan_w'] or 1000, p['plan_h'] or 700))
+    except Exception:
+        pass
+    c.close()
+    chosen = None
+    if lvl:
+        chosen = next((x for x in cand if x[0] == lvl), None)
+    if chosen is None:
+        # niveau le plus riche en objets
+        chosen = max(cand, key=lambda x: len(x[1].get('objects', [])))
+    _, scene, pw, ph = chosen
+    if not scene.get('systems'):
+        scene['systems'] = base.get('systems', [])
+    scene['plan_w'] = pw; scene['plan_h'] = ph
+    scene['levels'] = [{'id': x[0], 'name': ('Niveau 1' if x[0] == 'base' else x[0]), 'n': len(x[1].get('objects', []))} for x in cand]
     return jsonify({'scene': scene})
 
 @app.route('/implantation/<int:sid>/pdf')
@@ -38653,11 +38792,34 @@ def implantation_pdf(sid):
     try: scene = _json.loads(st.get('scene_json') or '{}')
     except Exception: scene = {}
     systems = scene.get('systems', [])
-    objects = scene.get('objects', [])
     base_im = None
     if st.get('plan_image'):
         try: base_im = _PImg.open(_io.BytesIO(bytes(st['plan_image']))).convert('RGB')
         except Exception: base_im = None
+    # --- Niveaux additionnels (plans multiples) ---
+    levels = [{'name': (st.get('level') or 'Niveau 1'), 'im': base_im, 'scene': scene}]
+    try:
+        c2 = _gdb()
+        prows = c2.execute("SELECT name, plan_image, scene_json FROM implantation_plans WHERE study_id=? ORDER BY ord, id", (sid,)).fetchall()
+        c2.close()
+    except Exception:
+        prows = []
+    for p in prows:
+        psc = {}
+        try: psc = _json.loads(p['scene_json'] or '{}')
+        except Exception: psc = {}
+        if not psc.get('systems'):
+            psc['systems'] = systems
+        pim = None
+        if p['plan_image']:
+            try: pim = _PImg.open(_io.BytesIO(bytes(p['plan_image']))).convert('RGB')
+            except Exception: pim = None
+        levels.append({'name': p['name'] or 'Niveau', 'im': pim, 'scene': psc})
+    # objets agrégés (tous niveaux) pour légende / topologie / rack / tableau
+    objects = []
+    for lv in levels:
+        objects.extend(lv['scene'].get('objects', []))
+    agg_scene = {'systems': systems, 'objects': objects, 'scale': scene.get('scale', {})}
 
     buf = _io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm, topMargin=14*mm, bottomMargin=12*mm)
@@ -38707,22 +38869,30 @@ def implantation_pdf(sid):
                                 ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, HexColor('#f6faf9')])]))
         story.append(lt)
 
-    # 3-4. Plan général + planches par système
-    if base_im is not None:
+    # 3-4. Plan général + planches par système, pour chaque niveau
+    any_plan = False
+    multi = len([lv for lv in levels if lv['im'] is not None]) > 1
+    for lv in levels:
+        lim = lv['im']; lsc = lv['scene']; lname = lv['name']
+        if lim is None:
+            continue
+        any_plan = True
+        pref = (lname + " — ") if multi else ""
+        lobjs = lsc.get('objects', [])
         story.append(PageBreak())
-        add_plan_image(_imp_render_scene(base_im, scene, only_system=None), "Plan général — tous systèmes")
+        add_plan_image(_imp_render_scene(lim, lsc, only_system=None), pref + "Plan général — tous systèmes")
         for s in systems:
-            if not [o for o in objects if o.get('system') == s['id']]:
+            if not [o for o in lobjs if o.get('system') == s['id']]:
                 continue
             story.append(PageBreak())
-            add_plan_image(_imp_render_scene(base_im, scene, only_system=s['id'], overlays=True), "Planche — " + s.get('name', ''))
-    else:
+            add_plan_image(_imp_render_scene(lim, lsc, only_system=s['id'], overlays=True), pref + "Planche — " + s.get('name', ''))
+    if not any_plan:
         story.append(Spacer(1, 6*mm))
         story.append(Paragraph("<i>Aucun plan n'a été chargé pour cette étude.</i>", normal))
 
-    # Topologie réseau
+    # Topologie réseau (tous niveaux)
     try:
-        topo_im = _imp_render_topology_png(scene, '')
+        topo_im = _imp_render_topology_png(agg_scene, '')
         story.append(PageBreak())
         add_plan_image(topo_im, "Topologie réseau")
     except Exception:
@@ -38730,7 +38900,7 @@ def implantation_pdf(sid):
     # Vue baie / rack (seulement si des baies sont renseignées)
     try:
         if any((o.get('rack') or '').strip() for o in objects if o.get('kind') != 'liaison'):
-            rack_im = _imp_render_rack_png(scene, '')
+            rack_im = _imp_render_rack_png(agg_scene, '')
             story.append(PageBreak())
             add_plan_image(rack_im, "Vue baie / rack")
     except Exception:
@@ -38844,8 +39014,15 @@ def _imp_run_controls(st, scene):
 @permission_required_any('projets', 'resp_projet', 'admin')
 def implantation_controls(sid):
     import json as _json
+    level = request.args.get('level') or 'base'
     c = _gdb()
-    r = c.execute("SELECT id, plan_w, plan_h, plan_image, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    if level != 'base':
+        try:
+            r = c.execute("SELECT id, plan_w, plan_h, plan_image, scene_json FROM implantation_plans WHERE id=? AND study_id=?", (int(level), sid)).fetchone()
+        except Exception:
+            r = None
+    else:
+        r = c.execute("SELECT id, plan_w, plan_h, plan_image, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone()
     c.close()
     if not r:
         return jsonify({'ok': False, 'alerts': []}), 404
