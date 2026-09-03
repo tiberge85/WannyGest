@@ -38077,6 +38077,336 @@ def super_admin_transfert_forum_execute():
 
 
 # ============================================================
+# v179 — Module « Implantation des systèmes sur plan » (MVP Lots 1→4)
+# Éditeur 2D : plan + systèmes/calques + équipements + justifications + dossier PDF.
+# ============================================================
+def _ensure_implantation_tables():
+    try:
+        c = _gdb()
+        c.execute("""CREATE TABLE IF NOT EXISTS implantation_studies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reference TEXT, title TEXT NOT NULL, client_name TEXT, building TEXT, level TEXT,
+            status TEXT DEFAULT 'Brouillon',
+            scene_json TEXT, plan_image BLOB, plan_mime TEXT, plan_w INTEGER, plan_h INTEGER,
+            created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+def _pdf_first_page_to_png(raw):
+    """Convertit la 1re page d'un PDF en PNG. Essaie plusieurs moteurs (aucun requis).
+    Retourne bytes PNG ou None si aucun moteur disponible."""
+    # 1) PyMuPDF (fitz)
+    try:
+        import fitz  # noqa
+        doc = fitz.open(stream=raw, filetype='pdf')
+        pix = doc[0].get_pixmap(dpi=150)
+        return pix.tobytes('png')
+    except Exception:
+        pass
+    # 2) pdf2image (poppler)
+    try:
+        from pdf2image import convert_from_bytes
+        import io as _io
+        imgs = convert_from_bytes(raw, dpi=150, first_page=1, last_page=1)
+        b = _io.BytesIO(); imgs[0].save(b, 'PNG'); return b.getvalue()
+    except Exception:
+        pass
+    # 3) pdftoppm (binaire poppler)
+    try:
+        import subprocess, tempfile, os as _os
+        d = tempfile.mkdtemp()
+        src = _os.path.join(d, 'in.pdf'); open(src, 'wb').write(raw)
+        subprocess.run(['pdftoppm', '-png', '-r', '150', '-f', '1', '-l', '1', src, _os.path.join(d, 'out')],
+                       check=True, timeout=30)
+        for fn in _os.listdir(d):
+            if fn.endswith('.png'):
+                return open(_os.path.join(d, fn), 'rb').read()
+    except Exception:
+        pass
+    return None
+
+@app.route('/implantation')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_list():
+    _ensure_implantation_tables()
+    import json as _json
+    c = _gdb()
+    rows = [dict(r) for r in c.execute(
+        "SELECT id, reference, title, client_name, building, level, status, scene_json, created_at "
+        "FROM implantation_studies ORDER BY id DESC").fetchall()]
+    c.close()
+    for s in rows:
+        try:
+            sc = _json.loads(s.get('scene_json') or '{}')
+            s['nb_obj'] = len(sc.get('objects', []))
+        except Exception:
+            s['nb_obj'] = 0
+    return render_template('implantation_list.html', studies=rows)
+
+@app.route('/implantation/new', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_new():
+    _ensure_implantation_tables()
+    title = (request.form.get('title') or '').strip()
+    if not title:
+        flash("Le titre est requis.", "error")
+        return redirect('/implantation')
+    ref = 'IMP-' + datetime.now().strftime('%Y%m%d%H%M%S')
+    c = _gdb()
+    cur = c.execute("""INSERT INTO implantation_studies (reference, title, client_name, building, level, created_by)
+                       VALUES (?,?,?,?,?,?)""",
+                    (ref, title, request.form.get('client_name', ''), request.form.get('building', ''),
+                     request.form.get('level', ''), session.get('user_id')))
+    sid = cur.lastrowid
+    c.commit(); c.close()
+    return redirect(f'/implantation/{sid}')
+
+@app.route('/implantation/<int:sid>')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_editor(sid):
+    _ensure_implantation_tables()
+    c = _gdb()
+    r = c.execute("SELECT id, reference, title, client_name, building, level, status, scene_json, plan_w, plan_h, plan_image FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    c.close()
+    if not r:
+        flash("Étude introuvable.", "error")
+        return redirect('/implantation')
+    study = dict(r)
+    study['has_plan'] = bool(study.get('plan_image'))
+    study.pop('plan_image', None)
+    scene = study.get('scene_json') or '{}'
+    return render_template('implantation_editor.html', study=study, scene_json=scene)
+
+@app.route('/implantation/<int:sid>/plan', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_plan_upload(sid):
+    _ensure_implantation_tables()
+    f = request.files.get('plan')
+    if not f or not f.filename:
+        flash("Aucun fichier.", "error"); return redirect(f'/implantation/{sid}')
+    raw = f.read(); mime = f.mimetype or ''
+    if 'pdf' in mime or f.filename.lower().endswith('.pdf'):
+        png = _pdf_first_page_to_png(raw)
+        if not png:
+            flash("Ce PDF n'a pas pu être converti sur le serveur. Merci de charger une image du plan (PNG ou JPEG).", "error")
+            return redirect(f'/implantation/{sid}')
+        raw, mime = png, 'image/png'
+    try:
+        from PIL import Image as _PImg
+        import io as _io
+        im = _PImg.open(_io.BytesIO(raw)).convert('RGB')
+        # réduire si très grand (garde le BLOB raisonnable, coords en pixels image)
+        maxdim = 1800
+        if max(im.size) > maxdim:
+            ratio = maxdim / max(im.size)
+            im = im.resize((int(im.size[0]*ratio), int(im.size[1]*ratio)))
+        w, h = im.size
+        buf = _io.BytesIO(); im.save(buf, 'JPEG', quality=85); raw = buf.getvalue(); mime = 'image/jpeg'
+    except Exception as e:
+        flash(f"Image illisible : {e}", "error"); return redirect(f'/implantation/{sid}')
+    c = _gdb()
+    c.execute("UPDATE implantation_studies SET plan_image=?, plan_mime=?, plan_w=?, plan_h=?, updated_at=datetime('now') WHERE id=?",
+              (raw, mime, w, h, sid))
+    c.commit(); c.close()
+    flash("✅ Plan chargé.", "success")
+    return redirect(f'/implantation/{sid}')
+
+@app.route('/implantation/<int:sid>/plan/img')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_plan_img(sid):
+    c = _gdb()
+    r = c.execute("SELECT plan_image, plan_mime FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    c.close()
+    if not r or not r['plan_image']:
+        abort(404)
+    return Response(bytes(r['plan_image']), mimetype=(r['plan_mime'] or 'image/jpeg'),
+                    headers={'Cache-Control': 'private, max-age=120'})
+
+@app.route('/implantation/<int:sid>/save', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_save(sid):
+    import json as _json
+    try:
+        scene = request.get_json(force=True, silent=True) or {}
+        c = _gdb()
+        c.execute("UPDATE implantation_studies SET scene_json=?, updated_at=datetime('now') WHERE id=?",
+                  (_json.dumps(scene, ensure_ascii=False), sid))
+        c.commit(); c.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 200
+
+def _imp_hex(h):
+    h = (h or '#1A7A6D').lstrip('#')
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except Exception:
+        return (26, 122, 109)
+
+def _imp_render_scene(base_im, scene, only_system=None):
+    """Composite plan + objets (marqueurs + zones) avec PIL. Retourne une image PIL."""
+    from PIL import ImageDraw
+    im = base_im.copy().convert('RGB')
+    d = ImageDraw.Draw(im, 'RGBA')
+    ppm = (scene.get('scale') or {}).get('px_per_m')
+    sysmap = {s['id']: s for s in scene.get('systems', [])}
+    for o in scene.get('objects', []):
+        if only_system and o.get('system') != only_system:
+            continue
+        sysd = sysmap.get(o.get('system'), {})
+        if only_system is None and not sysd.get('visible', True):
+            continue
+        col = _imp_hex(sysd.get('color'))
+        x, y = float(o.get('x', 0)), float(o.get('y', 0))
+        shape = o.get('coverage') or sysd.get('coverage') or 'none'
+        if ppm and shape != 'none':
+            r = float(o.get('radius_m', 8)) * ppm
+            fill = col + (55,)
+            if shape == 'circle':
+                d.ellipse([x-r, y-r, x+r, y+r], fill=fill, outline=col + (210,))
+            else:
+                ang = float(o.get('angle', 90)); dr = float(o.get('orientation', 0))
+                d.pieslice([x-r, y-r, x+r, y+r], dr-ang/2, dr+ang/2, fill=fill, outline=col + (210,))
+        d.ellipse([x-9, y-9, x+9, y+9], fill=col + (255,), outline=(255, 255, 255, 255), width=2)
+        if o.get('ref'):
+            d.text((x+11, y-16), str(o.get('ref')), fill=(20, 20, 20, 255))
+    return im
+
+@app.route('/implantation/<int:sid>/pdf')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_pdf(sid):
+    import json as _json, io as _io, os as _os
+    from PIL import Image as _PImg
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.colors import HexColor, white
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
+    c = _gdb()
+    r = c.execute("SELECT * FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    c.close()
+    if not r:
+        abort(404)
+    st = dict(r)
+    scene = {}
+    try: scene = _json.loads(st.get('scene_json') or '{}')
+    except Exception: scene = {}
+    systems = scene.get('systems', [])
+    objects = scene.get('objects', [])
+    base_im = None
+    if st.get('plan_image'):
+        try: base_im = _PImg.open(_io.BytesIO(bytes(st['plan_image']))).convert('RGB')
+        except Exception: base_im = None
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm, topMargin=14*mm, bottomMargin=12*mm)
+    TEAL = HexColor('#1A7A6D')
+    h1 = ParagraphStyle('h1', fontSize=20, fontName='Helvetica-Bold', textColor=TEAL, spaceAfter=6)
+    h2 = ParagraphStyle('h2', fontSize=13, fontName='Helvetica-Bold', textColor=TEAL, spaceBefore=10, spaceAfter=6)
+    normal = ParagraphStyle('n', fontSize=10, leading=14)
+    small = ParagraphStyle('s', fontSize=8, leading=10)
+    cellh = ParagraphStyle('ch', fontSize=8, fontName='Helvetica-Bold', textColor=white)
+    story = []
+    PAGE_W = A4[0] - 28*mm
+
+    def add_plan_image(pil_img, caption):
+        bio = _io.BytesIO(); pil_img.save(bio, 'PNG'); bio.seek(0)
+        iw, ih = pil_img.size
+        w = PAGE_W; h = w * ih / iw
+        maxh = A4[1] - 70*mm
+        if h > maxh:
+            h = maxh; w = h * iw / ih
+        story.append(Paragraph(caption, h2))
+        story.append(RLImage(bio, width=w, height=h))
+
+    # 1. Couverture
+    story.append(Spacer(1, 40*mm))
+    story.append(Paragraph("Dossier d'implantation sur plan", h1))
+    story.append(Paragraph(st.get('title') or '', ParagraphStyle('t', fontSize=15, spaceAfter=14)))
+    meta = [['Client', st.get('client_name') or '—'], ['Bâtiment / site', st.get('building') or '—'],
+            ['Niveau', st.get('level') or '—'], ['Référence', st.get('reference') or '—'],
+            ['Statut', st.get('status') or 'Brouillon'],
+            ['Généré le', datetime.now().strftime('%d/%m/%Y à %H:%M')]]
+    mt = Table([[Paragraph(a, ParagraphStyle('b', fontSize=10, fontName='Helvetica-Bold')), Paragraph(b, normal)] for a, b in meta], colWidths=[45*mm, 100*mm])
+    mt.setStyle(TableStyle([('BOTTOMPADDING', (0,0), (-1,-1), 4), ('TOPPADDING', (0,0), (-1,-1), 4)]))
+    story.append(mt)
+    story.append(PageBreak())
+
+    # 2. Légende
+    story.append(Paragraph("Légende des systèmes", h2))
+    if systems:
+        leg = [[Paragraph('Système', cellh), Paragraph('Représentation', cellh), Paragraph('Équipements', cellh)]]
+        for s in systems:
+            n = len([o for o in objects if o.get('system') == s['id']])
+            leg.append([Paragraph(s.get('name', ''), small),
+                        Paragraph('● ' + (s.get('color') or ''), ParagraphStyle('lc', fontSize=8, textColor=HexColor(s.get('color') or '#1A7A6D'))),
+                        Paragraph(str(n), small)])
+        lt = Table(leg, colWidths=[70*mm, 45*mm, 30*mm])
+        lt.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), TEAL), ('GRID', (0,0), (-1,-1), 0.25, HexColor('#ddd')),
+                                ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, HexColor('#f6faf9')])]))
+        story.append(lt)
+
+    # 3-4. Plan général + planches par système
+    if base_im is not None:
+        story.append(PageBreak())
+        add_plan_image(_imp_render_scene(base_im, scene, only_system=None), "Plan général — tous systèmes")
+        for s in systems:
+            if not [o for o in objects if o.get('system') == s['id']]:
+                continue
+            story.append(PageBreak())
+            add_plan_image(_imp_render_scene(base_im, scene, only_system=s['id']), "Planche — " + s.get('name', ''))
+    else:
+        story.append(Spacer(1, 6*mm))
+        story.append(Paragraph("<i>Aucun plan n'a été chargé pour cette étude.</i>", normal))
+
+    # Tableau des équipements / implantations
+    story.append(PageBreak())
+    story.append(Paragraph("Tableau des implantations", h2))
+    sysname = {s['id']: s.get('name', '') for s in systems}
+    header = ['ID', 'Système', 'Modèle', 'Orient.', 'Haut.(m)', 'Statut', 'Justification']
+    tdata = [[Paragraph(x, cellh) for x in header]]
+    for o in objects:
+        tdata.append([
+            Paragraph(str(o.get('ref', '')), small),
+            Paragraph(sysname.get(o.get('system'), ''), small),
+            Paragraph(str(o.get('model', '') or '—'), small),
+            Paragraph(str(o.get('orientation', 0)) + '°', small),
+            Paragraph(str(o.get('height_m', '') or '—'), small),
+            Paragraph(str(o.get('statut', 'Proposé')), small),
+            Paragraph((str(o.get('justification', '') or o.get('objectif', '') or '—'))[:160], small),
+        ])
+    if len(tdata) == 1:
+        tdata.append([Paragraph('—', small)] * len(header))
+    it = Table(tdata, colWidths=[20*mm, 26*mm, 26*mm, 14*mm, 16*mm, 20*mm, 60*mm], repeatRows=1)
+    it.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), TEAL), ('GRID', (0,0), (-1,-1), 0.25, HexColor('#e0e0e0')),
+                            ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, HexColor('#f6faf9')]),
+                            ('VALIGN', (0,0), (-1,-1), 'TOP')]))
+    story.append(it)
+
+    # Synthèse
+    story.append(Paragraph("Synthèse", h2))
+    statuts = {}
+    for o in objects:
+        statuts[o.get('statut', 'Proposé')] = statuts.get(o.get('statut', 'Proposé'), 0) + 1
+    syn = [['Équipements implantés', str(len(objects))], ['Systèmes', str(len(systems))],
+           ['Échelle', ('%.1f px/m' % scene.get('scale', {}).get('px_per_m')) if scene.get('scale', {}).get('px_per_m') else 'non calibrée']]
+    for k, v in statuts.items():
+        syn.append(['— dont « %s »' % k, str(v)])
+    stt = Table([[Paragraph(a, small), Paragraph(b, small)] for a, b in syn], colWidths=[70*mm, 40*mm])
+    stt.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, HexColor('#ddd')), ('BACKGROUND', (0,0), (0,-1), HexColor('#f2f7f6'))]))
+    story.append(stt)
+
+    doc.build(story)
+    buf.seek(0)
+    fn = (st.get('reference') or ('implantation_%d' % sid)) + '.pdf'
+    return Response(buf.getvalue(), mimetype='application/pdf',
+                    headers={'Content-Disposition': f'inline; filename="{fn}"'})
+
+
+# ============================================================
 # v175 — Photo de profil de l'utilisateur connecté (stockée en base)
 # ============================================================
 def _ensure_user_photo_cols():

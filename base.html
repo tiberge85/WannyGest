@@ -382,6 +382,7 @@
                     {# v166 : Programme du jour + Cartographie accessibles au gestionnaire de projet (étaient réservés au Centre Technique) #}
                     <a href="/interventions/programme" class="{% if page == 'programme_jour' %}active{% endif %}">📋 Programme du jour</a>
                     <a href="/installations" class="{% if page == 'installations' %}active{% endif %}">🗺️ Cartographie</a>
+                    <a href="/implantation" class="{% if page == 'implantation' %}active{% endif %}">🧭 Implantation sur plan</a>
                     {% if 'centre_technique' in permissions or 'controle_qualite' in permissions or 'livraison_intervention' in permissions or 'admin' in permissions %}
                     <a href="/centre-technique/mes-interventions" class="{% if page == 'tech_my_interventions' %}active{% endif %}">📜 Historique &amp; filtres</a>
                     {% endif %}

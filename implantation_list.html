@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Implantation sur plan{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <h1 style="margin:0">🗺️ Implantation des systèmes sur plan</h1>
+    <button onclick="document.getElementById('newStudy').classList.add('active')" class="btn btn-primary btn-sm">➕ Nouvelle étude</button>
+</div>
+
+<div class="card" style="background:#f2f7f6;border-left:4px solid #1A7A6D;margin-bottom:14px"><div class="card-body" style="font-size:13px;color:#555">
+    Créez une étude, chargez le plan du bâtiment, placez les équipements par système (vidéo, Wi-Fi, contrôle d'accès…),
+    justifiez les positions, puis générez le dossier PDF de présentation.
+</div></div>
+
+<div class="card"><div class="card-body" style="padding:0">
+{% if studies %}
+<div class="table-wrap"><table style="width:100%;font-size:13px">
+<thead><tr><th style="padding:10px">Référence</th><th>Titre</th><th>Client</th><th>Bâtiment</th><th>Statut</th><th>Équip.</th><th>Créé le</th><th></th></tr></thead>
+<tbody>
+{% for s in studies %}
+<tr style="border-bottom:1px solid #f0f0f0">
+    <td style="padding:8px 10px;font-family:monospace">{{ s.reference }}</td>
+    <td><strong>{{ s.title }}</strong></td>
+    <td>{{ s.client_name or '—' }}</td>
+    <td>{{ s.building or '—' }}</td>
+    <td><span style="background:#eef4f3;border-radius:10px;padding:2px 9px;font-size:11px">{{ s.status or 'Brouillon' }}</span></td>
+    <td style="text-align:center">{{ s.nb_obj }}</td>
+    <td style="white-space:nowrap">{{ (s.created_at or '')[:10] }}</td>
+    <td style="white-space:nowrap">
+        <a href="/implantation/{{ s.id }}" class="btn btn-sm btn-primary">✏️ Ouvrir</a>
+        <a href="/implantation/{{ s.id }}/pdf" target="_blank" class="btn btn-sm btn-outline">📄 PDF</a>
+    </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}
+<p style="text-align:center;color:#999;padding:34px">Aucune étude d'implantation pour l'instant. Cliquez sur « Nouvelle étude ».</p>
+{% endif %}
+</div></div>
+
+<div class="modal-bg" id="newStudy"><div class="modal">
+    <h3 style="margin:0 0 12px">🗺️ Nouvelle étude d'implantation</h3>
+    <form method="post" action="/implantation/new">
+        <div class="form-group"><label>Titre de l'étude *</label><input type="text" name="title" required placeholder="Ex. Vidéosurveillance siège Abidjan" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px"></div>
+        <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap">
+            <div class="form-group" style="flex:1;min-width:160px"><label>Client</label><input type="text" name="client_name" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px"></div>
+            <div class="form-group" style="flex:1;min-width:160px"><label>Bâtiment / site</label><input type="text" name="building" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px"></div>
+        </div>
+        <div class="form-group"><label>Niveau (étage)</label><input type="text" name="level" placeholder="Ex. RDC" style="width:100%;padding:9px;border:1.5px solid #ddd;border-radius:7px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+            <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+            <button type="submit" class="btn btn-primary">Créer et ouvrir</button>
+        </div>
+    </form>
+</div></div>
+
+{% endblock %}

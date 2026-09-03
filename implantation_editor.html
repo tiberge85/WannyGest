@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Implantation — {{ study.title }}{% endblock %}
+{% block content %}
+<style>
+  .imp-wrap{display:flex;gap:10px;height:calc(100vh - 130px);min-height:520px}
+  .imp-col{background:#fff;border:1px solid #e3e8ec;border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+  .imp-left{width:230px;flex:none}
+  .imp-right{width:280px;flex:none}
+  .imp-center{flex:1;position:relative;background:#f4f6f8}
+  .imp-hd{padding:8px 10px;font-weight:700;font-size:12px;color:#1A7A6D;border-bottom:1px solid #eef2f4;background:#f8fbfa}
+  .imp-body{padding:8px 10px;overflow:auto;font-size:12px}
+  .sys-row{display:flex;align-items:center;gap:6px;padding:4px 5px;border-radius:6px;cursor:pointer;margin-bottom:3px}
+  .sys-row.active{background:#e8f5f2;outline:1px solid #1A7A6D}
+  .sys-dot{width:12px;height:12px;border-radius:50%;flex:none}
+  .sys-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .imp-btn{display:inline-block;padding:6px 10px;border-radius:7px;border:1px solid #cfd8dc;background:#fff;cursor:pointer;font-size:12px}
+  .imp-btn.primary{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
+  .imp-btn.warn{color:#c53030;border-color:#f0c0c0}
+  .tool.active{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
+  #impSvg{width:100%;height:100%;touch-action:none;background:#dfe4e8}
+  .field{margin-bottom:8px}
+  .field label{display:block;font-size:11px;color:#666;margin-bottom:2px}
+  .field input,.field select,.field textarea{width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;box-sizing:border-box}
+  .topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .badge-scale{font-size:11px;color:#555;background:#eef4f3;border-radius:20px;padding:3px 10px}
+</style>
+
+<div class="topbar">
+  <a href="/implantation" class="imp-btn">← Études</a>
+  <strong style="font-size:16px">🗺️ {{ study.title }}</strong>
+  <span class="badge-scale" id="scaleBadge">Échelle : non calibrée</span>
+  <span style="flex:1"></span>
+  <button class="imp-btn" id="btnCalibrate" title="Cliquez 2 points de distance connue">📏 Calibrer l'échelle</button>
+  <button class="imp-btn" id="btnSave">💾 Enregistrer</button>
+  <a class="imp-btn primary" href="/implantation/{{ study.id }}/pdf" target="_blank">📄 Dossier PDF</a>
+</div>
+
+<div class="imp-wrap">
+  <!-- Panneau gauche : systèmes + outils -->
+  <div class="imp-col imp-left">
+    <div class="imp-hd">🧩 Systèmes / calques</div>
+    <div class="imp-body" style="flex:1">
+      <div id="sysList"></div>
+      <button class="imp-btn" style="width:100%;margin-top:6px" id="btnAddSys">＋ Ajouter un système</button>
+    </div>
+    <div class="imp-hd">🛠️ Outils</div>
+    <div class="imp-body">
+      <button class="imp-btn tool active" data-tool="select" style="width:100%;margin-bottom:5px">🖱️ Sélection / déplacer</button>
+      <button class="imp-btn tool" data-tool="place" style="width:100%;margin-bottom:5px">📍 Placer un équipement</button>
+      <div style="font-size:11px;color:#888;margin-top:4px">Outil « Placer » : choisissez un système à gauche puis cliquez sur le plan.</div>
+    </div>
+  </div>
+
+  <!-- Zone centrale : plan -->
+  <div class="imp-col imp-center">
+    {% if not study.has_plan %}
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;text-align:center">
+      <div style="font-size:15px;color:#555">Aucun plan chargé pour cette étude.</div>
+      <form method="post" action="/implantation/{{ study.id }}/plan" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:8px;align-items:center">
+        <input type="file" name="plan" accept="image/*,application/pdf" required style="padding:8px;border:1.5px solid #ddd;border-radius:7px">
+        <button type="submit" class="imp-btn primary">📤 Charger le plan (image ou PDF)</button>
+      </form>
+    </div>
+    {% else %}
+    <svg id="impSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div style="position:absolute;left:8px;bottom:8px;display:flex;gap:6px">
+      <button class="imp-btn" id="zoomIn">＋</button>
+      <button class="imp-btn" id="zoomOut">－</button>
+      <button class="imp-btn" id="zoomFit">⤢ Ajuster</button>
+      <form method="post" action="/implantation/{{ study.id }}/plan" enctype="multipart/form-data" style="display:inline">
+        <label class="imp-btn" style="cursor:pointer">🔄 Remplacer le plan<input type="file" name="plan" accept="image/*,application/pdf" onchange="this.form.submit()" style="display:none"></label>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Panneau droit : propriétés -->
+  <div class="imp-col imp-right">
+    <div class="imp-hd">📋 Propriétés</div>
+    <div class="imp-body" style="flex:1" id="propPanel">
+      <div style="color:#999">Sélectionnez un équipement sur le plan pour voir et modifier ses propriétés.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STUDY_ID = {{ study.id }};
+const PLAN_W = {{ study.plan_w or 1000 }};
+const PLAN_H = {{ study.plan_h or 700 }};
+const HAS_PLAN = {{ 'true' if study.has_plan else 'false' }};
+let S = {{ scene_json|safe }};
+if(!S || typeof S !== 'object') S = {};
+S.systems = S.systems || [
+  {id:'sys_video', name:'Vidéosurveillance', color:'#c0392b', visible:true, coverage:'cone'},
+  {id:'sys_wifi', name:'Wi-Fi', color:'#2b6cb0', visible:true, coverage:'circle'},
+  {id:'sys_acces', name:"Contrôle d'accès", color:'#7b1fa2', visible:true, coverage:'none'},
+  {id:'sys_intrusion', name:'Intrusion', color:'#e8672a', visible:true, coverage:'circle'},
+  {id:'sys_incendie', name:'Détection incendie', color:'#b8231b', visible:true, coverage:'circle'},
+  {id:'sys_sono', name:'Sonorisation', color:'#2e7d32', visible:true, coverage:'circle'},
+  {id:'sys_reseau', name:'Réseau', color:'#607d8b', visible:true, coverage:'none'}
+];
+S.objects = S.objects || [];
+S.scale = S.scale || {px_per_m:null};
+
+const SVGNS='http://www.w3.org/2000/svg';
+let svg = document.getElementById('impSvg');
+let tool='select', activeSys=S.systems[0].id, selId=null;
+let view={x:0,y:0,w:PLAN_W,h:PLAN_H};
+let calib={on:false, pts:[]};
+
+function uid(p){return p+'_'+Math.random().toString(36).slice(2,8)}
+function sysById(id){return S.systems.find(x=>x.id===id)||S.systems[0]}
+function objById(id){return S.objects.find(o=>o.id===id)}
+function setViewBox(){ if(svg) svg.setAttribute('viewBox', view.x+' '+view.y+' '+view.w+' '+view.h) }
+function svgPoint(evt){
+  const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function renderSystems(){
+  const el=document.getElementById('sysList'); el.innerHTML='';
+  S.systems.forEach(sys=>{
+    const row=document.createElement('div'); row.className='sys-row'+(sys.id===activeSys?' active':'');
+    row.innerHTML='<span class="sys-dot" style="background:'+sys.color+'"></span>'+
+      '<span class="sys-name">'+sys.name+'</span>'+
+      '<span title="Afficher/masquer" style="cursor:pointer">'+(sys.visible?'👁️':'🚫')+'</span>';
+    row.onclick=(e)=>{ activeSys=sys.id; renderSystems(); };
+    row.querySelector('span[title]').onclick=(e)=>{ e.stopPropagation(); sys.visible=!sys.visible; renderSystems(); renderObjects(); };
+    el.appendChild(row);
+  });
+}
+
+function coverPath(o){
+  const sys=sysById(o.system); const ppm=S.scale.px_per_m;
+  const shape=o.coverage||sys.coverage||'none';
+  if(shape==='none'||!ppm) return '';
+  const r=(o.radius_m||8)*ppm;
+  if(shape==='circle'){
+    return '<circle cx="'+o.x+'" cy="'+o.y+'" r="'+r+'" fill="'+sys.color+'22" stroke="'+sys.color+'" stroke-width="1" stroke-dasharray="4 3"/>';
+  }
+  // cone : secteur oriente
+  const ang=(o.angle||90)*Math.PI/180, dir=(o.orientation||0)*Math.PI/180;
+  const a1=dir-ang/2, a2=dir+ang/2;
+  const x1=o.x+r*Math.cos(a1), y1=o.y+r*Math.sin(a1);
+  const x2=o.x+r*Math.cos(a2), y2=o.y+r*Math.sin(a2);
+  const large=(ang>Math.PI)?1:0;
+  return '<path d="M '+o.x+' '+o.y+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2+' Z" fill="'+sys.color+'22" stroke="'+sys.color+'" stroke-width="1" stroke-dasharray="4 3"/>';
+}
+
+function renderObjects(){
+  // reconstruire le SVG
+  let bg = HAS_PLAN ? '<image href="/implantation/'+STUDY_ID+'/plan/img" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
+  let cover='', marks='';
+  S.objects.forEach(o=>{
+    const sys=sysById(o.system); if(!sys.visible) return;
+    cover+=coverPath(o);
+    const sel=(o.id===selId);
+    const rot='rotate('+(o.orientation||0)+' '+o.x+' '+o.y+')';
+    marks+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
+      +'<circle cx="'+o.x+'" cy="'+o.y+'" r="10" fill="'+sys.color+'" stroke="#fff" stroke-width="2"'+(sel?' stroke="#111" stroke-width="3"':'')+'/>'
+      +'<line x1="'+o.x+'" y1="'+o.y+'" x2="'+o.x+'" y2="'+(o.y-16)+'" stroke="'+sys.color+'" stroke-width="2" transform="'+rot+'"/>'
+      +'<text x="'+(o.x+12)+'" y="'+(o.y-10)+'" font-size="11" fill="#111" style="paint-order:stroke;stroke:#fff;stroke-width:3px">'+(o.ref||'')+'</text>'
+      +'</g>';
+  });
+  const calibLayer = calib.pts.map(p=>'<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#e8672a"/>').join('');
+  svg.innerHTML = bg + '<g>'+cover+'</g>' + '<g>'+marks+'</g>' + calibLayer;
+  bindObjectEvents();
+}
+
+function bindObjectEvents(){
+  svg.querySelectorAll('.imp-obj').forEach(g=>{
+    g.addEventListener('pointerdown', (e)=>{
+      if(tool!=='select') return;
+      e.stopPropagation();
+      selId=g.getAttribute('data-id'); renderObjects(); renderProps();
+      const o=objById(selId); const start=svgPoint(e); const ox=o.x, oy=o.y;
+      function move(ev){ const p=svgPoint(ev); o.x=ox+(p.x-start.x); o.y=oy+(p.y-start.y); renderObjects(); }
+      function up(){ svg.removeEventListener('pointermove',move); svg.removeEventListener('pointerup',up); renderProps(); }
+      svg.addEventListener('pointermove',move); svg.addEventListener('pointerup',up);
+    });
+  });
+}
+
+function renderProps(){
+  const el=document.getElementById('propPanel');
+  const o=objById(selId);
+  if(!o){ el.innerHTML='<div style="color:#999">Sélectionnez un équipement sur le plan.</div>'; return; }
+  const opt=S.systems.map(s=>'<option value="'+s.id+'"'+(s.id===o.system?' selected':'')+'>'+s.name+'</option>').join('');
+  el.innerHTML=
+    '<div class="field"><label>Référence (ID)</label><input id="p_ref" value="'+(o.ref||'')+'"></div>'
+   +'<div class="field"><label>Modèle / désignation</label><input id="p_model" value="'+(o.model||'')+'"></div>'
+   +'<div class="field"><label>Système</label><select id="p_sys">'+opt+'</select></div>'
+   +'<div class="field"><label>Orientation (°)</label><input id="p_or" type="number" value="'+(o.orientation||0)+'"></div>'
+   +'<div class="field"><label>Hauteur de pose (m)</label><input id="p_h" type="number" step="0.1" value="'+(o.height_m||'')+'"></div>'
+   +'<div class="field"><label>Zone d\'effet</label><select id="p_cov"><option value="none">Aucune</option><option value="circle">Cercle (rayon)</option><option value="cone">Cône (champ)</option></select></div>'
+   +'<div class="field"><label>Portée (m)</label><input id="p_r" type="number" step="0.5" value="'+(o.radius_m||8)+'"></div>'
+   +'<div class="field"><label>Angle du cône (°)</label><input id="p_ang" type="number" value="'+(o.angle||90)+'"></div>'
+   +'<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">Justification</div>'
+   +'<div class="field"><label>Objectif</label><input id="p_obj" value="'+(o.objectif||'')+'"></div>'
+   +'<div class="field"><label>Justification</label><textarea id="p_just" rows="2">'+(o.justification||'')+'</textarea></div>'
+   +'<div class="field"><label>Contraintes</label><input id="p_ctr" value="'+(o.contraintes||'')+'"></div>'
+   +'<div class="field"><label>Statut</label><select id="p_st"><option>Proposé</option><option>À valider</option><option>Validé</option><option>À modifier</option></select></div>'
+   +'<div style="display:flex;gap:6px;margin-top:8px"><button class="imp-btn warn" id="p_del">🗑️ Supprimer</button></div>';
+  document.getElementById('p_cov').value=o.coverage||sysById(o.system).coverage||'none';
+  document.getElementById('p_st').value=o.statut||'Proposé';
+  function bind(id,key,num){ const inp=document.getElementById(id); inp.addEventListener('input',()=>{ o[key]= num? (parseFloat(inp.value)||0):inp.value; renderObjects(); }); }
+  bind('p_ref','ref'); bind('p_model','model'); bind('p_or','orientation',true); bind('p_h','height_m',true);
+  bind('p_r','radius_m',true); bind('p_ang','angle',true);
+  bind('p_obj','objectif'); bind('p_just','justification'); bind('p_ctr','contraintes');
+  document.getElementById('p_sys').addEventListener('change',e=>{ o.system=e.target.value; renderObjects(); });
+  document.getElementById('p_cov').addEventListener('change',e=>{ o.coverage=e.target.value; renderObjects(); });
+  document.getElementById('p_st').addEventListener('change',e=>{ o.statut=e.target.value; });
+  document.getElementById('p_del').onclick=()=>{ S.objects=S.objects.filter(x=>x.id!==selId); selId=null; renderObjects(); renderProps(); };
+}
+
+// ---- interactions canvas ----
+if(HAS_PLAN){
+  setViewBox();
+  document.querySelectorAll('.tool').forEach(b=>b.onclick=()=>{ tool=b.dataset.tool; document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
+
+  svg.addEventListener('pointerdown',(e)=>{
+    if(e.target.closest('.imp-obj')) return;
+    const p=svgPoint(e);
+    if(calib.on){
+      calib.pts.push({x:p.x,y:p.y}); renderObjects();
+      if(calib.pts.length===2){
+        const dx=calib.pts[1].x-calib.pts[0].x, dy=calib.pts[1].y-calib.pts[0].y;
+        const pix=Math.hypot(dx,dy);
+        const m=parseFloat(prompt('Distance réelle entre les 2 points (en mètres) :','5'));
+        if(m>0){ S.scale.px_per_m=pix/m; updateScaleBadge(); }
+        calib.on=false; calib.pts=[]; document.getElementById('btnCalibrate').classList.remove('active'); renderObjects();
+      }
+      return;
+    }
+    if(tool==='place'){
+      const sys=sysById(activeSys);
+      const n=S.objects.filter(o=>o.system===activeSys).length+1;
+      const o={id:uid('obj'), system:activeSys, ref:sys.name.slice(0,3).toUpperCase()+'-'+String(n).padStart(3,'0'),
+               model:'', x:p.x, y:p.y, orientation:0, height_m:'', coverage:sys.coverage, radius_m:8, angle:90, statut:'Proposé'};
+      S.objects.push(o); selId=o.id; renderObjects(); renderProps();
+      return;
+    }
+    // pan
+    const sx=e.clientX, sy=e.clientY, vx=view.x, vy=view.y;
+    const scale=view.w/svg.clientWidth;
+    function mv(ev){ view.x=vx-(ev.clientX-sx)*scale; view.y=vy-(ev.clientY-sy)*scale; setViewBox(); }
+    function up(){ svg.removeEventListener('pointermove',mv); svg.removeEventListener('pointerup',up); }
+    svg.addEventListener('pointermove',mv); svg.addEventListener('pointerup',up);
+  });
+
+  svg.addEventListener('wheel',(e)=>{ e.preventDefault(); const f=e.deltaY<0?0.9:1.1; const p=svgPoint(e);
+    view.x=p.x-(p.x-view.x)*f; view.y=p.y-(p.y-view.y)*f; view.w*=f; view.h*=f; setViewBox(); }, {passive:false});
+
+  document.getElementById('zoomIn').onclick=()=>{ view.w*=0.85; view.h*=0.85; setViewBox(); };
+  document.getElementById('zoomOut').onclick=()=>{ view.w*=1.18; view.h*=1.18; setViewBox(); };
+  document.getElementById('zoomFit').onclick=()=>{ view={x:0,y:0,w:PLAN_W,h:PLAN_H}; setViewBox(); };
+  document.getElementById('btnCalibrate').onclick=(e)=>{ calib.on=!calib.on; calib.pts=[]; e.target.classList.toggle('active',calib.on); if(calib.on) alert('Cliquez 2 points de distance connue sur le plan.'); renderObjects(); };
+}
+
+function updateScaleBadge(){ const b=document.getElementById('scaleBadge'); b.textContent = S.scale.px_per_m ? ('Échelle : '+(1/S.scale.px_per_m).toFixed(3)+' m/px ('+S.scale.px_per_m.toFixed(1)+' px/m)') : 'Échelle : non calibrée'; }
+
+document.getElementById('btnAddSys').onclick=()=>{ const name=prompt('Nom du nouveau système :'); if(!name) return;
+  const colors=['#00838f','#5d4037','#ad1457','#33691e','#4527a0','#455a64'];
+  S.systems.push({id:uid('sys'), name:name, color:colors[S.systems.length%colors.length], visible:true, coverage:'none'});
+  renderSystems(); };
+
+document.getElementById('btnSave').onclick=()=>{
+  fetch('/implantation/'+STUDY_ID+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
+   .then(r=>r.json()).then(d=>{ const b=document.getElementById('btnSave'); b.textContent=d.ok?'✅ Enregistré':'❌ Erreur'; setTimeout(()=>b.textContent='💾 Enregistrer',1600); });
+};
+
+// init
+renderSystems();
+if(HAS_PLAN){ updateScaleBadge(); renderObjects(); renderProps(); }
+</script>
+{% endblock %}
