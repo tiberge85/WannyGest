@@ -2,135 +2,259 @@
 {% block title %}Implantation — {{ study.title }}{% endblock %}
 {% block content %}
 <style>
-  .imp-wrap{display:flex;gap:10px;height:calc(100vh - 130px);min-height:520px}
-  .imp-col{background:#fff;border:1px solid #e3e8ec;border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
-  .imp-left{width:236px;flex:none}
-  .imp-right{width:300px;flex:none}
-  .imp-center{flex:1;position:relative;background:#f4f6f8}
-  .imp-hd{padding:8px 10px;font-weight:700;font-size:12px;color:#1A7A6D;border-bottom:1px solid #eef2f4;background:#f8fbfa}
-  .imp-body{padding:8px 10px;overflow:auto;font-size:12px}
-  .sys-row{display:flex;align-items:center;gap:6px;padding:4px 5px;border-radius:6px;cursor:pointer;margin-bottom:3px}
-  .sys-row.active{background:#e8f5f2;outline:1px solid #1A7A6D}
-  .sys-dot{width:12px;height:12px;border-radius:50%;flex:none}
+  :root{
+    --ud-bg:#0b0d11; --ud-panel:#161a20; --ud-panel2:#1d222a; --ud-border:#2a313b;
+    --ud-text:#d6dce4; --ud-muted:#8b95a1; --ud-accent:#2f8bff; --ud-accent2:#1e6fe0;
+  }
+  .ud{position:relative;width:100%;height:calc(100vh - 92px);min-height:560px;background:var(--ud-bg);
+      border-radius:12px;overflow:hidden;color:var(--ud-text);font-size:13px;
+      -webkit-user-select:none;user-select:none}
+  .ud *{box-sizing:border-box}
+  #impSvg{position:absolute;inset:0;width:100%;height:100%;background:var(--ud-bg);touch-action:none;cursor:crosshair}
+  .ud-float{position:absolute;background:var(--ud-panel);border:1px solid var(--ud-border);border-radius:12px;
+      box-shadow:0 8px 28px rgba(0,0,0,.45);z-index:10}
+  /* --- Barre supérieure --- */
+  .ud-top{position:absolute;top:12px;left:12px;right:12px;display:flex;align-items:center;gap:10px;z-index:20;pointer-events:none}
+  .ud-top>*{pointer-events:auto}
+  .ud-pill{display:flex;align-items:center;gap:6px;background:var(--ud-panel);border:1px solid var(--ud-border);
+      border-radius:10px;padding:6px 8px}
+  .ud-pill select{background:transparent;border:0;color:var(--ud-text);font-size:13px;font-weight:600;outline:none;cursor:pointer}
+  .ud-pill select option{background:var(--ud-panel2);color:var(--ud-text)}
+  .ud-ico{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:8px;
+      background:var(--ud-panel2);border:1px solid var(--ud-border);cursor:pointer;color:var(--ud-text);font-size:14px}
+  .ud-ico:hover{border-color:#3a4552}
+  .ud-seg{display:flex;background:var(--ud-panel);border:1px solid var(--ud-border);border-radius:12px;padding:4px;gap:3px;margin:0 auto}
+  .ud-seg button{display:flex;align-items:center;gap:6px;padding:7px 16px;border:0;border-radius:9px;background:transparent;
+      color:var(--ud-muted);font-size:13px;font-weight:600;cursor:pointer}
+  .ud-seg button.active{background:var(--ud-accent);color:#fff}
+  .ud-actions{display:flex;gap:6px;align-items:center;margin-left:auto}
+  .ud-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:9px;border:1px solid var(--ud-border);
+      background:var(--ud-panel2);color:var(--ud-text);font-size:12.5px;cursor:pointer;text-decoration:none}
+  .ud-btn:hover{border-color:#3a4552}
+  .ud-btn.accent{background:var(--ud-accent);border-color:var(--ud-accent);color:#fff}
+  .ud-btn.warn{color:#ff6b6b;border-color:#5a2b2b}
+  .ud-status{background:var(--ud-panel2);border:1px solid var(--ud-border);border-radius:9px;color:var(--ud-text);
+      font-size:12.5px;padding:7px 8px;outline:none}
+  .ud-status option{background:var(--ud-panel2)}
+  /* --- Rail gauche --- */
+  .ud-rail{position:absolute;top:64px;left:12px;display:flex;flex-direction:column;gap:6px;z-index:20}
+  .ud-rail .r{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px;
+      background:var(--ud-panel);border:1px solid var(--ud-border);cursor:pointer;font-size:17px;color:var(--ud-muted)}
+  .ud-rail .r.active{color:var(--ud-accent);border-color:var(--ud-accent)}
+  /* --- Panneau flottant gauche --- */
+  .ud-left{position:absolute;top:64px;left:62px;width:238px;max-height:calc(100% - 150px);
+      display:flex;flex-direction:column;overflow:hidden;z-index:15}
+  .ud-lh{padding:9px 12px;font-weight:700;font-size:12px;color:var(--ud-text);border-bottom:1px solid var(--ud-border);
+      display:flex;align-items:center;justify-content:space-between}
+  .ud-lb{padding:8px 10px;overflow:auto}
+  .sys-row{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:8px;cursor:pointer;margin-bottom:3px}
+  .sys-row:hover{background:var(--ud-panel2)}
+  .sys-row.active{background:rgba(47,139,255,.14);outline:1px solid var(--ud-accent)}
+  .sys-dot{width:11px;height:11px;border-radius:50%;flex:none}
   .sys-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .imp-btn{display:inline-block;padding:6px 10px;border-radius:7px;border:1px solid #cfd8dc;background:#fff;cursor:pointer;font-size:12px}
-  .imp-btn.primary{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
-  .imp-btn.warn{color:#c53030;border-color:#f0c0c0}
-  .imp-btn.on{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
-  .tool.active{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
-  .pal-item{display:flex;align-items:center;gap:7px;padding:5px 6px;border:1px solid #e2e8ec;border-radius:7px;cursor:pointer;margin-bottom:4px;background:#fff}
-  .pal-item:hover{background:#f2f7f6}
-  .pal-item.active{outline:2px solid #1A7A6D;background:#eaf5f2}
-  .pal-ic{width:26px;height:26px;flex:none}
-  #impSvg{width:100%;height:100%;touch-action:none;background:#dfe4e8}
-  .field{margin-bottom:8px}
-  .field label{display:block;font-size:11px;color:#666;margin-bottom:2px}
-  .field input,.field select,.field textarea{width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;box-sizing:border-box}
-  .topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-  .badge-scale{font-size:11px;color:#555;background:#eef4f3;border-radius:20px;padding:3px 10px}
-  .imp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:9000}
-  .imp-overlay.on{display:flex}
-  .imp-modal{background:#fff;border-radius:12px;max-width:520px;width:92%;max-height:80vh;overflow:auto;padding:18px 20px}
-  .al{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border-radius:8px;margin-bottom:6px;font-size:13px}
-  .al.error{background:#fdeaea;color:#a12626}.al.warn{background:#fff5e6;color:#9a6212}
-  .al.info{background:#eef4fb;color:#25567e}.al.ok{background:#eaf7ef;color:#1d7a44}
-  .stpill{font-size:12px;border:1.5px solid #ddd;border-radius:20px;padding:4px 10px;background:#fff}
+  .pal-item{display:flex;align-items:center;gap:8px;padding:6px 7px;border:1px solid var(--ud-border);border-radius:9px;
+      cursor:pointer;margin-bottom:5px;background:var(--ud-panel2)}
+  .pal-item:hover{border-color:var(--ud-accent)}
+  .pal-item.active{outline:2px solid var(--ud-accent);border-color:var(--ud-accent)}
+  .pal-ic{width:28px;height:28px;flex:none;background:#0c0f14;border-radius:7px;padding:2px}
+  .minibtn{width:100%;padding:7px;border-radius:8px;border:1px dashed var(--ud-border);background:transparent;color:var(--ud-muted);cursor:pointer;font-size:12px}
+  .minibtn:hover{color:var(--ud-text);border-color:var(--ud-accent)}
+  /* --- Panneau propriétés droit --- */
+  .ud-right{position:absolute;top:64px;right:12px;width:300px;max-height:calc(100% - 150px);
+      display:none;flex-direction:column;overflow:hidden;z-index:15}
+  .ud-right.show{display:flex}
+  .field{margin-bottom:9px}
+  .field label{display:block;font-size:11px;color:var(--ud-muted);margin-bottom:3px}
+  .field input,.field select,.field textarea{width:100%;padding:7px;border:1px solid var(--ud-border);border-radius:8px;
+      font-size:12px;background:var(--ud-panel2);color:var(--ud-text);outline:none}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--ud-accent)}
   .icgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:6px}
-  .icg{border:1.5px solid #e2e8ec;border-radius:7px;padding:4px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  .icg.active{outline:2px solid #1A7A6D;background:#eaf5f2}
+  .icg{border:1px solid var(--ud-border);border-radius:8px;padding:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;background:#0c0f14}
+  .icg.active{outline:2px solid var(--ud-accent)}
   .icg svg{width:22px;height:22px}
-  .simcard{background:#0f1720;color:#dfe7ee;border-radius:10px;padding:10px;margin-top:6px}
-  .simrow{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px solid #22303c;font-size:12px}
+  .simcard{background:#0c1016;border:1px solid var(--ud-border);border-radius:10px;padding:10px;margin-top:6px}
+  .simrow{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;border-bottom:1px solid var(--ud-border);font-size:12px;color:var(--ud-muted)}
   .simrow b{font-size:13px;color:#fff}
-  .simsub{font-size:10px;color:#8aa0b2}
+  .simsub{font-size:10px;color:#6f7a86}
   .dori-tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;color:#fff;font-weight:700}
-  #wifiTip{position:absolute;pointer-events:none;background:#0f1720;color:#fff;font-size:11px;padding:5px 8px;border-radius:6px;display:none;z-index:50;white-space:nowrap}
+  hr{border:0;border-top:1px solid var(--ud-border);margin:10px 0}
+  /* --- Barre zoom flottante (bas-gauche) --- */
+  .ud-zoom{position:absolute;left:12px;bottom:56px;display:flex;flex-direction:column;gap:6px;z-index:20}
+  .ud-zoom .z{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px;
+      background:var(--ud-panel);border:1px solid var(--ud-border);cursor:pointer;font-size:15px;color:var(--ud-text)}
+  .ud-zoom .z.on{color:var(--ud-accent);border-color:var(--ud-accent)}
+  /* --- Barre d'outils (bas-centre) --- */
+  .ud-tools{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;align-items:center;gap:4px;
+      padding:6px;z-index:20}
+  .ud-tools .t{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;
+      background:transparent;border:1px solid transparent;cursor:pointer;color:var(--ud-text);font-size:15px}
+  .ud-tools .t:hover{background:var(--ud-panel2)}
+  .ud-tools .t.active{background:var(--ud-accent);color:#fff}
+  .ud-tools .sep{width:1px;height:24px;background:var(--ud-border);margin:0 4px}
+  .ud-tools .addbtn{display:flex;align-items:center;gap:8px;padding:0 14px;height:38px;border-radius:9px;
+      background:var(--ud-panel2);border:1px solid var(--ud-border);cursor:pointer;color:var(--ud-text);font-size:13px;font-weight:600}
+  /* --- Légende couverture (bas-droite) --- */
+  .ud-cov{position:absolute;right:12px;bottom:12px;width:330px;padding:12px 14px;z-index:20;display:none}
+  .ud-cov.show{display:block}
+  .ud-cov .h{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;margin-bottom:8px}
+  .ud-cov .bands{margin-left:auto;display:flex;gap:10px;font-size:12px;color:var(--ud-muted)}
+  .ud-cov .bands b{cursor:pointer}
+  .ud-cov .bands b.on{color:var(--ud-accent)}
+  .ud-grad{height:8px;border-radius:5px;background:linear-gradient(90deg,#c62828,#ef6c00,#f9a825,#8bc34a,#1b7a3d)}
+  .ud-cov .lb{display:flex;justify-content:space-between;font-size:11px;color:var(--ud-muted);margin-top:4px}
+  /* --- Barre d'échelle (bas-gauche du canvas) --- */
+  .ud-scale{position:absolute;left:64px;bottom:16px;display:flex;flex-direction:column;align-items:center;gap:2px;z-index:18;color:var(--ud-muted);font-size:11px}
+  .ud-scale .bar{height:6px;border-left:2px solid var(--ud-muted);border-right:2px solid var(--ud-muted);border-bottom:2px solid var(--ud-muted)}
+  /* overlay modale */
+  .imp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:9000}
+  .imp-overlay.on{display:flex}
+  .imp-modal{background:var(--ud-panel);border:1px solid var(--ud-border);border-radius:12px;max-width:520px;width:92%;max-height:80vh;overflow:auto;padding:18px 20px;color:var(--ud-text)}
+  .al{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border-radius:8px;margin-bottom:6px;font-size:13px}
+  .al.error{background:#3a1f1f;color:#ff9a9a}.al.warn{background:#3a2f1a;color:#ffcf87}
+  .al.info{background:#1a2a3a;color:#9fc6f0}.al.ok{background:#1a3326;color:#8fe0ad}
+  #wifiTip{position:absolute;pointer-events:none;background:#0c0f14;border:1px solid var(--ud-border);color:#fff;font-size:11px;padding:5px 8px;border-radius:7px;display:none;z-index:50;white-space:nowrap}
+  #covPop{position:absolute;left:60px;bottom:150px;width:200px;padding:10px;z-index:25;display:none}
+  #covPop.show{display:block}
 </style>
 
-<div class="topbar">
-  <a href="/implantation" class="imp-btn">← Études</a>
-  <strong style="font-size:16px">🗺️ {{ study.title }}</strong>
-  <span style="display:flex;align-items:center;gap:4px">
-    <span style="font-size:12px;color:#666">Niveau :</span>
-    <select id="lvlSel" class="stpill" title="Niveau / étage">
-      {% for lv in levels %}<option value="{{ lv.id }}"{% if lv.id == current_level %} selected{% endif %}>{{ lv.name }}{% if not lv.has_plan %} (sans plan){% endif %}</option>{% endfor %}
-    </select>
-    <button class="imp-btn" id="btnAddLvl" title="Ajouter un niveau / étage" style="padding:4px 8px">＋</button>
-    {% if current_level != 'base' %}<button class="imp-btn" id="btnRenLvl" title="Renommer ce niveau" style="padding:4px 8px">✎</button>
-    <button class="imp-btn warn" id="btnDelLvl" title="Supprimer ce niveau" style="padding:4px 8px">🗑️</button>{% endif %}
-  </span>
-  <span class="badge-scale" id="scaleBadge">Échelle : non calibrée</span>
-  <span style="flex:1"></span>
-  <button class="imp-btn" id="btnDori" title="Afficher les zones DORI des caméras">🎯 DORI</button>
-  <button class="imp-btn" id="btnWifi" title="Carte de couverture WiFi">📶 Signal WiFi</button>
-  <select id="stSel" class="stpill" title="Statut de l'étude">
-    <option>Brouillon</option><option>En étude</option><option>À valider</option><option>Validé</option><option>Publié</option>
-  </select>
-  <button class="imp-btn" id="btnControls" title="Contrôles de cohérence">🔎 Contrôles</button>
-  <button class="imp-btn" id="btnCalibrate" title="Cliquez 2 points de distance connue">📏 Calibrer</button>
-  <button class="imp-btn" id="btnSave">💾 Enregistrer</button>
-  <button class="imp-btn" id="btnPublish" title="Figer une version publiée">📌 Publier</button>
-  <a class="imp-btn" href="/implantation/{{ study.id }}/views" title="Topologie, baie, 3D">🗂️ Vues</a>
-  <a class="imp-btn primary" href="/implantation/{{ study.id }}/pdf" target="_blank">📄 Dossier PDF</a>
-</div>
+<div class="ud" id="udApp">
+  <svg id="impSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="wifiTip"></div>
 
-<div class="imp-wrap">
-  <!-- Panneau gauche -->
-  <div class="imp-col imp-left">
-    <div class="imp-hd">🧩 Systèmes / calques</div>
-    <div class="imp-body">
+  <!-- Barre supérieure -->
+  <div class="ud-top">
+    <div class="ud-pill">
+      <span style="color:var(--ud-muted);font-size:14px">🗂️</span>
+      <select id="lvlSel" title="Niveau / étage">
+        {% for lv in levels %}<option value="{{ lv.id }}"{% if lv.id == current_level %} selected{% endif %}>{{ lv.name }}{% if not lv.has_plan %} (sans plan){% endif %}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="ud-ico" id="btnAddLvl" title="Ajouter un niveau">＋</div>
+    {% if current_level != 'base' %}<div class="ud-ico" id="btnRenLvl" title="Renommer">✎</div>
+    <div class="ud-ico" id="btnDelLvl" title="Supprimer ce niveau" style="color:#ff8a8a">🗑️</div>{% endif %}
+
+    <div class="ud-seg" id="modeSeg">
+      <button data-mode="wifi"><span>◎</span> WiFi</button>
+      <button data-mode="cam"><span>🎥</span> Caméras</button>
+      <button data-mode="off" class="active"><span>⦸</span> Hors</button>
+    </div>
+
+    <div class="ud-actions">
+      <select id="stSel" class="ud-status" title="Statut">
+        <option>Brouillon</option><option>En étude</option><option>À valider</option><option>Validé</option><option>Publié</option>
+      </select>
+      <button class="ud-btn" id="btnControls">🔎 Contrôles</button>
+      <button class="ud-btn" id="btnSave">💾 Enregistrer</button>
+      <button class="ud-btn" id="btnPublish">📌 Publier</button>
+      <a class="ud-btn" href="/implantation/{{ study.id }}/views" title="Topologie, baie, 3D">🗂️ Vues</a>
+      <a class="ud-btn accent" href="/implantation/{{ study.id }}/pdf" target="_blank">📄 PDF</a>
+    </div>
+  </div>
+
+  <!-- Rail gauche -->
+  <div class="ud-rail">
+    <div class="r active" data-panel="layers" title="Systèmes / calques">🗂️</div>
+    <div class="r" data-panel="devices" title="Ajouter des appareils">➕</div>
+    <div class="r" id="railFit" title="Ajuster">⤢</div>
+  </div>
+
+  <!-- Panneau gauche : Calques -->
+  <div class="ud-left ud-float" id="panelLayers">
+    <div class="ud-lh">🧩 Systèmes / calques</div>
+    <div class="ud-lb">
       <div id="sysList"></div>
-      <button class="imp-btn" style="width:100%;margin-top:6px" id="btnAddSys">＋ Ajouter un système</button>
+      <button class="minibtn" id="btnAddSys">＋ Ajouter un système</button>
     </div>
-    <div class="imp-hd">📦 Équipements</div>
-    <div class="imp-body" style="flex:1">
+  </div>
+
+  <!-- Panneau gauche : Appareils -->
+  <div class="ud-left ud-float" id="panelDevices" style="display:none">
+    <div class="ud-lh">📦 Appareils <span style="font-weight:400;color:var(--ud-muted);font-size:11px" id="devSysName"></span></div>
+    <div class="ud-lb">
       <div id="palette"></div>
-      <div style="font-size:11px;color:#888;margin-top:4px">Choisissez un équipement puis cliquez sur le plan.</div>
-    </div>
-    <div class="imp-hd">🛠️ Outils</div>
-    <div class="imp-body">
-      <button class="imp-btn tool active" data-tool="select" style="width:100%;margin-bottom:5px">🖱️ Sélection / déplacer</button>
-      <button class="imp-btn tool" data-tool="liaison" style="width:100%">🔌 Liaison / câblage</button>
+      <div class="simsub" style="margin-top:4px">Choisissez un système à gauche, puis un appareil, puis cliquez sur le plan.</div>
     </div>
   </div>
 
-  <!-- Zone centrale -->
-  <div class="imp-col imp-center">
-    {% if not study.has_plan %}
-    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;text-align:center">
-      <div style="font-size:15px;color:#555">Aucun plan chargé pour cette étude.</div>
-      <form method="post" action="/implantation/{{ study.id }}/plan?level={{ current_level }}" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:8px;align-items:center">
-        <input type="file" name="plan" accept="image/*,application/pdf" required style="padding:8px;border:1.5px solid #ddd;border-radius:7px">
-        <button type="submit" class="imp-btn primary">📤 Charger le plan (image ou PDF)</button>
-      </form>
-    </div>
-    {% else %}
-    <svg id="impSvg" xmlns="http://www.w3.org/2000/svg"></svg>
-    <div id="wifiTip"></div>
-    <div style="position:absolute;left:8px;bottom:8px;display:flex;gap:6px">
-      <button class="imp-btn" id="zoomIn">＋</button>
-      <button class="imp-btn" id="zoomOut">－</button>
-      <button class="imp-btn" id="zoomFit">⤢ Ajuster</button>
-      <form method="post" action="/implantation/{{ study.id }}/plan?level={{ current_level }}" enctype="multipart/form-data" style="display:inline">
-        <label class="imp-btn" style="cursor:pointer">🔄 Remplacer le plan<input type="file" name="plan" accept="image/*,application/pdf" onchange="this.form.submit()" style="display:none"></label>
-      </form>
-    </div>
-    {% endif %}
+  <!-- Panneau propriétés droit -->
+  <div class="ud-right ud-float" id="rightPanel">
+    <div class="ud-lh">📋 Propriétés <span id="propClose" style="cursor:pointer;color:var(--ud-muted)">✕</span></div>
+    <div class="ud-lb" id="propPanel"></div>
   </div>
 
-  <!-- Panneau droit -->
-  <div class="imp-col imp-right">
-    <div class="imp-hd">📋 Propriétés</div>
-    <div class="imp-body" style="flex:1" id="propPanel">
-      <div style="color:#999">Sélectionnez un équipement sur le plan pour voir et modifier ses propriétés.</div>
-    </div>
+  <!-- Barre zoom flottante -->
+  <div class="ud-zoom">
+    <div class="z" id="btn3D" title="Vue 3D">3D</div>
+    <div class="z" id="btnWifiZ" title="Signal WiFi">〰️</div>
+    <div class="z" id="btnCovSet" title="Paramètres de couverture">⚙️</div>
+    <div class="z" id="btnUndo" title="Annuler">↶</div>
+    <div class="z" id="btnRedo" title="Rétablir">↷</div>
+    <div class="z" id="zoomFit" title="Ajuster">⤢</div>
+    <div class="z" id="zoomIn">＋</div>
+    <div class="z" id="zoomOut">－</div>
   </div>
+
+  <!-- Popover paramètres couverture -->
+  <div class="ud-float" id="covPop">
+    <div style="font-size:12px;font-weight:600;margin-bottom:6px">Environnement WiFi</div>
+    <select id="covEnv" class="ud-status" style="width:100%">
+      <option value="2.5">Espace ouvert</option>
+      <option value="3.0" selected>Bureau / cloisons légères</option>
+      <option value="3.6">Cloisons lourdes / béton</option>
+      <option value="4.0">Bâtiment dense</option>
+    </select>
+    <div class="simsub" style="margin-top:6px">S'applique à la carte de couverture WiFi.</div>
+  </div>
+
+  <!-- Barre d'échelle -->
+  <div class="ud-scale" id="scaleBox" style="display:none">
+    <div style="font-weight:600" id="scaleLabel">— m</div>
+    <div class="bar" id="scaleBar" style="width:90px"></div>
+  </div>
+
+  <!-- Barre d'outils bas -->
+  <div class="ud-tools ud-float">
+    <div class="t tool active" data-tool="select" title="Sélection / déplacer">🖱️</div>
+    <div class="t tool" data-tool="pan" title="Déplacer la vue (main)">✋</div>
+    <div class="sep"></div>
+    <div class="t tool" data-tool="liaison" title="Liaison / câblage">🔌</div>
+    <div class="t" id="btnCalibrate" title="Calibrer l'échelle">📏</div>
+    <div class="sep"></div>
+    <div class="addbtn" id="btnAddDev">📡 Ajouter des appareils</div>
+  </div>
+
+  <!-- Légende couverture -->
+  <div class="ud-cov ud-float" id="covLegend">
+    <div class="h">Couverture primaire
+      <span class="bands" id="bandSel">
+        <b data-b="2.4">2,4 GHz</b><b data-b="5" class="on">5 GHz</b><b data-b="6">6 GHz</b>
+      </span>
+    </div>
+    <div class="ud-grad"></div>
+    <div class="lb"><span>Faible</span><span>Fort</span></div>
+  </div>
+
+  {% if not study.has_plan %}
+  <!-- Aucun plan -->
+  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:5">
+    <div style="font-size:15px;color:var(--ud-muted)">Aucun plan chargé pour ce niveau.</div>
+    <form method="post" action="/implantation/{{ study.id }}/plan?level={{ current_level }}" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:8px;align-items:center">
+      <input type="file" name="plan" accept="image/*,application/pdf" required style="padding:8px;border:1px solid var(--ud-border);border-radius:8px;background:var(--ud-panel2);color:var(--ud-text)">
+      <button type="submit" class="ud-btn accent">📤 Charger le plan (image ou PDF)</button>
+    </form>
+  </div>
+  {% else %}
+  <form method="post" action="/implantation/{{ study.id }}/plan?level={{ current_level }}" enctype="multipart/form-data" style="position:absolute;right:12px;bottom:70px;z-index:18">
+    <label class="ud-btn" style="cursor:pointer">🔄 Remplacer le plan<input type="file" name="plan" accept="image/*,application/pdf" onchange="this.form.submit()" style="display:none"></label>
+  </form>
+  {% endif %}
 </div>
 
+<!-- overlay contrôles -->
 <div class="imp-overlay" id="ovl"><div class="imp-modal">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-    <strong id="ovlTitle" style="font-size:15px;color:#1A7A6D">Contrôles</strong>
-    <button class="imp-btn" onclick="document.getElementById('ovl').classList.remove('on')">✕</button>
+    <strong id="ovlTitle" style="font-size:15px;color:var(--ud-accent)">Contrôles</strong>
+    <button class="ud-btn" onclick="document.getElementById('ovl').classList.remove('on')">✕</button>
   </div>
   <div id="ovlBody"></div>
 </div></div>
@@ -146,61 +270,52 @@ const PLAN_IMG = {{ plan_img_url|tojson }};
 let S = {{ scene_json|safe }};
 if(!S || typeof S !== 'object') S = {};
 S.systems = S.systems || [
-  {id:'sys_video', name:'Vidéosurveillance', color:'#c0392b', visible:true, coverage:'cone', icon:'cam_dome'},
-  {id:'sys_wifi', name:'Wi-Fi', color:'#2b6cb0', visible:true, coverage:'circle', icon:'ap'},
-  {id:'sys_acces', name:"Contrôle d'accès", color:'#7b1fa2', visible:true, coverage:'none', icon:'reader_badge'},
-  {id:'sys_intrusion', name:'Intrusion', color:'#e8672a', visible:true, coverage:'circle', icon:'motion_pir'},
-  {id:'sys_incendie', name:'Détection incendie', color:'#b8231b', visible:true, coverage:'circle', icon:'smoke'},
-  {id:'sys_sono', name:'Sonorisation', color:'#2e7d32', visible:true, coverage:'circle', icon:'speaker'},
-  {id:'sys_reseau', name:'Réseau', color:'#607d8b', visible:true, coverage:'none', icon:'switch'}
+  {id:'sys_video', name:'Vidéosurveillance', color:'#e05656', visible:true, coverage:'cone', icon:'cam_dome'},
+  {id:'sys_wifi', name:'Wi-Fi', color:'#2f8bff', visible:true, coverage:'circle', icon:'ap'},
+  {id:'sys_acces', name:"Contrôle d'accès", color:'#b06cff', visible:true, coverage:'none', icon:'reader_badge'},
+  {id:'sys_intrusion', name:'Intrusion', color:'#ff9d4d', visible:true, coverage:'circle', icon:'motion_pir'},
+  {id:'sys_incendie', name:'Détection incendie', color:'#ff6b6b', visible:true, coverage:'circle', icon:'smoke'},
+  {id:'sys_sono', name:'Sonorisation', color:'#4caf50', visible:true, coverage:'circle', icon:'speaker'},
+  {id:'sys_reseau', name:'Réseau', color:'#8b95a1', visible:true, coverage:'none', icon:'switch'}
 ];
 S.objects = S.objects || [];
 S.scale = S.scale || {px_per_m:null};
 S.env = S.env || {lux:10000, noise:35};
 
-/* ===================== BIBLIOTHÈQUE D'ICÔNES SVG ===================== */
+/* ===================== ICÔNES SVG ===================== */
 const ICONS = {
-  // --- Vidéosurveillance ---
-  cam_dome:  (c)=>`<path d="M -10 4 A 10 10 0 0 1 10 4 Z" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="1" r="3" fill="#fff"/>`,
-  cam_bullet:(c)=>`<rect x="-9" y="-5" width="12" height="10" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="6" cy="0" r="3.4" fill="#fff" stroke="${c}" stroke-width="1.4"/><rect x="-5" y="-9" width="6" height="3" rx="1" fill="${c}"/>`,
-  cam_ptz:   (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="0" r="3.4" fill="#fff"/><path d="M 6 -6 A 8 8 0 0 1 7 2" fill="none" stroke="#fff" stroke-width="1.6"/>`,
-  cam_fisheye:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="0" r="5.5" fill="none" stroke="#fff" stroke-width="1.2"/><circle cx="0" cy="0" r="2" fill="#fff"/>`,
-  cam_thermal:(c)=>`<rect x="-9" y="-6" width="12" height="12" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="6.5" cy="0" r="3.4" fill="#fff"/><path d="M -6 3 q 2 -4 4 0" fill="none" stroke="#fff" stroke-width="1.3"/>`,
-  camera:    (c)=>`<rect x="-9" y="-6" width="12" height="12" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="6.5" cy="0" r="3.6" fill="#fff" stroke="${c}" stroke-width="1.6"/>`,
-  nvr:       (c)=>`<rect x="-10" y="-6" width="20" height="12" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="-5" cy="0" r="2" fill="#fff"/><rect x="0" y="-2" width="7" height="1.6" fill="#fff"/><rect x="0" y="1.5" width="7" height="1.6" fill="#fff"/>`,
-  // --- Wi-Fi / réseau ---
+  cam_dome:  (c)=>`<path d="M -10 4 A 10 10 0 0 1 10 4 Z" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="1" r="3" fill="#0b0d11"/>`,
+  cam_bullet:(c)=>`<rect x="-9" y="-5" width="12" height="10" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="6" cy="0" r="3.4" fill="#0b0d11"/><rect x="-5" y="-9" width="6" height="3" rx="1" fill="${c}"/>`,
+  cam_ptz:   (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="0" r="3.4" fill="#0b0d11"/><path d="M 6 -6 A 8 8 0 0 1 7 2" fill="none" stroke="#0b0d11" stroke-width="1.6"/>`,
+  cam_fisheye:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="0" r="5.5" fill="none" stroke="#0b0d11" stroke-width="1.2"/><circle cx="0" cy="0" r="2" fill="#0b0d11"/>`,
+  cam_thermal:(c)=>`<rect x="-9" y="-6" width="12" height="12" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="6.5" cy="0" r="3.4" fill="#0b0d11"/><path d="M -6 3 q 2 -4 4 0" fill="none" stroke="#0b0d11" stroke-width="1.3"/>`,
+  camera:    (c)=>`<rect x="-9" y="-6" width="12" height="12" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="6.5" cy="0" r="3.6" fill="#0b0d11"/>`,
+  nvr:       (c)=>`<rect x="-10" y="-6" width="20" height="12" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="-5" cy="0" r="2" fill="#0b0d11"/><rect x="0" y="-2" width="7" height="1.6" fill="#0b0d11"/><rect x="0" y="1.5" width="7" height="1.6" fill="#0b0d11"/>`,
   ap:     (c)=>`<circle cx="0" cy="5" r="2.6" fill="${c}"/><path d="M -6 3 A 6 6 0 0 1 6 3" fill="none" stroke="${c}" stroke-width="2"/><path d="M -9.5 1 A 9.5 9.5 0 0 1 9.5 1" fill="none" stroke="${c}" stroke-width="2"/>`,
   wifi:   (c)=>`<circle cx="0" cy="5" r="2.6" fill="${c}"/><path d="M -6 3 A 6 6 0 0 1 6 3" fill="none" stroke="${c}" stroke-width="2"/><path d="M -9.5 1 A 9.5 9.5 0 0 1 9.5 1" fill="none" stroke="${c}" stroke-width="2"/>`,
-  switch: (c)=>`<rect x="-10" y="-5" width="20" height="10" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><path d="M -6 0 h 5 l -2 -2 m 2 2 l -2 2 M 6 0 h -5 l 2 -2 m -2 2 l 2 2" stroke="#fff" stroke-width="1.3" fill="none"/>`,
-  socket: (c)=>`<rect x="-7" y="-7" width="14" height="14" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-3" y="-3" width="2" height="4" fill="#fff"/><rect x="1" y="-3" width="2" height="4" fill="#fff"/>`,
-  network:(c)=>`<rect x="-9" y="-6" width="18" height="12" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-6" y="1" width="2" height="3.4" fill="#fff"/><rect x="-1" y="1" width="2" height="3.4" fill="#fff"/><rect x="4" y="1" width="2" height="3.4" fill="#fff"/>`,
-  rack:   (c)=>`<rect x="-7" y="-9" width="14" height="18" rx="1.5" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-4" y="-6" width="8" height="2" fill="#fff"/><rect x="-4" y="-1.5" width="8" height="2" fill="#fff"/><rect x="-4" y="3" width="8" height="2" fill="#fff"/>`,
-  // --- Contrôle d'accès ---
-  reader_badge:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="3" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-3.5" y="-5" width="7" height="4.5" rx="1" fill="#fff"/><circle cx="0" cy="3.5" r="1.6" fill="#fff"/>`,
-  reader_keypad:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="-2.5" cy="-4" r="1" fill="#fff"/><circle cx="2.5" cy="-4" r="1" fill="#fff"/><circle cx="-2.5" cy="0" r="1" fill="#fff"/><circle cx="2.5" cy="0" r="1" fill="#fff"/><circle cx="-2.5" cy="4" r="1" fill="#fff"/><circle cx="2.5" cy="4" r="1" fill="#fff"/>`,
-  reader_bio:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="3" fill="${c}" stroke="#fff" stroke-width="1.5"/><path d="M -3 2 a 3 4 0 0 1 6 0 M -1.6 2 a 1.6 3 0 0 1 3.2 0" fill="none" stroke="#fff" stroke-width="1.2"/><path d="M -3 -3 a 3 3 0 0 1 6 0" fill="none" stroke="#fff" stroke-width="1.2"/>`,
-  reader:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="3" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="-3.5" r="2.4" fill="#fff"/><rect x="-1.5" y="-0.5" width="3" height="5" fill="#fff"/>`,
+  switch: (c)=>`<rect x="-10" y="-5" width="20" height="10" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><path d="M -6 0 h 5 l -2 -2 m 2 2 l -2 2 M 6 0 h -5 l 2 -2 m -2 2 l 2 2" stroke="#0b0d11" stroke-width="1.3" fill="none"/>`,
+  socket: (c)=>`<rect x="-7" y="-7" width="14" height="14" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><rect x="-3" y="-3" width="2" height="4" fill="#0b0d11"/><rect x="1" y="-3" width="2" height="4" fill="#0b0d11"/>`,
+  network:(c)=>`<rect x="-9" y="-6" width="18" height="12" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><rect x="-6" y="1" width="2" height="3.4" fill="#0b0d11"/><rect x="-1" y="1" width="2" height="3.4" fill="#0b0d11"/><rect x="4" y="1" width="2" height="3.4" fill="#0b0d11"/>`,
+  rack:   (c)=>`<rect x="-7" y="-9" width="14" height="18" rx="1.5" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><rect x="-4" y="-6" width="8" height="2" fill="#0b0d11"/><rect x="-4" y="-1.5" width="8" height="2" fill="#0b0d11"/><rect x="-4" y="3" width="8" height="2" fill="#0b0d11"/>`,
+  reader_badge:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="3" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><rect x="-3.5" y="-5" width="7" height="4.5" rx="1" fill="#0b0d11"/><circle cx="0" cy="3.5" r="1.6" fill="#0b0d11"/>`,
+  reader_keypad:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="-2.5" cy="-4" r="1" fill="#0b0d11"/><circle cx="2.5" cy="-4" r="1" fill="#0b0d11"/><circle cx="-2.5" cy="0" r="1" fill="#0b0d11"/><circle cx="2.5" cy="0" r="1" fill="#0b0d11"/><circle cx="-2.5" cy="4" r="1" fill="#0b0d11"/><circle cx="2.5" cy="4" r="1" fill="#0b0d11"/>`,
+  reader_bio:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="3" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><path d="M -3 2 a 3 4 0 0 1 6 0 M -1.6 2 a 1.6 3 0 0 1 3.2 0" fill="none" stroke="#0b0d11" stroke-width="1.2"/><path d="M -3 -3 a 3 3 0 0 1 6 0" fill="none" stroke="#0b0d11" stroke-width="1.2"/>`,
+  reader:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="3" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="-3.5" r="2.4" fill="#0b0d11"/><rect x="-1.5" y="-0.5" width="3" height="5" fill="#0b0d11"/>`,
   door:(c)=>`<rect x="-6" y="-9" width="12" height="18" rx="1" fill="none" stroke="${c}" stroke-width="2"/><path d="M -6 -9 A 12 18 0 0 1 6 9" fill="none" stroke="${c}" stroke-width="1.3" stroke-dasharray="2 2"/><circle cx="-3" cy="0" r="1.3" fill="${c}"/>`,
-  // --- Intrusion ---
-  motion_pir:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-4" y="-3" width="8" height="6" rx="1.2" fill="#fff"/><path d="M -6 6 l 2 -2 M 0 8 v -2 M 6 6 l -2 -2" stroke="${c}" stroke-width="1.2"/>`,
-  motion_dual:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-4.5" y="-3" width="4" height="6" rx="1" fill="#fff"/><rect x="0.5" y="-3" width="4" height="6" rx="1" fill="#fff"/>`,
-  glassbreak:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><path d="M -4 -4 L 0 0 L -2 4 M 0 0 L 4 -3 M 0 0 L 3 4" stroke="#fff" stroke-width="1.3" fill="none"/>`,
-  motion:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-4" y="-3" width="8" height="6" rx="1.2" fill="#fff"/>`,
-  // --- Incendie ---
-  smoke:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="0" r="3" fill="#fff"/>`,
-  heat: (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><path d="M 0 -4 q 3 3 0 8 q -3 -5 0 -8" fill="#fff"/>`,
-  callpoint:(c)=>`<rect x="-8" y="-8" width="16" height="16" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="0" r="3" fill="#fff"/>`,
-  siren:(c)=>`<polygon points="0,-9 -8,7 8,7" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="1.5" r="2" fill="#fff"/>`,
-  horn: (c)=>`<rect x="-7" y="-4" width="4" height="8" fill="${c}"/><polygon points="-3,-4 6,-9 6,9 -3,4" fill="${c}" stroke="#fff" stroke-width="1"/><path d="M 8 -4 q 3 4 0 8" fill="none" stroke="${c}" stroke-width="1.4"/>`,
-  // --- Sonorisation ---
-  speaker:(c)=>`<rect x="-7" y="-4" width="5" height="8" fill="${c}" stroke="#fff" stroke-width="1"/><polygon points="-2,-4 7,-9 7,9 -2,4" fill="${c}" stroke="#fff" stroke-width="1"/>`,
-  // --- Générique ---
-  sensor:(c)=>`<circle cx="0" cy="0" r="8" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="0" r="3" fill="#fff"/>`,
-  default:(c)=>`<circle cx="0" cy="0" r="8" fill="${c}" stroke="#fff" stroke-width="1.5"/>`
+  motion_pir:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><rect x="-4" y="-3" width="8" height="6" rx="1.2" fill="#0b0d11"/><path d="M -6 6 l 2 -2 M 0 8 v -2 M 6 6 l -2 -2" stroke="${c}" stroke-width="1.2"/>`,
+  motion_dual:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><rect x="-4.5" y="-3" width="4" height="6" rx="1" fill="#0b0d11"/><rect x="0.5" y="-3" width="4" height="6" rx="1" fill="#0b0d11"/>`,
+  glassbreak:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><path d="M -4 -4 L 0 0 L -2 4 M 0 0 L 4 -3 M 0 0 L 3 4" stroke="#0b0d11" stroke-width="1.3" fill="none"/>`,
+  motion:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><rect x="-4" y="-3" width="8" height="6" rx="1.2" fill="#0b0d11"/>`,
+  smoke:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="0" r="3" fill="#0b0d11"/>`,
+  heat: (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><path d="M 0 -4 q 3 3 0 8 q -3 -5 0 -8" fill="#0b0d11"/>`,
+  callpoint:(c)=>`<rect x="-8" y="-8" width="16" height="16" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="0" r="3" fill="#0b0d11"/>`,
+  siren:(c)=>`<polygon points="0,-9 -8,7 8,7" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="1.5" r="2" fill="#0b0d11"/>`,
+  horn: (c)=>`<rect x="-7" y="-4" width="4" height="8" fill="${c}"/><polygon points="-3,-4 6,-9 6,9 -3,4" fill="${c}" stroke="#0b0d11" stroke-width="1"/><path d="M 8 -4 q 3 4 0 8" fill="none" stroke="${c}" stroke-width="1.4"/>`,
+  speaker:(c)=>`<rect x="-7" y="-4" width="5" height="8" fill="${c}" stroke="#0b0d11" stroke-width="1"/><polygon points="-2,-4 7,-9 7,9 -2,4" fill="${c}" stroke="#0b0d11" stroke-width="1"/>`,
+  sensor:(c)=>`<circle cx="0" cy="0" r="8" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="0" r="3" fill="#0b0d11"/>`,
+  default:(c)=>`<circle cx="0" cy="0" r="8" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/>`
 };
 function iconSvg(typ,c){ return (ICONS[typ]||ICONS.default)(c); }
-
-/* famille d'un type (pour l'affichage des propriétés & regroupements) */
 function famOf(t){
   if(!t) return 'other';
   if(t.indexOf('cam')===0||t==='camera') return 'camera';
@@ -210,8 +325,6 @@ function famOf(t){
   if(t==='switch'||t==='socket'||t==='rack'||t==='nvr'||t==='network') return 'network';
   return 'other';
 }
-
-/* Palette : plusieurs variantes par système */
 const PALETTE = {
   sys_video:    [{t:'cam_dome',l:'Caméra dôme',cov:'cone'},{t:'cam_bullet',l:'Caméra bullet',cov:'cone'},{t:'cam_ptz',l:'Caméra PTZ',cov:'cone'},{t:'cam_fisheye',l:'Fisheye 360°',cov:'circle'},{t:'cam_thermal',l:'Thermique',cov:'cone'},{t:'nvr',l:'Enregistreur NVR',cov:'none'}],
   sys_wifi:     [{t:'ap',l:"Point d'accès",cov:'circle'},{t:'switch',l:'Switch',cov:'none'}],
@@ -226,118 +339,87 @@ const GENERIC = ALL_TYPES.map(t=>({t:t,l:t,cov:'none'}));
 function paletteFor(sysId){ return PALETTE[sysId] || GENERIC; }
 
 /* ===================== ÉTAT ===================== */
-const SVGNS='http://www.w3.org/2000/svg';
 let svg = document.getElementById('impSvg');
 let tool='select', activeSys=S.systems[0].id, activeType=null, selId=null;
 let view={x:0,y:0,w:PLAN_W,h:PLAN_H};
 let calib={on:false, pts:[]};
 let liaison={a:null};
+let mode='off';          // wifi | cam | off
+let viewBand='5';        // 2.4 | 5 | 6
 let showDORI=false, showWifi=false;
 
 function uid(p){return p+'_'+Math.random().toString(36).slice(2,8)}
 function sysById(id){return S.systems.find(x=>x.id===id)||S.systems[0]}
 function objById(id){return S.objects.find(o=>o.id===id)}
-function setViewBox(){ if(svg) svg.setAttribute('viewBox', view.x+' '+view.y+' '+view.w+' '+view.h) }
+function setViewBox(){ if(svg) svg.setAttribute('viewBox', view.x+' '+view.y+' '+view.w+' '+view.h); updateScaleBar(); }
 function svgPoint(evt){ const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse()); }
 
-/* ===================== PHYSIQUE — CAMÉRA (DORI/PPM) ===================== */
+/* ===================== HISTORIQUE ===================== */
+let hist=[], hidx=-1;
+function pushHist(){ try{ hist=hist.slice(0,hidx+1); hist.push(JSON.stringify({o:S.objects, s:S.scale})); if(hist.length>40) hist.shift(); hidx=hist.length-1; }catch(e){} }
+function restoreHist(){ const snap=hist[hidx]; if(!snap) return; const d=JSON.parse(snap);
+  S.objects.length=0; d.o.forEach(x=>S.objects.push(x)); Object.keys(S.scale).forEach(k=>delete S.scale[k]); Object.assign(S.scale,d.s);
+  selId=null; renderObjects(); renderProps(); updateScaleBadge(); }
+function undo(){ if(hidx>0){ hidx--; restoreHist(); } }
+function redo(){ if(hidx<hist.length-1){ hidx++; restoreHist(); } }
+
+/* ===================== PHYSIQUE CAMÉRA ===================== */
 const SENSOR_W = {'1/4"':3.6,'1/3.6"':4.0,'1/3"':4.8,'1/2.9"':4.96,'1/2.8"':5.37,'1/2.7"':5.37,'1/2.5"':5.76,'1/2.3"':6.17,'1/2"':6.4,'1/1.8"':7.18,'1/1.7"':7.6,'1/1.2"':10.67,'2/3"':8.8,'1"':12.8};
-const DORI = [ // seuils EN 62676-4 (px/m)
-  {k:'Identification', ppm:250, col:'#1b5e20'},
-  {k:'Reconnaissance', ppm:125, col:'#2e7d32'},
-  {k:'Observation',    ppm:62,  col:'#f9a825'},
-  {k:'Détection',      ppm:25,  col:'#e65100'}
-];
-function camDefaults(o){
-  return {
-    focal:  parseFloat(o.cam_focal)||4,
-    sensor: o.cam_sensor||'1/2.8"',
-    resh:   parseFloat(o.cam_resh)||2688,
-    height: parseFloat(o.height_m)||3,
-    ir:     parseFloat(o.cam_ir)||30,
-    target: parseFloat(o.cam_target)||12
-  };
-}
+const DORI = [{k:'Identification',ppm:250,col:'#1b7a3d'},{k:'Reconnaissance',ppm:125,col:'#4caf50'},{k:'Observation',ppm:62,col:'#f9a825'},{k:'Détection',ppm:25,col:'#e8672a'}];
+function camDefaults(o){ return {focal:parseFloat(o.cam_focal)||4, sensor:o.cam_sensor||'1/2.8"', resh:parseFloat(o.cam_resh)||2688, height:parseFloat(o.height_m)||3, ir:parseFloat(o.cam_ir)||30, target:parseFloat(o.cam_target)||12}; }
 function camGeom(o){
   const p=camDefaults(o); const sw=SENSOR_W[p.sensor]||5.37;
-  const hfov = 2*Math.atan(sw/(2*p.focal))*180/Math.PI;
-  const th = Math.max(0.1, p.height-1.6); // hauteur relative sujet 1,6 m
-  // distance oblique pour chaque seuil ppm  s = resh*focal/(ppm*sw)
-  const bands = DORI.map(d=>{
-    const s = p.resh*p.focal/(d.ppm*sw);
-    const g = Math.sqrt(Math.max(0, s*s - th*th));
-    return {k:d.k, ppm:d.ppm, col:d.col, slant:s, ground:g};
-  });
-  // au point cible (distance sol)
-  const g=p.target; const s=Math.sqrt(g*g+th*th);
-  const ppmAt = p.resh*p.focal/(s*sw);
-  let cls='Hors DORI', clsCol='#777';
-  for(const d of DORI){ if(ppmAt>=d.ppm){ cls=d.k; clsCol=d.col; break; } }
-  const tilt = Math.atan(th/Math.max(0.1,g))*180/Math.PI;
-  return {hfov, bands, ppmAt, cls, clsCol, ground:g, slant:s, tilt, p};
+  const hfov=2*Math.atan(sw/(2*p.focal))*180/Math.PI;
+  const th=Math.max(0.1,p.height-1.6);
+  const bands=DORI.map(d=>{ const s=p.resh*p.focal/(d.ppm*sw); const g=Math.sqrt(Math.max(0,s*s-th*th)); return {k:d.k,ppm:d.ppm,col:d.col,slant:s,ground:g}; });
+  const g=p.target; const s=Math.sqrt(g*g+th*th); const ppmAt=p.resh*p.focal/(s*sw);
+  let cls='Hors DORI',clsCol='#777'; for(const d of DORI){ if(ppmAt>=d.ppm){ cls=d.k; clsCol=d.col; break; } }
+  const tilt=Math.atan(th/Math.max(0.1,g))*180/Math.PI;
+  return {hfov,bands,ppmAt,cls,clsCol,ground:g,slant:s,tilt,p};
 }
-
-/* ===================== PHYSIQUE — AUDIO (SPL / intelligibilité) ===================== */
+/* ===================== PHYSIQUE AUDIO ===================== */
 function audioSim(o){
-  const ref = parseFloat(o.spl_ref)||90;      // dB @ 1 m
-  const dist= parseFloat(o.audio_dist)||5;    // m
-  const noise=parseFloat(S.env.noise)||35;    // dB
-  const spl = ref - 20*Math.log10(Math.max(0.5,dist));
-  const snr = spl - noise;
-  // intelligibilité (courbe logistique calée sur SNR)
-  const intel = Math.round(100/(1+Math.exp(-(snr-2)/4)));
-  let cls;
-  if(snr>=15) cls='Excellent';
-  else if(snr>=10) cls='Très bon';
-  else if(snr>=5) cls='Bon';
-  else if(snr>=0) cls='Discours intelligible';
-  else cls='Difficilement intelligible';
-  return {spl:Math.round(spl), snr:Math.round(snr), intel:Math.max(0,Math.min(100,intel)), cls, noise};
+  const ref=parseFloat(o.spl_ref)||90; const dist=parseFloat(o.audio_dist)||5; const noise=parseFloat(S.env.noise)||35;
+  const spl=ref-20*Math.log10(Math.max(0.5,dist)); const snr=spl-noise;
+  const intel=Math.round(100/(1+Math.exp(-(snr-2)/4)));
+  let cls; if(snr>=15)cls='Excellent'; else if(snr>=10)cls='Très bon'; else if(snr>=5)cls='Bon'; else if(snr>=0)cls='Discours intelligible'; else cls='Difficilement intelligible';
+  return {spl:Math.round(spl),snr:Math.round(snr),intel:Math.max(0,Math.min(100,intel)),cls,noise};
 }
 function playAudioSim(intel){
   try{
     const ctx=new (window.AudioContext||window.webkitAudioContext)(); const dur=1.7;
     const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=170;
     const g=ctx.createGain(); g.gain.value=0;
-    const lfo=ctx.createOscillator(); lfo.frequency.value=4.2; const lg=ctx.createGain(); lg.gain.value=0.22;
-    lfo.connect(lg); lg.connect(g.gain);
-    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1600; bp.Q.value=0.6;
-    o.connect(bp); bp.connect(g);
+    const lfo=ctx.createOscillator(); lfo.frequency.value=4.2; const lg=ctx.createGain(); lg.gain.value=0.22; lfo.connect(lg); lg.connect(g.gain);
+    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1600; bp.Q.value=0.6; o.connect(bp); bp.connect(g);
     const master=ctx.createGain(); master.gain.value=0.5; g.connect(master); master.connect(ctx.destination);
     const nlen=Math.floor(ctx.sampleRate*dur); const nb=ctx.createBuffer(1,nlen,ctx.sampleRate); const nd=nb.getChannelData(0);
     for(let i=0;i<nlen;i++) nd[i]=Math.random()*2-1;
     const ns=ctx.createBufferSource(); ns.buffer=nb; const ng=ctx.createGain(); ng.gain.value=0.5*(1-intel/100);
     const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=2800; ns.connect(lp); lp.connect(ng); ng.connect(ctx.destination);
-    const t=ctx.currentTime; o.start(t); lfo.start(t); ns.start(t);
-    o.stop(t+dur); lfo.stop(t+dur); ns.stop(t+dur);
+    const t=ctx.currentTime; o.start(t); lfo.start(t); ns.start(t); o.stop(t+dur); lfo.stop(t+dur); ns.stop(t+dur);
     setTimeout(()=>{try{ctx.close()}catch(e){}}, (dur+0.3)*1000);
-  }catch(e){ alert('Lecture audio non supportée par ce navigateur.'); }
+  }catch(e){ alert('Lecture audio non supportée.'); }
 }
-
-/* ===================== PHYSIQUE — WIFI (RSSI, log-distance intérieur) ===================== */
-// RSSI(d) = Ptx - L0 - 10*n*log10(d), L0 = pertes espace libre à 1 m ; n = exposant du milieu
+/* ===================== PHYSIQUE WIFI ===================== */
+function bandMHz(b){ return b==='6'?5945:(b==='2.4'?2400:5000); }
 function wifiParams(o){
-  const ptx=parseFloat(o.wifi_ptx)||20; const fMHz=(o.wifi_band==='5')?5000:2400;
+  const ptx=parseFloat(o.wifi_ptx)||20; const fMHz=bandMHz(viewBand||o.wifi_band||'5');
   const n=parseFloat(o.wifi_n)||3.0; const L0=20*Math.log10(fMHz)-27.55;
   return {ptx,fMHz,n,L0};
 }
 function dForRssi(pr,rssi){ return Math.pow(10,(pr.ptx-pr.L0-rssi)/(10*pr.n)); }
-function wifiRadii(o){ const pr=wifiParams(o);
-  return { excellent:dForRssi(pr,-50), bon:dForRssi(pr,-60), moyen:dForRssi(pr,-67), faible:dForRssi(pr,-75), limite:dForRssi(pr,-82) };
-}
+function wifiRadii(o){ const pr=wifiParams(o); return {excellent:dForRssi(pr,-50),bon:dForRssi(pr,-60),moyen:dForRssi(pr,-67),faible:dForRssi(pr,-75),limite:dForRssi(pr,-82)}; }
 function wifiAt(x,y){
-  const ppm=S.scale.px_per_m; if(!ppm) return null;
-  let best=-200;
+  const ppm=S.scale.px_per_m; if(!ppm) return null; let best=-200;
   S.objects.forEach(o=>{ if(famOf(o.type)!=='wifi'||!sysById(o.system).visible) return;
-    const d=Math.max(0.5, Math.hypot(x-o.x,y-o.y)/ppm); const pr=wifiParams(o);
-    const rssi=pr.ptx-pr.L0-10*pr.n*Math.log10(d);
-    if(rssi>best) best=rssi;
-  });
+    const d=Math.max(0.5,Math.hypot(x-o.x,y-o.y)/ppm); const pr=wifiParams(o);
+    const rssi=pr.ptx-pr.L0-10*pr.n*Math.log10(d); if(rssi>best) best=rssi; });
   return best;
 }
 function wifiUsage(rssi){
   if(rssi>=-50) return {t:'Excellent',u:'Streaming 4K / visio HD',c:'#1b7a3d'};
-  if(rssi>=-60) return {t:'Bon',u:'HD, visio, navigation fluide',c:'#4caf50'};
+  if(rssi>=-60) return {t:'Bon',u:'HD, visio, navigation',c:'#8bc34a'};
   if(rssi>=-67) return {t:'Correct',u:'Navigation, e-mails',c:'#f9a825'};
   if(rssi>=-75) return {t:'Faible',u:'Débit réduit',c:'#ef6c00'};
   return {t:'Très faible',u:'Connexion instable',c:'#c62828'};
@@ -357,48 +439,40 @@ function renderSystems(){
 }
 function renderPalette(){
   const el=document.getElementById('palette'); el.innerHTML=''; const sys=sysById(activeSys);
+  document.getElementById('devSysName').textContent='· '+sys.name;
   paletteFor(activeSys).forEach(p=>{
-    const div=document.createElement('div');
-    div.className='pal-item'+(activeType&&activeType.t===p.t&&activeType.l===p.l?' active':'');
+    const div=document.createElement('div'); div.className='pal-item'+(activeType&&activeType.t===p.t&&activeType.l===p.l?' active':'');
     div.innerHTML='<svg class="pal-ic" viewBox="-14 -14 28 28">'+iconSvg(p.t,sys.color)+'</svg><span>'+p.l+'</span>';
-    div.onclick=()=>{ activeType=p; tool='place'; document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active')); renderPalette(); };
+    div.onclick=()=>{ activeType=p; tool='place'; setToolActive(null); renderPalette(); };
     el.appendChild(div);
   });
 }
 function coverPath(o){
-  const sys=sysById(o.system); const ppm=S.scale.px_per_m;
-  const shape=o.coverage||sys.coverage||'none';
-  if(shape==='none'||!ppm) return '';
-  const r=(o.radius_m||8)*ppm;
+  const sys=sysById(o.system); const ppm=S.scale.px_per_m; const shape=o.coverage||sys.coverage||'none';
+  if(shape==='none'||!ppm) return ''; const r=(o.radius_m||8)*ppm;
   if(shape==='circle') return '<circle cx="'+o.x+'" cy="'+o.y+'" r="'+r+'" fill="'+sys.color+'22" stroke="'+sys.color+'" stroke-width="1" stroke-dasharray="4 3"/>';
-  const ang=(o.angle||90)*Math.PI/180, dir=(o.orientation||0)*Math.PI/180;
-  const a1=dir-ang/2,a2=dir+ang/2;
-  const x1=o.x+r*Math.cos(a1),y1=o.y+r*Math.sin(a1),x2=o.x+r*Math.cos(a2),y2=o.y+r*Math.sin(a2);
-  const large=(ang>Math.PI)?1:0;
+  const ang=(o.angle||90)*Math.PI/180, dir=(o.orientation||0)*Math.PI/180, a1=dir-ang/2,a2=dir+ang/2;
+  const x1=o.x+r*Math.cos(a1),y1=o.y+r*Math.sin(a1),x2=o.x+r*Math.cos(a2),y2=o.y+r*Math.sin(a2),large=(ang>Math.PI)?1:0;
   return '<path d="M '+o.x+' '+o.y+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2+' Z" fill="'+sys.color+'22" stroke="'+sys.color+'" stroke-width="1" stroke-dasharray="4 3"/>';
 }
 function doriPath(o,band,dir,hfovDeg){
-  const ppm=S.scale.px_per_m; if(!ppm) return '';
-  const r=band.ground*ppm; if(r<=0) return '';
+  const ppm=S.scale.px_per_m; if(!ppm) return ''; const r=band.ground*ppm; if(r<=0) return '';
   const ang=hfovDeg*Math.PI/180, d0=dir*Math.PI/180, a1=d0-ang/2, a2=d0+ang/2;
-  const x1=o.x+r*Math.cos(a1),y1=o.y+r*Math.sin(a1),x2=o.x+r*Math.cos(a2),y2=o.y+r*Math.sin(a2);
-  const large=(ang>Math.PI)?1:0;
+  const x1=o.x+r*Math.cos(a1),y1=o.y+r*Math.sin(a1),x2=o.x+r*Math.cos(a2),y2=o.y+r*Math.sin(a2),large=(ang>Math.PI)?1:0;
   return '<path d="M '+o.x+' '+o.y+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2+' Z" fill="'+band.col+'55" stroke="'+band.col+'" stroke-width="0.8"/>';
 }
 function renderObjects(){
   let bg = HAS_PLAN ? '<image href="'+PLAN_IMG+'" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
   let cover='', dori='', wifi='', wifiDefs='', liaisons='', marks='';
   const ppm=S.scale.px_per_m;
-  // couche WiFi (sous tout)
   if(showWifi){
-    S.objects.forEach(o=>{ if(famOf(o.type)!=='wifi'||!sysById(o.system).visible) return;
-      if(!ppm) return; const R=wifiRadii(o); const gid='wg_'+o.id;
-      const rmax=R.limite*ppm;
+    S.objects.forEach(o=>{ if(famOf(o.type)!=='wifi'||!sysById(o.system).visible) return; if(!ppm) return;
+      const R=wifiRadii(o); const gid='wg_'+o.id; const rmax=R.limite*ppm;
       wifiDefs+='<radialGradient id="'+gid+'" cx="'+o.x+'" cy="'+o.y+'" r="'+rmax+'" gradientUnits="userSpaceOnUse">'
-        +'<stop offset="0%" stop-color="#1b7a3d" stop-opacity="0.45"/>'
-        +'<stop offset="'+(100*R.excellent/R.limite).toFixed(0)+'%" stop-color="#4caf50" stop-opacity="0.38"/>'
-        +'<stop offset="'+(100*R.bon/R.limite).toFixed(0)+'%" stop-color="#f9a825" stop-opacity="0.32"/>'
-        +'<stop offset="'+(100*R.moyen/R.limite).toFixed(0)+'%" stop-color="#ef6c00" stop-opacity="0.26"/>'
+        +'<stop offset="0%" stop-color="#1b7a3d" stop-opacity="0.5"/>'
+        +'<stop offset="'+(100*R.excellent/R.limite).toFixed(0)+'%" stop-color="#8bc34a" stop-opacity="0.42"/>'
+        +'<stop offset="'+(100*R.bon/R.limite).toFixed(0)+'%" stop-color="#f9a825" stop-opacity="0.34"/>'
+        +'<stop offset="'+(100*R.moyen/R.limite).toFixed(0)+'%" stop-color="#ef6c00" stop-opacity="0.28"/>'
         +'<stop offset="100%" stop-color="#c62828" stop-opacity="0.05"/></radialGradient>';
       wifi+='<circle cx="'+o.x+'" cy="'+o.y+'" r="'+rmax+'" fill="url(#'+gid+')"/>';
     });
@@ -407,28 +481,24 @@ function renderObjects(){
     const sys=sysById(o.system); if(!sys.visible) return;
     if(o.kind==='liaison'){
       const sel=(o.id===selId); let lbl='';
-      if(ppm){ const L=Math.hypot(o.x2-o.x,o.y2-o.y)/ppm; lbl='<text x="'+((o.x+o.x2)/2)+'" y="'+((o.y+o.y2)/2-6)+'" font-size="11" fill="#111" style="paint-order:stroke;stroke:#fff;stroke-width:3px">'+L.toFixed(1)+' m</text>'; }
+      if(ppm){ const L=Math.hypot(o.x2-o.x,o.y2-o.y)/ppm; lbl='<text x="'+((o.x+o.x2)/2)+'" y="'+((o.y+o.y2)/2-6)+'" font-size="11" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3px">'+L.toFixed(1)+' m</text>'; }
       liaisons+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer"><line x1="'+o.x+'" y1="'+o.y+'" x2="'+o.x2+'" y2="'+o.y2+'" stroke="'+sys.color+'" stroke-width="'+(sel?4:2.5)+'"'+(sel?' stroke-dasharray="6 3"':'')+'/><circle cx="'+o.x+'" cy="'+o.y+'" r="3.5" fill="'+sys.color+'"/><circle cx="'+o.x2+'" cy="'+o.y2+'" r="3.5" fill="'+sys.color+'"/>'+lbl+'</g>';
       return;
     }
-    // zones DORI (caméras) si activé ou sélectionné
     if(famOf(o.type)==='camera' && (showDORI || o.id===selId) && ppm){
-      const g=camGeom(o); const dir=o.orientation||0;
-      // du plus grand au plus petit pour empiler
-      g.bands.forEach(b=>{ dori+=doriPath(o,b,dir,g.hfov); });
-    } else {
-      cover+=coverPath(o);
-    }
-    const sel=(o.id===selId);
-    const typ=o.type||sys.icon||'default';
+      const g=camGeom(o); const dir=o.orientation||0; g.bands.forEach(b=>{ dori+=doriPath(o,b,dir,g.hfov); });
+    } else { cover+=coverPath(o); }
+    const sel=(o.id===selId); const typ=o.type||sys.icon||'default';
     marks+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
-      +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="15" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="3 2"/>':'')
+      +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="15" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/>':'')
       +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+')">'+iconSvg(typ,sys.color)+'</g>'
-      +'<text x="'+(o.x+13)+'" y="'+(o.y-11)+'" font-size="11" fill="#111" style="paint-order:stroke;stroke:#fff;stroke-width:3px">'+(o.ref||'')+'</text></g>';
+      +'<text x="'+(o.x+13)+'" y="'+(o.y-11)+'" font-size="11" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3px">'+(o.ref||'')+'</text></g>';
   });
-  const calibLayer = calib.pts.map(p=>'<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#e8672a"/>').join('');
-  const liaTmp = liaison.a ? '<circle cx="'+liaison.a.x+'" cy="'+liaison.a.y+'" r="5" fill="#e8672a"/>' : '';
-  svg.innerHTML = bg + '<defs>'+wifiDefs+'</defs>' + '<g>'+wifi+'</g>' + '<g>'+dori+'</g>' + '<g>'+cover+'</g>' + '<g>'+liaisons+'</g>' + '<g>'+marks+'</g>' + calibLayer + liaTmp;
+  const calibLayer = calib.pts.map(p=>'<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#2f8bff"/>').join('');
+  const liaTmp = liaison.a ? '<circle cx="'+liaison.a.x+'" cy="'+liaison.a.y+'" r="5" fill="#2f8bff"/>' : '';
+  const clip = HAS_PLAN ? ' clip-path="url(#planClip)"' : '';
+  const clipDef = HAS_PLAN ? '<clipPath id="planClip"><rect x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'"/></clipPath>' : '';
+  svg.innerHTML = bg + '<defs>'+clipDef+wifiDefs+'</defs>' + '<g style="pointer-events:none"'+clip+'>'+wifi+'</g>' + '<g style="pointer-events:none"'+clip+'>'+dori+'</g>' + '<g style="pointer-events:none"'+clip+'>'+cover+'</g>' + '<g>'+liaisons+'</g>' + '<g>'+marks+'</g>' + calibLayer + liaTmp;
   bindObjectEvents();
 }
 function bindObjectEvents(){
@@ -437,9 +507,9 @@ function bindObjectEvents(){
       if(tool!=='select') return; e.stopPropagation();
       selId=g.getAttribute('data-id'); renderObjects(); renderProps();
       const o=objById(selId); if(o.kind==='liaison') return;
-      const start=svgPoint(e); const ox=o.x,oy=o.y;
-      function move(ev){ const p=svgPoint(ev); o.x=ox+(p.x-start.x); o.y=oy+(p.y-start.y); renderObjects(); }
-      function up(){ svg.removeEventListener('pointermove',move); svg.removeEventListener('pointerup',up); renderProps(); }
+      const start=svgPoint(e); const ox=o.x,oy=o.y; let moved=false;
+      function move(ev){ const p=svgPoint(ev); o.x=ox+(p.x-start.x); o.y=oy+(p.y-start.y); moved=true; renderObjects(); }
+      function up(){ svg.removeEventListener('pointermove',move); svg.removeEventListener('pointerup',up); renderProps(); if(moved) pushHist(); }
       svg.addEventListener('pointermove',move); svg.addEventListener('pointerup',up);
     });
   });
@@ -448,23 +518,23 @@ function bindObjectEvents(){
 /* ===================== PROPRIÉTÉS ===================== */
 function esc(v){ return (v==null?'':String(v)).replace(/"/g,'&quot;'); }
 function renderProps(){
-  const el=document.getElementById('propPanel'); const o=objById(selId);
-  if(!o){ el.innerHTML='<div style="color:#999">Sélectionnez un équipement sur le plan.</div>'; return; }
+  const el=document.getElementById('propPanel'); const panel=document.getElementById('rightPanel'); const o=objById(selId);
+  if(!o){ panel.classList.remove('show'); el.innerHTML=''; return; }
+  panel.classList.add('show');
   if(o.kind==='liaison'){
     const ppm=S.scale.px_per_m; const L=ppm?(Math.hypot(o.x2-o.x,o.y2-o.y)/ppm).toFixed(2)+' m':'(calibrer)';
     const opt=S.systems.map(s=>'<option value="'+s.id+'"'+(s.id===o.system?' selected':'')+'>'+s.name+'</option>').join('');
-    el.innerHTML='<div style="font-weight:700;color:#1A7A6D;margin-bottom:6px">🔌 Liaison</div>'
+    el.innerHTML='<div style="font-weight:700;margin-bottom:6px">🔌 Liaison</div>'
       +'<div class="field"><label>Système</label><select id="p_sys">'+opt+'</select></div>'
       +'<div class="field"><label>Type de câble</label><input id="p_cable" value="'+esc(o.cable)+'" placeholder="UTP Cat6, coax RG59…"></div>'
       +'<div class="field"><label>Longueur</label><input value="'+L+'" disabled></div>'
-      +'<div style="display:flex;gap:6px;margin-top:8px"><button class="imp-btn warn" id="p_del">🗑️ Supprimer</button></div>';
+      +'<div style="display:flex;gap:6px;margin-top:8px"><button class="ud-btn warn" id="p_del">🗑️ Supprimer</button></div>';
     document.getElementById('p_sys').onchange=e=>{ o.system=e.target.value; renderObjects(); };
     document.getElementById('p_cable').oninput=e=>{ o.cable=e.target.value; };
-    document.getElementById('p_del').onclick=()=>{ S.objects=S.objects.filter(x=>x.id!==selId); selId=null; renderObjects(); renderProps(); };
+    document.getElementById('p_del').onclick=()=>{ S.objects=S.objects.filter(x=>x.id!==selId); selId=null; renderObjects(); renderProps(); pushHist(); };
     return;
   }
   const opt=S.systems.map(s=>'<option value="'+s.id+'"'+(s.id===o.system?' selected':'')+'>'+s.name+'</option>').join('');
-  // sélecteur d'icône visuel
   const curType=o.type||sysById(o.system).icon||'default';
   const icgrid=ALL_TYPES.map(t=>'<div class="icg'+(t===curType?' active':'')+'" data-t="'+t+'" title="'+t+'"><svg viewBox="-14 -14 28 28">'+iconSvg(t,sysById(o.system).color)+'</svg></div>').join('');
   let html=
@@ -477,62 +547,55 @@ function renderProps(){
    +'<div class="field"><label>Zone d\'effet</label><select id="p_cov"><option value="none">Aucune</option><option value="circle">Cercle (rayon)</option><option value="cone">Cône (champ)</option></select></div>'
    +'<div class="field"><label>Portée (m)</label><input id="p_r" type="number" step="0.5" value="'+(o.radius_m||8)+'"></div>'
    +'<div class="field"><label>Angle du cône (°)</label><input id="p_ang" type="number" value="'+(o.angle||90)+'"></div>';
-  // --- bloc simulation selon la famille ---
   const fam=famOf(o.type);
   if(fam==='camera'){
-    html+='<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">🎥 Optique & DORI</div>'
+    html+='<hr><div style="font-weight:700;color:var(--ud-accent);font-size:12px;margin-bottom:6px">🎥 Optique & DORI</div>'
       +'<div class="field"><label>Focale (mm)</label><input id="c_focal" type="number" step="0.1" value="'+(o.cam_focal||4)+'"></div>'
       +'<div class="field"><label>Capteur</label><select id="c_sensor">'+Object.keys(SENSOR_W).map(k=>'<option'+(((o.cam_sensor||"1/2.8\"")===k)?' selected':'')+'>'+k+'</option>').join('')+'</select></div>'
-      +'<div class="field"><label>Résolution horiz. (px)</label><select id="c_resh">'+[['1280','720p'],['1920','1080p (2MP)'],['2688','4MP'],['3072','5MP'],['3840','4K (8MP)']].map(a=>'<option value="'+a[0]+'"'+((String(o.cam_resh||2688)===a[0])?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></div>'
+      +'<div class="field"><label>Résolution horiz.</label><select id="c_resh">'+[['1280','720p'],['1920','1080p (2MP)'],['2688','4MP'],['3072','5MP'],['3840','4K (8MP)']].map(a=>'<option value="'+a[0]+'"'+((String(o.cam_resh||2688)===a[0])?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></div>'
       +'<div class="field"><label>Portée IR nuit (m)</label><input id="c_ir" type="number" value="'+(o.cam_ir||30)+'"></div>'
       +'<div class="field"><label>Distance au sujet (m)</label><input id="c_target" type="number" step="0.5" value="'+(o.cam_target||12)+'"></div>'
       +'<div class="field"><label>Éclairage ambiant</label><select id="c_lux">'+[['100000','Plein soleil'],['10000','Lumière du jour'],['1000','Ciel couvert'],['500','Intérieur / bureau'],['50','Faible'],['10','Crépuscule'],['0.1','Nuit (IR)']].map(a=>'<option value="'+a[0]+'"'+((String(S.env.lux)===a[0])?' selected':'')+'>'+a[1]+' ('+a[0]+' lux)</option>').join('')+'</select></div>'
       +'<div id="simCam"></div>';
   } else if(fam==='audio'){
-    html+='<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">🔊 Simulation audio</div>'
+    html+='<hr><div style="font-weight:700;color:var(--ud-accent);font-size:12px;margin-bottom:6px">🔊 Simulation audio</div>'
       +'<div class="field"><label>Niveau source (dB @ 1 m)</label><input id="a_ref" type="number" value="'+(o.spl_ref||90)+'"></div>'
       +'<div class="field"><label>Distance à l\'auditeur (m)</label><input id="a_dist" type="number" step="0.5" value="'+(o.audio_dist||5)+'"></div>'
       +'<div class="field"><label>Bruit ambiant</label><select id="a_noise">'+[['35','Silencieux'],['45','Bureau'],['55','Commerce'],['65','Rue passante'],['80','Industriel']].map(a=>'<option value="'+a[0]+'"'+((String(S.env.noise)===a[0])?' selected':'')+'>'+a[1]+' ('+a[0]+' dB)</option>').join('')+'</select></div>'
       +'<div id="simAudio"></div>';
   } else if(fam==='wifi'){
-    html+='<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">📶 Wi-Fi</div>'
+    html+='<hr><div style="font-weight:700;color:var(--ud-accent);font-size:12px;margin-bottom:6px">📶 Wi-Fi</div>'
       +'<div class="field"><label>Puissance EIRP (dBm)</label><input id="w_ptx" type="number" value="'+(o.wifi_ptx||20)+'"></div>'
-      +'<div class="field"><label>Bande</label><select id="w_band"><option value="2.4"'+((o.wifi_band!=='5')?' selected':'')+'>2,4 GHz (portée)</option><option value="5"'+((o.wifi_band==='5')?' selected':'')+'>5 GHz (débit)</option></select></div>'
-      +'<div class="field"><label>Environnement</label><select id="w_env">'+[['2.5','Espace ouvert'],['3.0','Bureau / cloisons légères'],['3.6','Cloisons lourdes / béton'],['4.0','Bâtiment dense']].map(a=>'<option value="'+a[0]+'"'+((String(o.wifi_n||'3.0')===a[0])?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></div>'
+      +'<div class="field"><label>Bande</label><select id="w_band"><option value="2.4"'+((o.wifi_band==='2.4')?' selected':'')+'>2,4 GHz</option><option value="5"'+((!o.wifi_band||o.wifi_band==='5')?' selected':'')+'>5 GHz</option><option value="6"'+((o.wifi_band==='6')?' selected':'')+'>6 GHz</option></select></div>'
       +'<div id="simWifi"></div>';
   } else if(fam==='network'){
-    html+='<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">🗄️ Baie / rack</div>'
+    html+='<hr><div style="font-weight:700;color:var(--ud-accent);font-size:12px;margin-bottom:6px">🗄️ Baie / rack</div>'
       +'<div class="field"><label>Baie (nom)</label><input id="r_name" value="'+esc(o.rack)+'" placeholder="Ex. Local technique RDC"></div>'
       +'<div class="field"><label>Position (U, depuis le bas)</label><input id="r_u" type="number" value="'+(o.rack_u||'')+'" placeholder="auto"></div>'
-      +'<div class="field"><label>Hauteur (U)</label><input id="r_uh" type="number" value="'+(o.rack_uh||1)+'"></div>'
-      +'<div class="simsub" style="color:#888">Renseignez une baie pour faire apparaître l\'équipement dans la vue rack.</div>';
+      +'<div class="field"><label>Hauteur (U)</label><input id="r_uh" type="number" value="'+(o.rack_uh||1)+'"></div>';
   }
-  html+='<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">Justification</div>'
+  html+='<hr><div style="font-weight:700;color:var(--ud-accent);font-size:12px;margin-bottom:6px">Justification</div>'
    +'<div class="field"><label>Objectif</label><input id="p_obj" value="'+esc(o.objectif)+'"></div>'
    +'<div class="field"><label>Justification</label><textarea id="p_just" rows="2">'+esc(o.justification)+'</textarea></div>'
    +'<div class="field"><label>Contraintes</label><input id="p_ctr" value="'+esc(o.contraintes)+'"></div>'
    +'<div class="field"><label>Statut</label><select id="p_st"><option>Proposé</option><option>À valider</option><option>Validé</option><option>À modifier</option></select></div>'
-   +'<div style="display:flex;gap:6px;margin-top:8px"><button class="imp-btn warn" id="p_del">🗑️ Supprimer</button></div>';
+   +'<div style="display:flex;gap:6px;margin-top:8px"><button class="ud-btn warn" id="p_del">🗑️ Supprimer</button></div>';
   el.innerHTML=html;
   document.getElementById('p_cov').value=o.coverage||sysById(o.system).coverage||'none';
   document.getElementById('p_st').value=o.statut||'Proposé';
-  function bind(id,key,num){ const inp=document.getElementById(id); if(!inp)return; inp.addEventListener('input',()=>{ o[key]= num?(parseFloat(inp.value)||0):inp.value; renderObjects(); }); }
+  function bind(id,key,num){ const inp=document.getElementById(id); if(!inp)return; inp.addEventListener('input',()=>{ o[key]= num?(parseFloat(inp.value)||0):inp.value; renderObjects(); }); inp.addEventListener('change',pushHist); }
   bind('p_ref','ref'); bind('p_model','model'); bind('p_or','orientation',true); bind('p_h','height_m',true);
-  bind('p_r','radius_m',true); bind('p_ang','angle',true);
-  bind('p_obj','objectif'); bind('p_just','justification'); bind('p_ctr','contraintes');
-  document.getElementById('p_sys').onchange=e=>{ o.system=e.target.value; renderObjects(); renderProps(); };
-  document.getElementById('p_cov').onchange=e=>{ o.coverage=e.target.value; renderObjects(); };
-  document.getElementById('p_st').onchange=e=>{ o.statut=e.target.value; };
-  document.getElementById('p_del').onclick=()=>{ S.objects=S.objects.filter(x=>x.id!==selId); selId=null; renderObjects(); renderProps(); };
-  // sélecteur d'icône
+  bind('p_r','radius_m',true); bind('p_ang','angle',true); bind('p_obj','objectif'); bind('p_just','justification'); bind('p_ctr','contraintes');
+  document.getElementById('p_sys').onchange=e=>{ o.system=e.target.value; renderObjects(); renderProps(); pushHist(); };
+  document.getElementById('p_cov').onchange=e=>{ o.coverage=e.target.value; renderObjects(); pushHist(); };
+  document.getElementById('p_st').onchange=e=>{ o.statut=e.target.value; pushHist(); };
+  document.getElementById('p_del').onclick=()=>{ S.objects=S.objects.filter(x=>x.id!==selId); selId=null; renderObjects(); renderProps(); pushHist(); };
   el.querySelectorAll('#p_icons .icg').forEach(g=>{ g.onclick=()=>{ o.type=g.dataset.t;
-    el.querySelectorAll('#p_icons .icg').forEach(x=>x.classList.remove('active')); g.classList.add('active'); renderObjects(); renderProps(); }; });
-  // simulations
+    el.querySelectorAll('#p_icons .icg').forEach(x=>x.classList.remove('active')); g.classList.add('active'); renderObjects(); renderProps(); pushHist(); }; });
   function refreshSim(){
     if(fam==='camera'){ const g=camGeom(o); o.angle=Math.round(g.hfov); const night=(parseFloat(S.env.lux)<1);
       const irNote=night?('<div class="simsub">Mode nuit : identification limitée par la portée IR ('+g.p.ir+' m).</div>'):'';
-      document.getElementById('simCam').innerHTML=
-        '<div class="simcard">'
+      document.getElementById('simCam').innerHTML='<div class="simcard">'
         +'<div class="simrow"><span>Champ horizontal (FOV)</span><b>'+g.hfov.toFixed(1)+'°</b></div>'
         +'<div class="simrow"><span>Distance au sol</span><b>'+g.ground.toFixed(1)+' m</b></div>'
         +'<div class="simrow"><span>Distance d\'inclinaison</span><b>'+g.slant.toFixed(1)+' m</b></div>'
@@ -540,35 +603,31 @@ function renderProps(){
         +'<div class="simrow"><span>Densité au sujet</span><b>'+g.ppmAt.toFixed(0)+' PPM</b></div>'
         +'<div class="simrow"><span>Niveau DORI</span><span class="dori-tag" style="background:'+g.clsCol+'">'+g.cls+'</span></div>'
         +'<div class="simrow" style="border:0"><span>Éclairage</span><b>'+(parseFloat(S.env.lux)>=1?'Jour':'Nuit / IR')+' ('+S.env.lux+' lux)</b></div>'
-        +irNote
-        +'<div class="simsub" style="margin-top:6px">Portées : '+g.bands.map(b=>b.k[0]+' '+b.ground.toFixed(0)+'m').join(' · ')+'</div>'
-        +'</div>';
+        +irNote+'<div class="simsub" style="margin-top:6px">Portées : '+g.bands.map(b=>b.k[0]+' '+b.ground.toFixed(0)+'m').join(' · ')+'</div></div>';
     }
     if(fam==='audio'){ const a=audioSim(o);
       document.getElementById('simAudio').innerHTML='<div class="simcard">'
         +'<div class="simrow"><span>SPL estimé</span><b>'+a.spl+' dB</b></div>'
         +'<div class="simsub">Bruit de plancher : '+a.noise+' dB · SNR '+a.snr+' dB</div>'
-        +'<div class="simrow"><span>Intelligibilité de la parole</span><b>'+a.intel+' %</b></div>'
+        +'<div class="simrow"><span>Intelligibilité</span><b>'+a.intel+' %</b></div>'
         +'<div class="simrow" style="border:0"><span>Classification</span><span class="dori-tag" style="background:'+(a.snr>=5?'#1b7a3d':(a.snr>=0?'#f9a825':'#c62828'))+'">'+a.cls+'</span></div>'
-        +'<button class="imp-btn" style="width:100%;margin-top:8px" id="a_play">▶️ Lire la simulation audio</button>'
-        +'</div>';
+        +'<button class="ud-btn" style="width:100%;margin-top:8px;justify-content:center" id="a_play">▶️ Lire la simulation audio</button></div>';
       document.getElementById('a_play').onclick=()=>playAudioSim(a.intel);
     }
     if(fam==='wifi'){ const ppm=S.scale.px_per_m;
       if(!ppm){ document.getElementById('simWifi').innerHTML='<div class="simcard"><div class="simsub">Calibrez le plan pour estimer la couverture.</div></div>'; return; }
       const R=wifiRadii(o);
       document.getElementById('simWifi').innerHTML='<div class="simcard">'
-        +'<div class="simrow"><span>Zone excellente (4K)</span><b>'+R.excellent.toFixed(1)+' m</b></div>'
+        +'<div class="simrow"><span>Excellent (4K)</span><b>'+R.excellent.toFixed(1)+' m</b></div>'
         +'<div class="simrow"><span>Bon (HD/visio)</span><b>'+R.bon.toFixed(1)+' m</b></div>'
         +'<div class="simrow"><span>Correct (navigation)</span><b>'+R.moyen.toFixed(1)+' m</b></div>'
-        +'<div class="simrow" style="border:0"><span>Limite de connexion</span><b>'+R.limite.toFixed(1)+' m</b></div>'
-        +'<div class="simsub" style="margin-top:6px">Activez « 📶 Signal WiFi » pour la carte de couverture.</div>'
-        +'</div>';
+        +'<div class="simrow" style="border:0"><span>Limite</span><b>'+R.limite.toFixed(1)+' m</b></div>'
+        +'<div class="simsub" style="margin-top:6px">Bande vue : '+viewBand+' GHz — mode « WiFi » pour la carte.</div></div>';
     }
   }
   if(fam==='camera'){ ['c_focal','c_ir','c_target'].forEach(id=>document.getElementById(id).addEventListener('input',e=>{ o['cam_'+id.slice(2)]=parseFloat(e.target.value)||0; refreshSim(); renderObjects(); }));
-    document.getElementById('c_sensor').onchange=e=>{ o.cam_sensor=e.target.value; refreshSim(); renderObjects(); };
-    document.getElementById('c_resh').onchange=e=>{ o.cam_resh=parseFloat(e.target.value)||2688; refreshSim(); renderObjects(); };
+    document.getElementById('c_sensor').onchange=e=>{ o.cam_sensor=e.target.value; refreshSim(); renderObjects(); pushHist(); };
+    document.getElementById('c_resh').onchange=e=>{ o.cam_resh=parseFloat(e.target.value)||2688; refreshSim(); renderObjects(); pushHist(); };
     document.getElementById('c_lux').onchange=e=>{ S.env.lux=parseFloat(e.target.value); refreshSim(); };
   }
   if(fam==='audio'){ document.getElementById('a_ref').addEventListener('input',e=>{ o.spl_ref=parseFloat(e.target.value)||0; refreshSim(); });
@@ -576,8 +635,7 @@ function renderProps(){
     document.getElementById('a_noise').onchange=e=>{ S.env.noise=parseFloat(e.target.value); refreshSim(); };
   }
   if(fam==='wifi'){ document.getElementById('w_ptx').addEventListener('input',e=>{ o.wifi_ptx=parseFloat(e.target.value)||0; refreshSim(); renderObjects(); });
-    document.getElementById('w_band').onchange=e=>{ o.wifi_band=e.target.value; refreshSim(); renderObjects(); };
-    document.getElementById('w_env').onchange=e=>{ o.wifi_n=e.target.value; refreshSim(); renderObjects(); };
+    document.getElementById('w_band').onchange=e=>{ o.wifi_band=e.target.value; refreshSim(); renderObjects(); pushHist(); };
   }
   if(fam==='network'){ document.getElementById('r_name').addEventListener('input',e=>{ o.rack=e.target.value; });
     document.getElementById('r_u').addEventListener('input',e=>{ o.rack_u=parseInt(e.target.value)||0; });
@@ -585,113 +643,152 @@ function renderProps(){
   }
   refreshSim();
 }
+document.getElementById('propClose').onclick=()=>{ selId=null; renderObjects(); renderProps(); };
 
-/* ===================== INTERACTIONS ===================== */
+/* ===================== OUTILS / MODES ===================== */
+function setToolActive(t){ document.querySelectorAll('.ud-tools .tool').forEach(b=>b.classList.toggle('active', t && b.dataset.tool===t)); }
+function applyMode(){
+  showWifi=(mode==='wifi'); showDORI=(mode==='cam');
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('active', b.dataset.mode===mode));
+  document.getElementById('covLegend').classList.toggle('show', mode==='wifi');
+  document.getElementById('btnWifiZ').classList.toggle('on', mode==='wifi');
+  if(mode==='wifi' && !S.scale.px_per_m){ /* silencieux : rappel via badge */ }
+  renderObjects();
+}
+
+/* ===================== BARRE D'ÉCHELLE ===================== */
+function updateScaleBar(){
+  const box=document.getElementById('scaleBox'); const ppm=S.scale.px_per_m;
+  if(!ppm||!svg.clientWidth){ box.style.display='none'; return; }
+  const pxPerPlanUnit = svg.clientWidth / view.w;      // px écran par unité plan
+  const targetPx=90; const planUnits=targetPx/pxPerPlanUnit; let meters=planUnits/ppm;
+  // arrondir joliment
+  const nice=[1,2,5,10,20,50,100,200,500]; let m=nice[0];
+  for(const v of nice){ if(v<=meters) m=v; }
+  const wpx=m*ppm*pxPerPlanUnit;
+  box.style.display='flex'; document.getElementById('scaleLabel').textContent=m+' m';
+  document.getElementById('scaleBar').style.width=Math.max(20,wpx)+'px';
+}
+
+/* ===================== INTERACTIONS CANVAS ===================== */
 if(HAS_PLAN){
   setViewBox();
-  document.querySelectorAll('.tool').forEach(b=>b.onclick=()=>{ tool=b.dataset.tool; activeType=null; liaison.a=null;
-    document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderPalette(); renderObjects(); });
+  document.querySelectorAll('.ud-tools .tool').forEach(b=>b.onclick=()=>{ tool=b.dataset.tool; activeType=null; liaison.a=null; setToolActive(tool);
+    svg.style.cursor = (tool==='pan')?'grab':(tool==='select'?'default':'crosshair'); renderPalette(); renderObjects(); });
 
   svg.addEventListener('pointerdown',(e)=>{
     if(e.target.closest('.imp-obj') && tool==='select') return;
     const p=svgPoint(e);
     if(calib.on){
       calib.pts.push({x:p.x,y:p.y}); renderObjects();
-      if(calib.pts.length===2){
-        const pix=Math.hypot(calib.pts[1].x-calib.pts[0].x, calib.pts[1].y-calib.pts[0].y);
+      if(calib.pts.length===2){ const pix=Math.hypot(calib.pts[1].x-calib.pts[0].x, calib.pts[1].y-calib.pts[0].y);
         const m=parseFloat(prompt('Distance réelle entre les 2 points (mètres) :','5'));
-        if(m>0){ S.scale.px_per_m=pix/m; updateScaleBadge(); }
-        calib.on=false; calib.pts=[]; document.getElementById('btnCalibrate').classList.remove('active'); renderObjects();
-      }
+        if(m>0){ S.scale.px_per_m=pix/m; updateScaleBadge(); updateScaleBar(); pushHist(); }
+        calib.on=false; calib.pts=[]; document.getElementById('btnCalibrate').classList.remove('active'); renderObjects(); }
       return;
     }
     if(tool==='liaison'){
       if(!liaison.a){ liaison.a={x:p.x,y:p.y}; renderObjects(); }
-      else{ const o={id:uid('lia'),kind:'liaison',system:activeSys,x:liaison.a.x,y:liaison.a.y,x2:p.x,y2:p.y,cable:''}; S.objects.push(o); liaison.a=null; selId=o.id; renderObjects(); renderProps(); }
+      else{ const o={id:uid('lia'),kind:'liaison',system:activeSys,x:liaison.a.x,y:liaison.a.y,x2:p.x,y2:p.y,cable:''}; S.objects.push(o); liaison.a=null; selId=o.id; renderObjects(); renderProps(); pushHist(); }
       return;
     }
     if(tool==='place' && activeType){
-      const sys=sysById(activeSys);
-      const n=S.objects.filter(o=>o.system===activeSys&&o.kind!=='liaison').length+1;
+      const sys=sysById(activeSys); const n=S.objects.filter(o=>o.system===activeSys&&o.kind!=='liaison').length+1;
       const o={id:uid('obj'),system:activeSys,type:activeType.t,ref:sys.name.slice(0,3).toUpperCase()+'-'+String(n).padStart(3,'0'),model:activeType.l,x:p.x,y:p.y,orientation:0,height_m:(famOf(activeType.t)==='camera'?3:''),coverage:activeType.cov||sys.coverage,radius_m:8,angle:90,statut:'Proposé'};
-      S.objects.push(o); selId=o.id; renderObjects(); renderProps();
+      S.objects.push(o); selId=o.id; renderObjects(); renderProps(); pushHist();
       return;
     }
-    // pan
+    // pan (outil main ou espace vide en mode sélection)
     const sx=e.clientX,sy=e.clientY,vx=view.x,vy=view.y,scale=view.w/svg.clientWidth;
+    if(tool==='pan') svg.style.cursor='grabbing';
     function mv(ev){ view.x=vx-(ev.clientX-sx)*scale; view.y=vy-(ev.clientY-sy)*scale; setViewBox(); }
-    function up(){ svg.removeEventListener('pointermove',mv); svg.removeEventListener('pointerup',up); }
+    function up(){ svg.removeEventListener('pointermove',mv); svg.removeEventListener('pointerup',up); if(tool==='pan') svg.style.cursor='grab'; }
     svg.addEventListener('pointermove',mv); svg.addEventListener('pointerup',up);
   });
 
-  // survol : lecture WiFi
   const tip=document.getElementById('wifiTip');
   svg.addEventListener('pointermove',(e)=>{
-    if(!showWifi){ tip.style.display='none'; return; }
+    if(mode!=='wifi'){ tip.style.display='none'; return; }
     const p=svgPoint(e); const rssi=wifiAt(p.x,p.y);
     if(rssi==null||rssi<-120){ tip.style.display='none'; return; }
     const u=wifiUsage(rssi); const rect=svg.getBoundingClientRect();
     tip.innerHTML='<b style="color:'+u.c+'">'+u.t+'</b> · '+Math.round(rssi)+' dBm<br>'+u.u;
     tip.style.left=(e.clientX-rect.left+12)+'px'; tip.style.top=(e.clientY-rect.top+12)+'px'; tip.style.display='block';
   });
-  svg.addEventListener('pointerleave',()=>{ document.getElementById('wifiTip').style.display='none'; });
+  svg.addEventListener('pointerleave',()=>{ tip.style.display='none'; });
 
   svg.addEventListener('wheel',(e)=>{ e.preventDefault(); const f=e.deltaY<0?0.9:1.1; const p=svgPoint(e);
     view.x=p.x-(p.x-view.x)*f; view.y=p.y-(p.y-view.y)*f; view.w*=f; view.h*=f; setViewBox(); }, {passive:false});
   document.getElementById('zoomIn').onclick=()=>{ view.w*=0.85; view.h*=0.85; setViewBox(); };
   document.getElementById('zoomOut').onclick=()=>{ view.w*=1.18; view.h*=1.18; setViewBox(); };
-  document.getElementById('zoomFit').onclick=()=>{ view={x:0,y:0,w:PLAN_W,h:PLAN_H}; setViewBox(); };
-  document.getElementById('btnCalibrate').onclick=(e)=>{ calib.on=!calib.on; calib.pts=[]; e.target.classList.toggle('active',calib.on); if(calib.on) alert('Cliquez 2 points de distance connue sur le plan.'); renderObjects(); };
-  document.getElementById('btnDori').onclick=(e)=>{ showDORI=!showDORI; e.target.classList.toggle('on',showDORI); renderObjects(); };
-  document.getElementById('btnWifi').onclick=(e)=>{ showWifi=!showWifi; e.target.classList.toggle('on',showWifi); if(showWifi && !S.scale.px_per_m) alert('Calibrez le plan pour une couverture WiFi à l\'échelle.'); renderObjects(); };
+  const fitFn=()=>{ view={x:0,y:0,w:PLAN_W,h:PLAN_H}; setViewBox(); };
+  document.getElementById('zoomFit').onclick=fitFn; document.getElementById('railFit').onclick=fitFn;
+  document.getElementById('btnCalibrate').onclick=(e)=>{ calib.on=!calib.on; calib.pts=[]; e.currentTarget.classList.toggle('active',calib.on); if(calib.on) alert('Cliquez 2 points de distance connue sur le plan.'); renderObjects(); };
 }
+document.getElementById('btnUndo').onclick=undo;
+document.getElementById('btnRedo').onclick=redo;
+document.getElementById('btn3D').onclick=()=>{ location.href='/implantation/'+STUDY_ID+'/views'; };
+document.getElementById('btnWifiZ').onclick=()=>{ mode=(mode==='wifi')?'off':'wifi'; applyMode(); };
+document.getElementById('btnCovSet').onclick=()=>{ document.getElementById('covPop').classList.toggle('show'); };
+document.getElementById('covEnv').onchange=(e)=>{ S.objects.forEach(o=>{ if(famOf(o.type)==='wifi') o.wifi_n=e.target.value; }); renderObjects(); };
 
-function updateScaleBadge(){ const b=document.getElementById('scaleBadge'); b.textContent = S.scale.px_per_m ? ('Échelle : '+(1/S.scale.px_per_m).toFixed(3)+' m/px ('+S.scale.px_per_m.toFixed(1)+' px/m)') : 'Échelle : non calibrée'; }
+/* modes + bandes */
+document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{ mode=b.dataset.mode; applyMode(); });
+document.querySelectorAll('#bandSel b').forEach(b=>b.onclick=()=>{ viewBand=b.dataset.b;
+  document.querySelectorAll('#bandSel b').forEach(x=>x.classList.remove('on')); b.classList.add('on'); renderObjects(); renderProps(); });
 
-document.getElementById('btnAddSys').onclick=()=>{ const name=prompt('Nom du nouveau système :'); if(!name) return;
-  const colors=['#00838f','#5d4037','#ad1457','#33691e','#4527a0','#455a64'];
-  S.systems.push({id:uid('sys'),name:name,color:colors[S.systems.length%colors.length],visible:true,coverage:'none',icon:'default'});
-  renderSystems(); renderPalette(); };
+/* rail panels */
+document.querySelectorAll('.ud-rail .r[data-panel]').forEach(r=>r.onclick=()=>{
+  document.querySelectorAll('.ud-rail .r[data-panel]').forEach(x=>x.classList.remove('active')); r.classList.add('active');
+  const p=r.dataset.panel; document.getElementById('panelLayers').style.display=(p==='layers')?'flex':'none';
+  document.getElementById('panelDevices').style.display=(p==='devices')?'flex':'none';
+});
+document.getElementById('btnAddDev').onclick=()=>{ document.querySelector('.ud-rail .r[data-panel="devices"]').click(); };
 
-const SAVE_URL='/implantation/'+STUDY_ID+'/save?level='+encodeURIComponent(CURRENT_LEVEL);
-document.getElementById('btnSave').onclick=()=>{ fetch(SAVE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
-   .then(r=>r.json()).then(d=>{ const b=document.getElementById('btnSave'); b.textContent=d.ok?'✅ Enregistré':'❌ Erreur'; setTimeout(()=>b.textContent='💾 Enregistrer',1600); }); };
-
-// ---- Niveaux / étages ----
+/* niveaux */
 document.getElementById('lvlSel').onchange=(e)=>{ location.href='/implantation/'+STUDY_ID+'?level='+encodeURIComponent(e.target.value); };
-document.getElementById('btnAddLvl').onclick=()=>{
-  const name=prompt('Nom du nouveau niveau / étage (ex. 1er étage) :','Niveau'); if(!name) return;
+document.getElementById('btnAddLvl').onclick=()=>{ const name=prompt('Nom du nouveau niveau / étage :','Niveau'); if(!name) return;
   const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf'; inp.style.display='none';
   inp.onchange=()=>{ const fd=new FormData(); fd.append('name',name); if(inp.files[0]) fd.append('plan',inp.files[0]);
     fetch('/implantation/'+STUDY_ID+'/level/new',{method:'POST',body:fd}).then(r=>{ location.href=r.url||('/implantation/'+STUDY_ID); }); };
-  // proposer de choisir un plan tout de suite (facultatif)
   if(confirm('Charger le plan de ce niveau maintenant ? (Annuler = niveau vide)')) inp.click();
   else { const fd=new FormData(); fd.append('name',name); fetch('/implantation/'+STUDY_ID+'/level/new',{method:'POST',body:fd}).then(r=>{ location.href=r.url||('/implantation/'+STUDY_ID); }); }
 };
 {% if current_level != 'base' %}
-document.getElementById('btnRenLvl').onclick=()=>{ const name=prompt('Nouveau nom du niveau :'); if(!name) return;
-  const fd=new FormData(); fd.append('name',name);
+document.getElementById('btnRenLvl').onclick=()=>{ const name=prompt('Nouveau nom du niveau :'); if(!name) return; const fd=new FormData(); fd.append('name',name);
   fetch('/implantation/'+STUDY_ID+'/level/'+CURRENT_LEVEL+'/rename',{method:'POST',body:fd}).then(()=>location.reload()); };
-document.getElementById('btnDelLvl').onclick=()=>{ if(!confirm('Supprimer définitivement ce niveau et son plan ?')) return;
-  const fd=new FormData(); fetch('/implantation/'+STUDY_ID+'/level/'+CURRENT_LEVEL+'/delete',{method:'POST',body:fd}).then(()=>location.href='/implantation/'+STUDY_ID); };
+document.getElementById('btnDelLvl').onclick=()=>{ if(!confirm('Supprimer ce niveau et son plan ?')) return;
+  fetch('/implantation/'+STUDY_ID+'/level/'+CURRENT_LEVEL+'/delete',{method:'POST',body:new FormData()}).then(()=>location.href='/implantation/'+STUDY_ID); };
 {% endif %}
 
+/* échelle badge (texte discret) */
+function updateScaleBadge(){ /* badge remplacé par la barre d'échelle */ }
+
+/* systèmes */
+document.getElementById('btnAddSys').onclick=()=>{ const name=prompt('Nom du nouveau système :'); if(!name) return;
+  const colors=['#00bcd4','#8d6e63','#ec407a','#7cb342','#7e57c2','#78909c'];
+  S.systems.push({id:uid('sys'),name:name,color:colors[S.systems.length%colors.length],visible:true,coverage:'none',icon:'default'});
+  renderSystems(); renderPalette(); };
+
+/* enregistrement / statut / contrôles / publication */
+const SAVE_URL='/implantation/'+STUDY_ID+'/save?level='+encodeURIComponent(CURRENT_LEVEL);
+document.getElementById('btnSave').onclick=()=>{ fetch(SAVE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
+   .then(r=>r.json()).then(d=>{ const b=document.getElementById('btnSave'); b.textContent=d.ok?'✅ Enregistré':'❌ Erreur'; setTimeout(()=>b.textContent='💾 Enregistrer',1600); }); };
 const stSel=document.getElementById('stSel'); stSel.value=STUDY_STATUS;
 stSel.onchange=()=>{ fetch('/implantation/'+STUDY_ID+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:stSel.value})}).then(r=>r.json()).then(d=>{ if(!d.ok) alert('Statut non enregistré.'); }); };
-
 document.getElementById('btnControls').onclick=()=>{ const ov=document.getElementById('ovl'); document.getElementById('ovlTitle').textContent='🔎 Contrôles de cohérence';
   document.getElementById('ovlBody').innerHTML='<div style="color:#999">Analyse…</div>'; ov.classList.add('on');
   fetch(SAVE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
    .then(()=>fetch('/implantation/'+STUDY_ID+'/controls?level='+encodeURIComponent(CURRENT_LEVEL))).then(r=>r.json()).then(d=>{ const b=document.getElementById('ovlBody');
      b.innerHTML=(d.alerts||[]).map(a=>{ const ic={error:'⛔',warn:'⚠️',info:'ℹ️',ok:'✅'}[a.level]||'•'; return '<div class="al '+a.level+'">'+ic+' <span>'+a.msg+'</span></div>'; }).join('')||'<div class="al ok">✅ Aucune anomalie.</div>'; }); };
-
 document.getElementById('btnPublish').onclick=()=>{ const label=prompt('Nom de la version publiée :','Version '+(new Date()).toISOString().slice(0,10)); if(label===null) return;
   fetch(SAVE_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
    .then(()=>fetch('/implantation/'+STUDY_ID+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:label})}))
    .then(r=>r.json()).then(d=>{ if(d.ok){ stSel.value='Publié'; alert('📌 Version '+d.version_no+' publiée.'); } else alert('Échec de la publication.'); }); };
 
-// init
+/* init */
 renderSystems(); renderPalette();
-if(HAS_PLAN){ updateScaleBadge(); renderObjects(); renderProps(); }
+if(HAS_PLAN){ renderObjects(); renderProps(); updateScaleBar(); pushHist(); }
+window.addEventListener('resize',()=>{ setViewBox(); });
 </script>
 {% endblock %}
