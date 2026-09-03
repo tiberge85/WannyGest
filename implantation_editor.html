@@ -61,6 +61,7 @@
   <button class="imp-btn" id="btnCalibrate" title="Cliquez 2 points de distance connue">📏 Calibrer</button>
   <button class="imp-btn" id="btnSave">💾 Enregistrer</button>
   <button class="imp-btn" id="btnPublish" title="Figer une version publiée">📌 Publier</button>
+  <a class="imp-btn" href="/implantation/{{ study.id }}/views" title="Topologie, baie, 3D">🗂️ Vues</a>
   <a class="imp-btn primary" href="/implantation/{{ study.id }}/pdf" target="_blank">📄 Dossier PDF</a>
 </div>
 
@@ -195,6 +196,7 @@ function famOf(t){
   if(t==='ap'||t==='wifi') return 'wifi';
   if(t.indexOf('speaker')===0||t==='horn') return 'audio';
   if(t.indexOf('reader')===0||t==='door') return 'access';
+  if(t==='switch'||t==='socket'||t==='rack'||t==='nvr'||t==='network') return 'network';
   return 'other';
 }
 
@@ -487,6 +489,12 @@ function renderProps(){
       +'<div class="field"><label>Bande</label><select id="w_band"><option value="2.4"'+((o.wifi_band!=='5')?' selected':'')+'>2,4 GHz (portée)</option><option value="5"'+((o.wifi_band==='5')?' selected':'')+'>5 GHz (débit)</option></select></div>'
       +'<div class="field"><label>Environnement</label><select id="w_env">'+[['2.5','Espace ouvert'],['3.0','Bureau / cloisons légères'],['3.6','Cloisons lourdes / béton'],['4.0','Bâtiment dense']].map(a=>'<option value="'+a[0]+'"'+((String(o.wifi_n||'3.0')===a[0])?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></div>'
       +'<div id="simWifi"></div>';
+  } else if(fam==='network'){
+    html+='<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">🗄️ Baie / rack</div>'
+      +'<div class="field"><label>Baie (nom)</label><input id="r_name" value="'+esc(o.rack)+'" placeholder="Ex. Local technique RDC"></div>'
+      +'<div class="field"><label>Position (U, depuis le bas)</label><input id="r_u" type="number" value="'+(o.rack_u||'')+'" placeholder="auto"></div>'
+      +'<div class="field"><label>Hauteur (U)</label><input id="r_uh" type="number" value="'+(o.rack_uh||1)+'"></div>'
+      +'<div class="simsub" style="color:#888">Renseignez une baie pour faire apparaître l\'équipement dans la vue rack.</div>';
   }
   html+='<hr><div style="font-weight:700;color:#1A7A6D;font-size:12px;margin-bottom:6px">Justification</div>'
    +'<div class="field"><label>Objectif</label><input id="p_obj" value="'+esc(o.objectif)+'"></div>'
@@ -559,6 +567,10 @@ function renderProps(){
   if(fam==='wifi'){ document.getElementById('w_ptx').addEventListener('input',e=>{ o.wifi_ptx=parseFloat(e.target.value)||0; refreshSim(); renderObjects(); });
     document.getElementById('w_band').onchange=e=>{ o.wifi_band=e.target.value; refreshSim(); renderObjects(); };
     document.getElementById('w_env').onchange=e=>{ o.wifi_n=e.target.value; refreshSim(); renderObjects(); };
+  }
+  if(fam==='network'){ document.getElementById('r_name').addEventListener('input',e=>{ o.rack=e.target.value; });
+    document.getElementById('r_u').addEventListener('input',e=>{ o.rack_u=parseInt(e.target.value)||0; });
+    document.getElementById('r_uh').addEventListener('input',e=>{ o.rack_uh=parseInt(e.target.value)||1; });
   }
   refreshSim();
 }

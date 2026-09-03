@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Vues — {{ study.title }}{% endblock %}
+{% block content %}
+<style>
+  .v-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .v-tab{padding:7px 14px;border:1px solid #cfd8dc;border-radius:8px;background:#fff;cursor:pointer;font-size:13px}
+  .v-tab.active{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
+  .v-stage{background:#eef1f4;border:1px solid #e3e8ec;border-radius:10px;overflow:auto;height:calc(100vh - 210px);min-height:420px;position:relative}
+  .v-stage img{display:block;transform-origin:top left}
+  .v-pane{display:none}.v-pane.active{display:block}
+  .v-toolbar{position:sticky;top:0;display:flex;gap:6px;padding:6px;background:rgba(255,255,255,.85);z-index:5}
+  .v-btn{padding:5px 10px;border:1px solid #cfd8dc;border-radius:7px;background:#fff;cursor:pointer;font-size:12px}
+</style>
+
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+  <a href="/implantation/{{ study.id }}" class="v-btn">← Éditeur</a>
+  <strong style="font-size:16px">🗂️ Vues — {{ study.title }}</strong>
+  <span style="flex:1"></span>
+  <a href="/implantation/{{ study.id }}/pdf" target="_blank" class="v-btn">📄 Dossier PDF</a>
+</div>
+
+<div class="v-tabs">
+  <div class="v-tab active" data-p="topo">🕸️ Topologie réseau</div>
+  <div class="v-tab" data-p="rack">🗄️ Vue baie / rack</div>
+  <div class="v-tab" data-p="d3">🧊 Vue 3D</div>
+</div>
+
+<div class="v-pane active" id="p_topo">
+  <div class="v-stage"><div class="v-toolbar"><button class="v-btn" data-z="topo" data-d="1.2">＋</button><button class="v-btn" data-z="topo" data-d="0.83">－</button><button class="v-btn" data-z="topo" data-d="0">Ajuster</button><span style="font-size:12px;color:#666;align-self:center">Schéma logique : cœur réseau → systèmes → équipements</span></div>
+    <img id="img_topo" src="/implantation/{{ study.id }}/topology.png" alt="Topologie">
+  </div>
+</div>
+
+<div class="v-pane" id="p_rack">
+  <div class="v-stage"><div class="v-toolbar"><button class="v-btn" data-z="rack" data-d="1.2">＋</button><button class="v-btn" data-z="rack" data-d="0.83">－</button><button class="v-btn" data-z="rack" data-d="0">Ajuster</button><span style="font-size:12px;color:#666;align-self:center">Élévation des baies (champ « Baie » + position U dans les propriétés)</span></div>
+    <img id="img_rack" src="/implantation/{{ study.id }}/rack.png" alt="Rack">
+  </div>
+</div>
+
+<div class="v-pane" id="p_d3">
+  <div class="v-stage" style="background:#0f1720">
+    <div class="v-toolbar" style="background:rgba(15,23,32,.7);color:#dfe7ee">
+      <button class="v-btn" id="d3_left">⟲</button><button class="v-btn" id="d3_right">⟳</button>
+      <button class="v-btn" id="d3_up">⭡ incl.</button><button class="v-btn" id="d3_down">⭣ incl.</button>
+      <span style="font-size:12px;align-self:center;color:#9fb2c2">Vue isométrique — plan extrudé + équipements en hauteur + cônes caméra</span>
+    </div>
+    <svg id="d3svg" style="width:100%;height:calc(100% - 44px)"></svg>
+  </div>
+</div>
+
+<script>
+const STUDY_ID={{ study.id }};
+const zoom={topo:0,rack:0};
+function fit(k){ const img=document.getElementById('img_'+k); const stage=img.closest('.v-stage');
+  if(!img.naturalWidth){ img.onload=()=>fit(k); return; }
+  const s=Math.min((stage.clientWidth-20)/img.naturalWidth,(stage.clientHeight-60)/img.naturalHeight,1); zoom[k]=s; img.style.transform='scale('+s+')'; }
+document.querySelectorAll('.v-tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.v-tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
+  document.querySelectorAll('.v-pane').forEach(x=>x.classList.remove('active'));
+  const p=t.dataset.p; document.getElementById('p_'+p).classList.add('active');
+  if(p==='topo') fit('topo'); if(p==='rack') fit('rack'); if(p==='d3') draw3D();
+});
+document.querySelectorAll('[data-z]').forEach(b=>b.onclick=()=>{ const k=b.dataset.z; const d=parseFloat(b.dataset.d);
+  if(d===0){ fit(k); return; } zoom[k]=(zoom[k]||1)*d; document.getElementById('img_'+k).style.transform='scale('+zoom[k]+')'; });
+window.addEventListener('load',()=>fit('topo'));
+
+/* ---- Vue 3D isométrique (Lot D) ---- */
+let SCENE=null, yaw=35, pitch=32;
+function load3D(cb){ if(SCENE){cb();return;} fetch('/implantation/'+STUDY_ID+'/scene.json').then(r=>r.json()).then(d=>{ SCENE=d.scene||{}; cb(); }); }
+function draw3D(){ load3D(_draw3D); }
+function _draw3D(){
+  const svg=document.getElementById('d3svg'); const W=svg.clientWidth||900, H=svg.clientHeight||500;
+  const pw=SCENE.plan_w||1000, ph=SCENE.plan_h||700, ppm=(SCENE.scale||{}).px_per_m||40;
+  const objs=(SCENE.objects||[]).filter(o=>o.kind!=='liaison');
+  const sysmap={}; (SCENE.systems||[]).forEach(s=>sysmap[s.id]=s);
+  // projection isométrique paramétrable (yaw autour de Z, pitch)
+  const cy=Math.cos(yaw*Math.PI/180), sy=Math.sin(yaw*Math.PI/180);
+  const cp=Math.cos(pitch*Math.PI/180);
+  const scale=Math.min(W/(pw*1.5),H/(ph*1.5))*0.9;
+  const cxp=pw/2, cyp=ph/2;
+  function proj(x,y,z){ // z en px (hauteur * ppm)
+    let dx=x-cxp, dy=y-cyp;
+    let rx=dx*cy - dy*sy, ry=dx*sy + dy*cy;
+    return { X:W/2 + rx*scale, Y:H*0.60 + (ry*cp)*scale - (z||0)*scale };
+  }
+  let s='';
+  // sol (plan extrudé) : quadrilatère
+  const c1=proj(0,0,0),c2=proj(pw,0,0),c3=proj(pw,ph,0),c4=proj(0,ph,0);
+  s+='<polygon points="'+[c1,c2,c3,c4].map(p=>p.X+','+p.Y).join(' ')+'" fill="#1b2733" stroke="#33465a" stroke-width="1.5"/>';
+  // quadrillage
+  for(let gx=0;gx<=pw;gx+=ppm*2){ const a=proj(gx,0,0),b=proj(gx,ph,0); s+='<line x1="'+a.X+'" y1="'+a.Y+'" x2="'+b.X+'" y2="'+b.Y+'" stroke="#2a3a4a" stroke-width="0.6"/>'; }
+  for(let gy=0;gy<=ph;gy+=ppm*2){ const a=proj(0,gy,0),b=proj(pw,gy,0); s+='<line x1="'+a.X+'" y1="'+a.Y+'" x2="'+b.X+'" y2="'+b.Y+'" stroke="#2a3a4a" stroke-width="0.6"/>'; }
+  // équipements triés par profondeur
+  const items=objs.map(o=>{ const p0=proj(o.x,o.y,0); return {o,depth:p0.Y}; }).sort((a,b)=>a.depth-b.depth);
+  items.forEach(({o})=>{
+    const sys=sysmap[o.system]||{color:'#888'}; const col=sys.color;
+    const hpx=((parseFloat(o.height_m)||3))*ppm;
+    const base=proj(o.x,o.y,0), top=proj(o.x,o.y,hpx);
+    // mât
+    s+='<line x1="'+base.X+'" y1="'+base.Y+'" x2="'+top.X+'" y2="'+top.Y+'" stroke="#5a6b7a" stroke-width="2"/>';
+    s+='<ellipse cx="'+base.X+'" cy="'+base.Y+'" rx="6" ry="3" fill="#0008"/>';
+    // cône caméra en volume (approx) pour famille caméra
+    const t=(o.type||'').indexOf('cam')===0;
+    if(t){ const ppm2=ppm; const rng=(parseFloat(o.cam_target)||10); const ang=((o.angle||70))*Math.PI/180; const dir=(o.orientation||0)*Math.PI/180;
+      const fx=o.x+Math.cos(dir)*rng*ppm2, fy=o.y+Math.sin(dir)*rng*ppm2;
+      const a1=dir-ang/2,a2=dir+ang/2;
+      const p1=proj(o.x+Math.cos(a1)*rng*ppm2,o.y+Math.sin(a1)*rng*ppm2,0);
+      const p2=proj(o.x+Math.cos(a2)*rng*ppm2,o.y+Math.sin(a2)*rng*ppm2,0);
+      s+='<polygon points="'+top.X+','+top.Y+' '+p1.X+','+p1.Y+' '+p2.X+','+p2.Y+'" fill="'+col+'33" stroke="'+col+'88" stroke-width="1"/>';
+    }
+    // marqueur équipement
+    s+='<circle cx="'+top.X+'" cy="'+top.Y+'" r="7" fill="'+col+'" stroke="#fff" stroke-width="1.5"/>';
+    s+='<text x="'+(top.X+9)+'" y="'+(top.Y-8)+'" font-size="11" fill="#dfe7ee" style="paint-order:stroke;stroke:#0f1720;stroke-width:3px">'+(o.ref||'')+'</text>';
+  });
+  svg.innerHTML=s;
+}
+document.getElementById('d3_left').onclick=()=>{ yaw-=15; _draw3D(); };
+document.getElementById('d3_right').onclick=()=>{ yaw+=15; _draw3D(); };
+document.getElementById('d3_up').onclick=()=>{ pitch=Math.min(80,pitch+8); _draw3D(); };
+document.getElementById('d3_down').onclick=()=>{ pitch=Math.max(8,pitch-8); _draw3D(); };
+</script>
+{% endblock %}

@@ -38423,6 +38423,216 @@ def _imp_render_scene(base_im, scene, only_system=None, overlays=False):
             d.text((x+12, y-16), str(o.get('ref')), fill=(20, 20, 20, 255))
     return im
 
+# ---- Fonte robuste (DejaVu -> Liberation -> défaut PIL) ----
+_IMP_FONT_CACHE = {}
+def _imp_font(size=13, bold=False):
+    key = (size, bold)
+    if key in _IMP_FONT_CACHE:
+        return _IMP_FONT_CACHE[key]
+    from PIL import ImageFont
+    cands = ([ '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+               '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf' ] if bold else
+             [ '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+               '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' ])
+    f = None
+    for p in cands:
+        try:
+            f = ImageFont.truetype(p, size); break
+        except Exception:
+            continue
+    if f is None:
+        try: f = ImageFont.load_default()
+        except Exception: f = None
+    _IMP_FONT_CACHE[key] = f
+    return f
+
+def _imp_text_center(d, cx, cy, txt, font, fill):
+    try:
+        bb = d.textbbox((0, 0), txt, font=font); w = bb[2]-bb[0]; h = bb[3]-bb[1]
+    except Exception:
+        w = len(txt)*6; h = 11
+    d.text((cx-w/2, cy-h/2), txt, font=font, fill=fill)
+
+# ============================================================
+# Lot C — Vue TOPOLOGIE réseau (générée depuis systèmes / équipements / liaisons)
+# ============================================================
+def _imp_render_topology_png(scene, title=''):
+    """Schéma logique : cœur réseau -> systèmes -> équipements. Retourne image PIL RGB."""
+    from PIL import Image, ImageDraw
+    systems = scene.get('systems', [])
+    objects = [o for o in scene.get('objects', []) if o.get('kind') != 'liaison']
+    sysmap = {s['id']: s for s in systems}
+    # équipements par système (visibles)
+    groups = []
+    for s in systems:
+        devs = [o for o in objects if o.get('system') == s['id']]
+        if devs:
+            groups.append((s, devs))
+    if not groups:
+        groups = [({'id': '_', 'name': 'Aucun équipement', 'color': '#607d8b'}, [])]
+    # cœur : NVR/switch/baie si présent
+    core_label = 'Cœur réseau'
+    for o in objects:
+        f = _imp_icon_family(o.get('type'))
+        if f == 'network' and (o.get('type') in ('switch', 'rack', 'nvr')):
+            core_label = str(o.get('model') or o.get('ref') or 'Cœur réseau'); break
+    # dimensions
+    col_w = 210
+    dev_h = 34
+    pad = 28
+    header_y = 120
+    sys_y = 210
+    dev_y0 = 280
+    max_devs = max((len(d) for _, d in groups), default=1)
+    W = pad*2 + col_w*len(groups)
+    H = dev_y0 + max_devs*(dev_h+10) + 40
+    W = max(W, 560); H = max(H, 420)
+    im = Image.new('RGB', (W, H), (247, 249, 251))
+    d = ImageDraw.Draw(im, 'RGBA')
+    fB = _imp_font(15, True); f = _imp_font(12); fS = _imp_font(10)
+    TEAL = (26, 122, 109)
+    if title:
+        d.text((pad, 24), title, font=fB, fill=(40, 40, 40))
+    # cœur
+    core_cx = W//2; core_w = 220; core_h = 46
+    d.rounded_rectangle([core_cx-core_w//2, header_y-core_h//2, core_cx+core_w//2, header_y+core_h//2],
+                        radius=10, fill=TEAL+(255,), outline=(255, 255, 255, 255), width=2)
+    _imp_text_center(d, core_cx, header_y, core_label, fB, (255, 255, 255))
+    # colonnes systèmes
+    n = len(groups)
+    for i, (s, devs) in enumerate(groups):
+        cx = pad + col_w*i + col_w//2
+        col = _imp_hex(s.get('color'))
+        # ligne cœur -> système
+        d.line([core_cx, header_y+core_h//2, cx, sys_y-18], fill=(150, 160, 170, 255), width=2)
+        # boîte système
+        sw = col_w-30
+        d.rounded_rectangle([cx-sw//2, sys_y-18, cx+sw//2, sys_y+18], radius=8, fill=col+(255,), outline=(255, 255, 255, 255), width=2)
+        _imp_text_center(d, cx, sys_y, s.get('name', ''), f, (255, 255, 255))
+        # équipements
+        for j, o in enumerate(devs):
+            ey = dev_y0 + j*(dev_h+10)
+            d.line([cx, sys_y+18, cx, ey], fill=(200, 205, 210, 255), width=1)
+            bx0, bx1 = cx-(col_w-40)//2, cx+(col_w-40)//2
+            d.rounded_rectangle([bx0, ey, bx1, ey+dev_h], radius=7, fill=(255, 255, 255, 255), outline=col+(255,), width=2)
+            _imp_draw_icon(d, o.get('type') or s.get('icon') or 'default', bx0+18, ey+dev_h//2, col, 0)
+            lbl = str(o.get('ref') or '')
+            d.text((bx0+34, ey+6), lbl, font=fS, fill=(30, 30, 30))
+            md = str(o.get('model') or '')[:22]
+            if md:
+                d.text((bx0+34, ey+18), md, font=fS, fill=(120, 120, 120))
+    return im
+
+# ============================================================
+# Lot C — Vue RACK / baie (élévation)
+# ============================================================
+def _imp_render_rack_png(scene, title=''):
+    """Élévation des baies : équipements avec champ 'rack' empilés par position U."""
+    from PIL import Image, ImageDraw
+    objects = [o for o in scene.get('objects', []) if o.get('kind') != 'liaison']
+    sysmap = {s['id']: s for s in scene.get('systems', [])}
+    # regrouper par baie
+    racks = {}
+    for o in objects:
+        rname = (o.get('rack') or '').strip()
+        if not rname:
+            continue
+        racks.setdefault(rname, []).append(o)
+    U = 42; u_h = 15; frame_w = 240; gap = 60; top = 90; label_h = 34
+    from PIL import Image as _I
+    if not racks:
+        im = _I.new('RGB', (620, 260), (247, 249, 251))
+        d = ImageDraw.Draw(im)
+        d.text((30, 30), title or 'Vue baie / rack', font=_imp_font(15, True), fill=(40, 40, 40))
+        d.text((30, 80), "Aucun équipement affecté à une baie.", font=_imp_font(12), fill=(120, 120, 120))
+        d.text((30, 104), "Renseignez le champ « Baie » (et la position U) dans les propriétés d'un équipement réseau.", font=_imp_font(11), fill=(150, 150, 150))
+        return im
+    names = list(racks.keys())
+    W = 40 + len(names)*(frame_w+gap)
+    H = top + label_h + U*u_h + 50
+    im = _I.new('RGB', (W, H), (247, 249, 251))
+    d = ImageDraw.Draw(im, 'RGBA')
+    fB = _imp_font(15, True); f = _imp_font(11); fS = _imp_font(9)
+    if title:
+        d.text((30, 24), title, font=fB, fill=(40, 40, 40))
+    for ri, name in enumerate(names):
+        x0 = 40 + ri*(frame_w+gap)
+        y0 = top + label_h
+        # étiquette baie
+        _imp_text_center(d, x0+frame_w//2, top+label_h//2-4, 'Baie ' + name, f, (40, 40, 40))
+        # cadre + rails U
+        d.rounded_rectangle([x0, y0, x0+frame_w, y0+U*u_h], radius=6, fill=(33, 39, 46, 255), outline=(20, 24, 28, 255), width=2)
+        for u in range(U+1):
+            yy = y0+u*u_h
+            d.line([x0, yy, x0+frame_w, yy], fill=(60, 70, 80, 120), width=1)
+            if u < U and u % 2 == 0:
+                d.text((x0-22, yy+2), str(U-u), font=fS, fill=(120, 120, 120))
+        # placement des équipements
+        auto = 1
+        for o in sorted(racks[name], key=lambda z: -(int(z.get('rack_u') or 0) or 0)):
+            uh = max(1, int(o.get('rack_uh') or 1))
+            pos = int(o.get('rack_u') or 0)
+            if pos <= 0:
+                pos = auto; auto += uh
+            top_u = U - pos - uh + 1
+            ry0 = y0 + top_u*u_h + 2
+            ry1 = ry0 + uh*u_h - 4
+            col = _imp_hex(sysmap.get(o.get('system'), {}).get('color', '#607d8b'))
+            d.rounded_rectangle([x0+8, ry0, x0+frame_w-8, ry1], radius=4, fill=col+(235,), outline=(255, 255, 255, 255), width=1)
+            _imp_draw_icon(d, o.get('type') or 'default', x0+22, (ry0+ry1)//2, (255, 255, 255), 0)
+            d.text((x0+38, ry0+3), str(o.get('ref') or ''), font=fS, fill=(255, 255, 255))
+            md = str(o.get('model') or '')[:26]
+            if md and uh >= 1:
+                d.text((x0+38, ry0+14 if uh > 1 else ry0+3), md, font=fS, fill=(235, 235, 235)) if uh > 1 else None
+    return im
+
+@app.route('/implantation/<int:sid>/topology.png')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_topology_png(sid):
+    import json as _json, io as _io
+    c = _gdb(); r = c.execute("SELECT title, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
+    if not r:
+        abort(404)
+    try: scene = _json.loads(r['scene_json'] or '{}')
+    except Exception: scene = {}
+    im = _imp_render_topology_png(scene, 'Topologie — ' + (r['title'] or ''))
+    b = _io.BytesIO(); im.save(b, 'PNG')
+    return Response(b.getvalue(), mimetype='image/png', headers={'Cache-Control': 'no-store'})
+
+@app.route('/implantation/<int:sid>/rack.png')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_rack_png(sid):
+    import json as _json, io as _io
+    c = _gdb(); r = c.execute("SELECT title, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
+    if not r:
+        abort(404)
+    try: scene = _json.loads(r['scene_json'] or '{}')
+    except Exception: scene = {}
+    im = _imp_render_rack_png(scene, 'Baies — ' + (r['title'] or ''))
+    b = _io.BytesIO(); im.save(b, 'PNG')
+    return Response(b.getvalue(), mimetype='image/png', headers={'Cache-Control': 'no-store'})
+
+@app.route('/implantation/<int:sid>/views')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_views(sid):
+    c = _gdb(); r = c.execute("SELECT id, title FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
+    if not r:
+        flash("Étude introuvable.", "error"); return redirect('/implantation')
+    return render_template('implantation_views.html', study=dict(r))
+
+@app.route('/implantation/<int:sid>/scene.json')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_scene_json(sid):
+    import json as _json
+    c = _gdb(); r = c.execute("SELECT scene_json, plan_w, plan_h FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
+    if not r:
+        return jsonify({'scene': {}}), 404
+    try: scene = _json.loads(r['scene_json'] or '{}')
+    except Exception: scene = {}
+    scene['plan_w'] = r['plan_w'] or 1000
+    scene['plan_h'] = r['plan_h'] or 700
+    return jsonify({'scene': scene})
+
 @app.route('/implantation/<int:sid>/pdf')
 @permission_required_any('projets', 'resp_projet', 'admin')
 def implantation_pdf(sid):
@@ -38509,6 +38719,22 @@ def implantation_pdf(sid):
     else:
         story.append(Spacer(1, 6*mm))
         story.append(Paragraph("<i>Aucun plan n'a été chargé pour cette étude.</i>", normal))
+
+    # Topologie réseau
+    try:
+        topo_im = _imp_render_topology_png(scene, '')
+        story.append(PageBreak())
+        add_plan_image(topo_im, "Topologie réseau")
+    except Exception:
+        pass
+    # Vue baie / rack (seulement si des baies sont renseignées)
+    try:
+        if any((o.get('rack') or '').strip() for o in objects if o.get('kind') != 'liaison'):
+            rack_im = _imp_render_rack_png(scene, '')
+            story.append(PageBreak())
+            add_plan_image(rack_im, "Vue baie / rack")
+    except Exception:
+        pass
 
     # Tableau des équipements / implantations
     story.append(PageBreak())
