@@ -38251,9 +38251,31 @@ def _imp_hex(h):
     except Exception:
         return (26, 122, 109)
 
+def _imp_icon_family(typ):
+    """Normalise un type d'icône (variantes de l'éditeur) vers une famille dessinable."""
+    t = (typ or '').lower()
+    if t.startswith('cam') or t == 'camera':
+        return 'camera'
+    if t in ('ap', 'wifi'):
+        return 'wifi'
+    if t.startswith('reader') or t in ('access', 'door'):
+        return 'reader'
+    if t in ('motion', 'motion_pir', 'motion_dual', 'glassbreak', 'intrusion'):
+        return 'motion'
+    if t in ('smoke', 'heat', 'detector', 'incendie', 'callpoint'):
+        return 'smoke'
+    if t in ('speaker', 'sono', 'horn'):
+        return 'speaker'
+    if t in ('siren',):
+        return 'siren'
+    if t in ('network', 'reseau', 'switch', 'socket', 'nvr', 'rack'):
+        return 'network'
+    return 'default'
+
 def _imp_draw_icon(d, typ, x, y, col, rot=0):
     """Dessine une icône d'équipement type-spécifique avec PIL (miroir des icônes de l'éditeur)."""
     import math
+    typ = _imp_icon_family(typ)
     W = (255, 255, 255, 255)
     C = col + (255,)
     def rp(px, py):  # rotation autour de (x,y)
@@ -38291,8 +38313,44 @@ def _imp_draw_icon(d, typ, x, y, col, rot=0):
     else:
         d.ellipse([x-8, y-8, x+8, y+8], fill=C, outline=W, width=2)
 
-def _imp_render_scene(base_im, scene, only_system=None):
-    """Composite plan + objets (icônes + zones + liaisons) avec PIL. Retourne une image PIL."""
+_IMP_SENSOR_W = {'1/4"': 3.6, '1/3.6"': 4.0, '1/3"': 4.8, '1/2.9"': 4.96, '1/2.8"': 5.37,
+                 '1/2.7"': 5.37, '1/2.5"': 5.76, '1/2.3"': 6.17, '1/2"': 6.4, '1/1.8"': 7.18,
+                 '1/1.7"': 7.6, '1/1.2"': 10.67, '2/3"': 8.8, '1"': 12.8}
+_IMP_DORI = [('Identification', 250, (27, 94, 32)), ('Reconnaissance', 125, (46, 125, 50)),
+             ('Observation', 62, (249, 168, 37)), ('Détection', 25, (230, 81, 0))]
+
+def _imp_cam_bands(o):
+    """Distances DORI au sol (m) + FOV horizontal (°) pour une caméra."""
+    import math
+    focal = float(o.get('cam_focal') or 4) or 4
+    sw = _IMP_SENSOR_W.get(o.get('cam_sensor') or '1/2.8"', 5.37)
+    resh = float(o.get('cam_resh') or 2688) or 2688
+    h = float(o.get('height_m') or 3) or 3
+    th = max(0.1, h - 1.6)
+    hfov = 2 * math.atan(sw / (2 * focal)) * 180 / math.pi
+    bands = []
+    for name, ppm, col in _IMP_DORI:
+        s = resh * focal / (ppm * sw)
+        g = math.sqrt(max(0.0, s * s - th * th))
+        bands.append((name, g, col))
+    return hfov, bands
+
+def _imp_wifi_radii(o):
+    """Rayons (m) de couverture WiFi par seuil RSSI (modèle log-distance intérieur)."""
+    import math
+    ptx = float(o.get('wifi_ptx') or 20)
+    fMHz = 5000.0 if str(o.get('wifi_band')) == '5' else 2400.0
+    n = float(o.get('wifi_n') or 3.0) or 3.0
+    L0 = 20 * math.log10(fMHz) - 27.55
+
+    def dfor(rssi):
+        return 10 ** ((ptx - L0 - rssi) / (10 * n))
+    return [(-50, (27, 122, 61)), (-60, (76, 175, 80)), (-67, (249, 168, 37)),
+            (-75, (239, 108, 0)), (-82, (198, 40, 40))], dfor
+
+def _imp_render_scene(base_im, scene, only_system=None, overlays=False):
+    """Composite plan + objets (icônes + zones + liaisons) avec PIL. Retourne une image PIL.
+    overlays=True dessine aussi les zones DORI (caméras) et la couverture WiFi."""
     from PIL import ImageDraw
     import math
     im = base_im.copy().convert('RGB')
@@ -38303,6 +38361,29 @@ def _imp_render_scene(base_im, scene, only_system=None):
         if only_system:
             return o.get('system') == only_system
         return sysmap.get(o.get('system'), {}).get('visible', True)
+    fam = _imp_icon_family
+    # 0) overlays de simulation (sous les zones classiques)
+    if overlays and ppm:
+        for o in scene.get('objects', []):
+            if o.get('kind') == 'liaison' or not visible(o):
+                continue
+            f = fam(o.get('type') or sysmap.get(o.get('system'), {}).get('icon'))
+            x, y = float(o.get('x', 0)), float(o.get('y', 0))
+            if f == 'camera':
+                hfov, bands = _imp_cam_bands(o)
+                dir0 = float(o.get('orientation', 0))
+                for name, g, col in bands:  # grand -> petit (empilement)
+                    r = g * ppm
+                    if r <= 0:
+                        continue
+                    d.pieslice([x-r, y-r, x+r, y+r], dir0-hfov/2, dir0+hfov/2, fill=col + (70,), outline=col + (200,))
+            elif f == 'wifi':
+                thr, dfor = _imp_wifi_radii(o)
+                for rssi, col in thr:  # grand -> petit
+                    r = dfor(rssi) * ppm
+                    if r <= 0:
+                        continue
+                    d.ellipse([x-r, y-r, x+r, y+r], fill=col + (38,))
     # 1) zones d'effet (sous les icônes)
     for o in scene.get('objects', []):
         if o.get('kind') == 'liaison' or not visible(o):
@@ -38424,7 +38505,7 @@ def implantation_pdf(sid):
             if not [o for o in objects if o.get('system') == s['id']]:
                 continue
             story.append(PageBreak())
-            add_plan_image(_imp_render_scene(base_im, scene, only_system=s['id']), "Planche — " + s.get('name', ''))
+            add_plan_image(_imp_render_scene(base_im, scene, only_system=s['id'], overlays=True), "Planche — " + s.get('name', ''))
     else:
         story.append(Spacer(1, 6*mm))
         story.append(Paragraph("<i>Aucun plan n'a été chargé pour cette étude.</i>", normal))
