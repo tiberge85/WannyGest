@@ -4,8 +4,8 @@
 <style>
   .imp-wrap{display:flex;gap:10px;height:calc(100vh - 130px);min-height:520px}
   .imp-col{background:#fff;border:1px solid #e3e8ec;border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
-  .imp-left{width:230px;flex:none}
-  .imp-right{width:280px;flex:none}
+  .imp-left{width:236px;flex:none}
+  .imp-right{width:288px;flex:none}
   .imp-center{flex:1;position:relative;background:#f4f6f8}
   .imp-hd{padding:8px 10px;font-weight:700;font-size:12px;color:#1A7A6D;border-bottom:1px solid #eef2f4;background:#f8fbfa}
   .imp-body{padding:8px 10px;overflow:auto;font-size:12px}
@@ -17,12 +17,23 @@
   .imp-btn.primary{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
   .imp-btn.warn{color:#c53030;border-color:#f0c0c0}
   .tool.active{background:#1A7A6D;color:#fff;border-color:#1A7A6D}
+  .pal-item{display:flex;align-items:center;gap:7px;padding:5px 6px;border:1px solid #e2e8ec;border-radius:7px;cursor:pointer;margin-bottom:4px;background:#fff}
+  .pal-item:hover{background:#f2f7f6}
+  .pal-item.active{outline:2px solid #1A7A6D;background:#eaf5f2}
+  .pal-ic{width:26px;height:26px;flex:none}
   #impSvg{width:100%;height:100%;touch-action:none;background:#dfe4e8}
   .field{margin-bottom:8px}
   .field label{display:block;font-size:11px;color:#666;margin-bottom:2px}
   .field input,.field select,.field textarea{width:100%;padding:6px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;box-sizing:border-box}
   .topbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
   .badge-scale{font-size:11px;color:#555;background:#eef4f3;border-radius:20px;padding:3px 10px}
+  .imp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:9000}
+  .imp-overlay.on{display:flex}
+  .imp-modal{background:#fff;border-radius:12px;max-width:520px;width:92%;max-height:80vh;overflow:auto;padding:18px 20px}
+  .al{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border-radius:8px;margin-bottom:6px;font-size:13px}
+  .al.error{background:#fdeaea;color:#a12626}.al.warn{background:#fff5e6;color:#9a6212}
+  .al.info{background:#eef4fb;color:#25567e}.al.ok{background:#eaf7ef;color:#1d7a44}
+  .stpill{font-size:12px;border:1.5px solid #ddd;border-radius:20px;padding:4px 10px;background:#fff}
 </style>
 
 <div class="topbar">
@@ -30,24 +41,33 @@
   <strong style="font-size:16px">🗺️ {{ study.title }}</strong>
   <span class="badge-scale" id="scaleBadge">Échelle : non calibrée</span>
   <span style="flex:1"></span>
-  <button class="imp-btn" id="btnCalibrate" title="Cliquez 2 points de distance connue">📏 Calibrer l'échelle</button>
+  <select id="stSel" class="stpill" title="Statut de l'étude">
+    <option>Brouillon</option><option>En étude</option><option>À valider</option><option>Validé</option><option>Publié</option>
+  </select>
+  <button class="imp-btn" id="btnControls" title="Contrôles de cohérence">🔎 Contrôles</button>
+  <button class="imp-btn" id="btnCalibrate" title="Cliquez 2 points de distance connue">📏 Calibrer</button>
   <button class="imp-btn" id="btnSave">💾 Enregistrer</button>
+  <button class="imp-btn" id="btnPublish" title="Figer une version publiée">📌 Publier</button>
   <a class="imp-btn primary" href="/implantation/{{ study.id }}/pdf" target="_blank">📄 Dossier PDF</a>
 </div>
 
 <div class="imp-wrap">
-  <!-- Panneau gauche : systèmes + outils -->
+  <!-- Panneau gauche : systèmes + palette + outils -->
   <div class="imp-col imp-left">
     <div class="imp-hd">🧩 Systèmes / calques</div>
-    <div class="imp-body" style="flex:1">
+    <div class="imp-body">
       <div id="sysList"></div>
       <button class="imp-btn" style="width:100%;margin-top:6px" id="btnAddSys">＋ Ajouter un système</button>
+    </div>
+    <div class="imp-hd">📦 Équipements</div>
+    <div class="imp-body" style="flex:1">
+      <div id="palette"></div>
+      <div style="font-size:11px;color:#888;margin-top:4px">Choisissez un équipement puis cliquez sur le plan pour le poser.</div>
     </div>
     <div class="imp-hd">🛠️ Outils</div>
     <div class="imp-body">
       <button class="imp-btn tool active" data-tool="select" style="width:100%;margin-bottom:5px">🖱️ Sélection / déplacer</button>
-      <button class="imp-btn tool" data-tool="place" style="width:100%;margin-bottom:5px">📍 Placer un équipement</button>
-      <div style="font-size:11px;color:#888;margin-top:4px">Outil « Placer » : choisissez un système à gauche puis cliquez sur le plan.</div>
+      <button class="imp-btn tool" data-tool="liaison" style="width:100%">🔌 Liaison / câblage</button>
     </div>
   </div>
 
@@ -83,30 +103,70 @@
   </div>
 </div>
 
+<!-- overlay contrôles / versions -->
+<div class="imp-overlay" id="ovl"><div class="imp-modal">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <strong id="ovlTitle" style="font-size:15px;color:#1A7A6D">Contrôles</strong>
+    <button class="imp-btn" onclick="document.getElementById('ovl').classList.remove('on')">✕</button>
+  </div>
+  <div id="ovlBody"></div>
+</div></div>
+
 <script>
 const STUDY_ID = {{ study.id }};
 const PLAN_W = {{ study.plan_w or 1000 }};
 const PLAN_H = {{ study.plan_h or 700 }};
 const HAS_PLAN = {{ 'true' if study.has_plan else 'false' }};
+const STUDY_STATUS = {{ (study.status or 'Brouillon')|tojson }};
 let S = {{ scene_json|safe }};
 if(!S || typeof S !== 'object') S = {};
 S.systems = S.systems || [
-  {id:'sys_video', name:'Vidéosurveillance', color:'#c0392b', visible:true, coverage:'cone'},
-  {id:'sys_wifi', name:'Wi-Fi', color:'#2b6cb0', visible:true, coverage:'circle'},
-  {id:'sys_acces', name:"Contrôle d'accès", color:'#7b1fa2', visible:true, coverage:'none'},
-  {id:'sys_intrusion', name:'Intrusion', color:'#e8672a', visible:true, coverage:'circle'},
-  {id:'sys_incendie', name:'Détection incendie', color:'#b8231b', visible:true, coverage:'circle'},
-  {id:'sys_sono', name:'Sonorisation', color:'#2e7d32', visible:true, coverage:'circle'},
-  {id:'sys_reseau', name:'Réseau', color:'#607d8b', visible:true, coverage:'none'}
+  {id:'sys_video', name:'Vidéosurveillance', color:'#c0392b', visible:true, coverage:'cone', icon:'camera'},
+  {id:'sys_wifi', name:'Wi-Fi', color:'#2b6cb0', visible:true, coverage:'circle', icon:'wifi'},
+  {id:'sys_acces', name:"Contrôle d'accès", color:'#7b1fa2', visible:true, coverage:'none', icon:'reader'},
+  {id:'sys_intrusion', name:'Intrusion', color:'#e8672a', visible:true, coverage:'circle', icon:'motion'},
+  {id:'sys_incendie', name:'Détection incendie', color:'#b8231b', visible:true, coverage:'circle', icon:'smoke'},
+  {id:'sys_sono', name:'Sonorisation', color:'#2e7d32', visible:true, coverage:'circle', icon:'speaker'},
+  {id:'sys_reseau', name:'Réseau', color:'#607d8b', visible:true, coverage:'none', icon:'network'}
 ];
 S.objects = S.objects || [];
 S.scale = S.scale || {px_per_m:null};
 
+// ---- Bibliothèque d'icônes SVG (miroir des icônes PIL du PDF) ----
+const ICONS = {
+  wifi:   (c)=>`<circle cx="0" cy="5" r="2.6" fill="${c}"/><path d="M -6 3 A 6 6 0 0 1 6 3" fill="none" stroke="${c}" stroke-width="2"/><path d="M -9.5 1 A 9.5 9.5 0 0 1 9.5 1" fill="none" stroke="${c}" stroke-width="2"/>`,
+  camera: (c)=>`<rect x="-9" y="-6" width="12" height="12" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="6.5" cy="0" r="3.6" fill="#fff" stroke="${c}" stroke-width="1.6"/>`,
+  reader: (c)=>`<rect x="-6" y="-9" width="12" height="18" rx="3" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="-3.5" r="2.4" fill="#fff"/><rect x="-1.5" y="-0.5" width="3" height="5" fill="#fff"/>`,
+  motion: (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-4" y="-3" width="8" height="6" rx="1.2" fill="#fff"/>`,
+  smoke:  (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="0" r="3" fill="#fff"/>`,
+  speaker:(c)=>`<rect x="-7" y="-4" width="5" height="8" fill="${c}" stroke="#fff" stroke-width="1"/><polygon points="-2,-4 7,-9 7,9 -2,4" fill="${c}" stroke="#fff" stroke-width="1"/>`,
+  siren:  (c)=>`<polygon points="0,-9 -8,7 8,7" fill="${c}" stroke="#fff" stroke-width="1.5"/><circle cx="0" cy="1.5" r="2" fill="#fff"/>`,
+  network:(c)=>`<rect x="-9" y="-6" width="18" height="12" rx="2" fill="${c}" stroke="#fff" stroke-width="1.5"/><rect x="-6" y="1" width="2" height="3.4" fill="#fff"/><rect x="-1" y="1" width="2" height="3.4" fill="#fff"/><rect x="4" y="1" width="2" height="3.4" fill="#fff"/>`,
+  default:(c)=>`<circle cx="0" cy="0" r="8" fill="${c}" stroke="#fff" stroke-width="1.5"/>`
+};
+function iconSvg(typ,c){ return (ICONS[typ]||ICONS.default)(c); }
+
+// ---- Palette d'équipements par système ----
+const PALETTE = {
+  sys_video:    [{t:'camera',l:'Caméra dôme',cov:'cone'},{t:'camera',l:'Caméra bullet',cov:'cone'}],
+  sys_wifi:     [{t:'wifi',l:"Point d'accès",cov:'circle'}],
+  sys_acces:    [{t:'reader',l:'Lecteur de badge',cov:'none'},{t:'reader',l:'Porte contrôlée',cov:'none'}],
+  sys_intrusion:[{t:'motion',l:'Détecteur mouvement',cov:'circle'}],
+  sys_incendie: [{t:'smoke',l:'Détecteur fumée',cov:'circle'},{t:'siren',l:'Sirène',cov:'circle'}],
+  sys_sono:     [{t:'speaker',l:'Haut-parleur',cov:'circle'}],
+  sys_reseau:   [{t:'network',l:'Prise / switch',cov:'none'}]
+};
+const GENERIC = [{t:'camera',l:'Caméra',cov:'cone'},{t:'wifi',l:'Wi-Fi',cov:'circle'},{t:'reader',l:'Lecteur',cov:'none'},
+  {t:'motion',l:'Détecteur',cov:'circle'},{t:'smoke',l:'Fumée',cov:'circle'},{t:'siren',l:'Sirène',cov:'circle'},
+  {t:'speaker',l:'HP',cov:'circle'},{t:'network',l:'Réseau',cov:'none'},{t:'default',l:'Autre',cov:'none'}];
+function paletteFor(sysId){ return PALETTE[sysId] || GENERIC; }
+
 const SVGNS='http://www.w3.org/2000/svg';
 let svg = document.getElementById('impSvg');
-let tool='select', activeSys=S.systems[0].id, selId=null;
+let tool='select', activeSys=S.systems[0].id, activeType=null, selId=null;
 let view={x:0,y:0,w:PLAN_W,h:PLAN_H};
 let calib={on:false, pts:[]};
+let liaison={a:null};
 
 function uid(p){return p+'_'+Math.random().toString(36).slice(2,8)}
 function sysById(id){return S.systems.find(x=>x.id===id)||S.systems[0]}
@@ -124,9 +184,21 @@ function renderSystems(){
     row.innerHTML='<span class="sys-dot" style="background:'+sys.color+'"></span>'+
       '<span class="sys-name">'+sys.name+'</span>'+
       '<span title="Afficher/masquer" style="cursor:pointer">'+(sys.visible?'👁️':'🚫')+'</span>';
-    row.onclick=(e)=>{ activeSys=sys.id; renderSystems(); };
+    row.onclick=(e)=>{ activeSys=sys.id; activeType=null; renderSystems(); renderPalette(); };
     row.querySelector('span[title]').onclick=(e)=>{ e.stopPropagation(); sys.visible=!sys.visible; renderSystems(); renderObjects(); };
     el.appendChild(row);
+  });
+}
+
+function renderPalette(){
+  const el=document.getElementById('palette'); el.innerHTML='';
+  const sys=sysById(activeSys);
+  paletteFor(activeSys).forEach(p=>{
+    const div=document.createElement('div');
+    div.className='pal-item'+(activeType && activeType.t===p.t && activeType.l===p.l?' active':'');
+    div.innerHTML='<svg class="pal-ic" viewBox="-14 -14 28 28">'+iconSvg(p.t,sys.color)+'</svg><span>'+p.l+'</span>';
+    div.onclick=()=>{ activeType=p; tool='place'; document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active')); renderPalette(); };
+    el.appendChild(div);
   });
 }
 
@@ -138,7 +210,6 @@ function coverPath(o){
   if(shape==='circle'){
     return '<circle cx="'+o.x+'" cy="'+o.y+'" r="'+r+'" fill="'+sys.color+'22" stroke="'+sys.color+'" stroke-width="1" stroke-dasharray="4 3"/>';
   }
-  // cone : secteur oriente
   const ang=(o.angle||90)*Math.PI/180, dir=(o.orientation||0)*Math.PI/180;
   const a1=dir-ang/2, a2=dir+ang/2;
   const x1=o.x+r*Math.cos(a1), y1=o.y+r*Math.sin(a1);
@@ -148,22 +219,33 @@ function coverPath(o){
 }
 
 function renderObjects(){
-  // reconstruire le SVG
   let bg = HAS_PLAN ? '<image href="/implantation/'+STUDY_ID+'/plan/img" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
-  let cover='', marks='';
+  let cover='', liaisons='', marks='';
+  const ppm=S.scale.px_per_m;
   S.objects.forEach(o=>{
     const sys=sysById(o.system); if(!sys.visible) return;
+    if(o.kind==='liaison'){
+      const sel=(o.id===selId);
+      let lbl='';
+      if(ppm){ const L=Math.hypot(o.x2-o.x,o.y2-o.y)/ppm; lbl='<text x="'+((o.x+o.x2)/2)+'" y="'+((o.y+o.y2)/2-6)+'" font-size="11" fill="#111" style="paint-order:stroke;stroke:#fff;stroke-width:3px">'+L.toFixed(1)+' m</text>'; }
+      liaisons+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
+        +'<line x1="'+o.x+'" y1="'+o.y+'" x2="'+o.x2+'" y2="'+o.y2+'" stroke="'+sys.color+'" stroke-width="'+(sel?4:2.5)+'"'+(sel?' stroke-dasharray="6 3"':'')+'/>'
+        +'<circle cx="'+o.x+'" cy="'+o.y+'" r="3.5" fill="'+sys.color+'"/><circle cx="'+o.x2+'" cy="'+o.y2+'" r="3.5" fill="'+sys.color+'"/>'
+        +lbl+'</g>';
+      return;
+    }
     cover+=coverPath(o);
     const sel=(o.id===selId);
-    const rot='rotate('+(o.orientation||0)+' '+o.x+' '+o.y+')';
+    const typ=o.type||sys.icon||'default';
     marks+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
-      +'<circle cx="'+o.x+'" cy="'+o.y+'" r="10" fill="'+sys.color+'" stroke="#fff" stroke-width="2"'+(sel?' stroke="#111" stroke-width="3"':'')+'/>'
-      +'<line x1="'+o.x+'" y1="'+o.y+'" x2="'+o.x+'" y2="'+(o.y-16)+'" stroke="'+sys.color+'" stroke-width="2" transform="'+rot+'"/>'
-      +'<text x="'+(o.x+12)+'" y="'+(o.y-10)+'" font-size="11" fill="#111" style="paint-order:stroke;stroke:#fff;stroke-width:3px">'+(o.ref||'')+'</text>'
+      +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="15" fill="none" stroke="#111" stroke-width="2" stroke-dasharray="3 2"/>':'')
+      +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+')">'+iconSvg(typ,sys.color)+'</g>'
+      +'<text x="'+(o.x+13)+'" y="'+(o.y-11)+'" font-size="11" fill="#111" style="paint-order:stroke;stroke:#fff;stroke-width:3px">'+(o.ref||'')+'</text>'
       +'</g>';
   });
   const calibLayer = calib.pts.map(p=>'<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#e8672a"/>').join('');
-  svg.innerHTML = bg + '<g>'+cover+'</g>' + '<g>'+marks+'</g>' + calibLayer;
+  const liaTmp = liaison.a ? '<circle cx="'+liaison.a.x+'" cy="'+liaison.a.y+'" r="5" fill="#e8672a"/>' : '';
+  svg.innerHTML = bg + '<g>'+cover+'</g>' + '<g>'+liaisons+'</g>' + '<g>'+marks+'</g>' + calibLayer + liaTmp;
   bindObjectEvents();
 }
 
@@ -173,7 +255,8 @@ function bindObjectEvents(){
       if(tool!=='select') return;
       e.stopPropagation();
       selId=g.getAttribute('data-id'); renderObjects(); renderProps();
-      const o=objById(selId); const start=svgPoint(e); const ox=o.x, oy=o.y;
+      const o=objById(selId); if(o.kind==='liaison') return;
+      const start=svgPoint(e); const ox=o.x, oy=o.y;
       function move(ev){ const p=svgPoint(ev); o.x=ox+(p.x-start.x); o.y=oy+(p.y-start.y); renderObjects(); }
       function up(){ svg.removeEventListener('pointermove',move); svg.removeEventListener('pointerup',up); renderProps(); }
       svg.addEventListener('pointermove',move); svg.addEventListener('pointerup',up);
@@ -185,11 +268,27 @@ function renderProps(){
   const el=document.getElementById('propPanel');
   const o=objById(selId);
   if(!o){ el.innerHTML='<div style="color:#999">Sélectionnez un équipement sur le plan.</div>'; return; }
+  if(o.kind==='liaison'){
+    const ppm=S.scale.px_per_m; const L=ppm?(Math.hypot(o.x2-o.x,o.y2-o.y)/ppm).toFixed(2)+' m':'(calibrer)';
+    const opt=S.systems.map(s=>'<option value="'+s.id+'"'+(s.id===o.system?' selected':'')+'>'+s.name+'</option>').join('');
+    el.innerHTML='<div style="font-weight:700;color:#1A7A6D;margin-bottom:6px">🔌 Liaison</div>'
+      +'<div class="field"><label>Système</label><select id="p_sys">'+opt+'</select></div>'
+      +'<div class="field"><label>Type de câble</label><input id="p_cable" value="'+(o.cable||'')+'" placeholder="Ex. UTP Cat6, coax RG59…"></div>'
+      +'<div class="field"><label>Longueur</label><input value="'+L+'" disabled></div>'
+      +'<div style="display:flex;gap:6px;margin-top:8px"><button class="imp-btn warn" id="p_del">🗑️ Supprimer</button></div>';
+    document.getElementById('p_sys').addEventListener('change',e=>{ o.system=e.target.value; renderObjects(); });
+    document.getElementById('p_cable').addEventListener('input',e=>{ o.cable=e.target.value; });
+    document.getElementById('p_del').onclick=()=>{ S.objects=S.objects.filter(x=>x.id!==selId); selId=null; renderObjects(); renderProps(); };
+    return;
+  }
   const opt=S.systems.map(s=>'<option value="'+s.id+'"'+(s.id===o.system?' selected':'')+'>'+s.name+'</option>').join('');
+  const typopt=['camera','wifi','reader','motion','smoke','siren','speaker','network','default']
+    .map(t=>'<option value="'+t+'"'+((o.type||sysById(o.system).icon)===t?' selected':'')+'>'+t+'</option>').join('');
   el.innerHTML=
     '<div class="field"><label>Référence (ID)</label><input id="p_ref" value="'+(o.ref||'')+'"></div>'
    +'<div class="field"><label>Modèle / désignation</label><input id="p_model" value="'+(o.model||'')+'"></div>'
    +'<div class="field"><label>Système</label><select id="p_sys">'+opt+'</select></div>'
+   +'<div class="field"><label>Icône / type</label><select id="p_type">'+typopt+'</select></div>'
    +'<div class="field"><label>Orientation (°)</label><input id="p_or" type="number" value="'+(o.orientation||0)+'"></div>'
    +'<div class="field"><label>Hauteur de pose (m)</label><input id="p_h" type="number" step="0.1" value="'+(o.height_m||'')+'"></div>'
    +'<div class="field"><label>Zone d\'effet</label><select id="p_cov"><option value="none">Aucune</option><option value="circle">Cercle (rayon)</option><option value="cone">Cône (champ)</option></select></div>'
@@ -207,7 +306,8 @@ function renderProps(){
   bind('p_ref','ref'); bind('p_model','model'); bind('p_or','orientation',true); bind('p_h','height_m',true);
   bind('p_r','radius_m',true); bind('p_ang','angle',true);
   bind('p_obj','objectif'); bind('p_just','justification'); bind('p_ctr','contraintes');
-  document.getElementById('p_sys').addEventListener('change',e=>{ o.system=e.target.value; renderObjects(); });
+  document.getElementById('p_sys').addEventListener('change',e=>{ o.system=e.target.value; renderObjects(); renderProps(); });
+  document.getElementById('p_type').addEventListener('change',e=>{ o.type=e.target.value; renderObjects(); });
   document.getElementById('p_cov').addEventListener('change',e=>{ o.coverage=e.target.value; renderObjects(); });
   document.getElementById('p_st').addEventListener('change',e=>{ o.statut=e.target.value; });
   document.getElementById('p_del').onclick=()=>{ S.objects=S.objects.filter(x=>x.id!==selId); selId=null; renderObjects(); renderProps(); };
@@ -216,10 +316,11 @@ function renderProps(){
 // ---- interactions canvas ----
 if(HAS_PLAN){
   setViewBox();
-  document.querySelectorAll('.tool').forEach(b=>b.onclick=()=>{ tool=b.dataset.tool; document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active')); b.classList.add('active'); });
+  document.querySelectorAll('.tool').forEach(b=>b.onclick=()=>{ tool=b.dataset.tool; activeType=null; liaison.a=null;
+    document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderPalette(); renderObjects(); });
 
   svg.addEventListener('pointerdown',(e)=>{
-    if(e.target.closest('.imp-obj')) return;
+    if(e.target.closest('.imp-obj') && tool==='select') return;
     const p=svgPoint(e);
     if(calib.on){
       calib.pts.push({x:p.x,y:p.y}); renderObjects();
@@ -232,11 +333,21 @@ if(HAS_PLAN){
       }
       return;
     }
-    if(tool==='place'){
+    if(tool==='liaison'){
+      if(!liaison.a){ liaison.a={x:p.x,y:p.y}; renderObjects(); }
+      else{
+        const o={id:uid('lia'), kind:'liaison', system:activeSys, x:liaison.a.x, y:liaison.a.y, x2:p.x, y2:p.y, cable:''};
+        S.objects.push(o); liaison.a=null; selId=o.id; renderObjects(); renderProps();
+      }
+      return;
+    }
+    if(tool==='place' && activeType){
       const sys=sysById(activeSys);
-      const n=S.objects.filter(o=>o.system===activeSys).length+1;
-      const o={id:uid('obj'), system:activeSys, ref:sys.name.slice(0,3).toUpperCase()+'-'+String(n).padStart(3,'0'),
-               model:'', x:p.x, y:p.y, orientation:0, height_m:'', coverage:sys.coverage, radius_m:8, angle:90, statut:'Proposé'};
+      const n=S.objects.filter(o=>o.system===activeSys && o.kind!=='liaison').length+1;
+      const o={id:uid('obj'), system:activeSys, type:activeType.t,
+               ref:sys.name.slice(0,3).toUpperCase()+'-'+String(n).padStart(3,'0'),
+               model:activeType.l, x:p.x, y:p.y, orientation:0, height_m:'',
+               coverage:activeType.cov||sys.coverage, radius_m:8, angle:90, statut:'Proposé'};
       S.objects.push(o); selId=o.id; renderObjects(); renderProps();
       return;
     }
@@ -261,16 +372,44 @@ function updateScaleBadge(){ const b=document.getElementById('scaleBadge'); b.te
 
 document.getElementById('btnAddSys').onclick=()=>{ const name=prompt('Nom du nouveau système :'); if(!name) return;
   const colors=['#00838f','#5d4037','#ad1457','#33691e','#4527a0','#455a64'];
-  S.systems.push({id:uid('sys'), name:name, color:colors[S.systems.length%colors.length], visible:true, coverage:'none'});
-  renderSystems(); };
+  S.systems.push({id:uid('sys'), name:name, color:colors[S.systems.length%colors.length], visible:true, coverage:'none', icon:'default'});
+  renderSystems(); renderPalette(); };
 
 document.getElementById('btnSave').onclick=()=>{
   fetch('/implantation/'+STUDY_ID+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
    .then(r=>r.json()).then(d=>{ const b=document.getElementById('btnSave'); b.textContent=d.ok?'✅ Enregistré':'❌ Erreur'; setTimeout(()=>b.textContent='💾 Enregistrer',1600); });
 };
 
+// ---- Statut ----
+const stSel=document.getElementById('stSel'); stSel.value=STUDY_STATUS;
+stSel.onchange=()=>{ fetch('/implantation/'+STUDY_ID+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:stSel.value})})
+   .then(r=>r.json()).then(d=>{ if(!d.ok) alert('Statut non enregistré.'); }); };
+
+// ---- Contrôles automatiques ----
+document.getElementById('btnControls').onclick=()=>{
+  const ov=document.getElementById('ovl'); document.getElementById('ovlTitle').textContent='🔎 Contrôles de cohérence';
+  document.getElementById('ovlBody').innerHTML='<div style="color:#999">Analyse…</div>'; ov.classList.add('on');
+  // enregistrer d'abord pour contrôler l'état courant
+  fetch('/implantation/'+STUDY_ID+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
+   .then(()=>fetch('/implantation/'+STUDY_ID+'/controls')).then(r=>r.json()).then(d=>{
+     const b=document.getElementById('ovlBody');
+     b.innerHTML=(d.alerts||[]).map(a=>{
+       const ic={error:'⛔',warn:'⚠️',info:'ℹ️',ok:'✅'}[a.level]||'•';
+       return '<div class="al '+a.level+'">'+ic+' <span>'+a.msg+'</span></div>';
+     }).join('') || '<div class="al ok">✅ Aucune anomalie.</div>';
+   });
+};
+
+// ---- Publier une version figée ----
+document.getElementById('btnPublish').onclick=()=>{
+  const label=prompt('Nom de la version publiée :','Version '+(new Date()).toISOString().slice(0,10)); if(label===null) return;
+  fetch('/implantation/'+STUDY_ID+'/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)})
+   .then(()=>fetch('/implantation/'+STUDY_ID+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:label})}))
+   .then(r=>r.json()).then(d=>{ if(d.ok){ stSel.value='Publié'; alert('📌 Version '+d.version_no+' publiée.'); } else alert('Échec de la publication.'); });
+};
+
 // init
-renderSystems();
+renderSystems(); renderPalette();
 if(HAS_PLAN){ updateScaleBadge(); renderObjects(); renderProps(); }
 </script>
 {% endblock %}

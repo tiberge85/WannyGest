@@ -38091,6 +38091,11 @@ def _ensure_implantation_tables():
             created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS implantation_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            study_id INTEGER, version_no INTEGER, label TEXT,
+            scene_json TEXT, created_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
         c.commit(); c.close()
     except Exception:
         pass
@@ -38246,19 +38251,63 @@ def _imp_hex(h):
     except Exception:
         return (26, 122, 109)
 
+def _imp_draw_icon(d, typ, x, y, col, rot=0):
+    """Dessine une icône d'équipement type-spécifique avec PIL (miroir des icônes de l'éditeur)."""
+    import math
+    W = (255, 255, 255, 255)
+    C = col + (255,)
+    def rp(px, py):  # rotation autour de (x,y)
+        a = math.radians(rot)
+        return (x + (px)*math.cos(a) - (py)*math.sin(a), y + (px)*math.sin(a) + (py)*math.cos(a))
+    if typ in ('wifi',):
+        d.ellipse([x-3, y+3, x+3, y+9], fill=C)
+        for rr in (7, 11):
+            d.arc([x-rr, y-rr+4, x+rr, y+rr+4], 200, 340, fill=C, width=2)
+    elif typ in ('camera', 'cam_dome', 'cam_bullet'):
+        pts = [rp(-8, -6), rp(4, -6), rp(4, 6), rp(-8, 6)]
+        d.polygon(pts, fill=C, outline=W)
+        lx, ly = rp(7, 0)
+        d.ellipse([lx-3, ly-3, lx+3, ly+3], fill=W, outline=C)
+    elif typ in ('reader', 'access', 'door'):
+        d.rounded_rectangle([x-6, y-9, x+6, y+9], radius=3, fill=C, outline=W, width=2)
+        d.ellipse([x-2, y-5, x+2, y-1], fill=W)
+        d.rectangle([x-3, y+2, x+3, y+4], fill=W)
+    elif typ in ('motion', 'intrusion'):
+        d.ellipse([x-9, y-9, x+9, y+9], fill=C, outline=W, width=2)
+        d.rectangle([x-4, y-3, x+4, y+3], fill=W)
+    elif typ in ('smoke', 'incendie', 'detector'):
+        d.ellipse([x-9, y-9, x+9, y+9], fill=C, outline=W, width=2)
+        d.ellipse([x-3, y-3, x+3, y+3], fill=W)
+    elif typ in ('speaker', 'sono'):
+        d.rectangle([x-7, y-4, x-2, y+4], fill=C, outline=W)
+        d.polygon([(x-2, y-4), (x+7, y-9), (x+7, y+9), (x-2, y+4)], fill=C, outline=W)
+    elif typ in ('siren',):
+        d.polygon([(x, y-9), (x-8, y+7), (x+8, y+7)], fill=C, outline=W)
+        d.ellipse([x-2, y-1, x+2, y+3], fill=W)
+    elif typ in ('network', 'reseau', 'switch', 'socket'):
+        d.rounded_rectangle([x-9, y-6, x+9, y+6], radius=2, fill=C, outline=W, width=2)
+        for i in (-5, 0, 5):
+            d.rectangle([x+i-1, y+1, x+i+1, y+4], fill=W)
+    else:
+        d.ellipse([x-8, y-8, x+8, y+8], fill=C, outline=W, width=2)
+
 def _imp_render_scene(base_im, scene, only_system=None):
-    """Composite plan + objets (marqueurs + zones) avec PIL. Retourne une image PIL."""
+    """Composite plan + objets (icônes + zones + liaisons) avec PIL. Retourne une image PIL."""
     from PIL import ImageDraw
+    import math
     im = base_im.copy().convert('RGB')
     d = ImageDraw.Draw(im, 'RGBA')
     ppm = (scene.get('scale') or {}).get('px_per_m')
     sysmap = {s['id']: s for s in scene.get('systems', [])}
+    def visible(o):
+        if only_system:
+            return o.get('system') == only_system
+        return sysmap.get(o.get('system'), {}).get('visible', True)
+    # 1) zones d'effet (sous les icônes)
     for o in scene.get('objects', []):
-        if only_system and o.get('system') != only_system:
+        if o.get('kind') == 'liaison' or not visible(o):
             continue
         sysd = sysmap.get(o.get('system'), {})
-        if only_system is None and not sysd.get('visible', True):
-            continue
         col = _imp_hex(sysd.get('color'))
         x, y = float(o.get('x', 0)), float(o.get('y', 0))
         shape = o.get('coverage') or sysd.get('coverage') or 'none'
@@ -38270,9 +38319,27 @@ def _imp_render_scene(base_im, scene, only_system=None):
             else:
                 ang = float(o.get('angle', 90)); dr = float(o.get('orientation', 0))
                 d.pieslice([x-r, y-r, x+r, y+r], dr-ang/2, dr+ang/2, fill=fill, outline=col + (210,))
-        d.ellipse([x-9, y-9, x+9, y+9], fill=col + (255,), outline=(255, 255, 255, 255), width=2)
+    # 2) liaisons / câblage
+    for o in scene.get('objects', []):
+        if o.get('kind') != 'liaison' or not visible(o):
+            continue
+        col = _imp_hex(sysmap.get(o.get('system'), {}).get('color', '#607d8b'))
+        x1, y1, x2, y2 = float(o.get('x', 0)), float(o.get('y', 0)), float(o.get('x2', 0)), float(o.get('y2', 0))
+        d.line([x1, y1, x2, y2], fill=col + (230,), width=3)
+        if ppm:
+            L = math.hypot(x2-x1, y2-y1) / ppm
+            d.text(((x1+x2)/2, (y1+y2)/2 - 8), '%.1f m' % L, fill=(20, 20, 20, 255))
+    # 3) icônes équipements + repères
+    for o in scene.get('objects', []):
+        if o.get('kind') == 'liaison' or not visible(o):
+            continue
+        sysd = sysmap.get(o.get('system'), {})
+        col = _imp_hex(sysd.get('color'))
+        x, y = float(o.get('x', 0)), float(o.get('y', 0))
+        typ = o.get('type') or sysd.get('icon') or 'default'
+        _imp_draw_icon(d, typ, x, y, col, float(o.get('orientation', 0)))
         if o.get('ref'):
-            d.text((x+11, y-16), str(o.get('ref')), fill=(20, 20, 20, 255))
+            d.text((x+12, y-16), str(o.get('ref')), fill=(20, 20, 20, 255))
     return im
 
 @app.route('/implantation/<int:sid>/pdf')
@@ -38399,11 +38466,129 @@ def implantation_pdf(sid):
     stt.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.25, HexColor('#ddd')), ('BACKGROUND', (0,0), (0,-1), HexColor('#f2f7f6'))]))
     story.append(stt)
 
+    # Observations / réserves (contrôles automatiques)
+    try:
+        alerts = _imp_run_controls(st, scene)
+    except Exception:
+        alerts = []
+    if alerts:
+        story.append(Paragraph("Observations / réserves", h2))
+        _lbl = {'error': 'Bloquant', 'warn': 'À corriger', 'info': 'À vérifier', 'ok': 'OK'}
+        _col = {'error': HexColor('#a12626'), 'warn': HexColor('#9a6212'), 'info': HexColor('#25567e'), 'ok': HexColor('#1d7a44')}
+        obs = [[Paragraph('Niveau', cellh), Paragraph('Observation', cellh)]]
+        for a in alerts:
+            obs.append([Paragraph(_lbl.get(a['level'], ''), ParagraphStyle('ol', fontSize=8, fontName='Helvetica-Bold', textColor=_col.get(a['level'], TEAL))),
+                        Paragraph(a['msg'], small)])
+        ot = Table(obs, colWidths=[28*mm, 132*mm], repeatRows=1)
+        ot.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), TEAL), ('GRID', (0,0), (-1,-1), 0.25, HexColor('#e0e0e0')),
+                                ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, HexColor('#f6faf9')]), ('VALIGN', (0,0), (-1,-1), 'TOP')]))
+        story.append(ot)
+
     doc.build(story)
     buf.seek(0)
     fn = (st.get('reference') or ('implantation_%d' % sid)) + '.pdf'
     return Response(buf.getvalue(), mimetype='application/pdf',
                     headers={'Content-Disposition': f'inline; filename="{fn}"'})
+
+
+def _imp_run_controls(st, scene):
+    """CA-11 — contrôles automatiques de cohérence. Retourne liste d'alertes {level,msg}."""
+    alerts = []
+    systems = scene.get('systems', [])
+    objects = scene.get('objects', [])
+    equips = [o for o in objects if o.get('kind') != 'liaison']
+    liaisons = [o for o in objects if o.get('kind') == 'liaison']
+    ppm = (scene.get('scale') or {}).get('px_per_m')
+    pw, ph = st.get('plan_w') or 0, st.get('plan_h') or 0
+    if not st.get('plan_image'):
+        alerts.append({'level': 'error', 'msg': "Aucun plan n'a été chargé pour cette étude."})
+    if not ppm:
+        alerts.append({'level': 'warn', 'msg': "Le plan n'est pas calibré : les portées et longueurs de câble ne seront pas à l'échelle."})
+    if not equips:
+        alerts.append({'level': 'warn', 'msg': "Aucun équipement n'a encore été placé sur le plan."})
+    # équipements sans référence
+    noref = [o for o in equips if not (o.get('ref') or '').strip()]
+    if noref:
+        alerts.append({'level': 'warn', 'msg': "%d équipement(s) sans référence (ID)." % len(noref)})
+    # équipements hors plan
+    if pw and ph:
+        out = [o for o in equips if not (0 <= float(o.get('x', 0)) <= pw and 0 <= float(o.get('y', 0)) <= ph)]
+        if out:
+            alerts.append({'level': 'warn', 'msg': "%d équipement(s) hors des limites du plan." % len(out)})
+    # statuts incomplets
+    inc = [o for o in equips if (o.get('statut') or 'Proposé') in ('Proposé', 'À valider', 'À modifier')]
+    if inc:
+        alerts.append({'level': 'info', 'msg': "%d équipement(s) non encore validé(s) (statut Proposé / À valider / À modifier)." % len(inc)})
+    # systèmes vides
+    used = set(o.get('system') for o in equips)
+    empty = [s for s in systems if s['id'] not in used]
+    for s in empty:
+        alerts.append({'level': 'info', 'msg': "Le système « %s » ne contient aucun équipement." % s.get('name', '')})
+    # liaisons dégénérées
+    badl = [o for o in liaisons if float(o.get('x', 0)) == float(o.get('x2', 0)) and float(o.get('y', 0)) == float(o.get('y2', 0))]
+    if badl:
+        alerts.append({'level': 'warn', 'msg': "%d liaison(s) de longueur nulle." % len(badl)})
+    if not alerts:
+        alerts.append({'level': 'ok', 'msg': "Aucune anomalie détectée. L'étude est cohérente."})
+    return alerts
+
+
+@app.route('/implantation/<int:sid>/controls')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_controls(sid):
+    import json as _json
+    c = _gdb()
+    r = c.execute("SELECT id, plan_w, plan_h, plan_image, scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    c.close()
+    if not r:
+        return jsonify({'ok': False, 'alerts': []}), 404
+    st = dict(r)
+    try: scene = _json.loads(st.get('scene_json') or '{}')
+    except Exception: scene = {}
+    return jsonify({'ok': True, 'alerts': _imp_run_controls(st, scene)})
+
+
+@app.route('/implantation/<int:sid>/status', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_status(sid):
+    status = (request.get_json(force=True, silent=True) or {}).get('status') or request.form.get('status')
+    allowed = ['Brouillon', 'En étude', 'À valider', 'Validé', 'Publié']
+    if status not in allowed:
+        return jsonify({'ok': False, 'error': 'statut invalide'}), 200
+    c = _gdb()
+    c.execute("UPDATE implantation_studies SET status=?, updated_at=datetime('now') WHERE id=?", (status, sid))
+    c.commit(); c.close()
+    return jsonify({'ok': True, 'status': status})
+
+
+@app.route('/implantation/<int:sid>/publish', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_publish(sid):
+    """Fige une version publiée (snapshot du scene_json) et passe le statut à Publié."""
+    import json as _json
+    _ensure_implantation_tables()
+    label = (request.get_json(force=True, silent=True) or {}).get('label') or request.form.get('label') or ''
+    c = _gdb()
+    r = c.execute("SELECT scene_json FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    if not r:
+        c.close(); return jsonify({'ok': False, 'error': 'introuvable'}), 404
+    n = c.execute("SELECT COALESCE(MAX(version_no),0)+1 AS n FROM implantation_versions WHERE study_id=?", (sid,)).fetchone()['n']
+    c.execute("INSERT INTO implantation_versions (study_id, version_no, label, scene_json, created_by) VALUES (?,?,?,?,?)",
+              (sid, n, label or ('Version %d' % n), r['scene_json'] or '{}', session.get('user_id')))
+    c.execute("UPDATE implantation_studies SET status='Publié', updated_at=datetime('now') WHERE id=?", (sid,))
+    c.commit(); c.close()
+    return jsonify({'ok': True, 'version_no': n, 'status': 'Publié'})
+
+
+@app.route('/implantation/<int:sid>/versions')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_versions(sid):
+    _ensure_implantation_tables()
+    c = _gdb()
+    rows = [dict(x) for x in c.execute(
+        "SELECT id, version_no, label, created_at FROM implantation_versions WHERE study_id=? ORDER BY version_no DESC", (sid,)).fetchall()]
+    c.close()
+    return jsonify({'ok': True, 'versions': rows})
 
 
 # ============================================================
