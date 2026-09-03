@@ -78,6 +78,29 @@
   .simsub{font-size:10px;color:#6f7a86}
   .dori-tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;color:#fff;font-weight:700}
   hr{border:0;border-top:1px solid var(--ud-border);margin:10px 0}
+  /* --- Simulation caméra (façon UniFi) --- */
+  .ud-slider{-webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:3px;background:#2a313b;outline:none;margin:4px 0}
+  .ud-slider::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;cursor:pointer;box-shadow:0 0 0 1px #0006}
+  .ud-slider::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:#fff;cursor:pointer}
+  .csrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--ud-muted);margin-top:8px}
+  .csrow b{color:var(--ud-text);font-weight:600}
+  .stepbox{display:flex;align-items:center;gap:6px;border:1px solid var(--ud-border);border-radius:8px;background:var(--ud-panel2);padding:4px 8px;flex:1}
+  .stepbox input{width:100%;border:0;background:transparent;color:var(--ud-text);font-size:13px;outline:none}
+  .toggle{width:38px;height:20px;border-radius:12px;background:#2a313b;position:relative;cursor:pointer;flex:none}
+  .toggle.on{background:var(--ud-accent)}
+  .toggle i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+  .toggle.on i{left:20px}
+  .metric{margin:9px 0}
+  .metric .r{display:flex;justify-content:space-between;font-size:12px;color:var(--ud-muted);margin-bottom:4px}
+  .metric .r b{color:#fff;font-weight:600}
+  .gaugebar{height:6px;border-radius:4px;position:relative}
+  .gaugebar.dori{background:linear-gradient(90deg,#e8672a,#f9a825,#8bc34a,#1b7a3d)}
+  .gaugebar.intel{background:linear-gradient(90deg,#c62828,#f9a825,#8bc34a,#1b7a3d)}
+  .gaugebar .mk{position:absolute;top:-3px;width:3px;height:12px;background:#2f8bff;border-radius:2px;transform:translateX(-1px)}
+  .thumbs{display:flex;gap:8px;margin-top:10px}
+  .thumb{flex:1;border-radius:8px;overflow:hidden;border:1px solid var(--ud-border);background:#11151b}
+  .thumb .cap{font-size:10px;color:var(--ud-muted);text-align:center;padding:3px 0}
+  .thumb .img{transition:filter .15s}
   /* --- Barre zoom flottante (bas-gauche) --- */
   .ud-zoom{position:absolute;left:12px;bottom:56px;display:flex;flex-direction:column;gap:6px;z-index:20}
   .ud-zoom .z{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px;
@@ -220,6 +243,9 @@
     <div class="t tool" data-tool="liaison" title="Liaison / câblage">🔌</div>
     <div class="t" id="btnCalibrate" title="Calibrer l'échelle">📏</div>
     <div class="sep"></div>
+    <div class="t" id="btnCamSim" title="Simulation de caméra">🎥</div>
+    <div class="t" id="btnWifiSim" title="Expérience client WiFi">📶</div>
+    <div class="sep"></div>
     <div class="addbtn" id="btnAddDev">📡 Ajouter des appareils</div>
   </div>
 
@@ -347,6 +373,7 @@ let liaison={a:null};
 let mode='off';          // wifi | cam | off
 let viewBand='5';        // 2.4 | 5 | 6
 let showDORI=false, showWifi=false;
+let camRefresh=null;     // expose refreshSim de l'objet sélectionné pour maj live
 
 function uid(p){return p+'_'+Math.random().toString(36).slice(2,8)}
 function sysById(id){return S.systems.find(x=>x.id===id)||S.systems[0]}
@@ -366,6 +393,21 @@ function redo(){ if(hidx<hist.length-1){ hidx++; restoreHist(); } }
 /* ===================== PHYSIQUE CAMÉRA ===================== */
 const SENSOR_W = {'1/4"':3.6,'1/3.6"':4.0,'1/3"':4.8,'1/2.9"':4.96,'1/2.8"':5.37,'1/2.7"':5.37,'1/2.5"':5.76,'1/2.3"':6.17,'1/2"':6.4,'1/1.8"':7.18,'1/1.7"':7.6,'1/1.2"':10.67,'2/3"':8.8,'1"':12.8};
 const DORI = [{k:'Identification',ppm:250,col:'#1b7a3d'},{k:'Reconnaissance',ppm:125,col:'#4caf50'},{k:'Observation',ppm:62,col:'#f9a825'},{k:'Détection',ppm:25,col:'#e8672a'}];
+const CAM_MODELS=[
+  {id:'dome_ai',l:'Dôme AI (Blanc)',focal:4,sensor:'1/2.8"',resh:3840,type:'cam_dome'},
+  {id:'bullet_ai',l:'Bullet AI',focal:4,sensor:'1/2.8"',resh:3840,type:'cam_bullet'},
+  {id:'ptz_ai',l:'PTZ AI',focal:6,sensor:'1/2.8"',resh:3840,type:'cam_ptz'},
+  {id:'g5_dome',l:'Dôme 2K',focal:4,sensor:'1/2.8"',resh:2688,type:'cam_dome'},
+  {id:'fisheye',l:'Fisheye 360°',focal:1.8,sensor:'1/2.8"',resh:3840,type:'cam_fisheye'},
+  {id:'thermal',l:'Thermique',focal:9,sensor:'1/2"',resh:640,type:'cam_thermal'}
+];
+const LUX_ARR=[0.1,10,50,500,1000,10000,100000];
+const LUX_LBL=['Nuit / IR','Crépuscule','Faible','Intérieur','Ciel couvert','Lumière du jour','Plein soleil'];
+const NOISE_ARR=[35,45,55,65,80];
+const NOISE_LBL=['Silencieux','Bureau','Commerce','Rue passante','Industriel'];
+function nearestIdx(arr,v){ let bi=0,bd=1e9; arr.forEach((x,i)=>{const d=Math.abs(x-v); if(d<bd){bd=d;bi=i;}}); return bi; }
+const FACE_SVG='<svg viewBox="0 0 120 96" width="100%" style="display:block"><rect width="120" height="96" fill="#b9b2a6"/><ellipse cx="60" cy="54" rx="30" ry="36" fill="#e7d2bf"/><path d="M30 46 q0 -32 30 -32 q30 0 30 32 q0 -9 -30 -9 q-30 0 -30 9" fill="#4a3b2f"/><ellipse cx="48" cy="52" rx="4" ry="5.5" fill="#3a2f28"/><ellipse cx="72" cy="52" rx="4" ry="5.5" fill="#3a2f28"/><path d="M60 54 l-4 11 l8 0 z" fill="#d7b69d"/><path d="M51 70 q9 7 18 0" stroke="#8a5a4a" stroke-width="3" fill="none" stroke-linecap="round"/><rect y="88" width="120" height="8" fill="#6b5a4a"/></svg>';
+const PLATE_SVG='<svg viewBox="0 0 160 60" width="100%" style="display:block"><rect width="160" height="60" fill="#1c3a6e"/><rect x="6" y="6" width="148" height="48" rx="5" fill="#fff"/><text x="82" y="43" font-size="30" font-family="monospace" font-weight="bold" text-anchor="middle" fill="#141414">ABC-123</text></svg>';
 function camDefaults(o){ return {focal:parseFloat(o.cam_focal)||4, sensor:o.cam_sensor||'1/2.8"', resh:parseFloat(o.cam_resh)||2688, height:parseFloat(o.height_m)||3, ir:parseFloat(o.cam_ir)||30, target:parseFloat(o.cam_target)||12}; }
 function camGeom(o){
   const p=camDefaults(o); const sw=SENSOR_W[p.sensor]||5.37;
@@ -494,11 +536,24 @@ function renderObjects(){
       +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+')">'+iconSvg(typ,sys.color)+'</g>'
       +'<text x="'+(o.x+13)+'" y="'+(o.y-11)+'" font-size="11" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3px">'+(o.ref||'')+'</text></g>';
   });
+  // poignée de rotation + marqueur cible (objet sélectionné)
+  let handleLayer='';
+  const so=objById(selId);
+  if(so && so.kind!=='liaison' && sysById(so.system).visible){
+    const rr=32, ha=(so.orientation||0)*Math.PI/180;
+    const hx=so.x+rr*Math.cos(ha), hy=so.y+rr*Math.sin(ha);
+    handleLayer+='<g class="rot-h" data-id="'+so.id+'" style="cursor:grab"><line x1="'+so.x+'" y1="'+so.y+'" x2="'+hx+'" y2="'+hy+'" stroke="#2f8bff" stroke-width="2"/><circle cx="'+hx+'" cy="'+hy+'" r="6.5" fill="#2f8bff" stroke="#fff" stroke-width="2"/><path d="M '+(hx-2)+' '+(hy-3)+' a 3 3 0 1 1 -3 3" fill="none" stroke="#fff" stroke-width="1.3"/></g>';
+    if(famOf(so.type)==='camera' && S.scale.px_per_m){
+      const td=(parseFloat(so.cam_target)||12)*S.scale.px_per_m;
+      const tx=so.x+td*Math.cos(ha), ty=so.y+td*Math.sin(ha);
+      handleLayer+='<g class="tgt-h" data-id="'+so.id+'" style="cursor:move"><circle cx="'+tx+'" cy="'+ty+'" r="10" fill="#7e57c2" stroke="#fff" stroke-width="2"/><text x="'+tx+'" y="'+(ty+4)+'" font-size="11" text-anchor="middle" fill="#fff">🚶</text></g>';
+    }
+  }
   const calibLayer = calib.pts.map(p=>'<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#2f8bff"/>').join('');
   const liaTmp = liaison.a ? '<circle cx="'+liaison.a.x+'" cy="'+liaison.a.y+'" r="5" fill="#2f8bff"/>' : '';
   const clip = HAS_PLAN ? ' clip-path="url(#planClip)"' : '';
   const clipDef = HAS_PLAN ? '<clipPath id="planClip"><rect x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'"/></clipPath>' : '';
-  svg.innerHTML = bg + '<defs>'+clipDef+wifiDefs+'</defs>' + '<g style="pointer-events:none"'+clip+'>'+wifi+'</g>' + '<g style="pointer-events:none"'+clip+'>'+dori+'</g>' + '<g style="pointer-events:none"'+clip+'>'+cover+'</g>' + '<g>'+liaisons+'</g>' + '<g>'+marks+'</g>' + calibLayer + liaTmp;
+  svg.innerHTML = bg + '<defs>'+clipDef+wifiDefs+'</defs>' + '<g style="pointer-events:none"'+clip+'>'+wifi+'</g>' + '<g style="pointer-events:none"'+clip+'>'+dori+'</g>' + '<g style="pointer-events:none"'+clip+'>'+cover+'</g>' + '<g>'+liaisons+'</g>' + '<g>'+marks+'</g>' + '<g>'+handleLayer+'</g>' + calibLayer + liaTmp;
   bindObjectEvents();
 }
 function bindObjectEvents(){
@@ -510,6 +565,24 @@ function bindObjectEvents(){
       const start=svgPoint(e); const ox=o.x,oy=o.y; let moved=false;
       function move(ev){ const p=svgPoint(ev); o.x=ox+(p.x-start.x); o.y=oy+(p.y-start.y); moved=true; renderObjects(); }
       function up(){ svg.removeEventListener('pointermove',move); svg.removeEventListener('pointerup',up); renderProps(); if(moved) pushHist(); }
+      svg.addEventListener('pointermove',move); svg.addEventListener('pointerup',up);
+    });
+  });
+  // poignée de rotation (glisser pour orienter)
+  svg.querySelectorAll('.rot-h').forEach(g=>{
+    g.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); const o=objById(g.getAttribute('data-id')); if(!o) return;
+      function move(ev){ const p=svgPoint(ev); o.orientation=Math.round(Math.atan2(p.y-o.y,p.x-o.x)*180/Math.PI); renderObjects();
+        const of=document.getElementById('p_or'); if(of) of.value=o.orientation; const ca=document.getElementById('cs_ang'); if(ca) ca.value=o.orientation; if(camRefresh) camRefresh(); }
+      function up(){ svg.removeEventListener('pointermove',move); svg.removeEventListener('pointerup',up); pushHist(); }
+      svg.addEventListener('pointermove',move); svg.addEventListener('pointerup',up);
+    });
+  });
+  // marqueur cible caméra (glisser pour régler la distance au sujet)
+  svg.querySelectorAll('.tgt-h').forEach(g=>{
+    g.addEventListener('pointerdown',(e)=>{ e.stopPropagation(); const o=objById(g.getAttribute('data-id')); if(!o||!S.scale.px_per_m) return;
+      function move(ev){ const p=svgPoint(ev); o.cam_target=Math.max(0.5, Math.round(Math.hypot(p.x-o.x,p.y-o.y)/S.scale.px_per_m*10)/10); renderObjects();
+        const ct=document.getElementById('cs_target'); if(ct) ct.value=o.cam_target; if(camRefresh) camRefresh(); }
+      function up(){ svg.removeEventListener('pointermove',move); svg.removeEventListener('pointerup',up); pushHist(); }
       svg.addEventListener('pointermove',move); svg.addEventListener('pointerup',up);
     });
   });
@@ -549,13 +622,23 @@ function renderProps(){
    +'<div class="field"><label>Angle du cône (°)</label><input id="p_ang" type="number" value="'+(o.angle||90)+'"></div>';
   const fam=famOf(o.type);
   if(fam==='camera'){
-    html+='<hr><div style="font-weight:700;color:var(--ud-accent);font-size:12px;margin-bottom:6px">🎥 Optique & DORI</div>'
-      +'<div class="field"><label>Focale (mm)</label><input id="c_focal" type="number" step="0.1" value="'+(o.cam_focal||4)+'"></div>'
-      +'<div class="field"><label>Capteur</label><select id="c_sensor">'+Object.keys(SENSOR_W).map(k=>'<option'+(((o.cam_sensor||"1/2.8\"")===k)?' selected':'')+'>'+k+'</option>').join('')+'</select></div>'
-      +'<div class="field"><label>Résolution horiz.</label><select id="c_resh">'+[['1280','720p'],['1920','1080p (2MP)'],['2688','4MP'],['3072','5MP'],['3840','4K (8MP)']].map(a=>'<option value="'+a[0]+'"'+((String(o.cam_resh||2688)===a[0])?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></div>'
-      +'<div class="field"><label>Portée IR nuit (m)</label><input id="c_ir" type="number" value="'+(o.cam_ir||30)+'"></div>'
-      +'<div class="field"><label>Distance au sujet (m)</label><input id="c_target" type="number" step="0.5" value="'+(o.cam_target||12)+'"></div>'
-      +'<div class="field"><label>Éclairage ambiant</label><select id="c_lux">'+[['100000','Plein soleil'],['10000','Lumière du jour'],['1000','Ciel couvert'],['500','Intérieur / bureau'],['50','Faible'],['10','Crépuscule'],['0.1','Nuit (IR)']].map(a=>'<option value="'+a[0]+'"'+((String(S.env.lux)===a[0])?' selected':'')+'>'+a[1]+' ('+a[0]+' lux)</option>').join('')+'</select></div>'
+    const li=nearestIdx(LUX_ARR,parseFloat(S.env.lux)); const ni=nearestIdx(NOISE_ARR,parseFloat(S.env.noise));
+    html+='<hr>'
+      +'<div class="metric" style="margin:4px 0"><div class="r"><span>ÉCLAIRAGE</span><b id="lux_lbl"></b></div><input type="range" min="0" max="6" value="'+li+'" id="cs_lux" class="ud-slider"></div>'
+      +'<div class="metric" style="margin:4px 0"><div class="r"><span>Bruit ambiant</span><b id="noise_lbl"></b></div><input type="range" min="0" max="4" value="'+ni+'" id="cs_noise" class="ud-slider"></div>'
+      +'<div class="field" style="margin-top:8px"><label>Appareil</label><select id="cs_model">'+CAM_MODELS.map(m=>'<option value="'+m.id+'"'+((o.cam_model||'dome_ai')===m.id?' selected':'')+'>'+m.l+'</option>').join('')+'</select></div>'
+      +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'
+        +'<div class="stepbox"><input id="cs_h" type="number" step="0.5" value="'+(o.height_m||3)+'"><span style="color:var(--ud-muted);font-size:11px">m</span></div>'
+        +'<div class="stepbox"><input id="cs_ang" type="number" step="5" value="'+(o.orientation||0)+'"><span style="color:var(--ud-muted);font-size:11px">°</span></div>'
+        +'<span style="font-size:12px;color:var(--ud-muted)">IR</span><div class="toggle'+(o.cam_ir_on?' on':'')+'" id="cs_ir"><i></i></div>'
+      +'</div>'
+      +'<div class="field"><label>Distance au sujet (m)</label><input id="cs_target" type="number" step="0.5" value="'+(o.cam_target||12)+'"></div>'
+      +'<details style="margin-bottom:6px"><summary style="cursor:pointer;color:var(--ud-muted);font-size:11px">Réglages optiques avancés</summary>'
+        +'<div class="field" style="margin-top:6px"><label>Focale (mm)</label><input id="c_focal" type="number" step="0.1" value="'+(o.cam_focal||4)+'"></div>'
+        +'<div class="field"><label>Capteur</label><select id="c_sensor">'+Object.keys(SENSOR_W).map(k=>'<option'+(((o.cam_sensor||"1/2.8\"")===k)?' selected':'')+'>'+k+'</option>').join('')+'</select></div>'
+        +'<div class="field"><label>Résolution horiz.</label><select id="c_resh">'+[['1280','720p'],['1920','1080p (2MP)'],['2688','4MP'],['3072','5MP'],['3840','4K (8MP)'],['640','Thermique']].map(a=>'<option value="'+a[0]+'"'+((String(o.cam_resh||2688)===a[0])?' selected':'')+'>'+a[1]+'</option>').join('')+'</select></div>'
+        +'<div class="field"><label>Portée IR nuit (m)</label><input id="c_ir" type="number" value="'+(o.cam_ir||30)+'"></div>'
+      +'</details>'
       +'<div id="simCam"></div>';
   } else if(fam==='audio'){
     html+='<hr><div style="font-weight:700;color:var(--ud-accent);font-size:12px;margin-bottom:6px">🔊 Simulation audio</div>'
@@ -593,17 +676,30 @@ function renderProps(){
   el.querySelectorAll('#p_icons .icg').forEach(g=>{ g.onclick=()=>{ o.type=g.dataset.t;
     el.querySelectorAll('#p_icons .icg').forEach(x=>x.classList.remove('active')); g.classList.add('active'); renderObjects(); renderProps(); pushHist(); }; });
   function refreshSim(){
-    if(fam==='camera'){ const g=camGeom(o); o.angle=Math.round(g.hfov); const night=(parseFloat(S.env.lux)<1);
-      const irNote=night?('<div class="simsub">Mode nuit : identification limitée par la portée IR ('+g.p.ir+' m).</div>'):'';
-      document.getElementById('simCam').innerHTML='<div class="simcard">'
-        +'<div class="simrow"><span>Champ horizontal (FOV)</span><b>'+g.hfov.toFixed(1)+'°</b></div>'
-        +'<div class="simrow"><span>Distance au sol</span><b>'+g.ground.toFixed(1)+' m</b></div>'
-        +'<div class="simrow"><span>Distance d\'inclinaison</span><b>'+g.slant.toFixed(1)+' m</b></div>'
-        +'<div class="simrow"><span>Angle d\'inclinaison</span><b>'+g.tilt.toFixed(0)+'°</b></div>'
-        +'<div class="simrow"><span>Densité au sujet</span><b>'+g.ppmAt.toFixed(0)+' PPM</b></div>'
-        +'<div class="simrow"><span>Niveau DORI</span><span class="dori-tag" style="background:'+g.clsCol+'">'+g.cls+'</span></div>'
-        +'<div class="simrow" style="border:0"><span>Éclairage</span><b>'+(parseFloat(S.env.lux)>=1?'Jour':'Nuit / IR')+' ('+S.env.lux+' lux)</b></div>'
-        +irNote+'<div class="simsub" style="margin-top:6px">Portées : '+g.bands.map(b=>b.k[0]+' '+b.ground.toFixed(0)+'m').join(' · ')+'</div></div>';
+    if(fam==='camera'){
+      const lux=parseFloat(S.env.lux);
+      const ll=document.getElementById('lux_lbl'); if(ll) ll.textContent=LUX_LBL[nearestIdx(LUX_ARR,lux)]+' ('+lux+' lux)';
+      const nl=document.getElementById('noise_lbl'); if(nl) nl.textContent=NOISE_LBL[nearestIdx(NOISE_ARR,parseFloat(S.env.noise))]+' ('+S.env.noise+' dB)';
+      const g=camGeom(o); o.angle=Math.round(g.hfov);
+      const ppm=g.ppmAt; const doriPct=Math.max(0,Math.min(100,ppm/300*100));
+      const night=(lux<1) && !o.cam_ir_on;
+      const a=audioSim({spl_ref:(o.spl_ref||88), audio_dist:(o.cam_target||5)});
+      const faceBlur=Math.max(0,Math.min(9,(250-ppm)/250*9));
+      const plateBlur=Math.max(0,Math.min(7,(125-ppm)/125*7));
+      document.getElementById('simCam').innerHTML=
+        '<div class="metric"><div class="r"><span>Distance au sol</span><b>'+g.ground.toFixed(1)+' m</b></div></div>'
+       +'<div class="metric"><div class="r"><span>Distance d\'inclinaison</span><b>'+g.slant.toFixed(1)+' m</b></div></div>'
+       +'<div class="metric"><div class="r"><span>Niveau d\'identification</span><b>'+ppm.toFixed(0)+' PPM</b></div><div class="gaugebar dori"><div class="mk" style="left:'+doriPct+'%"></div></div></div>'
+       +'<div class="metric"><div class="r"><span>Niveau DORI</span><span class="dori-tag" style="background:'+g.clsCol+'">'+g.cls+'</span></div></div>'
+       +(night?'<div class="simsub" style="color:#ffcf87">Mode nuit : identification limitée par la portée IR ('+g.p.ir+' m). Activez l\'IR.</div>':'')
+       +'<hr>'
+       +'<div class="metric"><div class="r"><span>SPL estimé</span><b>'+a.spl+' dB</b></div><div class="simsub">Bruit de plancher : '+a.noise+' dB</div></div>'
+       +'<div class="metric"><div class="r"><span>Intelligibilité de la parole</span><b>'+a.intel+' %</b></div><div class="gaugebar intel"><div class="mk" style="left:'+a.intel+'%"></div></div></div>'
+       +'<div class="metric"><div class="r"><span>Classification</span><b>'+a.cls+'</b></div></div>'
+       +'<button class="ud-btn" style="width:100%;justify-content:center;margin:4px 0 2px" id="a_play">▶️ Lire la simulation audio</button>'
+       +'<div class="thumbs"><div class="thumb"><div class="img" style="filter:blur('+faceBlur.toFixed(1)+'px)">'+FACE_SVG+'</div><div class="cap">'+(ppm>=250?'Identification ✓':'Visage')+'</div></div>'
+         +'<div class="thumb"><div class="img" style="filter:blur('+plateBlur.toFixed(1)+'px)">'+PLATE_SVG+'</div><div class="cap">'+(ppm>=125?'Lecture plaque ✓':'Plaque')+'</div></div></div>';
+      const ap=document.getElementById('a_play'); if(ap) ap.onclick=()=>playAudioSim(a.intel);
     }
     if(fam==='audio'){ const a=audioSim(o);
       document.getElementById('simAudio').innerHTML='<div class="simcard">'
@@ -625,10 +721,18 @@ function renderProps(){
         +'<div class="simsub" style="margin-top:6px">Bande vue : '+viewBand+' GHz — mode « WiFi » pour la carte.</div></div>';
     }
   }
-  if(fam==='camera'){ ['c_focal','c_ir','c_target'].forEach(id=>document.getElementById(id).addEventListener('input',e=>{ o['cam_'+id.slice(2)]=parseFloat(e.target.value)||0; refreshSim(); renderObjects(); }));
-    document.getElementById('c_sensor').onchange=e=>{ o.cam_sensor=e.target.value; refreshSim(); renderObjects(); pushHist(); };
-    document.getElementById('c_resh').onchange=e=>{ o.cam_resh=parseFloat(e.target.value)||2688; refreshSim(); renderObjects(); pushHist(); };
-    document.getElementById('c_lux').onchange=e=>{ S.env.lux=parseFloat(e.target.value); refreshSim(); };
+  if(fam==='camera'){
+    document.getElementById('cs_lux').oninput=e=>{ S.env.lux=LUX_ARR[+e.target.value]; refreshSim(); };
+    document.getElementById('cs_noise').oninput=e=>{ S.env.noise=NOISE_ARR[+e.target.value]; refreshSim(); };
+    document.getElementById('cs_model').onchange=e=>{ const m=CAM_MODELS.find(x=>x.id===e.target.value); if(m){ o.cam_model=m.id; o.cam_focal=m.focal; o.cam_sensor=m.sensor; o.cam_resh=m.resh; o.type=m.type; } renderObjects(); renderProps(); pushHist(); };
+    document.getElementById('cs_h').oninput=e=>{ o.height_m=parseFloat(e.target.value)||0; refreshSim(); };
+    document.getElementById('cs_ang').oninput=e=>{ o.orientation=parseFloat(e.target.value)||0; renderObjects(); refreshSim(); };
+    document.getElementById('cs_target').oninput=e=>{ o.cam_target=parseFloat(e.target.value)||0; renderObjects(); refreshSim(); };
+    const irt=document.getElementById('cs_ir'); irt.onclick=()=>{ o.cam_ir_on=!o.cam_ir_on; irt.classList.toggle('on',o.cam_ir_on); refreshSim(); pushHist(); };
+    const cf=document.getElementById('c_focal'); if(cf) cf.oninput=e=>{ o.cam_focal=parseFloat(e.target.value)||4; renderObjects(); refreshSim(); };
+    const ci=document.getElementById('c_ir'); if(ci) ci.oninput=e=>{ o.cam_ir=parseFloat(e.target.value)||0; refreshSim(); };
+    const cse=document.getElementById('c_sensor'); if(cse) cse.onchange=e=>{ o.cam_sensor=e.target.value; renderObjects(); refreshSim(); pushHist(); };
+    const csr=document.getElementById('c_resh'); if(csr) csr.onchange=e=>{ o.cam_resh=parseFloat(e.target.value)||2688; renderObjects(); refreshSim(); pushHist(); };
   }
   if(fam==='audio'){ document.getElementById('a_ref').addEventListener('input',e=>{ o.spl_ref=parseFloat(e.target.value)||0; refreshSim(); });
     document.getElementById('a_dist').addEventListener('input',e=>{ o.audio_dist=parseFloat(e.target.value)||0; refreshSim(); });
@@ -641,6 +745,7 @@ function renderProps(){
     document.getElementById('r_u').addEventListener('input',e=>{ o.rack_u=parseInt(e.target.value)||0; });
     document.getElementById('r_uh').addEventListener('input',e=>{ o.rack_uh=parseInt(e.target.value)||1; });
   }
+  camRefresh=refreshSim;
   refreshSim();
 }
 document.getElementById('propClose').onclick=()=>{ selId=null; renderObjects(); renderProps(); };
@@ -652,7 +757,8 @@ function applyMode(){
   document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.toggle('active', b.dataset.mode===mode));
   document.getElementById('covLegend').classList.toggle('show', mode==='wifi');
   document.getElementById('btnWifiZ').classList.toggle('on', mode==='wifi');
-  if(mode==='wifi' && !S.scale.px_per_m){ /* silencieux : rappel via badge */ }
+  const cs=document.getElementById('btnCamSim'); if(cs) cs.classList.toggle('active', mode==='cam');
+  const ws=document.getElementById('btnWifiSim'); if(ws) ws.classList.toggle('active', mode==='wifi');
   renderObjects();
 }
 
@@ -729,6 +835,8 @@ document.getElementById('btnUndo').onclick=undo;
 document.getElementById('btnRedo').onclick=redo;
 document.getElementById('btn3D').onclick=()=>{ location.href='/implantation/'+STUDY_ID+'/views'; };
 document.getElementById('btnWifiZ').onclick=()=>{ mode=(mode==='wifi')?'off':'wifi'; applyMode(); };
+document.getElementById('btnCamSim').onclick=()=>{ mode=(mode==='cam')?'off':'cam'; applyMode(); };
+document.getElementById('btnWifiSim').onclick=()=>{ mode=(mode==='wifi')?'off':'wifi'; applyMode(); };
 document.getElementById('btnCovSet').onclick=()=>{ document.getElementById('covPop').classList.toggle('show'); };
 document.getElementById('covEnv').onchange=(e)=>{ S.objects.forEach(o=>{ if(famOf(o.type)==='wifi') o.wifi_n=e.target.value; }); renderObjects(); };
 
