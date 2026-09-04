@@ -249,7 +249,7 @@
     <div class="addbtn" id="btnAddDev">📡 Ajouter des appareils</div>
   </div>
 
-  <!-- Légende couverture -->
+  <!-- Légende couverture WiFi -->
   <div class="ud-cov ud-float" id="covLegend">
     <div class="h">Couverture primaire
       <span class="bands" id="bandSel">
@@ -258,6 +258,12 @@
     </div>
     <div class="ud-grad"></div>
     <div class="lb"><span>Faible</span><span>Fort</span></div>
+  </div>
+
+  <!-- Légende zones DORI (caméras) -->
+  <div class="ud-cov ud-float" id="doriLegend" style="width:290px">
+    <div class="h">Zones de couverture caméra</div>
+    <div id="doriBody"></div>
   </div>
 
   {% if not study.has_plan %}
@@ -427,17 +433,20 @@ function audioSim(o){
   let cls; if(snr>=15)cls='Excellent'; else if(snr>=10)cls='Très bon'; else if(snr>=5)cls='Bon'; else if(snr>=0)cls='Discours intelligible'; else cls='Difficilement intelligible';
   return {spl:Math.round(spl),snr:Math.round(snr),intel:Math.max(0,Math.min(100,intel)),cls,noise};
 }
-function playAudioSim(intel){
+function playAudioSim(intel, spl){
   try{
-    const ctx=new (window.AudioContext||window.webkitAudioContext)(); const dur=1.7;
+    const ctx=new (window.AudioContext||window.webkitAudioContext)(); const dur=1.8;
+    // volume perçu : plus le sujet est proche (SPL élevé), plus c'est fort
+    const vol=Math.max(0.06, Math.min(1, ((spl==null?70:spl)-38)/52));
     const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=170;
     const g=ctx.createGain(); g.gain.value=0;
     const lfo=ctx.createOscillator(); lfo.frequency.value=4.2; const lg=ctx.createGain(); lg.gain.value=0.22; lfo.connect(lg); lg.connect(g.gain);
-    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1600; bp.Q.value=0.6; o.connect(bp); bp.connect(g);
-    const master=ctx.createGain(); master.gain.value=0.5; g.connect(master); master.connect(ctx.destination);
+    // filtre passe-bande : plus l'intelligibilité est basse, plus la voix est étouffée
+    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=800+18*intel; bp.Q.value=0.6; o.connect(bp); bp.connect(g);
+    const master=ctx.createGain(); master.gain.value=0.9*vol; g.connect(master); master.connect(ctx.destination);
     const nlen=Math.floor(ctx.sampleRate*dur); const nb=ctx.createBuffer(1,nlen,ctx.sampleRate); const nd=nb.getChannelData(0);
     for(let i=0;i<nlen;i++) nd[i]=Math.random()*2-1;
-    const ns=ctx.createBufferSource(); ns.buffer=nb; const ng=ctx.createGain(); ng.gain.value=0.5*(1-intel/100);
+    const ns=ctx.createBufferSource(); ns.buffer=nb; const ng=ctx.createGain(); ng.gain.value=0.55*(1-intel/100);
     const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=2800; ns.connect(lp); lp.connect(ng); ng.connect(ctx.destination);
     const t=ctx.currentTime; o.start(t); lfo.start(t); ns.start(t); o.stop(t+dur); lfo.stop(t+dur); ns.stop(t+dur);
     setTimeout(()=>{try{ctx.close()}catch(e){}}, (dur+0.3)*1000);
@@ -503,6 +512,15 @@ function doriPath(o,band,dir,hfovDeg){
   const x1=o.x+r*Math.cos(a1),y1=o.y+r*Math.sin(a1),x2=o.x+r*Math.cos(a2),y2=o.y+r*Math.sin(a2),large=(ang>Math.PI)?1:0;
   return '<path d="M '+o.x+' '+o.y+' L '+x1+' '+y1+' A '+r+' '+r+' 0 '+large+' 1 '+x2+' '+y2+' Z" fill="'+band.col+'55" stroke="'+band.col+'" stroke-width="0.8"/>';
 }
+// secteur annulaire (zone DORI distincte entre ri et ro, en px)
+function doriBandPath(o,dir,hfovDeg,ri,ro,col){
+  if(ro<=0) return '';
+  const ang=hfovDeg*Math.PI/180, d0=dir*Math.PI/180, a1=d0-ang/2, a2=d0+ang/2, large=(ang>Math.PI)?1:0;
+  const ox1=o.x+ro*Math.cos(a1),oy1=o.y+ro*Math.sin(a1),ox2=o.x+ro*Math.cos(a2),oy2=o.y+ro*Math.sin(a2);
+  if(ri<=0.5){ return '<path d="M '+o.x+' '+o.y+' L '+ox1+' '+oy1+' A '+ro+' '+ro+' 0 '+large+' 1 '+ox2+' '+oy2+' Z" fill="'+col+'66" stroke="'+col+'" stroke-width="1"/>'; }
+  const ix2=o.x+ri*Math.cos(a2),iy2=o.y+ri*Math.sin(a2),ix1=o.x+ri*Math.cos(a1),iy1=o.y+ri*Math.sin(a1);
+  return '<path d="M '+ox1+' '+oy1+' A '+ro+' '+ro+' 0 '+large+' 1 '+ox2+' '+oy2+' L '+ix2+' '+iy2+' A '+ri+' '+ri+' 0 '+large+' 0 '+ix1+' '+iy1+' Z" fill="'+col+'66" stroke="'+col+'" stroke-width="1"/>';
+}
 function renderObjects(){
   let bg = HAS_PLAN ? '<image href="'+PLAN_IMG+'" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
   let cover='', dori='', wifi='', wifiDefs='', liaisons='', marks='';
@@ -528,7 +546,15 @@ function renderObjects(){
       return;
     }
     if(famOf(o.type)==='camera' && (showDORI || o.id===selId) && ppm){
-      const g=camGeom(o); const dir=o.orientation||0; g.bands.forEach(b=>{ dori+=doriPath(o,b,dir,g.hfov); });
+      const g=camGeom(o); const dir=o.orientation||0; const b=g.bands; // [Id, Rec, Obs, Det]
+      // zones distinctes (annulaires) de l'extérieur vers l'intérieur
+      dori+=doriBandPath(o,dir,g.hfov, b[2].ground*ppm, b[3].ground*ppm, b[3].col); // Détection
+      dori+=doriBandPath(o,dir,g.hfov, b[1].ground*ppm, b[2].ground*ppm, b[2].col); // Observation
+      dori+=doriBandPath(o,dir,g.hfov, b[0].ground*ppm, b[1].ground*ppm, b[1].col); // Reconnaissance
+      dori+=doriBandPath(o,dir,g.hfov, 0,               b[0].ground*ppm, b[0].col); // Identification
+      if(o.id===selId){ const dr=dir*Math.PI/180;
+        b.forEach(bd=>{ const rr=bd.ground*ppm; const lx=o.x+rr*Math.cos(dr), ly=o.y+rr*Math.sin(dr);
+          dori+='<text x="'+lx+'" y="'+ly+'" font-size="10" text-anchor="middle" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3px">'+bd.k[0]+' '+bd.ground.toFixed(0)+'m</text>'; }); }
     } else { cover+=coverPath(o); }
     const sel=(o.id===selId); const typ=o.type||sys.icon||'default';
     marks+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
@@ -546,7 +572,13 @@ function renderObjects(){
     if(famOf(so.type)==='camera' && S.scale.px_per_m){
       const td=(parseFloat(so.cam_target)||12)*S.scale.px_per_m;
       const tx=so.x+td*Math.cos(ha), ty=so.y+td*Math.sin(ha);
-      handleLayer+='<g class="tgt-h" data-id="'+so.id+'" style="cursor:move"><circle cx="'+tx+'" cy="'+ty+'" r="10" fill="#7e57c2" stroke="#fff" stroke-width="2"/><text x="'+tx+'" y="'+(ty+4)+'" font-size="11" text-anchor="middle" fill="#fff">🚶</text></g>';
+      const gg=camGeom(so);
+      handleLayer+='<g class="tgt-h" data-id="'+so.id+'" style="cursor:move">'
+        +'<line x1="'+so.x+'" y1="'+so.y+'" x2="'+tx+'" y2="'+ty+'" stroke="#7e57c2" stroke-width="1.5" stroke-dasharray="4 3"/>'
+        +'<circle cx="'+tx+'" cy="'+ty+'" r="13" fill="#7e57c2" stroke="#fff" stroke-width="2.5"/>'
+        +'<text x="'+tx+'" y="'+(ty+5)+'" font-size="14" text-anchor="middle" fill="#fff">🚶</text>'
+        +'<text x="'+tx+'" y="'+(ty-18)+'" font-size="11" text-anchor="middle" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3px">'+(parseFloat(so.cam_target)||12).toFixed(1)+' m · '+gg.cls+'</text>'
+        +'</g>';
     }
   }
   const calibLayer = calib.pts.map(p=>'<circle cx="'+p.x+'" cy="'+p.y+'" r="5" fill="#2f8bff"/>').join('');
@@ -555,6 +587,7 @@ function renderObjects(){
   const clipDef = HAS_PLAN ? '<clipPath id="planClip"><rect x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'"/></clipPath>' : '';
   svg.innerHTML = bg + '<defs>'+clipDef+wifiDefs+'</defs>' + '<g style="pointer-events:none"'+clip+'>'+wifi+'</g>' + '<g style="pointer-events:none"'+clip+'>'+dori+'</g>' + '<g style="pointer-events:none"'+clip+'>'+cover+'</g>' + '<g>'+liaisons+'</g>' + '<g>'+marks+'</g>' + '<g>'+handleLayer+'</g>' + calibLayer + liaTmp;
   bindObjectEvents();
+  if(typeof updateDoriLegend==='function') updateDoriLegend();
 }
 function bindObjectEvents(){
   svg.querySelectorAll('.imp-obj').forEach(g=>{
@@ -699,7 +732,7 @@ function renderProps(){
        +'<button class="ud-btn" style="width:100%;justify-content:center;margin:4px 0 2px" id="a_play">▶️ Lire la simulation audio</button>'
        +'<div class="thumbs"><div class="thumb"><div class="img" style="filter:blur('+faceBlur.toFixed(1)+'px)">'+FACE_SVG+'</div><div class="cap">'+(ppm>=250?'Identification ✓':'Visage')+'</div></div>'
          +'<div class="thumb"><div class="img" style="filter:blur('+plateBlur.toFixed(1)+'px)">'+PLATE_SVG+'</div><div class="cap">'+(ppm>=125?'Lecture plaque ✓':'Plaque')+'</div></div></div>';
-      const ap=document.getElementById('a_play'); if(ap) ap.onclick=()=>playAudioSim(a.intel);
+      const ap=document.getElementById('a_play'); if(ap) ap.onclick=()=>playAudioSim(a.intel, a.spl);
     }
     if(fam==='audio'){ const a=audioSim(o);
       document.getElementById('simAudio').innerHTML='<div class="simcard">'
@@ -708,7 +741,7 @@ function renderProps(){
         +'<div class="simrow"><span>Intelligibilité</span><b>'+a.intel+' %</b></div>'
         +'<div class="simrow" style="border:0"><span>Classification</span><span class="dori-tag" style="background:'+(a.snr>=5?'#1b7a3d':(a.snr>=0?'#f9a825':'#c62828'))+'">'+a.cls+'</span></div>'
         +'<button class="ud-btn" style="width:100%;margin-top:8px;justify-content:center" id="a_play">▶️ Lire la simulation audio</button></div>';
-      document.getElementById('a_play').onclick=()=>playAudioSim(a.intel);
+      document.getElementById('a_play').onclick=()=>playAudioSim(a.intel, a.spl);
     }
     if(fam==='wifi'){ const ppm=S.scale.px_per_m;
       if(!ppm){ document.getElementById('simWifi').innerHTML='<div class="simcard"><div class="simsub">Calibrez le plan pour estimer la couverture.</div></div>'; return; }
@@ -759,7 +792,20 @@ function applyMode(){
   document.getElementById('btnWifiZ').classList.toggle('on', mode==='wifi');
   const cs=document.getElementById('btnCamSim'); if(cs) cs.classList.toggle('active', mode==='cam');
   const ws=document.getElementById('btnWifiSim'); if(ws) ws.classList.toggle('active', mode==='wifi');
+  updateDoriLegend();
   renderObjects();
+}
+function updateDoriLegend(){
+  const el=document.getElementById('doriLegend'); if(!el) return;
+  el.classList.toggle('show', mode==='cam');
+  if(mode!=='cam') return;
+  let o=objById(selId); if(!o||famOf(o.type)!=='camera') o=S.objects.find(x=>famOf(x.type)==='camera' && sysById(x.system).visible);
+  const body=document.getElementById('doriBody');
+  if(!o){ body.innerHTML='<div class="simsub">Placez ou sélectionnez une caméra.</div>'; return; }
+  if(!S.scale.px_per_m){ body.innerHTML='<div class="simsub">Calibrez le plan (📏) pour les distances.</div>'; return; }
+  const g=camGeom(o);
+  const rows=g.bands.map(bd=>'<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0"><span style="width:12px;height:12px;border-radius:3px;background:'+bd.col+';flex:none"></span><span style="flex:1">'+bd.k+'</span><b>&#8804; '+bd.ground.toFixed(1)+' m</b></div>').join('');
+  body.innerHTML=rows+'<div class="simsub" style="margin-top:6px">🚶 Sujet à '+(parseFloat(o.cam_target)||12).toFixed(1)+' m : '+g.ppmAt.toFixed(0)+' PPM ('+g.cls+')</div>';
 }
 
 /* ===================== BARRE D'ÉCHELLE ===================== */
