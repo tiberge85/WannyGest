@@ -173,20 +173,49 @@ function renderCatalog(){
   list.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>addDevice(b.dataset.p));
   list.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>removeLast(b.dataset.m));
 }
+// Faceplate réaliste (SVG) d'un appareil rackable
+function faceplate(dev,w,h){
+  const gid='mp_'+dev.uid;
+  let s='<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#454b54"/><stop offset="0.45" stop-color="#2c3138"/><stop offset="1" stop-color="#20242a"/></linearGradient></defs>';
+  s+='<rect x="0" y="0" width="'+w+'" height="'+h+'" rx="4" fill="url(#'+gid+')" stroke="#0008"/>';
+  // oreilles de rack
+  s+='<rect x="0" y="0" width="4" height="'+h+'" fill="#0004"/><rect x="'+(w-4)+'" y="0" width="4" height="'+h+'" fill="#0004"/>';
+  // logo + LEDs
+  s+='<circle cx="14" cy="'+(h/2)+'" r="2.4" fill="#5fd08a"/><circle cx="22" cy="'+(h/2)+'" r="1.8" fill="#4aa3ff"/>';
+  const x0=30, sfpN=dev.sfp||0;
+  const x1=w-14-(dev.kind==='switch'?(sfpN*13+6):0);
+  if(dev.kind==='switch'){
+    const total=Math.min(dev.portc||24,48); const rows=total>24?2:1; const perRow=Math.ceil(total/rows);
+    const pw=(x1-x0)/perRow; const ph=Math.min(7,(h-6)/rows-1.5);
+    for(let r=0;r<rows;r++){ for(let i=0;i<perRow;i++){ const idx=r*perRow+i; if(idx>=total)break;
+      const px=x0+i*pw+1, py=(rows===1?(h/2-ph/2):(3+r*(ph+2)));
+      s+='<rect x="'+px+'" y="'+py+'" width="'+(pw-2)+'" height="'+ph+'" rx="1" fill="#0d1016" stroke="#000"/><rect x="'+(px+0.8)+'" y="'+(py+ph-2)+'" width="'+(pw-3.6)+'" height="1.2" fill="#caa24a"/>'; } }
+    for(let k=0;k<sfpN;k++){ const sx=x1+6+k*13; s+='<rect x="'+sx+'" y="'+(h/2-5)+'" width="10" height="10" rx="1.5" fill="#0b0d11" stroke="#3a4552"/><rect x="'+(sx+2)+'" y="'+(h/2-1)+'" width="6" height="2" fill="#2a3a4a"/>'; }
+  } else if(dev.kind==='gateway'){
+    s+='<rect x="'+x0+'" y="'+(h/2-6)+'" width="46" height="12" rx="2" fill="#08131f" stroke="#1b4a6e"/><text x="'+(x0+23)+'" y="'+(h/2+3)+'" font-size="7" fill="#4aa3ff" text-anchor="middle">UNIFI</text>';
+    for(let i=0;i<4;i++){ s+='<rect x="'+(x0+56+i*16)+'" y="'+(h/2-4)+'" width="12" height="8" rx="1" fill="#0d1016"/><rect x="'+(x0+56.8+i*16)+'" y="'+(h/2+2)+'" width="10.4" height="1.2" fill="#caa24a"/>'; }
+  } else if(dev.kind==='nvr'){
+    const bays=4, bw=(x1-x0)/bays; for(let i=0;i<bays;i++){ s+='<rect x="'+(x0+i*bw+2)+'" y="4" width="'+(bw-6)+'" height="'+(h-8)+'" rx="2" fill="#171a1f" stroke="#3a4552"/><circle cx="'+(x0+i*bw+bw-8)+'" cy="'+(h/2)+'" r="1.5" fill="#5fd08a"/>'; }
+  } else {
+    s+='<rect x="'+x0+'" y="'+(h/2-6)+'" width="'+(x1-x0)+'" height="12" rx="2" fill="#171a1f" stroke="#3a4552"/>';
+  }
+  s+='<text x="'+(w-8-(sfpN*13))+'" y="'+(h-4)+'" font-size="9" fill="#e6ebf1" text-anchor="end" style="paint-order:stroke;stroke:#0008;stroke-width:2px">'+dev.name+'</text>';
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" style="display:block">'+s+'</svg>';
+}
 function renderRack(){
   const rackDevs=B.devices.filter(d=>d.u>0);
   const off=B.devices.filter(d=>d.u===0);
-  const U=B.rackU, uh=20, W=360;
+  const U=B.rackU, uh=24, BODY=340;
   // placement auto : empile depuis le haut
   let slot=0; const placed=[];
   rackDevs.forEach(d=>{ const top=slot; slot+=d.u; placed.push({d,top}); });
   const overflow=slot>U;
   const sizes=[4,6,9,12,18,24,42];
   let rows='';
-  for(let i=0;i<U;i++){ rows+='<div class="ru" style="width:'+W+'px"><span class="num">'+(U-i)+'</span></div>'; }
+  for(let i=0;i<U;i++){ rows+='<div class="ru" style="width:'+BODY+'px;height:'+uh+'px"><span class="num">'+(U-i)+'</span></div>'; }
   let devs='';
-  placed.forEach(p=>{ const topPx=p.top*uh+8; const h=p.d.u*uh-3; const col=KIND_COL[p.d.kind]||'#555';
-    devs+='<div class="dev" data-u="'+p.d.uid+'" style="top:'+topPx+'px;height:'+h+'px;background:'+col+'"><span>'+(KIND_ICO[p.d.kind]||'')+'</span><span>'+p.d.name+'</span></div>'; });
+  placed.forEach(p=>{ const topPx=p.top*uh+8; const h=p.d.u*uh-3;
+    devs+='<div class="dev" data-u="'+p.d.uid+'" style="top:'+topPx+'px;height:'+h+'px;padding:0;background:none;border:0;overflow:hidden;border-radius:4px" title="'+p.d.name+'">'+faceplate(p.d,BODY,h)+'</div>'; });
   document.getElementById('syView').innerHTML=
     '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
      +'<label class="muted">Format du rack :</label><select class="field" style="width:120px;margin:0" id="rackSize">'+sizes.map(s=>'<option value="'+s+'"'+(s===U?' selected':'')+'>'+s+'U</option>').join('')+'</select>'
