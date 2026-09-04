@@ -38102,6 +38102,12 @@ def _ensure_implantation_tables():
             plan_image BLOB, plan_mime TEXT, plan_w INTEGER, plan_h INTEGER,
             scene_json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
+        # colonne builder (système rack/topologie/ports) — séparée du scene du plan
+        try:
+            c.execute("SELECT builder_json FROM implantation_studies LIMIT 1")
+        except Exception:
+            try: c.execute("ALTER TABLE implantation_studies ADD COLUMN builder_json TEXT")
+            except Exception: pass
         c.commit(); c.close()
     except Exception:
         pass
@@ -38736,6 +38742,33 @@ def implantation_views(sid):
     if not r:
         flash("Étude introuvable.", "error"); return redirect('/implantation')
     return render_template('implantation_views.html', study=dict(r))
+
+@app.route('/implantation/<int:sid>/systeme')
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_systeme(sid):
+    _ensure_implantation_tables()
+    c = _gdb()
+    r = c.execute("SELECT id, title, builder_json FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+    c.close()
+    if not r:
+        flash("Étude introuvable.", "error"); return redirect('/implantation')
+    return render_template('implantation_systeme.html', study={'id': r['id'], 'title': r['title']},
+                           builder_json=(r['builder_json'] or '{}'))
+
+@app.route('/implantation/<int:sid>/builder/save', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_builder_save(sid):
+    import json as _json
+    _ensure_implantation_tables()
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        c = _gdb()
+        c.execute("UPDATE implantation_studies SET builder_json=?, updated_at=datetime('now') WHERE id=?",
+                  (_json.dumps(data, ensure_ascii=False), sid))
+        c.commit(); c.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 200
 
 @app.route('/implantation/<int:sid>/scene.json')
 @permission_required_any('projets', 'resp_projet', 'admin')

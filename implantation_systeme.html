@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Système — {{ study.title }}{% endblock %}
+{% block content %}
+<style>
+  :root{--ud-bg:#0b0d11;--ud-panel:#161a20;--ud-panel2:#1d222a;--ud-border:#2a313b;--ud-text:#d6dce4;--ud-muted:#8b95a1;--ud-accent:#2f8bff;}
+  .sy{position:relative;width:100%;height:calc(100vh - 92px);min-height:560px;background:var(--ud-bg);border-radius:12px;overflow:hidden;color:var(--ud-text);font-size:13px;display:flex;flex-direction:column}
+  .sy *{box-sizing:border-box}
+  .sy-top{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--ud-border);flex-wrap:wrap}
+  .sy-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:9px;border:1px solid var(--ud-border);background:var(--ud-panel2);color:var(--ud-text);font-size:12.5px;cursor:pointer;text-decoration:none}
+  .sy-btn:hover{border-color:#3a4552}.sy-btn.accent{background:var(--ud-accent);border-color:var(--ud-accent);color:#fff}
+  .sy-tabs{display:flex;gap:4px;background:var(--ud-panel);border:1px solid var(--ud-border);border-radius:11px;padding:4px}
+  .sy-tabs button{padding:7px 16px;border:0;border-radius:8px;background:transparent;color:var(--ud-muted);font-weight:600;font-size:13px;cursor:pointer}
+  .sy-tabs button.active{background:var(--ud-accent);color:#fff}
+  .sy-main{flex:1;display:flex;overflow:hidden}
+  .sy-view{flex:1;position:relative;overflow:auto;padding:16px}
+  .sy-cat{width:340px;flex:none;border-left:1px solid var(--ud-border);background:var(--ud-panel);display:flex;flex-direction:column;overflow:hidden}
+  .sy-cat.hidden{display:none}
+  .cathd{padding:10px}
+  .catsearch{width:100%;padding:9px 12px;border:1px solid var(--ud-border);border-radius:9px;background:var(--ud-panel2);color:var(--ud-text);outline:none}
+  .catcats{display:flex;gap:6px;padding:0 10px 8px;flex-wrap:wrap}
+  .catcats .cc{padding:6px 10px;border:1px solid var(--ud-border);border-radius:8px;background:var(--ud-panel2);color:var(--ud-muted);cursor:pointer;font-size:12px}
+  .catcats .cc.active{color:#fff;border-color:var(--ud-accent);background:rgba(47,139,255,.14)}
+  .catlist{flex:1;overflow:auto;padding:0 8px 10px}
+  .catrow{display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--ud-border)}
+  .catrow .ico{width:34px;height:34px;flex:none;background:var(--ud-panel2);border-radius:7px;display:flex;align-items:center;justify-content:center}
+  .catrow .nm{flex:1}.catrow .nm b{font-size:13px}.catrow .nm .pr{font-size:12px;color:var(--ud-muted)}
+  .qty{display:flex;align-items:center;gap:8px}
+  .qty button{width:26px;height:26px;border-radius:6px;border:1px solid var(--ud-border);background:var(--ud-panel2);color:var(--ud-text);cursor:pointer;font-size:15px}
+  .qty span{min-width:20px;text-align:center}
+  /* rack */
+  .rackwrap{display:flex;gap:24px;align-items:flex-start}
+  .rackframe{background:#11151b;border:2px solid #2a313b;border-radius:8px;padding:8px}
+  .ru{height:20px;display:flex;align-items:center;border-bottom:1px dashed #232a33;position:relative}
+  .ru .num{position:absolute;left:-26px;width:22px;text-align:right;font-size:9px;color:var(--ud-muted)}
+  .dev{position:absolute;left:0;right:0;border-radius:5px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#fff;font-size:12px;font-weight:600;border:1px solid #0006;cursor:pointer}
+  .sidecard{width:280px;background:var(--ud-panel);border:1px solid var(--ud-border);border-radius:10px;padding:12px}
+  .field{margin-bottom:9px}.field label{display:block;font-size:11px;color:var(--ud-muted);margin-bottom:3px}
+  .field select,.field input{width:100%;padding:7px;border:1px solid var(--ud-border);border-radius:8px;background:var(--ud-panel2);color:var(--ud-text);outline:none;font-size:12px}
+  /* topology */
+  #topoSvg{width:100%;min-height:520px;background:var(--ud-bg)}
+  /* ports */
+  .portgrid{display:flex;flex-wrap:wrap;gap:6px;max-width:900px}
+  .port{width:38px;height:46px;border-radius:6px;background:var(--ud-panel2);border:1px solid var(--ud-border);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:9px;color:var(--ud-muted);cursor:pointer;position:relative}
+  .port.used{background:#123; border-color:var(--ud-accent);color:#fff}
+  .port.uplink{background:#1b3a2a;border-color:#2e7d32}
+  .port .pn{font-size:11px;font-weight:700}
+  .port .poe{position:absolute;top:2px;right:3px;color:#f9a825;font-size:9px}
+  .muted{color:var(--ud-muted)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:var(--ud-muted)}
+</style>
+
+<div class="sy" id="syApp">
+  <div class="sy-top">
+    <a href="/implantation/{{ study.id }}" class="sy-btn">← Éditeur</a>
+    <strong style="font-size:15px">🖧 Système — {{ study.title }}</strong>
+    <div class="sy-tabs" id="syTabs" style="margin:0 auto">
+      <button data-t="rack" class="active">🗄️ Rack</button>
+      <button data-t="topo">🕸️ Topologie</button>
+      <button data-t="ports">🔌 Ports</button>
+    </div>
+    <span id="syCount" class="muted"></span>
+    <button class="sy-btn" id="syReset" title="Vider le système">🗑️ Vider</button>
+    <button class="sy-btn accent" id="sySave">💾 Enregistrer</button>
+  </div>
+
+  <div class="sy-main">
+    <div class="sy-view" id="syView"></div>
+    <div class="sy-cat" id="syCat">
+      <div class="cathd"><input class="catsearch" id="catSearch" placeholder="🔎 Rechercher un appareil…"></div>
+      <div class="catcats" id="catCats"></div>
+      <div class="catlist" id="catList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STUDY_ID={{ study.id }};
+let B={{ builder_json|safe }};
+if(!B||typeof B!=='object') B={};
+B.rackU=B.rackU||42;
+B.devices=B.devices||[];
+
+/* ================= CATALOGUE ================= */
+const CATS=[{k:'gw',l:'Passerelle'},{k:'sw',l:'Commutateurs'},{k:'wifi',l:'WiFi'},{k:'cam',l:'Caméras'},{k:'acc',l:'Accès'},{k:'int',l:'Intégrations'}];
+const CAT=[
+  {id:'efg',name:'Enterprise Fortress Gateway',cat:'gw',price:1999,u:1,kind:'gateway',ports:['WAN','WAN','SFP+','SFP+']},
+  {id:'ef',name:"Pare-feu d'entreprise",cat:'gw',price:1499,u:1,kind:'gateway',ports:['WAN','SFP+','WAN']},
+  {id:'ucg',name:'Cloud Gateway Ultra',cat:'gw',price:129,u:0,kind:'gateway',ports:['WAN','LAN']},
+  {id:'proxg48',name:'Pro XG 48 PoE',cat:'sw',price:1499,u:1,kind:'switch',portc:48,sfp:4,poe:720},
+  {id:'proxg16',name:'Pro XG 16 PoE',cat:'sw',price:699,u:1,kind:'switch',portc:16,sfp:2,poe:240},
+  {id:'promax48',name:'Pro Max 48 PoE',cat:'sw',price:1299,u:1,kind:'switch',portc:48,sfp:4,poe:720},
+  {id:'promax16',name:'Pro Max 16 PoE',cat:'sw',price:599,u:1,kind:'switch',portc:16,sfp:2,poe:240},
+  {id:'sw24',name:'Standard 24 PoE',cat:'sw',price:379,u:1,kind:'switch',portc:24,sfp:2,poe:400},
+  {id:'e7',name:'E7',cat:'wifi',price:499,u:0,kind:'ap'},
+  {id:'campuse7',name:'Campus E7',cat:'wifi',price:799,u:0,kind:'ap'},
+  {id:'u7proxgs',name:'U7 Pro XGS',cat:'wifi',price:299,u:0,kind:'ap'},
+  {id:'u7proxg',name:'U7 Pro XG',cat:'wifi',price:199,u:0,kind:'ap'},
+  {id:'u7promax',name:'U7 Pro Max',cat:'wifi',price:279,u:0,kind:'ap'},
+  {id:'u7pro',name:'U7 Pro',cat:'wifi',price:189,u:0,kind:'ap'},
+  {id:'aidome',name:'AI Dôme',cat:'cam',price:199,u:0,kind:'camera'},
+  {id:'aibullet',name:'AI Bullet',cat:'cam',price:199,u:0,kind:'camera'},
+  {id:'aiptz',name:'AI PTZ',cat:'cam',price:1499,u:0,kind:'camera'},
+  {id:'aiturret',name:'AI Turret',cat:'cam',price:159,u:0,kind:'camera'},
+  {id:'nvrpro',name:'Network Video Recorder Pro',cat:'cam',price:499,u:2,kind:'nvr'},
+  {id:'accesshub',name:'Access Hub',cat:'acc',price:199,u:1,kind:'access'},
+  {id:'g3reader',name:'Lecteur G3 Pro',cat:'acc',price:99,u:0,kind:'reader'},
+  {id:'display',name:'Connect Display',cat:'int',price:499,u:0,kind:'integration'},
+  {id:'speaker',name:'Connect Speaker',cat:'int',price:99,u:0,kind:'integration'}
+];
+function cat(id){return CAT.find(x=>x.id===id);}
+const KIND_COL={gateway:'#455a64',switch:'#2f8bff',ap:'#00897b',camera:'#c0392b',nvr:'#8e44ad',access:'#7b1fa2',reader:'#9575cd',integration:'#5d6d7e'};
+const KIND_ICO={gateway:'🛡️',switch:'🔀',ap:'📶',camera:'🎥',nvr:'🎞️',access:'🚪',reader:'🎫',integration:'🔗'};
+
+/* ================= ÉTAT / OUTILS ================= */
+let tab='rack', catFilter='all', selDev=null, portSwitch=null;
+function uid(){return 'd_'+Math.random().toString(36).slice(2,8);}
+function addDevice(cid){ const c=cat(cid); if(!c) return;
+  const n=B.devices.filter(d=>d.cid===cid).length+1;
+  const inst={uid:uid(),cid:cid,name:c.name+(n>1?(' '+n):''),kind:c.kind,u:c.u||0,portc:c.portc||0,sfp:c.sfp||0,poe:c.poe||0,price:c.price};
+  B.devices.push(inst); render(); }
+function removeLast(cid){ for(let i=B.devices.length-1;i>=0;i--){ if(B.devices[i].cid===cid){ B.devices.splice(i,1); break; } } render(); }
+function removeDev(u){ B.devices=B.devices.filter(d=>d.uid!==u); if(selDev===u)selDev=null; render(); }
+function qtyOf(cid){ return B.devices.filter(d=>d.cid===cid).length; }
+
+/* ================= TOPOLOGIE / CONNEXIONS ================= */
+function computeSystem(){
+  const gws=B.devices.filter(d=>d.kind==='gateway');
+  const sws=B.devices.filter(d=>d.kind==='switch');
+  const eps=B.devices.filter(d=>['ap','camera','nvr','access','reader','integration'].includes(d.kind));
+  const coreGw=gws[0]||null, coreSw=sws[0]||null;
+  const parent={}; const ports={}; sws.forEach(s=>ports[s.uid]=[]);
+  const cur={}; sws.forEach(s=>cur[s.uid]={rj:1,sfp:1});
+  function nextRj(s){ const c=cur[s.uid]; const p=c.rj; c.rj = (c.rj>=s.portc)?s.portc:c.rj+1; return p; }
+  function nextSfp(s){ const c=cur[s.uid]; const p='SFP'+c.sfp; if(c.sfp<s.sfp)c.sfp++; return p; }
+  gws.forEach(g=>{ parent[g.uid]={pid:'internet',label:'WAN'}; });
+  sws.forEach((s,i)=>{
+    // liaison montante propre au switch (port SFP)
+    const up=nextSfp(s); ports[s.uid].push({port:up,type:'sfp',role:'uplink',label:'Liaison montante'});
+    if(coreGw){ parent[s.uid]={pid:coreGw.uid,label:'SFP+ · 25 GbE'}; }
+    else if(s!==coreSw){ const p=nextSfp(coreSw); ports[coreSw.uid].push({port:p,type:'sfp',role:'device',dev:s.uid}); parent[s.uid]={pid:coreSw.uid,label:p+' · 25 GbE'}; }
+    else { parent[s.uid]={pid:'internet',label:'WAN'}; }
+  });
+  eps.forEach((e,i)=>{
+    const s=sws.length?sws[i%sws.length]:null;
+    if(s){ const p=nextRj(s); ports[s.uid].push({port:p,type:'rj45',role:'device',dev:e.uid,poe:(e.kind!=='integration')}); parent[e.uid]={pid:s.uid,label:'Port '+p+(e.kind==='ap'?' · 10 GbE':' · GbE')}; }
+    else if(coreGw){ parent[e.uid]={pid:coreGw.uid,label:'LAN'}; }
+    else { parent[e.uid]={pid:'internet'}; }
+  });
+  return {gws,sws,eps,coreGw,coreSw,parent,ports};
+}
+
+/* ================= RENDU ================= */
+function render(){
+  document.getElementById('syCount').textContent=B.devices.length+' appareil(s)';
+  document.querySelectorAll('#syTabs button').forEach(b=>b.classList.toggle('active',b.dataset.t===tab));
+  document.getElementById('syCat').classList.toggle('hidden', tab!=='rack');
+  renderCatalog();
+  if(tab==='rack') renderRack();
+  else if(tab==='topo') renderTopo();
+  else renderPorts();
+}
+function renderCatalog(){
+  const cc=document.getElementById('catCats'); if(!cc.dataset.built){ cc.innerHTML='<div class="cc'+(catFilter==='all'?' active':'')+'" data-c="all">Tous</div>'+CATS.map(c=>'<div class="cc" data-c="'+c.k+'">'+c.l+'</div>').join(''); cc.dataset.built='1';
+    cc.querySelectorAll('.cc').forEach(x=>x.onclick=()=>{ catFilter=x.dataset.c; cc.querySelectorAll('.cc').forEach(y=>y.classList.remove('active')); x.classList.add('active'); renderCatalog(); }); }
+  const q=(document.getElementById('catSearch').value||'').toLowerCase();
+  const list=document.getElementById('catList');
+  const items=CAT.filter(c=>(catFilter==='all'||c.cat===catFilter)&&(!q||c.name.toLowerCase().includes(q)));
+  list.innerHTML=items.map(c=>{
+    const q=qtyOf(c.id);
+    return '<div class="catrow"><div class="ico">'+(KIND_ICO[c.kind]||'▪️')+'</div><div class="nm"><b>'+c.name+'</b><div class="pr">'+c.price.toLocaleString('fr-FR')+' $ · '+(c.u?(c.u+'U'):'hors rack')+'</div></div>'
+      +'<div class="qty"><button data-m="'+c.id+'">−</button><span id="q_'+c.id+'">'+q+'</span><button data-p="'+c.id+'">+</button></div></div>';
+  }).join('')||'<div class="muted" style="padding:12px">Aucun résultat.</div>';
+  list.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>addDevice(b.dataset.p));
+  list.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>removeLast(b.dataset.m));
+}
+function renderRack(){
+  const rackDevs=B.devices.filter(d=>d.u>0);
+  const off=B.devices.filter(d=>d.u===0);
+  const U=B.rackU, uh=20, W=360;
+  // placement auto : empile depuis le haut
+  let slot=0; const placed=[];
+  rackDevs.forEach(d=>{ const top=slot; slot+=d.u; placed.push({d,top}); });
+  const overflow=slot>U;
+  const sizes=[4,6,9,12,18,24,42];
+  let rows='';
+  for(let i=0;i<U;i++){ rows+='<div class="ru" style="width:'+W+'px"><span class="num">'+(U-i)+'</span></div>'; }
+  let devs='';
+  placed.forEach(p=>{ const topPx=p.top*uh+8; const h=p.d.u*uh-3; const col=KIND_COL[p.d.kind]||'#555';
+    devs+='<div class="dev" data-u="'+p.d.uid+'" style="top:'+topPx+'px;height:'+h+'px;background:'+col+'"><span>'+(KIND_ICO[p.d.kind]||'')+'</span><span>'+p.d.name+'</span></div>'; });
+  document.getElementById('syView').innerHTML=
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">'
+     +'<label class="muted">Format du rack :</label><select class="field" style="width:120px;margin:0" id="rackSize">'+sizes.map(s=>'<option value="'+s+'"'+(s===U?' selected':'')+'>'+s+'U</option>').join('')+'</select>'
+     +(overflow?'<span style="color:#ff8a8a">⚠️ Dépassement : '+slot+'U utilisés pour '+U+'U</span>':'<span class="muted">'+slot+'U / '+U+'U utilisés</span>')
+     +'</div>'
+     +'<div class="rackwrap"><div class="rackframe" style="position:relative;padding-left:34px">'+rows+'<div style="position:absolute;left:34px;right:8px;top:0;bottom:0">'+devs+'</div></div>'
+     +'<div class="sidecard"><div style="font-weight:700;margin-bottom:8px">Appareils hors rack</div>'
+       +(off.length?off.map(d=>'<div class="catrow" style="border:0;padding:6px 0"><div class="ico">'+(KIND_ICO[d.kind]||'')+'</div><div class="nm"><b>'+d.name+'</b></div><button class="sy-btn" data-del="'+d.uid+'">🗑️</button></div>').join(''):'<div class="muted">—</div>')
+       +'<div style="font-weight:700;margin:12px 0 8px">Coût matériel estimé</div><div style="font-size:20px;font-weight:700">'+B.devices.reduce((s,d)=>s+(d.price||0),0).toLocaleString('fr-FR')+' $</div>'
+     +'</div></div>';
+  document.getElementById('rackSize').onchange=e=>{ B.rackU=parseInt(e.target.value); render(); };
+  document.querySelectorAll('.dev[data-u]').forEach(x=>x.onclick=()=>{ selDev=x.dataset.u; tab='ports'; portSwitch=null; render(); });
+  document.querySelectorAll('[data-del]').forEach(x=>x.onclick=()=>removeDev(x.dataset.del));
+}
+function renderTopo(){
+  const sys=computeSystem();
+  const svg=document.getElementById('syView');
+  // couches
+  const layers=[['internet']];
+  if(sys.gws.length){ layers.push(sys.gws.map(g=>g.uid)); if(sys.sws.length) layers.push(sys.sws.map(s=>s.uid)); if(sys.eps.length) layers.push(sys.eps.map(e=>e.uid)); }
+  else if(sys.sws.length){ layers.push(sys.sws.map(s=>s.uid)); if(sys.eps.length) layers.push(sys.eps.map(e=>e.uid)); }
+  else if(sys.eps.length){ layers.push(sys.eps.map(e=>e.uid)); }
+  const W=Math.max(900, layers.reduce((m,l)=>Math.max(m,l.length),1)*160+80);
+  const rowH=170, H=layers.length*rowH+40;
+  const pos={}; // uid -> {x,y}
+  layers.forEach((l,li)=>{ const y=40+li*rowH; const step=W/(l.length+1); l.forEach((u,i)=>{ pos[u]={x:step*(i+1),y:y}; }); });
+  function label(uid){ if(uid==='internet') return 'Internet'; const d=B.devices.find(x=>x.uid===uid); return d?d.name:''; }
+  function ico(uid){ if(uid==='internet') return '🌐'; const d=B.devices.find(x=>x.uid===uid); return KIND_ICO[d.kind]||'▪️'; }
+  let edges='',nodes='';
+  Object.keys(sys.parent).forEach(u=>{ const pr=sys.parent[u]; const a=pos[pr.pid], b=pos[u]; if(!a||!b) return;
+    const midy=(a.y+b.y)/2;
+    edges+='<line x1="'+a.x+'" y1="'+(a.y+26)+'" x2="'+b.x+'" y2="'+(b.y-26)+'" stroke="#3a4552" stroke-width="1.5"/>';
+    if(pr.label){ edges+='<rect x="'+(b.x-52)+'" y="'+(midy-9)+'" width="104" height="18" rx="9" fill="#12202f" stroke="#2f8bff" stroke-width="1"/><text x="'+b.x+'" y="'+(midy+4)+'" font-size="10" fill="#8fbcf5" text-anchor="middle">'+pr.label+'</text>'; }
+  });
+  Object.keys(pos).forEach(u=>{ const p=pos[u];
+    nodes+='<g><circle cx="'+p.x+'" cy="'+p.y+'" r="22" fill="#161a20" stroke="#2a313b" stroke-width="1.5"/><text x="'+p.x+'" y="'+(p.y+7)+'" font-size="20" text-anchor="middle">'+ico(u)+'</text>'
+      +'<text x="'+p.x+'" y="'+(p.y+42)+'" font-size="12" fill="#d6dce4" text-anchor="middle">'+label(u)+'</text></g>'; });
+  svg.innerHTML='<svg id="topoSvg" viewBox="0 0 '+W+' '+H+'" style="width:100%;height:'+H+'px">'+edges+nodes+'</svg>'
+    +(B.devices.length?'':'<div class="muted" style="text-align:center;margin-top:20px">Ajoutez des appareils (onglet Rack) pour construire la topologie.</div>');
+}
+function renderPorts(){
+  const sys=computeSystem();
+  if(!sys.sws.length){ document.getElementById('syView').innerHTML='<div class="muted" style="text-align:center;margin-top:40px">Aucun commutateur dans le système. Ajoutez-en un (onglet Rack).</div>'; return; }
+  if(!portSwitch||!sys.sws.find(s=>s.uid===portSwitch)) portSwitch=sys.sws[0].uid;
+  const sw=sys.sws.find(s=>s.uid===portSwitch); const used=sys.ports[sw.uid]||[];
+  const usedMap={}; used.forEach(u=>usedMap[u.port]=u);
+  const poeW=B.devices.filter(d=>sys.parent[d.uid]&&sys.parent[d.uid].pid===sw.uid&&d.kind!=='integration').length*15;
+  let ports='';
+  for(let p=1;p<=sw.portc;p++){ const u=usedMap[p]; const cls=u?(u.role==='uplink'?'port uplink':'port used'):'port';
+    const dev=u&&u.dev?B.devices.find(x=>x.uid===u.dev):null;
+    ports+='<div class="'+cls+'" title="'+(dev?dev.name:(u&&u.role==='uplink'?'Liaison montante':'Libre'))+'"><span class="poe">⚡</span><span class="pn">'+p+'</span>'+(dev?'<span>'+(KIND_ICO[dev.kind]||'')+'</span>':'')+'</div>'; }
+  let sfp='';
+  for(let s=1;s<=sw.sfp;s++){ const key='SFP'+s; const u=usedMap[key]; const cls=u?(u.role==='uplink'?'port uplink':'port used'):'port';
+    sfp+='<div class="'+cls+'" title="'+(u?(u.role==='uplink'?'Liaison montante':'Occupé'):'SFP libre')+'"><span class="pn">S'+s+'</span><span style="font-size:8px">SFP</span></div>'; }
+  const swOpts=sys.sws.map(s=>'<option value="'+s.uid+'"'+(s.uid===sw.uid?' selected':'')+'>'+s.name+'</option>').join('');
+  const modelOpts=CAT.filter(c=>c.kind==='switch').map(c=>'<option value="'+c.id+'"'+(c.id===sw.cid?' selected':'')+'>'+c.name+'</option>').join('');
+  const connected=B.devices.filter(d=>sys.parent[d.uid]&&sys.parent[d.uid].pid===sw.uid);
+  document.getElementById('syView').innerHTML=
+    '<div style="display:flex;gap:20px;flex-wrap:wrap"><div style="flex:1;min-width:520px">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><label class="muted">Commutateur :</label><select class="field" style="width:220px;margin:0" id="portSw">'+swOpts+'</select>'
+        +'<span class="muted">Puissance PoE : '+poeW+' / '+sw.poe+' W</span></div>'
+      +'<div class="portgrid">'+ports+sfp+'</div>'
+      +'<div class="legend"><span>⚡ PoE</span><span style="color:#8fbcf5">■ Occupé</span><span style="color:#7fd6a3">■ Liaison montante</span></div>'
+    +'</div>'
+    +'<div class="sidecard" style="width:300px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b>Modifier l\'appareil</b><span style="cursor:pointer;color:#ff8a8a" id="swDel">🗑️</span></div>'
+      +'<div class="field"><label>Nom</label><input id="swName" value="'+sw.name.replace(/"/g,'&quot;')+'"></div>'
+      +'<div class="field"><label>Modèle (changer de switch)</label><select id="swModel">'+modelOpts+'</select></div>'
+      +'<div class="field"><label>Ports</label><input value="'+sw.portc+' RJ45 + '+sw.sfp+' SFP" disabled></div>'
+      +'<div style="font-weight:700;margin:10px 0 6px">Appareils connectés ('+connected.length+')</div>'
+      +(connected.length?connected.map(d=>'<div class="catrow" style="border:0;padding:5px 0"><div class="ico">'+(KIND_ICO[d.kind]||'')+'</div><div class="nm"><b>'+d.name+'</b><div class="pr">'+(sys.parent[d.uid].label||'')+'</div></div></div>').join(''):'<div class="muted">Aucun</div>')
+    +'</div></div>';
+  document.getElementById('portSw').onchange=e=>{ portSwitch=e.target.value; render(); };
+  document.getElementById('swName').oninput=e=>{ sw.name=e.target.value; };
+  document.getElementById('swModel').onchange=e=>{ const m=cat(e.target.value); if(m){ sw.cid=m.id; sw.portc=m.portc; sw.sfp=m.sfp; sw.poe=m.poe; sw.u=m.u; if(!/[0-9]$/.test(sw.name)) sw.name=m.name; } render(); };
+  document.getElementById('swDel').onclick=()=>removeDev(sw.uid);
+}
+
+/* ================= ÉVÉNEMENTS ================= */
+document.querySelectorAll('#syTabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.t; render(); });
+document.getElementById('catSearch').oninput=renderCatalog;
+document.getElementById('sySave').onclick=()=>{ fetch('/implantation/'+STUDY_ID+'/builder/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(B)})
+  .then(r=>r.json()).then(d=>{ const b=document.getElementById('sySave'); b.textContent=d.ok?'✅ Enregistré':'❌ Erreur'; setTimeout(()=>b.textContent='💾 Enregistrer',1500); }); };
+document.getElementById('syReset').onclick=()=>{ if(confirm('Vider tout le système ?')){ B.devices=[]; selDev=null; render(); } };
+
+render();
+</script>
+{% endblock %}
