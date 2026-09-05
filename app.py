@@ -31626,6 +31626,60 @@ def devis_templates_add():
     flash("Modèle de devis créé", "success")
     return redirect(url_for('devis_templates_page'))
 
+# Modèles standards par type de système (importables en 1 clic)
+_DEVIS_STD_MODELS = [
+    ("Vidéosurveillance (CCTV)", "Vidéosurveillance", [
+        ("Caméra IP dôme 4MP", 4), ("Caméra IP bullet 4MP", 2), ("Enregistreur NVR 8 canaux", 1),
+        ("Disque dur de surveillance 2 To", 1), ("Switch PoE 8 ports", 1), ("Câble réseau UTP Cat6 (rouleau 305 m)", 1),
+        ("Connecteurs RJ45", 20), ("Coffret + alimentation", 1), ("Configuration et mise en service", 1)]),
+    ("Contrôle d'accès", "Contrôle d'accès", [
+        ("Lecteur de badge RFID", 2), ("Contrôleur d'accès", 1), ("Ventouse magnétique 280 kg", 2),
+        ("Bouton poussoir de sortie", 2), ("Badges RFID", 20), ("Alimentation secourue 12V", 1),
+        ("Câblage + accessoires", 1), ("Configuration et mise en service", 1)]),
+    ("Alarme intrusion", "Alarme intrusion", [
+        ("Centrale d'alarme", 1), ("Détecteur de mouvement PIR", 4), ("Contact d'ouverture porte/fenêtre", 4),
+        ("Sirène intérieure", 1), ("Sirène extérieure autonome (flash)", 1), ("Clavier / télécommande", 2),
+        ("Batterie de secours", 1), ("Installation et configuration", 1)]),
+    ("Réseau informatique", "Réseau informatique", [
+        ("Switch administrable 24 ports", 1), ("Point d'accès WiFi", 3), ("Baie de brassage 9U", 1),
+        ("Panneau de brassage 24 ports", 1), ("Câble UTP Cat6 (rouleau 305 m)", 2), ("Prises RJ45 murales", 10),
+        ("Configuration réseau", 1)]),
+    ("Clôture électrique", "Clôture électrique", [
+        ("Électrificateur de clôture", 1), ("Fil galvanisé (rouleau)", 3), ("Isolateurs", 100),
+        ("Piquets / poteaux", 20), ("Panneau d'avertissement", 4), ("Batterie + panneau solaire", 1),
+        ("Installation et mise en service", 1)]),
+    ("Portail automatique", "Portail automatique", [
+        ("Motorisation de portail (coulissant/battant)", 1), ("Crémaillère", 4), ("Photocellules de sécurité (paire)", 1),
+        ("Feu clignotant", 1), ("Télécommandes", 2), ("Sélecteur à clé / clavier", 1), ("Installation et réglage", 1)]),
+    ("Détection incendie", "Détection incendie", [
+        ("Centrale de détection incendie", 1), ("Détecteur de fumée optique", 6), ("Déclencheur manuel", 2),
+        ("Diffuseur sonore", 2), ("Câble résistant au feu (rouleau)", 1), ("Installation et mise en service", 1)]),
+]
+
+@app.route('/devis/templates/seed', methods=['POST'])
+@permission_required('proforma_edit')
+def devis_templates_seed():
+    from models import db_insert
+    try:
+        existing = {(t.get('name') or '') for t in (get_devis_templates() or [])}
+    except Exception:
+        existing = set()
+    created = 0
+    for name, category, lines in _DEVIS_STD_MODELS:
+        if name in existing:
+            continue
+        items = [{'designation': d, 'quantity': float(q), 'unit_price': 0.0} for d, q in lines]
+        try:
+            db_insert('devis_templates', name=name, category=category,
+                      description="Modèle standard — ajustez les prix", items_json=json.dumps(items, ensure_ascii=False),
+                      notes='', created_by=session['user_id'])
+            created += 1
+        except Exception:
+            pass
+    flash(("%d modèle(s) standard importé(s). Ajustez les prix puis chargez-les depuis un devis." % created) if created
+          else "Les modèles standards sont déjà présents.", "success")
+    return redirect(url_for('devis_templates_page'))
+
 @app.route('/devis/from-template/<int:tid>')
 @permission_required('proforma_edit')
 def devis_from_template(tid):

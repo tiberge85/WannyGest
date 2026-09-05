@@ -15,7 +15,16 @@
 .tpl-actions{padding:10px 16px;border-top:1px solid #f0f0f0;display:flex;gap:6px}
 </style>
 
-<div class="page-header"><h1>📋 Modèles de devis</h1><p>Créez des modèles réutilisables pour vos devis et proformas</p></div>
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+  <div><h1>📋 Modèles de devis</h1><p>Créez des modèles réutilisables pour vos devis et proformas</p></div>
+  <form method="post" action="/devis/templates/seed" style="margin:0"
+        onsubmit="return confirm('Importer les 7 modèles standards (Vidéosurveillance, Contrôle d\'accès, Alarme, Réseau, Clôture, Portail, Incendie) ? Les prix seront à 0 — vous les ajusterez ensuite.');">
+    <button type="submit" class="btn btn-orange">📥 Importer les modèles standards</button>
+  </form>
+</div>
+<div style="background:#f2f7f6;border:1px solid #cfe4df;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#555">
+  💡 Cliquez sur <b>« Importer les modèles standards »</b> pour créer d'un coup un modèle de devis par type de système. Vous pourrez ensuite ajuster les prix, puis les charger dans un devis (menu « Modèle prédéfini » lors de la création d'un devis).
+</div>
 
 {% if templates %}
 <div class="tpl-grid">
