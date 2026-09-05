@@ -49,6 +49,20 @@
     <div class="form-group"><label>Adresse</label><input type="text" name="client_address" id="cAddr" value=""></div>
     <div class="form-group"><label>Objet *</label><input type="text" name="objet" value="{{ devis.objet or '' }}" required></div>
 
+    <div class="form-group" style="background:#f2f7f6;border:1px solid #cfe4df;border-radius:8px;padding:10px 12px">
+        <label style="font-weight:700;color:#1A7A6D">🧩 Modèle prédéfini (type de système)</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+            <select id="predefSel" style="flex:1;min-width:220px;padding:8px 11px;border:1.5px solid #ddd;border-radius:7px;font-size:13px">
+                <option value="">— Choisir un type de système —</option>
+                <optgroup label="Modèles standards" id="predefStd"></optgroup>
+                <optgroup label="Mes modèles enregistrés" id="predefSaved"></optgroup>
+            </select>
+            <button type="button" class="btn btn-outline btn-sm" onclick="applyPredef()">➕ Ajouter les lignes</button>
+        </div>
+        <small style="color:#888;font-size:10px">Ajoute les lignes de base au devis — vous pouvez en retirer (×) ou en ajouter. Ajustez les prix.</small>
+    </div>
+    <script type="application/json" id="savedTplData">[{% for t in templates or [] %}{"id":{{ t.id }},"name":{{ t.name|tojson }},"category":{{ (t.category or '')|tojson }},"items":{{ t.items_json or '[]' }}}{{ "," if not loop.last }}{% endfor %}]</script>
+
     <h3 style="color:#1a3a5c;margin:16px 0 10px;font-size:15px">📦 Articles</h3>
     {% if catalog_items %}
     {# v173b : recherche fiable (type-ahead + liste cliquable), remplace le <datalist> mal géré en webview #}
@@ -346,5 +360,77 @@ document.addEventListener('DOMContentLoaded', function(){
     if (sel && sel.value) fillClient();
     if (typeof updateTierBadge==='function') updateTierBadge();
 });
+
+/* ===== Modèles prédéfinis par type de système ===== */
+var PREDEFS = {
+  cctv:{label:'Vidéosurveillance (CCTV)', objet:"FOURNITURE ET INSTALLATION D'UN SYSTÈME DE VIDÉOSURVEILLANCE", lines:[
+    {designation:'Caméra IP dôme 4MP', detail:'IR intégré', qty:4},{designation:'Caméra IP bullet 4MP', detail:'extérieure IR', qty:2},
+    {designation:'Enregistreur NVR 8 canaux', detail:'PoE intégré', qty:1},{designation:'Disque dur de surveillance 2 To', detail:'', qty:1},
+    {designation:'Switch PoE 8 ports', detail:'', qty:1},{designation:'Câble réseau UTP Cat6', detail:'rouleau 305 m', qty:1},
+    {designation:'Connecteurs RJ45', detail:'', qty:20},{designation:'Coffret + alimentation', detail:'', qty:1},
+    {designation:'Configuration et mise en service', detail:'', qty:1}]},
+  acces:{label:"Contrôle d'accès", objet:"FOURNITURE ET INSTALLATION D'UN SYSTÈME DE CONTRÔLE D'ACCÈS", lines:[
+    {designation:'Lecteur de badge RFID', detail:'', qty:2},{designation:"Contrôleur d'accès", detail:'', qty:1},
+    {designation:'Ventouse magnétique 280 kg', detail:'', qty:2},{designation:'Bouton poussoir de sortie', detail:'', qty:2},
+    {designation:'Badges RFID', detail:'', qty:20},{designation:'Alimentation secourue 12V', detail:'', qty:1},
+    {designation:'Câblage + accessoires', detail:'', qty:1},{designation:'Configuration et mise en service', detail:'', qty:1}]},
+  alarme:{label:'Alarme intrusion', objet:"FOURNITURE ET INSTALLATION D'UN SYSTÈME D'ALARME ANTI-INTRUSION", lines:[
+    {designation:"Centrale d'alarme", detail:'', qty:1},{designation:'Détecteur de mouvement PIR', detail:'', qty:4},
+    {designation:"Contact d'ouverture", detail:'porte / fenêtre', qty:4},{designation:'Sirène intérieure', detail:'', qty:1},
+    {designation:'Sirène extérieure autonome', detail:'flash', qty:1},{designation:'Clavier / télécommande', detail:'', qty:2},
+    {designation:'Batterie de secours', detail:'', qty:1},{designation:'Installation et configuration', detail:'', qty:1}]},
+  reseau:{label:'Réseau informatique', objet:"FOURNITURE ET INSTALLATION D'UN RÉSEAU INFORMATIQUE", lines:[
+    {designation:'Switch administrable 24 ports', detail:'', qty:1},{designation:"Point d'accès WiFi", detail:'', qty:3},
+    {designation:'Baie de brassage 9U', detail:'', qty:1},{designation:'Panneau de brassage 24 ports', detail:'', qty:1},
+    {designation:'Câble UTP Cat6', detail:'rouleau 305 m', qty:2},{designation:'Prises RJ45 murales', detail:'', qty:10},
+    {designation:'Configuration réseau', detail:'', qty:1}]},
+  cloture:{label:'Clôture électrique', objet:"FOURNITURE ET INSTALLATION D'UNE CLÔTURE ÉLECTRIQUE", lines:[
+    {designation:'Électrificateur de clôture', detail:'', qty:1},{designation:'Fil galvanisé', detail:'rouleau', qty:3},
+    {designation:'Isolateurs', detail:'', qty:100},{designation:'Piquets / poteaux', detail:'', qty:20},
+    {designation:"Panneau d'avertissement", detail:'', qty:4},{designation:'Batterie + panneau solaire', detail:'', qty:1},
+    {designation:'Installation et mise en service', detail:'', qty:1}]},
+  portail:{label:'Portail automatique', objet:"FOURNITURE ET INSTALLATION D'UN PORTAIL AUTOMATIQUE", lines:[
+    {designation:'Motorisation de portail', detail:'coulissant / battant', qty:1},{designation:'Crémaillère', detail:'', qty:4},
+    {designation:'Photocellules de sécurité', detail:'paire', qty:1},{designation:'Feu clignotant', detail:'', qty:1},
+    {designation:'Télécommandes', detail:'', qty:2},{designation:'Sélecteur à clé / clavier', detail:'', qty:1},
+    {designation:'Installation et réglage', detail:'', qty:1}]},
+  incendie:{label:'Détection incendie', objet:"FOURNITURE ET INSTALLATION D'UN SYSTÈME DE DÉTECTION INCENDIE", lines:[
+    {designation:'Centrale de détection incendie', detail:'', qty:1},{designation:'Détecteur de fumée optique', detail:'', qty:6},
+    {designation:'Déclencheur manuel', detail:'', qty:2},{designation:'Diffuseur sonore', detail:'', qty:2},
+    {designation:'Câble résistant au feu', detail:'rouleau', qty:1},{designation:'Installation et mise en service', detail:'', qty:1}]}
+};
+var SAVED = {};
+(function(){
+  var std=document.getElementById('predefStd');
+  if(std){ Object.keys(PREDEFS).forEach(function(k){ var o=document.createElement('option'); o.value='b:'+k; o.textContent=PREDEFS[k].label; std.appendChild(o); }); }
+  var saved=document.getElementById('predefSaved'); var data=[];
+  try{ data=JSON.parse(document.getElementById('savedTplData').textContent||'[]'); }catch(e){ data=[]; }
+  data.forEach(function(t){
+    var items=t.items||[];
+    SAVED[t.id]={objet:t.name, lines:items.map(function(it){ return {designation:it.designation||'', detail:it.detail||'', qty:(it.quantity||it.qty||1), prix:(it.unit_price||it.prix||0)}; })};
+    if(saved){ var o=document.createElement('option'); o.value='t:'+t.id; o.textContent=t.name+(t.category?(' ('+t.category+')'):''); saved.appendChild(o); }
+  });
+  if(saved && !saved.children.length){ saved.parentNode && saved.remove(); }
+})();
+function _fillDevisLine(d,det,q,p){
+  var last=document.getElementById('desig_'+itemCount);
+  if(last && last.value){ addItem(); last=document.getElementById('desig_'+itemCount); }
+  if(last){ last.value=d;
+    var row=last.closest('.item-row');
+    var det_=document.getElementById('detail_'+itemCount); if(det_) det_.value=det||'';
+    var qi=row.querySelector('input[name$="_qty"]'); if(qi) qi.value=q||1;
+    var pi=document.getElementById('prix_'+itemCount); if(pi) pi.value=p||0;
+  }
+}
+function applyPredef(){
+  var sel=document.getElementById('predefSel'); var v=sel?sel.value:''; if(!v){ alert('Choisissez un type de système.'); return; }
+  var tpl=null;
+  if(v.indexOf('b:')===0) tpl=PREDEFS[v.slice(2)];
+  else if(v.indexOf('t:')===0) tpl=SAVED[v.slice(2)];
+  if(!tpl){ return; }
+  var objIn=document.querySelector('input[name="objet"]'); if(objIn && !objIn.value && tpl.objet) objIn.value=tpl.objet;
+  (tpl.lines||[]).forEach(function(l){ _fillDevisLine(l.designation, l.detail, l.qty, l.prix); });
+  if(window._recalcDevis) window._recalcDevis();
+}
 </script>
 {% endblock %}

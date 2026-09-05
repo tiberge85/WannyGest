@@ -10968,8 +10968,11 @@ def devis_new():
     catalog_items = _catalogue_articles()  # v172 : catalogue avec prix par type de client
     current_user = get_user_by_id(session['user_id'])
     default_commercial = current_user['full_name'] if current_user else ''
+    try: _devis_tpls = get_devis_templates()
+    except Exception: _devis_tpls = []
     return render_template('devis_new.html', page='devis', clients=clients, stock_items=stock_items,
-                           catalog_items=catalog_items, default_commercial=default_commercial)
+                           catalog_items=catalog_items, default_commercial=default_commercial,
+                           templates=_devis_tpls)
 
 @app.route('/devis/pdf/<int:did>')
 @permission_required_any('proforma', 'proforma_edit')  # v173 : voir OU éditer suffit pour exporter
@@ -11188,8 +11191,11 @@ def devis_edit(did):
     catalog_items = _catalogue_articles()  # v172 : catalogue avec prix par type de client
     current_user = get_user_by_id(session['user_id'])
     default_commercial = devis.get('contact_commercial') or (current_user['full_name'] if current_user else '')
+    try: _devis_tpls = get_devis_templates()
+    except Exception: _devis_tpls = []
     return render_template('devis_edit.html', page='devis', devis=devis, items=items, clients=clients,
-                           stock_items=stock_items, catalog_items=catalog_items, default_commercial=default_commercial)
+                           stock_items=stock_items, catalog_items=catalog_items, default_commercial=default_commercial,
+                           templates=_devis_tpls)
 
 @app.route('/devis/delete/<int:did>', methods=['GET', 'POST'])
 @permission_required_any('proforma_edit', 'admin')

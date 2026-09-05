@@ -438,22 +438,31 @@ function audioSim(o){
 }
 function playAudioSim(intel, spl){
   try{
-    const ctx=new (window.AudioContext||window.webkitAudioContext)(); const dur=1.8;
-    // volume perçu : plus le sujet est proche (SPL élevé), plus c'est fort
-    const vol=Math.max(0.06, Math.min(1, ((spl==null?70:spl)-38)/52));
-    const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=170;
-    const g=ctx.createGain(); g.gain.value=0;
-    const lfo=ctx.createOscillator(); lfo.frequency.value=4.2; const lg=ctx.createGain(); lg.gain.value=0.22; lfo.connect(lg); lg.connect(g.gain);
-    // filtre passe-bande : plus l'intelligibilité est basse, plus la voix est étouffée
-    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=800+18*intel; bp.Q.value=0.6; o.connect(bp); bp.connect(g);
-    const master=ctx.createGain(); master.gain.value=0.9*vol; g.connect(master); master.connect(ctx.destination);
-    const nlen=Math.floor(ctx.sampleRate*dur); const nb=ctx.createBuffer(1,nlen,ctx.sampleRate); const nd=nb.getChannelData(0);
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC){ alert('Audio non supporté par ce navigateur.'); return; }
+    const ctx=new AC();
+    if(ctx.state==='suspended' && ctx.resume) ctx.resume();
+    const vol=Math.max(0.15, Math.min(1, ((spl==null?70:spl)-35)/55));   // + proche = + fort
+    const clarity=Math.max(0, Math.min(1, (intel||0)/100));
+    const master=ctx.createGain(); master.gain.value=0.9*vol; master.connect(ctx.destination);
+    // "syllabes" : suite de bouffées de ton filtré (voix)
+    const t0=ctx.currentTime; const syl=[0,0.22,0.44,0.70,0.92,1.15,1.40];
+    syl.forEach((st,i)=>{
+      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=125+(i%2?45:0);
+      const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=500+clarity*1900; bp.Q.value=1.1;
+      const g=ctx.createGain(); g.gain.value=0.0001; o.connect(bp); bp.connect(g); g.connect(master);
+      const t=t0+st, dur=0.16;
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.6,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      o.start(t); o.stop(t+dur+0.03);
+    });
+    // bruit selon (1-intelligibilité) : brouille la parole
+    const dur=1.7, nlen=Math.floor(ctx.sampleRate*dur); const nb=ctx.createBuffer(1,nlen,ctx.sampleRate); const nd=nb.getChannelData(0);
     for(let i=0;i<nlen;i++) nd[i]=Math.random()*2-1;
-    const ns=ctx.createBufferSource(); ns.buffer=nb; const ng=ctx.createGain(); ng.gain.value=0.55*(1-intel/100);
-    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=2800; ns.connect(lp); lp.connect(ng); ng.connect(ctx.destination);
-    const t=ctx.currentTime; o.start(t); lfo.start(t); ns.start(t); o.stop(t+dur); lfo.stop(t+dur); ns.stop(t+dur);
-    setTimeout(()=>{try{ctx.close()}catch(e){}}, (dur+0.3)*1000);
-  }catch(e){ alert('Lecture audio non supportée.'); }
+    const ns=ctx.createBufferSource(); ns.buffer=nb; const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=3000;
+    const ng=ctx.createGain(); ng.gain.value=0.4*(1-clarity)*vol; ns.connect(lp); lp.connect(ng); ng.connect(ctx.destination);
+    ns.start(t0); ns.stop(t0+dur);
+    setTimeout(()=>{try{ctx.close()}catch(e){}}, (dur+0.4)*1000);
+  }catch(e){ alert('Lecture audio impossible : '+(e&&e.message?e.message:e)); }
 }
 /* ===================== PHYSIQUE WIFI ===================== */
 function bandMHz(b){ return b==='6'?5945:(b==='2.4'?2400:5000); }
