@@ -9518,15 +9518,38 @@ def devis_to_invoice(did):
     d = db_get_by_id('devis', did)
     if not d:
         flash("Devis non trouvé", "error"); return redirect('/devis')
+
+    # v174 : calcul TVA (montant du devis) + choix appliquer/retirer la TVA
+    d_ttc = float(d.get('total_ttc') or 0)
+    d_tva_amt = float(d.get('tva_amount') or 0)
+    d_had_tva = bool(d.get('tva_active')) and d_tva_amt > 0
+    rate = float(d.get('tva_rate') or 18)
+    base_ht = round(d_ttc - d_tva_amt, 2) if d_had_tva else d_ttc  # montant hors TVA du devis
+
+    # Étape de confirmation : laisse cocher/décocher la TVA avant de convertir
+    if request.args.get('go') != '1':
+        default_tva = d_had_tva
+        return render_template('devis_convert_confirm.html', page='devis', d=d, did=did,
+                               base_ht=base_ht, rate=rate, default_tva=default_tva,
+                               tva_preview=round(base_ht * rate / 100, 2))
+
+    _p = (request.args.get('tva') or '').strip().lower()
+    apply_tva = (_p not in ('0', 'false', 'off', 'no', ''))
+    if apply_tva:
+        tva_amount = round(base_ht * rate / 100, 2)
+    else:
+        tva_amount = 0.0
+    total_ttc = round(base_ht + tva_amount, 2)
+
     ref = f"FAC-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     conn = _gdb()
     conn.execute("""INSERT INTO invoices (reference, client_name, client_id, amount, objet,
         total_ht, tva, total_ttc, items_json, devis_id, status, notes)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (ref, d.get('client_name',''), d.get('client_id'), d.get('total_ttc',0),
-         d.get('objet',''), d.get('total_ht',0), d.get('total_ht',0)*0.18 if d.get('total_ht') else 0,
-         d.get('total_ttc',0), d.get('items_json',''), did, 'a_envoyer',
-         f"Convertie depuis devis {d.get('reference','')}"))
+        (ref, d.get('client_name',''), d.get('client_id'), total_ttc,
+         d.get('objet',''), base_ht, tva_amount,
+         total_ttc, d.get('items_json',''), did, 'a_envoyer',
+         f"Convertie depuis devis {d.get('reference','')}" + (" (sans TVA)" if not apply_tva else "")))
     conn.commit(); conn.close()
     user = get_user_by_id(session['user_id'])
     log_activity(session['user_id'], user['full_name'] if user else '?',
@@ -9541,7 +9564,7 @@ def devis_to_invoice(did):
             type='info', module='factures', icon='🧾', priority='high')
     except Exception as _e: print(f"[v136] notif facture err : {_e}", flush=True)
     
-    flash(f"Devis {d.get('reference','')} converti en facture {ref}", "success")
+    flash(f"Devis {d.get('reference','')} converti en facture {ref} — " + (f"TVA {rate:.0f}% appliquée ({tva_amount:,.0f} F), total TTC {total_ttc:,.0f} F" if apply_tva else f"SANS TVA, total {total_ttc:,.0f} F"), "success")
     return redirect(url_for('comptabilite_page'))
 
 @app.route('/comptabilite/facture/view/<int:fid>')
