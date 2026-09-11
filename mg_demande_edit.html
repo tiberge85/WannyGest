@@ -21,7 +21,16 @@
         <div class="form-group"><label>Département / Service</label>
             <input type="text" name="department" value="{{ demande.department or '' }}" placeholder="Ex: IT, Logistique..."></div>
     </div>
-    
+
+    <div class="form-group">
+        <label>🏬 Fournisseur <span style="font-size:11px;color:#888">(facultatif — ajoutable même après émission)</span></label>
+        <input type="text" name="fournisseur" list="fournisseursList" value="{{ demande.fournisseur or '' }}"
+               placeholder="Choisir ou saisir un fournisseur…" autocomplete="off"
+               style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px">
+        <datalist id="fournisseursList">{% for f in fournisseurs %}<option value="{{ f }}">{% endfor %}</datalist>
+        <small style="color:#888;font-size:10px">Sélectionnez dans la liste ou saisissez un nouveau fournisseur.</small>
+    </div>
+
     <div class="form-group">
         <label>Description / Objet de la demande *</label>
         <textarea name="description" rows="4" required style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px;font-size:13px">{{ demande.description or '' }}</textarea>

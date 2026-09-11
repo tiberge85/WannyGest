@@ -1951,6 +1951,18 @@ except Exception as _e:
     print(f"[v174-Coord] Erreur : {_e}", flush=True)
 
 
+# v178 : Colonne fournisseur sur les demandes internes (ajoutable même après émission)
+try:
+    from models import get_db as _v178db
+    _v178 = _v178db()
+    try: _v178.execute("ALTER TABLE achats_demandes ADD COLUMN fournisseur TEXT")
+    except Exception: pass
+    _v178.commit(); _v178.close()
+    print("[v178-Dem] Colonne fournisseur (achats_demandes) OK", flush=True)
+except Exception as _e:
+    print(f"[v178-Dem] Erreur : {_e}", flush=True)
+
+
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
 # UNIQUEMENT au premier démarrage (flag v116_sections_done)
@@ -22624,9 +22636,21 @@ def mg_stock_entrees():
         e['total'] = (e.get('quantite') or 0) * (e.get('prix_unitaire') or 0)
     articles = [dict(r) for r in conn.execute("SELECT id, reference, designation, prix_unitaire, unite FROM mg_stock_articles ORDER BY designation").fetchall()]
     total_value = sum(e['total'] for e in entries)
+    # v178 : liste des fournisseurs pour la sélection (source unifiée achats_fournisseurs)
+    fournisseurs = []
+    try:
+        _sync_suppliers_into_achats_fournisseurs(conn)
+        fournisseurs = [r['name'] for r in conn.execute(
+            "SELECT name FROM achats_fournisseurs WHERE COALESCE(name,'')<>'' ORDER BY name").fetchall()]
+    except Exception:
+        try:
+            fournisseurs = [r['fournisseur'] for r in conn.execute(
+                "SELECT DISTINCT fournisseur FROM mg_stock_entries WHERE COALESCE(fournisseur,'')<>'' ORDER BY fournisseur").fetchall()]
+        except Exception:
+            fournisseurs = []
     conn.close()
     return render_template('mg_stock_entrees.html', page='mg_stock_entrees',
-        entries=entries, articles=articles, total_value=total_value)
+        entries=entries, articles=articles, total_value=total_value, fournisseurs=fournisseurs)
 
 
 @app.route('/mg/stock/entrees/add', methods=['POST'])
@@ -39874,11 +39898,19 @@ def mg_demande_edit(did):
         department = request.form.get('department', '').strip()
         urgency = request.form.get('urgency', 'normale')
         date_d = request.form.get('date') or demande.get('date')
-        
+        fournisseur = (request.form.get('fournisseur', '') or '').strip()
+
         try:
-            conn.execute("""UPDATE achats_demandes SET 
-                description=?, department=?, urgency=?, date=?
-                WHERE id=?""", (description, department, urgency, date_d, did))
+            try:
+                conn.execute("""UPDATE achats_demandes SET
+                    description=?, department=?, urgency=?, date=?, fournisseur=?
+                    WHERE id=?""", (description, department, urgency, date_d, fournisseur, did))
+            except Exception:
+                # repli si la colonne fournisseur n'existe pas encore
+                conn.execute("ALTER TABLE achats_demandes ADD COLUMN fournisseur TEXT")
+                conn.execute("""UPDATE achats_demandes SET
+                    description=?, department=?, urgency=?, date=?, fournisseur=?
+                    WHERE id=?""", (description, department, urgency, date_d, fournisseur, did))
             
             # Mise à jour des items
             # Supprimer tous les items existants
@@ -39921,9 +39953,16 @@ def mg_demande_edit(did):
     # GET
     items = [dict(r) for r in conn.execute(
         "SELECT * FROM achats_demande_items WHERE demande_id=? ORDER BY id", (did,)).fetchall()]
+    fournisseurs = []
+    try:
+        _sync_suppliers_into_achats_fournisseurs(conn)
+        fournisseurs = [r['name'] for r in conn.execute(
+            "SELECT name FROM achats_fournisseurs WHERE COALESCE(name,'')<>'' ORDER BY name").fetchall()]
+    except Exception:
+        fournisseurs = []
     conn.close()
     return render_template('mg_demande_edit.html', page='mg_demandes',
-        demande=demande, items=items)
+        demande=demande, items=items, fournisseurs=fournisseurs)
 
 
 # v108 : Route POST de décision MG (formulaire intégré dans preview) avec motif obligatoire pour refus
