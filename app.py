@@ -1492,7 +1492,7 @@ try:
     if not already_done:
         # Première exécution : ajouter caisse_sortie aux rôles métier
         roles_outils_caisse = ('technicien', 'tech_chef', 'centre_technique',
-                                'commercial', 'gestionnaire_projet', 
+                                'commercial', 'coordinateur', 'gestionnaire_projet', 
                                 'moyens_generaux', 'mg', 'magasinier',
                                 'rh', 'secretaire')
         nb_added = 0
@@ -1926,6 +1926,29 @@ try:
     print("[v116-Cols] Colonnes refus_motif/refus_par/comptabilise_par/montant_paye/reste OK", flush=True)
 except Exception as _e:
     print(f"[v116-Cols] Erreur : {_e}", flush=True)
+
+
+# v174 : Fusion des rôles 'gestionnaire_projet' et 'resp_projet' dans un seul rôle 'coordinateur'
+# (Le coordinateur et le gestionnaire de projet sont le même rôle.)
+try:
+    from models import get_db as _v174db
+    _v174 = _v174db()
+    # 1) Copier toutes les permissions des anciens rôles vers 'coordinateur'
+    for _oldr in ('gestionnaire_projet', 'resp_projet'):
+        try:
+            for _pr in _v174.execute("SELECT permission FROM permissions WHERE role=?", (_oldr,)).fetchall():
+                try: _v174.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('coordinateur', ?)", (_pr[0],))
+                except Exception: pass
+        except Exception: pass
+    # 2) Migrer les utilisateurs vers 'coordinateur'
+    _nb174 = 0
+    try:
+        _nb174 = _v174.execute("UPDATE users SET role='coordinateur' WHERE role IN ('gestionnaire_projet','resp_projet')").rowcount or 0
+    except Exception: pass
+    _v174.commit(); _v174.close()
+    print(f"[v174-Coord] Fusion gestionnaire_projet/resp_projet -> coordinateur : {_nb174} utilisateur(s) migré(s)", flush=True)
+except Exception as _e:
+    print(f"[v174-Coord] Erreur : {_e}", flush=True)
 
 
 # v116 : Backfill des permissions de section pour tous les rôles
@@ -5347,7 +5370,7 @@ def inject_globals():
             # v100 : Widget Remontées d'informations pour gestionnaire de projet
             try:
                 _user_perms = ctx.get('permissions', [])
-                if 'field_report_view_all' in _user_perms or 'admin' in _user_perms or user['role'] in ('gestionnaire_projet', 'admin', 'dg', 'directeur'):
+                if 'field_report_view_all' in _user_perms or 'admin' in _user_perms or user['role'] in ('coordinateur', 'gestionnaire_projet', 'admin', 'dg', 'directeur'):
                     from models import get_db as _frdb
                     _fc = _frdb()
                     # Stats globales
@@ -7888,7 +7911,7 @@ def admin_permissions():
     # Rôles affichés en colonnes dans admin.html (doit rester synchronisé avec le template)
     matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable',
                     'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique',
-                    'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']
+                    'coordinateur', 'proprietaire', 'concierge', 'secretaire']
     for role in matrix_roles:
         existing = set(get_role_permissions(role))
         preserved = {p for p in existing if p not in matrix_perms}          # hors-matrice : conservées
@@ -18161,8 +18184,8 @@ def intervention_status(iid, status):
 
 # ======================== v166 : AFFECTATION & TRANSFERT DE TÂCHES ========================
 # Rôles : gestionnaire de projet = valide les transferts ; responsable technique = affecte.
-_ROLES_AFFECT = ('admin', 'dg', 'responsable_technique', 'gestionnaire_projet', 'resp_projet')
-_ROLES_VALID_TRANSFERT = ('admin', 'dg', 'gestionnaire_projet', 'resp_projet')
+_ROLES_AFFECT = ('admin', 'dg', 'responsable_technique', 'coordinateur', 'gestionnaire_projet', 'resp_projet')
+_ROLES_VALID_TRANSFERT = ('admin', 'dg', 'coordinateur', 'gestionnaire_projet', 'resp_projet')
 
 
 @app.route('/interventions/<int:iid>/set-type', methods=['POST'])
@@ -18285,7 +18308,7 @@ def intervention_transfer_request(iid):
         (iid, inter.get('technician_id'), inter.get('technician_name', ''), to_tech_id, to_name, reason,
          user['id'], user['full_name'], user['role']))
     # Notifier les gestionnaires de projet
-    for v in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND role IN ('gestionnaire_projet','resp_projet','admin','dg')").fetchall():
+    for v in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND role IN ('coordinateur','gestionnaire_projet','resp_projet','admin','dg')").fetchall():
         conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
             (v['id'], 'transfert', "🔁 Transfert de tâche à valider",
              f"{user['full_name']} demande de transférer « {inter.get('title','')} » vers {to_name}.",
@@ -23502,11 +23525,11 @@ def _field_report_notify(report_id, action):
             title = f"📢 Nouvelle remontée d'information"
             message = f"{report['reference']} — {report['client_name']} ({type_label}) · {priorite_label}"
             # Cibler gestionnaire_projet + admin + dg + directeur
-            target_roles = ('gestionnaire_projet', 'admin', 'dg', 'directeur')
+            target_roles = ('coordinateur', 'gestionnaire_projet', 'admin', 'dg', 'directeur')
         elif action == 'analyzed':
             title = f"🔍 Remontée mise en analyse"
             message = f"{report['reference']} — {report['client_name']}"
-            target_roles = ('gestionnaire_projet', 'admin', 'dg', 'directeur')
+            target_roles = ('coordinateur', 'gestionnaire_projet', 'admin', 'dg', 'directeur')
         elif action == 'transformed':
             title = f"✅ Remontée traitée"
             decision = report.get('decision', 'action')
@@ -23520,17 +23543,17 @@ def _field_report_notify(report_id, action):
             # Notifier l'auteur original + services concernés selon la décision
             target_roles = ['admin', 'dg', 'directeur']
             if decision == 'intervention':
-                target_roles += ['gestionnaire_projet', 'technicien', 'tech_chef', 'centre_technique']
+                target_roles += ['coordinateur', 'gestionnaire_projet', 'technicien', 'tech_chef', 'centre_technique']
             elif decision == 'projet':
-                target_roles += ['gestionnaire_projet']
+                target_roles += ['coordinateur', 'gestionnaire_projet']
             elif decision == 'opportunite':
-                target_roles += ['commercial', 'gestionnaire_projet']
+                target_roles += ['commercial', 'coordinateur', 'gestionnaire_projet']
             else:
-                target_roles += ['gestionnaire_projet']
+                target_roles += ['coordinateur', 'gestionnaire_projet']
         else:
             title = f"📢 Remontée {report['reference']}"
             message = f"{report['client_name']}"
-            target_roles = ('gestionnaire_projet', 'admin', 'dg', 'directeur')
+            target_roles = ('coordinateur', 'gestionnaire_projet', 'admin', 'dg', 'directeur')
         
         # Récupérer les destinataires
         placeholders = ','.join(['?'] * len(target_roles))
@@ -24208,7 +24231,7 @@ def field_report_mark_afaire(rid):
         user_name = user['full_name'] if user else 'Système'
         conn.execute("""UPDATE field_reports SET statut='a_affecter', updated_at=datetime('now') WHERE id=?""", (rid,))
         # Notifier les responsables techniques (et gestionnaires/admin)
-        for v in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND role IN ('responsable_technique','gestionnaire_projet','admin','dg')").fetchall():
+        for v in conn.execute("SELECT id FROM users WHERE COALESCE(is_active,1)=1 AND role IN ('responsable_technique','coordinateur','gestionnaire_projet','admin','dg')").fetchall():
             if v['id'] == session.get('user_id'):
                 continue
             conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
@@ -28243,7 +28266,7 @@ def project_detail(pid):
 def project_rollback(pid):
     """v161 : revenir à l'étape PRÉCÉDENTE du roadmap — réservé admin / gestionnaire / DG."""
     user = get_user_by_id(session.get('user_id', 0))
-    if not user or user['role'] not in ('admin', 'dg', 'directeur', 'gestionnaire_projet'):
+    if not user or user['role'] not in ('admin', 'dg', 'directeur', 'coordinateur', 'gestionnaire_projet'):
         flash("⛔ Réservé à l'admin, au gestionnaire de projet et au DG.", "error")
         return redirect(f'/projects/{pid}')
     comment = (request.form.get('comment', '') or '').strip()

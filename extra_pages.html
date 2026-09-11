@@ -7306,10 +7306,10 @@ function showTab(id){
 
 <div class="page-header"><h1>🔧 Interventions</h1>
 <div style="display:flex;gap:6px;flex-wrap:wrap">
-{% if current_user and current_user.role in ('admin','dg','responsable_technique','gestionnaire_projet','resp_projet') %}
+{% if current_user and current_user.role in ('admin','dg','responsable_technique','coordinateur','gestionnaire_projet','resp_projet') %}
 <a href="/interventions/a-affecter" class="btn btn-sm" style="background:#1A8F7E;color:#fff">📋 À affecter</a>
 {% endif %}
-{% if current_user and current_user.role in ('admin','dg','gestionnaire_projet','resp_projet') %}
+{% if current_user and current_user.role in ('admin','dg','coordinateur','gestionnaire_projet','resp_projet') %}
 <a href="/interventions/transferts" class="btn btn-sm" style="background:#3a86ff;color:#fff">🔁 Transferts</a>
 {% endif %}
 <button class="btn btn-primary btn-sm" onclick="document.getElementById('addIntM').classList.add('active')">+ Intervention</button>

@@ -368,8 +368,8 @@
             {% endif %}
             
             {# v116 : Section GESTION DE PROJETS — permission 'section_projets' OU 'resp_projet' #}
-            {% if 'section_projets' in permissions or 'resp_projet' in permissions or 'admin' in permissions or user_role == 'gestionnaire_projet' %}
-            <div class="nav-section" id="sec-resp-proj" {% if user_role in ('gestionnaire_projet',) %}data-primary="true"{% endif %}>
+            {% if 'section_projets' in permissions or 'resp_projet' in permissions or 'admin' in permissions or user_role in ('gestionnaire_projet','coordinateur') %}
+            <div class="nav-section" id="sec-resp-proj" {% if user_role in ('gestionnaire_projet','coordinateur') %}data-primary="true"{% endif %}>
                 <div class="nav-section-title" onclick="toggleSection('sec-resp-proj')">📁 GESTION DE PROJETS <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
                     <a href="/resp-projet" class="{% if page == 'resp_projet' %}active{% endif %}">📊 Tableau de bord</a>
@@ -854,7 +854,7 @@
             {# Sections que l'user voit COMPLÈTES selon son rôle #}
             {% set has_full_tech = is_full_manager or user_role in ('technicien', 'tech_chef', 'centre_technique') %}
             {% set has_full_crm = is_full_manager or user_role == 'commercial' %}
-            {% set has_full_gp = is_full_manager or user_role in ('gestionnaire_projet', 'resp_projet') %}
+            {% set has_full_gp = is_full_manager or user_role in ('gestionnaire_projet', 'resp_projet', 'coordinateur') %}
             {% set has_full_rh = is_full_manager or user_role == 'rh' %}
             {% set has_full_compta = is_full_manager or user_role in ('comptable', 'comptabilite') %}
             {% set has_full_info = is_full_manager or user_role == 'informatique' %}
