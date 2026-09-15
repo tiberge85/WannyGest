@@ -9,6 +9,25 @@
             <input type="text" name="contact_commercial" value="{{ devis.contact_commercial or default_commercial or '' }}" placeholder="Nom du commercial"></div>
     </div>
 
+    {# v179 : Durée de validité — recalcul de l'échéance à partir de la date d'émission #}
+    {% set _pv = proforma_validity(devis) %}
+    <div class="form-row">
+        <div class="form-group"><label>⏳ Durée de validité</label>
+            <select name="validity_days" id="validitySel" onchange="onValidityChange()">
+                {% set _vd = devis.validity_days or 30 %}
+                {% for _d in [7,15,30,45,60,90] %}
+                <option value="{{ _d }}" {% if _vd == _d %}selected{% endif %}>{{ _d }} jours{% if _d==30 %} (par défaut){% endif %}</option>
+                {% endfor %}
+                <option value="custom" {% if _vd not in [7,15,30,45,60,90] %}selected{% endif %}>Personnalisé…</option>
+            </select>
+        </div>
+        <div class="form-group" id="validityCustomWrap" style="display:{% if _vd not in [7,15,30,45,60,90] %}{% else %}none{% endif %}"><label>Nombre de jours</label>
+            <input type="number" name="validity_days_custom" id="validityCustom" min="1" max="365" value="{% if _vd not in [7,15,30,45,60,90] %}{{ _vd }}{% endif %}" placeholder="Ex: 20"></div>
+        <div class="form-group"><label>Échéance actuelle</label>
+            <input type="text" readonly style="background:#f5f7f6;color:{{ _pv.text }};font-weight:600"
+                   value="{% if _pv.active %}{{ _pv.expiry_fr }} — {{ _pv.label }}{% else %}—{% endif %}"></div>
+    </div>
+
     <!-- Client re-sélectionnable avec auto-remplissage -->
     <div class="form-group">
         <label>Client enregistré <span style="font-size:10px;color:#888">(changer pour auto-remplir un autre)</span></label>
@@ -431,6 +450,14 @@ function applyPredef(){
   var objIn=document.querySelector('input[name="objet"]'); if(objIn && !objIn.value && tpl.objet) objIn.value=tpl.objet;
   (tpl.lines||[]).forEach(function(l){ _fillDevisLine(l.designation, l.detail, l.qty, l.prix); });
   if(window._recalcDevis) window._recalcDevis();
+}
+</script>
+<script>
+// v179 : bascule du champ "personnalisé" pour la durée de validité
+function onValidityChange(){
+  var sel=document.getElementById('validitySel');
+  var wrap=document.getElementById('validityCustomWrap');
+  if(sel && wrap){ wrap.style.display = (sel.value==='custom') ? '' : 'none'; }
 }
 </script>
 {% endblock %}

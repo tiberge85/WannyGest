@@ -1962,6 +1962,30 @@ try:
 except Exception as _e:
     print(f"[v178-Dem] Erreur : {_e}", flush=True)
 
+# v179 : Validité des proformas/devis (Phase 1) — durée de validité + date d'émission + date d'expiration
+try:
+    from models import get_db as _v179db
+    _v179 = _v179db()
+    for _c in ("validity_days INTEGER DEFAULT 30", "issue_date TEXT", "expiry_date TEXT"):
+        try: _v179.execute("ALTER TABLE devis ADD COLUMN %s" % _c)
+        except Exception: pass
+    # Backfill : les documents existants sans échéance reçoivent une validité de 30 j
+    # à compter de leur date de création (émission par défaut = date de création).
+    try:
+        _v179.execute("""UPDATE devis
+            SET validity_days = COALESCE(validity_days, 30),
+                issue_date = COALESCE(NULLIF(issue_date,''), substr(COALESCE(created_at,''),1,10)),
+                expiry_date = COALESCE(NULLIF(expiry_date,''),
+                    date(substr(COALESCE(created_at, date('now')),1,10),
+                         '+' || COALESCE(validity_days,30) || ' days'))
+            WHERE expiry_date IS NULL OR expiry_date = ''""")
+    except Exception as _eb:
+        print(f"[v179-Proforma] Backfill : {_eb}", flush=True)
+    _v179.commit(); _v179.close()
+    print("[v179-Proforma] Colonnes validité (validity_days/issue_date/expiry_date) OK", flush=True)
+except Exception as _e:
+    print(f"[v179-Proforma] Erreur : {_e}", flush=True)
+
 
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
@@ -5982,6 +6006,88 @@ def _inject_doc_params():
         return {'doc_params': dict(DEFAULT_DOC_PARAMS)}
 
 
+# ============ v179 : Validité des proformas/devis (Phase 1) ============
+def _proforma_alert_days():
+    """Délai (jours) avant l'expiration à partir duquel on affiche « Expiration proche ».
+    Configurable en Phase 3 via app_settings ; défaut 7 j."""
+    try:
+        conn = _gdb()
+        r = conn.execute("SELECT value FROM app_settings WHERE key='proforma_alert_days'").fetchone()
+        conn.close()
+        if r and str(r['value']).strip():
+            return max(1, int(float(str(r['value']).strip())))
+    except Exception:
+        pass
+    return 7
+
+def _proforma_validity(d, alert_days=None):
+    """Calcule l'état de validité d'un devis/proforma.
+
+    Renvoie un dict : {expiry, expiry_fr, days_left, status, label, color, text, icon, active}
+      - status : 'validee' | 'expiree' | 'expiration_proche' | 'valide' | 'inconnu'
+    'active' est False quand aucune échéance n'est calculable (documents très anciens
+    ou données absentes) → on n'affiche pas de badge trompeur.
+    """
+    from datetime import datetime as _dt, date as _date
+    if not isinstance(d, dict):
+        try: d = dict(d)
+        except Exception: d = {}
+    if alert_days is None:
+        alert_days = _proforma_alert_days()
+    out = {'expiry': None, 'expiry_fr': '', 'days_left': None, 'status': 'inconnu',
+           'label': '', 'color': '#eef4f3', 'text': '#555', 'icon': '', 'active': False,
+           'validity_days': d.get('validity_days') or 30}
+
+    # 1) Date d'expiration : colonne dédiée, sinon calcul (émission/création + durée)
+    exp = (d.get('expiry_date') or '').strip() if d.get('expiry_date') else ''
+    vdays = d.get('validity_days')
+    try: vdays = int(vdays) if vdays not in (None, '') else 30
+    except Exception: vdays = 30
+    out['validity_days'] = vdays
+    if not exp:
+        base = (d.get('issue_date') or d.get('created_at') or '')
+        base = str(base)[:10]
+        try:
+            b = _dt.strptime(base, '%Y-%m-%d').date()
+            exp = (b + timedelta(days=vdays)).strftime('%Y-%m-%d')
+        except Exception:
+            exp = ''
+    if not exp:
+        return out  # non calculable
+
+    try:
+        ed = _dt.strptime(exp[:10], '%Y-%m-%d').date()
+    except Exception:
+        return out
+    out['active'] = True
+    out['expiry'] = ed.strftime('%Y-%m-%d')
+    out['expiry_fr'] = ed.strftime('%d/%m/%Y')
+    days_left = (ed - _date.today()).days
+    out['days_left'] = days_left
+
+    # 2) Statut : VALIDÉE (document accepté) prime ; sinon selon l'échéance
+    status = (d.get('status') or '').strip().lower()
+    if status == 'accepte':
+        out.update({'status': 'validee', 'label': '✅ Validée',
+                    'color': '#e3f0ff', 'text': '#0d47a1', 'icon': '✅'})
+    elif days_left < 0:
+        out.update({'status': 'expiree', 'label': '⛔ Expirée',
+                    'color': '#fde8e8', 'text': '#c53030', 'icon': '⛔'})
+    elif days_left <= alert_days:
+        out.update({'status': 'expiration_proche',
+                    'label': ('⏳ Expire ' + ('aujourd\'hui' if days_left == 0 else ('demain' if days_left == 1 else 'dans %d j' % days_left))),
+                    'color': '#fff3e0', 'text': '#e65100', 'icon': '⏳'})
+    else:
+        out.update({'status': 'valide', 'label': '🟢 Valide (%d j)' % days_left,
+                    'color': '#e8f5e9', 'text': '#2e7d32', 'icon': '🟢'})
+    return out
+
+@app.context_processor
+def _inject_proforma_validity():
+    """Rend proforma_validity(d) appelable dans tous les templates."""
+    return {'proforma_validity': _proforma_validity}
+
+
 @app.after_request
 def _set_csrf_cookie(response):
     """Pose le token CSRF dans un cookie lisible par JS (pour double-submit)."""
@@ -9554,6 +9660,18 @@ def devis_to_invoice(did):
     if not d:
         flash("Devis non trouvé", "error"); return redirect('/devis')
 
+    # v179 : proforma expirée → conversion bloquée (consultable mais verrouillée).
+    # La réactualisation des coûts (Phase 2) permettra de relancer proprement.
+    try:
+        _pv = _proforma_validity(dict(d))
+        if _pv['active'] and _pv['status'] == 'expiree':
+            flash("⛔ Cette proforma est EXPIRÉE (échéance %s). Impossible de la convertir en facture. "
+                  "Modifiez sa durée de validité pour la prolonger, ou dupliquez-la pour repartir sur des tarifs à jour."
+                  % _pv['expiry_fr'], "error")
+            return redirect('/devis')
+    except Exception as _e:
+        print(f"[v179] garde expiration conversion : {_e}", flush=True)
+
     # v174 : calcul TVA (montant du devis) + choix appliquer/retirer la TVA
     d_ttc = float(d.get('total_ttc') or 0)
     d_tva_amt = float(d.get('tva_amount') or 0)
@@ -10878,7 +10996,21 @@ def devis_page():
     statut = (request.args.get('statut', '') or '').strip()  # v172d : filtre par statut (cartes cliquables)
 
     d_stats = get_devis_stats()
-    
+
+    # v179 : statistiques de validité (valides / expiration proche / expirées / validées)
+    d_val = {'valide': 0, 'expiration_proche': 0, 'expiree': 0, 'validee': 0}
+    try:
+        _cv = _gdb()
+        _rows = _cv.execute("SELECT status, validity_days, issue_date, expiry_date, created_at FROM devis").fetchall()
+        _cv.close()
+        _ad = _proforma_alert_days()
+        for _r in _rows:
+            _pv = _proforma_validity(dict(_r), alert_days=_ad)
+            if _pv['active'] and _pv['status'] in d_val:
+                d_val[_pv['status']] += 1
+    except Exception as _e:
+        print(f"[v179] stats validité : {_e}", flush=True)
+
     # Récupérer la liste appropriée
     if tab == 'mine':
         # v155 : Devis créés par l'utilisateur connecté
@@ -10898,6 +11030,12 @@ def devis_page():
     if statut in ('brouillon', 'envoye', 'accepte', 'refuse'):
         devis_list = [d for d in devis_list if (d.get('status') or 'brouillon') == statut]
 
+    # v179 : filtre par état de validité (cartes cliquables)
+    validite = (request.args.get('validite', '') or '').strip()
+    if validite in ('valide', 'expiration_proche', 'expiree', 'validee'):
+        _ad2 = _proforma_alert_days()
+        devis_list = [d for d in devis_list if _proforma_validity(d, alert_days=_ad2)['status'] == validite]
+
     # v155 : Recherche libre
     if search:
         s_low = search.lower()
@@ -10916,7 +11054,8 @@ def devis_page():
     except: mine_count = 0
     
     return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list,
-        d_stats=d_stats, search=search, mine_count=mine_count, statut=statut)
+        d_stats=d_stats, d_val=d_val, search=search, mine_count=mine_count, statut=statut,
+        validite=validite)
 
 @app.route('/devis/new', methods=['GET', 'POST'])
 @permission_required('proforma_edit')
@@ -11008,6 +11147,23 @@ def devis_new():
                          (tva_active, tva_rate, tva_amount, redacteur_name, redacteur_dt, did))
             conn.commit(); conn.close()
         except Exception: pass
+
+        # v179 : validité (durée + date d'émission + date d'expiration)
+        try:
+            _sel = (request.form.get('validity_days', '30') or '30').strip()
+            if _sel == 'custom':
+                _vd = _int(request.form.get('validity_days_custom', 30), 30)
+            else:
+                _vd = _int(_sel, 30)
+            if _vd < 1: _vd = 30
+            _issue = datetime.now().strftime('%Y-%m-%d')
+            _expiry = (datetime.now() + timedelta(days=_vd)).strftime('%Y-%m-%d')
+            conn = _gdb()
+            conn.execute("UPDATE devis SET validity_days=?, issue_date=?, expiry_date=? WHERE id=?",
+                         (_vd, _issue, _expiry, did))
+            conn.commit(); conn.close()
+        except Exception as _ev:
+            print(f"[v179] validité création : {_ev}", flush=True)
         
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?',
@@ -11227,6 +11383,23 @@ def devis_edit(did):
             conn.execute("UPDATE devis SET tva_active=?, tva_rate=?, tva_amount=? WHERE id=?",
                          (tva_active, tva_rate, tva_amount, did))
         except: pass
+        # v179 : durée de validité modifiable — l'échéance est recalculée depuis la date d'émission
+        try:
+            _sel = (request.form.get('validity_days', '') or '').strip()
+            if _sel:
+                _vd = _int(request.form.get('validity_days_custom', 30), 30) if _sel == 'custom' else _int(_sel, 30)
+                if _vd < 1: _vd = 30
+                _issue = (devis.get('issue_date') or (devis.get('created_at') or '')[:10] or datetime.now().strftime('%Y-%m-%d'))
+                _issue = str(_issue)[:10]
+                try:
+                    _base = datetime.strptime(_issue, '%Y-%m-%d')
+                except Exception:
+                    _base = datetime.now(); _issue = _base.strftime('%Y-%m-%d')
+                _expiry = (_base + timedelta(days=_vd)).strftime('%Y-%m-%d')
+                conn.execute("UPDATE devis SET validity_days=?, issue_date=?, expiry_date=? WHERE id=?",
+                             (_vd, _issue, _expiry, did))
+        except Exception as _ev:
+            print(f"[v179] validité édition : {_ev}", flush=True)
         conn.commit(); conn.close()
         flash("Devis modifié" + (f" (TVA {tva_rate:.0f}% = {tva_amount:,.0f} F)" if tva_active else ""), "success"); return redirect(url_for('devis_page'))
     
@@ -14001,6 +14174,48 @@ def api_notif_count():
                 for _uid in _rech_targets:
                     conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
                                  (_uid, 'recharge', _titre, _msg, _lien))
+
+        # === v179 : Alertes d'expiration des proformas (7 j avant + jour d'expiration) ===
+        try:
+            _alert_days = _proforma_alert_days()
+            _prof_targets = [row['id'] for row in conn.execute(
+                "SELECT id FROM users WHERE is_active=1 AND role IN "
+                "('admin','dg','directeur','direction','commercial','coordinateur','resp_commercial','recouvrement')").fetchall()]
+            if _prof_targets:
+                _cand = conn.execute(
+                    """SELECT id, reference, client_name, doc_type, status, validity_days, issue_date, expiry_date, created_at, total_ttc
+                       FROM devis
+                       WHERE COALESCE(status,'brouillon') NOT IN ('accepte','refuse')
+                         AND expiry_date IS NOT NULL AND expiry_date != ''
+                         AND date(expiry_date) BETWEEN date('now','-1 day') AND date('now', '+' || ? || ' days')""",
+                    (_alert_days,)).fetchall()
+                for _pr in _cand:
+                    _pr = dict(_pr)
+                    _pvv = _proforma_validity(_pr, alert_days=_alert_days)
+                    if not _pvv['active'] or _pvv['status'] not in ('expiration_proche', 'expiree'):
+                        continue
+                    _plien = "/devis/edit/%s" % _pr['id']
+                    if conn.execute("SELECT id FROM notifications WHERE type='proforma_exp' AND link=? AND created_at > datetime('now','-1 day')",
+                                    (_plien,)).fetchone():
+                        continue
+                    _label_doc = 'Proforma' if (_pr.get('doc_type') == 'proforma') else 'Devis'
+                    _mt = '{:,.0f}'.format(float(_pr.get('total_ttc') or 0)).replace(',', ' ')
+                    if _pvv['status'] == 'expiree':
+                        _ptitre = "⛔ %s expirée — %s" % (_label_doc, _pr.get('reference') or '')
+                        _pmsg = "La %s %s pour %s a expiré le %s (montant %s F). Prolongez sa validité ou dupliquez-la pour repartir sur des tarifs à jour." % (
+                            _label_doc.lower(), _pr.get('reference') or '', _pr.get('client_name') or 'client', _pvv['expiry_fr'], _mt)
+                    else:
+                        _dl = _pvv['days_left']
+                        _quand = "aujourd'hui" if _dl == 0 else ("demain" if _dl == 1 else "dans %d jours" % _dl)
+                        _ptitre = "⏳ %s à échéance — %s" % (_label_doc, _pr.get('reference') or '')
+                        _pmsg = "La %s %s pour %s expire %s (le %s, montant %s F). Pensez à la faire valider ou à la réactualiser." % (
+                            _label_doc.lower(), _pr.get('reference') or '', _pr.get('client_name') or 'client', _quand, _pvv['expiry_fr'], _mt)
+                    for _uid in _prof_targets:
+                        conn.execute("INSERT INTO notifications (user_id, type, title, message, link) VALUES (?,?,?,?,?)",
+                                     (_uid, 'proforma_exp', _ptitre, _pmsg, _plien))
+        except Exception as _ep:
+            print(f"[v179] alertes proforma : {_ep}", flush=True)
+
         conn.commit()
         # === Count unread ===
         cnt = conn.execute("SELECT COUNT(*) FROM notifications WHERE (user_id=? OR employee_id IN (SELECT id FROM employees WHERE email=?)) AND read=0",

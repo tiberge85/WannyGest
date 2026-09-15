@@ -12,6 +12,15 @@
     <a href="/devis?tab={{ tab }}&statut=accepte" class="stat-card {% if statut=='accepte' %}on{% endif %}"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-num">{{ d_stats.accepte }}</div><div class="stat-label">Acceptés</div></div></a>
     <a href="/devis?tab={{ tab }}&statut=refuse" class="stat-card {% if statut=='refuse' %}on{% endif %}"><div class="stat-icon red">❌</div><div class="stat-info"><div class="stat-num">{{ d_stats.refuse }}</div><div class="stat-label">Refusés</div></div></a>
 </div>
+
+{# v179 : indicateurs de validité des proformas/devis #}
+<div class="stats-grid" style="margin-top:10px">
+    <a href="/devis?tab={{ tab }}&validite=valide" class="stat-card {% if validite=='valide' %}on{% endif %}"><div class="stat-icon" style="background:#e8f5e9;color:#2e7d32">🟢</div><div class="stat-info"><div class="stat-num">{{ d_val.valide }}</div><div class="stat-label">Valides</div></div></a>
+    <a href="/devis?tab={{ tab }}&validite=expiration_proche" class="stat-card {% if validite=='expiration_proche' %}on{% endif %}"><div class="stat-icon" style="background:#fff3e0;color:#e65100">⏳</div><div class="stat-info"><div class="stat-num">{{ d_val.expiration_proche }}</div><div class="stat-label">Expiration proche</div></div></a>
+    <a href="/devis?tab={{ tab }}&validite=expiree" class="stat-card {% if validite=='expiree' %}on{% endif %}"><div class="stat-icon" style="background:#fde8e8;color:#c53030">⛔</div><div class="stat-info"><div class="stat-num">{{ d_val.expiree }}</div><div class="stat-label">Expirées</div></div></a>
+    <a href="/devis?tab={{ tab }}&validite=validee" class="stat-card {% if validite=='validee' %}on{% endif %}"><div class="stat-icon" style="background:#e3f0ff;color:#0d47a1">✅</div><div class="stat-info"><div class="stat-num">{{ d_val.validee }}</div><div class="stat-label">Validées</div></div></a>
+</div>
+{% if validite %}<div style="margin:10px 0"><a href="/devis?tab={{ tab }}" class="btn btn-outline btn-sm">✖ Retirer le filtre de validité</a></div>{% endif %}
 {% if statut %}<div style="margin-bottom:12px"><a href="/devis?tab={{ tab }}" class="btn btn-outline btn-sm">✖ Retirer le filtre « {{ {'brouillon':'Brouillons','envoye':'Envoyés','accepte':'Acceptés','refuse':'Refusés'}[statut] }} »</a></div>{% endif %}
 <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
     <a href="/devis?tab=all" class="btn {% if tab=='all' %}btn-primary{% else %}btn-outline{% endif %}">📋 Tous ({{ d_stats.total }})</a>
@@ -39,7 +48,7 @@
 <th style="cursor:pointer" onclick="sortTable('devisTable',2,'text')">Client <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
 <th>Objet</th>
 <th style="cursor:pointer" onclick="sortTable('devisTable',4,'num')">Total TTC <span class="sort-arrow" style="font-size:9px;color:#888">⇅</span></th>
-<th>Statut</th><th>Actions</th></tr></thead>
+<th>Statut</th><th>Validité</th><th>Actions</th></tr></thead>
 <tbody>{% for d in devis_list %}<tr>
 <td><strong>{{ d.reference }}</strong></td>
 <td><span class="badge-status {% if d.doc_type=='devis' %}sent{% else %}pending{% endif %}">{{ d.doc_type }}</span></td>
@@ -50,6 +59,7 @@
     {% elif d.status=='envoye' %}<span class="badge-status pending">📤 Envoyé</span>
     {% elif d.status=='accepte' %}<span class="badge-status sent">✅ Accepté</span>
     {% elif d.status=='refuse' %}<span class="badge-status" style="background:#fde8e8;color:#c53030">❌ Refusé</span>{% endif %}</td>
+<td style="white-space:nowrap">{% set pv = proforma_validity(d) %}{% if pv.active %}<span class="badge-status" style="background:{{ pv.color }};color:{{ pv.text }}" title="Échéance : {{ pv.expiry_fr }}">{{ pv.label }}</span><div style="font-size:10px;color:#999;margin-top:2px">📅 {{ pv.expiry_fr }}</div>{% else %}<span style="color:#bbb;font-size:11px">—</span>{% endif %}</td>
 <td style="white-space:nowrap">
     <a href="/devis/preview/{{ d.id }}" class="btn btn-outline btn-sm" title="Prévisualiser" target="_blank">👁️</a>
     <a href="/devis/edit/{{ d.id }}" class="btn btn-outline btn-sm" title="Modifier (nouvelle fenêtre)" target="_blank">✏️</a>

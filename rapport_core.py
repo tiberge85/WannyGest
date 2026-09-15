@@ -2813,6 +2813,30 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None, doc_params=None)
         f"<font size='8'># {ref}</font>",
         f"<font size='8'>Date: {date_str}</font>"
     ]
+    # v179 : mention de validité (proforma/devis) — « Valable jusqu'au … »
+    try:
+        _dtu = (doc_type or '').upper()
+        if 'FACTURE' not in _dtu:
+            _exp = (devis_data.get('expiry_date') or '')
+            _vdays = devis_data.get('validity_days')
+            if not _exp:
+                from datetime import datetime as _dtv, timedelta as _tdv
+                _base = (devis_data.get('issue_date') or devis_data.get('created_at') or '')
+                try:
+                    _bd = _dtv.strptime(str(_base)[:10], '%Y-%m-%d')
+                    _exp = (_bd + _tdv(days=int(_vdays or 30))).strftime('%Y-%m-%d')
+                except Exception:
+                    _exp = ''
+            if _exp:
+                try:
+                    from datetime import datetime as _dtv2
+                    _expfr = _dtv2.strptime(str(_exp)[:10], '%Y-%m-%d').strftime('%d/%m/%Y')
+                except Exception:
+                    _expfr = str(_exp)[:10]
+                _vtxt = ("Valable %s jours — jusqu'au %s" % (int(_vdays or 30), _expfr)) if _vdays else ("Valable jusqu'au %s" % _expfr)
+                right_info_parts.append(f"<font size='8' color='#1a7a6d'><b>{_vtxt}</b></font>")
+    except Exception:
+        pass
     # On retire "Contact commercial" — on garde seulement "Établi par : X le ..."
     redacteur = devis_data.get('redacteur', '') or contact or ''
     redacteur_date = devis_data.get('redacteur_date', '')

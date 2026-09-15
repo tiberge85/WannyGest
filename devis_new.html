@@ -14,6 +14,25 @@
             <input type="text" name="contact_commercial" id="contactCom" value="{{ default_commercial or '' }}" placeholder="Nom du commercial"></div>
     </div>
 
+    {# v179 : Durée de validité de la proforma / du devis #}
+    <div class="form-row">
+        <div class="form-group"><label>⏳ Durée de validité</label>
+            <select name="validity_days" id="validitySel" onchange="onValidityChange()">
+                <option value="7">7 jours</option>
+                <option value="15">15 jours</option>
+                <option value="30" selected>30 jours (par défaut)</option>
+                <option value="45">45 jours</option>
+                <option value="60">60 jours</option>
+                <option value="90">90 jours</option>
+                <option value="custom">Personnalisé…</option>
+            </select>
+        </div>
+        <div class="form-group" id="validityCustomWrap" style="display:none"><label>Nombre de jours</label>
+            <input type="number" name="validity_days_custom" id="validityCustom" min="1" max="365" placeholder="Ex: 20"></div>
+        <div class="form-group"><label>Date d'expiration <span style="font-size:10px;color:#888">(calculée)</span></label>
+            <input type="text" id="expiryPreview" readonly style="background:#f5f7f6;color:#1A7A6D;font-weight:600" value="—"></div>
+    </div>
+
     <!-- Sélection client enregistré avec auto-remplissage complet -->
     <div class="form-group">
         <label>Client enregistré <span style="font-size:10px;color:#888">(sélectionnez pour auto-remplir)</span></label>
@@ -404,5 +423,31 @@ function applyPredef(){
   (tpl.lines||[]).forEach(function(l){ _fillDevisLine(l.designation, l.detail, l.qty, l.prix); });
   if(window._recalcDevis) window._recalcDevis();
 }
+</script>
+<script>
+// v179 : aperçu de la date d'expiration selon la durée de validité
+function _validityDays(){
+  var sel=document.getElementById('validitySel'); if(!sel) return 30;
+  if(sel.value==='custom'){ return parseInt(document.getElementById('validityCustom').value,10)||0; }
+  return parseInt(sel.value,10)||30;
+}
+function _refreshExpiry(){
+  var out=document.getElementById('expiryPreview'); if(!out) return;
+  var d=_validityDays();
+  if(!d || d<1){ out.value='—'; return; }
+  var dt=new Date(); dt.setDate(dt.getDate()+d);
+  out.value=('0'+dt.getDate()).slice(-2)+'/'+('0'+(dt.getMonth()+1)).slice(-2)+'/'+dt.getFullYear()+' ('+d+' j)';
+}
+function onValidityChange(){
+  var sel=document.getElementById('validitySel');
+  var wrap=document.getElementById('validityCustomWrap');
+  if(sel && sel.value==='custom'){ wrap.style.display=''; }
+  else if(wrap){ wrap.style.display='none'; }
+  _refreshExpiry();
+}
+document.addEventListener('DOMContentLoaded',function(){
+  _refreshExpiry();
+  var c=document.getElementById('validityCustom'); if(c) c.addEventListener('input',_refreshExpiry);
+});
 </script>
 {% endblock %}
