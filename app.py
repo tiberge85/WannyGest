@@ -38398,6 +38398,26 @@ def _pdf_first_page_to_png(raw):
         pass
     return None
 
+@app.route('/implantation/<int:sid>/delete', methods=['POST'])
+@permission_required_any('projets', 'resp_projet', 'admin')
+def implantation_delete(sid):
+    _ensure_implantation_tables()
+    c = _gdb()
+    try:
+        r = c.execute("SELECT title FROM implantation_studies WHERE id=?", (sid,)).fetchone()
+        c.execute("DELETE FROM implantation_studies WHERE id=?", (sid,))
+        try: c.execute("DELETE FROM implantation_plans WHERE study_id=?", (sid,))
+        except Exception: pass
+        try: c.execute("DELETE FROM implantation_versions WHERE study_id=?", (sid,))
+        except Exception: pass
+        c.commit()
+        flash("Étude « %s » supprimée." % (r['title'] if r else sid), "success")
+    except Exception as e:
+        flash("Suppression impossible : %s" % e, "error")
+    finally:
+        c.close()
+    return redirect('/implantation')
+
 @app.route('/implantation')
 @permission_required_any('projets', 'resp_projet', 'admin')
 def implantation_list():

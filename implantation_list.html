@@ -29,6 +29,9 @@
     <td style="white-space:nowrap">
         <a href="/implantation/{{ s.id }}" class="btn btn-sm btn-primary">✏️ Ouvrir</a>
         <a href="/implantation/{{ s.id }}/pdf" target="_blank" class="btn btn-sm btn-outline">📄 PDF</a>
+        <form method="post" action="/implantation/{{ s.id }}/delete" style="display:inline" onsubmit="return confirm('Supprimer définitivement l\'étude « {{ s.title }} » ? Cette action est irréversible.');">
+            <button type="submit" class="btn btn-sm" style="background:#fde8e8;color:#c53030;border:1px solid #f0c0c0">🗑️ Supprimer</button>
+        </form>
     </td>
 </tr>
 {% endfor %}

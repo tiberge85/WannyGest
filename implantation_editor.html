@@ -577,9 +577,9 @@ function renderObjects(){
     } else { cover+=coverPath(o); }
     const sel=(o.id===selId); const typ=o.type||sys.icon||'default';
     marks+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
-      +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="15" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/>':'')
-      +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+')">'+iconSvg(typ,sys.color)+'</g>'
-      +'<text x="'+(o.x+13)+'" y="'+(o.y-11)+'" font-size="11" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3px">'+(o.ref||'')+'</text></g>';
+      +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="26" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/>':'')
+      +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+') scale('+(o.iconScale||1.9)+')">'+iconSvg(typ,sys.color)+'</g>'
+      +'<text x="'+(o.x+22)+'" y="'+(o.y-19)+'" font-size="14" font-weight="600" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3.5px">'+(o.ref||'')+'</text></g>';
   });
   // poignée de rotation + marqueur cible (objet sélectionné)
   let handleLayer='';
