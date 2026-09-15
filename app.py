@@ -1986,6 +1986,23 @@ try:
 except Exception as _e:
     print(f"[v179-Proforma] Erreur : {_e}", flush=True)
 
+# v180 : Coûts & marge des proformas/devis (Phase 2)
+try:
+    from models import get_db as _v180db
+    _v180 = _v180db()
+    for _c in ("cost_total REAL DEFAULT 0", "margin_amount REAL DEFAULT 0",
+               "margin_pct REAL DEFAULT 0", "costs_source TEXT", "costs_updated_at TEXT"):
+        try: _v180.execute("ALTER TABLE devis ADD COLUMN %s" % _c)
+        except Exception: pass
+    # Réglage : marge minimum par défaut (%) — configurable en Phase 3
+    try:
+        _v180.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('proforma_min_margin', '25')")
+    except Exception: pass
+    _v180.commit(); _v180.close()
+    print("[v180-Proforma] Colonnes coûts/marge OK", flush=True)
+except Exception as _e:
+    print(f"[v180-Proforma] Erreur : {_e}", flush=True)
+
 
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
@@ -6088,6 +6105,275 @@ def _inject_proforma_validity():
     return {'proforma_validity': _proforma_validity}
 
 
+# ============ v180 : Coûts & marge des proformas/devis (Phase 2) ============
+def _proforma_min_margin():
+    """Seuil de marge minimum (%) — configurable en Phase 3 via app_settings ; défaut 25 %."""
+    try:
+        conn = _gdb()
+        r = conn.execute("SELECT value FROM app_settings WHERE key='proforma_min_margin'").fetchone()
+        conn.close()
+        if r and str(r['value']).strip():
+            return max(0.0, float(str(r['value']).replace(',', '.').strip()))
+    except Exception:
+        pass
+    return 25.0
+
+def _catalog_cost_map():
+    """Coût d'achat unitaire du catalogue, indexé par référence ET par désignation (minuscules).
+    Le coût = mg_stock_articles.prix_unitaire."""
+    ref_map, des_map = {}, {}
+    try:
+        conn = _gdb()
+        rows = conn.execute("SELECT reference, designation, COALESCE(prix_unitaire,0) AS pu FROM mg_stock_articles").fetchall()
+        conn.close()
+        for r in rows:
+            pu = float(r['pu'] or 0)
+            if r['reference']:
+                ref_map[str(r['reference']).strip().lower()] = pu
+            if r['designation']:
+                des_map[str(r['designation']).strip().lower()] = pu
+    except Exception:
+        pass
+    return ref_map, des_map
+
+def _parse_items(raw):
+    """Parse items_json robuste (JSON, sinon repr Python)."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            v = json.loads(raw)
+        except Exception:
+            try:
+                import ast as _ast; v = _ast.literal_eval(raw)
+            except Exception:
+                v = []
+        return v if isinstance(v, list) else []
+    return []
+
+def _catalog_cost_for(line, ref_map, des_map):
+    """Coût catalogue d'une ligne : par 'detail' (souvent la réf) puis par désignation. None si introuvable."""
+    det = str(line.get('detail') or '').strip().lower()
+    des = str(line.get('designation') or '').strip().lower()
+    if det and det in ref_map:
+        return ref_map[det]
+    if des and des in des_map:
+        return des_map[des]
+    if det and det in des_map:
+        return des_map[det]
+    return None
+
+def _to_float(v, d=0.0):
+    try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.'))
+    except Exception: return d
+
+def _devis_costs(devis, use='stored'):
+    """Calcule coûts et marge d'un devis/proforma.
+
+    use='stored'  : coût de chaque ligne = 'cout' enregistré, sinon coût catalogue courant.
+    use='catalog' : coût de chaque ligne = coût catalogue courant (pour la réactualisation).
+
+    Renvoie {lines, cost_total, sale_ht, margin, margin_pct, min_margin, below_min,
+             needs_react, react_delta, has_costs}.
+    Chaque ligne : {num, designation, detail, qty, prix, remise, line_sale,
+                    cout_stored, cout_catalog, cout_used, line_cost, delta, changed}.
+    """
+    if not isinstance(devis, dict):
+        try: devis = dict(devis)
+        except Exception: devis = {}
+    ref_map, des_map = _catalog_cost_map()
+    items = _parse_items(devis.get('items_json'))
+    lines = []
+    cost_total = 0.0
+    any_cost = False
+    needs_react = False
+    react_delta = 0.0
+    for idx, it in enumerate(items, 1):
+        if not isinstance(it, dict):
+            continue
+        qty = _to_float(it.get('qty', 1), 1) or 0
+        prix = _to_float(it.get('prix', 0), 0)
+        remise = _to_float(it.get('remise', 0), 0)
+        cout_stored = it.get('cout', None)
+        cout_stored = _to_float(cout_stored, None) if cout_stored not in (None, '') else None
+        cout_catalog = _catalog_cost_for(it, ref_map, des_map)
+        if use == 'catalog':
+            cout_used = cout_catalog if cout_catalog is not None else (cout_stored or 0.0)
+        else:
+            cout_used = cout_stored if cout_stored is not None else (cout_catalog if cout_catalog is not None else 0.0)
+        if cout_stored is not None or cout_catalog is not None:
+            any_cost = True
+        line_cost = qty * (cout_used or 0.0)
+        line_sale = qty * prix - remise
+        cost_total += line_cost
+        # Écart catalogue vs stocké → à réactualiser
+        changed = False
+        delta = 0.0
+        if cout_catalog is not None and cout_stored is not None and abs(cout_catalog - cout_stored) > 0.5:
+            changed = True
+            needs_react = True
+            delta = (cout_catalog - cout_stored) * qty
+            react_delta += delta
+        lines.append({
+            'num': idx, 'designation': it.get('designation', ''), 'detail': it.get('detail', ''),
+            'qty': qty, 'prix': prix, 'remise': remise, 'line_sale': line_sale,
+            'cout_stored': cout_stored, 'cout_catalog': cout_catalog, 'cout_used': cout_used or 0.0,
+            'line_cost': line_cost, 'delta': delta, 'changed': changed,
+        })
+    total_ht = _to_float(devis.get('total_ht', 0), 0)
+    main_oeuvre = _to_float(devis.get('main_oeuvre', 0), 0)
+    remise_glob = _to_float(devis.get('remise', 0), 0)
+    sale_ht = total_ht + main_oeuvre - remise_glob
+    margin = sale_ht - cost_total
+    margin_pct = (margin / sale_ht * 100.0) if sale_ht > 0 else 0.0
+    min_margin = _proforma_min_margin()
+    return {
+        'lines': lines, 'cost_total': cost_total, 'sale_ht': sale_ht,
+        'margin': margin, 'margin_pct': margin_pct, 'min_margin': min_margin,
+        'below_min': (any_cost and sale_ht > 0 and margin_pct < min_margin),
+        'needs_react': needs_react, 'react_delta': react_delta, 'has_costs': any_cost,
+    }
+
+@app.context_processor
+def _inject_devis_costs():
+    """Rend devis_costs(d) appelable dans les templates (marge, seuil…)."""
+    return {'devis_costs': _devis_costs, 'proforma_min_margin': _proforma_min_margin}
+
+def _apply_devis_costs(did, items, devis_fields, preserve_items=None):
+    """v180 : renseigne le coût de chaque ligne (catalogue, en préservant les corrections
+    existantes), réécrit items_json, puis calcule et enregistre cost_total/margin.
+
+    items          : liste des lignes du formulaire (dicts, sans 'cout')
+    devis_fields   : {total_ht, main_oeuvre, remise} pour le calcul de la marge
+    preserve_items : anciennes lignes (édition) dont on garde le 'cout' corrigé
+    """
+    try:
+        ref_map, des_map = _catalog_cost_map()
+        # Index des coûts corrigés existants (par désignation+détail)
+        prev = {}
+        for pit in (preserve_items or []):
+            if isinstance(pit, dict) and pit.get('cout') not in (None, ''):
+                k = (str(pit.get('designation') or '').strip().lower(),
+                     str(pit.get('detail') or '').strip().lower())
+                prev[k] = _to_float(pit.get('cout'), 0)
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            k = (str(it.get('designation') or '').strip().lower(),
+                 str(it.get('detail') or '').strip().lower())
+            if k in prev:
+                it['cout'] = prev[k]                     # correction conservée
+            else:
+                c = _catalog_cost_for(it, ref_map, des_map)
+                if c is not None:
+                    it['cout'] = c                       # coût catalogue
+        devis_like = {
+            'items_json': items,
+            'total_ht': devis_fields.get('total_ht', 0),
+            'main_oeuvre': devis_fields.get('main_oeuvre', 0),
+            'remise': devis_fields.get('remise', 0),
+        }
+        cc = _devis_costs(devis_like, use='stored')
+        conn = _gdb()
+        conn.execute("UPDATE devis SET items_json=?, cost_total=?, margin_amount=?, margin_pct=?, costs_source=?, costs_updated_at=? WHERE id=?",
+                     (json.dumps(items), cc['cost_total'], cc['margin'], cc['margin_pct'],
+                      'catalogue', datetime.now().strftime('%Y-%m-%d %H:%M'), did))
+        conn.commit(); conn.close()
+        return cc
+    except Exception as _e:
+        print(f"[v180] apply costs : {_e}", flush=True)
+        return None
+
+def _save_items_costs(did, items, recompute_sale=False):
+    """v180 : écrit items_json (coûts tels quels) et recalcule cost_total/margin.
+    recompute_sale=True recalcule aussi total_ht/total_ttc/TVA après un changement de prix."""
+    conn = _gdb()
+    row = conn.execute("SELECT * FROM devis WHERE id=?", (did,)).fetchone()
+    if not row:
+        conn.close(); return None
+    row = dict(row)
+    if recompute_sale:
+        total_ht = sum(_to_float(it.get('qty', 1)) * _to_float(it.get('prix', 0)) - _to_float(it.get('remise', 0))
+                       for it in items if isinstance(it, dict))
+        mo = _to_float(row.get('main_oeuvre', 0)); rem = _to_float(row.get('remise', 0)); pf = _to_float(row.get('petites_fournitures', 0))
+        base_ht = total_ht + mo
+        tva_amount = round((base_ht - rem) * _to_float(row.get('tva_rate', 18)) / 100) if row.get('tva_active') else 0
+        total_ttc = base_ht + pf - rem + tva_amount
+        row['total_ht'] = total_ht
+        conn.execute("UPDATE devis SET total_ht=?, total_ttc=?, tva_amount=? WHERE id=?", (total_ht, total_ttc, tva_amount, did))
+    row['items_json'] = items
+    cc = _devis_costs(row, use='stored')
+    conn.execute("UPDATE devis SET items_json=?, cost_total=?, margin_amount=?, margin_pct=?, costs_source=?, costs_updated_at=? WHERE id=?",
+                 (json.dumps(items), cc['cost_total'], cc['margin'], cc['margin_pct'],
+                  'catalogue', datetime.now().strftime('%Y-%m-%d %H:%M'), did))
+    conn.commit(); conn.close()
+    return cc
+
+@app.route('/devis/<int:did>/couts', methods=['GET', 'POST'])
+@permission_required('proforma_edit')
+def devis_couts(did):
+    """v180 : écran Coûts & marge — coûts par ligne (catalogue), marge, seuil, réactualisation."""
+    devis = get_devis_by_id(did)
+    if not devis:
+        flash("Document non trouvé", "error"); return redirect('/devis')
+
+    if request.method == 'POST':
+        action = (request.form.get('action') or '').strip()
+        items = _parse_items(devis.get('items_json'))
+        if action == 'reactualiser':
+            ref_map, des_map = _catalog_cost_map()
+            n = 0
+            for it in items:
+                if not isinstance(it, dict): continue
+                c = _catalog_cost_for(it, ref_map, des_map)
+                if c is not None:
+                    if abs(_to_float(it.get('cout', 0), 0) - c) > 0.5: n += 1
+                    it['cout'] = c
+            _save_items_costs(did, items)
+            _u = get_user_by_id(session['user_id'])
+            log_activity(session['user_id'], _u['full_name'] if _u else '?', 'Devis',
+                         f"Réactualisation des coûts {devis.get('reference','')} ({n} ligne(s))", request.remote_addr)
+            flash(f"✅ Coûts réactualisés depuis le catalogue — {n} ligne(s) mise(s) à jour.", "success")
+        elif action == 'save':
+            for idx, it in enumerate(items, 1):
+                if not isinstance(it, dict): continue
+                v = request.form.get(f'item_{idx}_cout', '')
+                if v != '':
+                    it['cout'] = _to_float(v, 0)
+            _save_items_costs(did, items)
+            flash("💾 Coûts enregistrés — marge recalculée.", "success")
+        elif action == 'target':
+            t = _to_float(request.form.get('target_margin', 0), 0)
+            cc0 = _devis_costs({'items_json': items, 'total_ht': devis.get('total_ht', 0),
+                                'main_oeuvre': devis.get('main_oeuvre', 0), 'remise': devis.get('remise', 0)}, use='stored')
+            cost = cc0['cost_total']
+            mo = _to_float(devis.get('main_oeuvre', 0)); rem = _to_float(devis.get('remise', 0))
+            cur_pieces = sum(_to_float(it.get('qty', 1)) * _to_float(it.get('prix', 0)) - _to_float(it.get('remise', 0))
+                             for it in items if isinstance(it, dict))
+            if not (0 < t < 100):
+                flash("Marge cible invalide (doit être entre 0 et 100 %).", "error")
+            elif cost <= 0:
+                flash("Impossible : aucun coût renseigné. Réactualisez d'abord les coûts.", "error")
+            elif cur_pieces <= 0:
+                flash("Impossible : total des pièces nul.", "error")
+            else:
+                desired_sale = cost / (1 - t / 100.0)
+                pieces_needed = desired_sale - mo + rem
+                factor = pieces_needed / cur_pieces
+                if factor <= 0:
+                    flash("La marge cible est inatteignable avec la main d'œuvre/remise actuelles.", "error")
+                else:
+                    for it in items:
+                        if isinstance(it, dict):
+                            it['prix'] = round(_to_float(it.get('prix', 0)) * factor)
+                    _save_items_costs(did, items, recompute_sale=True)
+                    flash(f"🎯 Prix de vente ajustés pour viser {t:.0f} % de marge (facteur ×{factor:.2f}).", "success")
+        return redirect(f'/devis/{did}/couts')
+
+    cc = _devis_costs(devis, use='stored')
+    return render_template('devis_couts.html', page='devis', devis=devis, cc=cc)
+
+
 @app.after_request
 def _set_csrf_cookie(response):
     """Pose le token CSRF dans un cookie lisible par JS (pour double-submit)."""
@@ -9672,6 +9958,26 @@ def devis_to_invoice(did):
     except Exception as _e:
         print(f"[v179] garde expiration conversion : {_e}", flush=True)
 
+    # v180 : protection de marge — marge sous le seuil → conversion bloquée (non-admin).
+    # L'admin peut forcer (avertissement). Neutre si aucun coût n'est renseigné.
+    try:
+        _ct = float(d.get('cost_total') or 0)
+        if _ct > 0:
+            _mp = float(d.get('margin_pct') or 0)
+            _minm = _proforma_min_margin()
+            if _mp < _minm:
+                _u = get_user_by_id(session['user_id'])
+                _is_admin = bool(_u and _u.get('role') == 'admin')
+                if not _is_admin and request.args.get('force_margin') != '1':
+                    flash("⚠️ Marge insuffisante (%.1f %% < seuil %.0f %%). Conversion bloquée. "
+                          "Ajustez les prix via « Coûts & marge » (💹) ou demandez à un administrateur de valider."
+                          % (_mp, _minm), "error")
+                    return redirect('/devis/%s/couts' % did)
+                elif _is_admin and request.args.get('go') == '1':
+                    flash("⚠️ Attention : marge de %.1f %% sous le seuil de %.0f %% — conversion effectuée en tant qu'administrateur." % (_mp, _minm), "warning")
+    except Exception as _e:
+        print(f"[v180] garde marge conversion : {_e}", flush=True)
+
     # v174 : calcul TVA (montant du devis) + choix appliquer/retirer la TVA
     d_ttc = float(d.get('total_ttc') or 0)
     d_tva_amt = float(d.get('tva_amount') or 0)
@@ -11055,7 +11361,7 @@ def devis_page():
     
     return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list,
         d_stats=d_stats, d_val=d_val, search=search, mine_count=mine_count, statut=statut,
-        validite=validite)
+        validite=validite, min_margin=_proforma_min_margin())
 
 @app.route('/devis/new', methods=['GET', 'POST'])
 @permission_required('proforma_edit')
@@ -11164,6 +11470,10 @@ def devis_new():
             conn.commit(); conn.close()
         except Exception as _ev:
             print(f"[v179] validité création : {_ev}", flush=True)
+
+        # v180 : coûts (catalogue) + marge
+        _apply_devis_costs(did, items,
+                           {'total_ht': total_ht, 'main_oeuvre': main_oeuvre, 'remise': remise_glob})
         
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?',
@@ -11401,6 +11711,10 @@ def devis_edit(did):
         except Exception as _ev:
             print(f"[v179] validité édition : {_ev}", flush=True)
         conn.commit(); conn.close()
+        # v180 : recalcul coûts/marge — on conserve les coûts corrigés des anciennes lignes
+        _apply_devis_costs(did, items,
+                           {'total_ht': total_ht, 'main_oeuvre': main_oeuvre, 'remise': remise_glob},
+                           preserve_items=_parse_items(devis.get('items_json')))
         flash("Devis modifié" + (f" (TVA {tva_rate:.0f}% = {tva_amount:,.0f} F)" if tva_active else ""), "success"); return redirect(url_for('devis_page'))
     
     # v161 : parsing robuste — certains anciens devis ont un items_json non-JSON

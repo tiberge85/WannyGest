@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}WannyGest — Coûts & marge {{ devis.reference }}{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div>
+        <h1 style="margin:0">💹 Coûts & marge — {{ devis.reference }}</h1>
+        <p style="color:#666;font-size:13px;margin:4px 0 0">{{ devis.client_name or '—' }} · {{ devis.objet or '' }}</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="/devis/edit/{{ devis.id }}" class="btn btn-outline btn-sm">✏️ Modifier le devis</a>
+        <a href="/devis" class="btn btn-outline btn-sm">← Retour</a>
+    </div>
+</div>
+
+{% set below = cc.below_min %}
+{% set mcolor = '#c53030' if below else '#2e7d32' %}
+
+<!-- Synthèse marge -->
+<div class="stats-grid" style="margin-bottom:14px">
+    <div class="stat-card"><div class="stat-icon" style="background:#eef4f3;color:#1A7A6D">🏷️</div><div class="stat-info">
+        <div class="stat-num" style="font-size:18px">{{ '{:,.0f}'.format(cc.sale_ht).replace(',', ' ') }} F</div><div class="stat-label">Vente HT (hors TVA)</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#fff3e0;color:#e65100">📦</div><div class="stat-info">
+        <div class="stat-num" style="font-size:18px">{{ '{:,.0f}'.format(cc.cost_total).replace(',', ' ') }} F</div><div class="stat-label">Coût total (matériel)</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:{{ '#fde8e8' if below else '#e8f5e9' }};color:{{ mcolor }}">{{ '⚠️' if below else '💰' }}</div><div class="stat-info">
+        <div class="stat-num" style="font-size:18px;color:{{ mcolor }}">{{ '{:,.0f}'.format(cc.margin).replace(',', ' ') }} F</div><div class="stat-label">Marge</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:{{ '#fde8e8' if below else '#e8f5e9' }};color:{{ mcolor }}">%</div><div class="stat-info">
+        <div class="stat-num" style="font-size:18px;color:{{ mcolor }}">{{ '%.1f'|format(cc.margin_pct) }} %</div><div class="stat-label">Marge % (seuil {{ '%.0f'|format(cc.min_margin) }} %)</div></div></div>
+</div>
+
+{% if not cc.has_costs %}
+<div class="card" style="background:#fff8e1;border-left:4px solid #f29f2f;margin-bottom:14px"><div class="card-body" style="font-size:13px;color:#7a5c00">
+    ⚠️ Aucun coût n'a encore été récupéré pour ce document. Les articles ne correspondent pas au catalogue (référence/désignation) ou le catalogue ne contient pas encore leur prix d'achat.
+    Saisissez les coûts manuellement ci-dessous, ou cliquez sur <strong>« Réactualiser depuis le catalogue »</strong>.
+</div></div>
+{% elif below %}
+<div class="card" style="background:#fde8e8;border-left:4px solid #c53030;margin-bottom:14px"><div class="card-body" style="font-size:13px;color:#8a1f1f">
+    ⚠️ <strong>Marge insuffisante</strong> : {{ '%.1f'|format(cc.margin_pct) }} % &lt; seuil minimum {{ '%.0f'|format(cc.min_margin) }} %.
+    Ajustez les prix de vente (outil « marge cible » ci-dessous) ou renégociez les coûts avant validation.
+</div></div>
+{% endif %}
+
+{% if cc.needs_react %}
+<div class="card" style="background:#fff3e0;border-left:4px solid #e65100;margin-bottom:14px"><div class="card-body" style="font-size:13px;color:#8a4b00;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <span>🔄 <strong>À réactualiser</strong> : le prix d'achat de certains articles a changé dans le catalogue (impact estimé {{ '{:+,.0f}'.format(cc.react_delta).replace(',', ' ') }} F sur le coût).</span>
+    <form method="post" style="margin:0"><input type="hidden" name="action" value="reactualiser">
+        <button type="submit" class="btn btn-sm" style="background:#e65100;color:#fff">🔄 Réactualiser depuis le catalogue</button></form>
+</div></div>
+{% endif %}
+
+<!-- Tableau des coûts par ligne -->
+<form method="post">
+<input type="hidden" name="action" value="save">
+<div class="card"><div class="card-body" style="padding:0">
+<div class="table-wrap"><table style="width:100%;font-size:12px">
+<thead style="background:#1A7A6D;color:#fff"><tr>
+    <th style="padding:9px;text-align:left">Désignation</th>
+    <th style="padding:9px;text-align:center">Qté</th>
+    <th style="padding:9px;text-align:right">Prix vente u.</th>
+    <th style="padding:9px;text-align:right">Coût u. (saisi)</th>
+    <th style="padding:9px;text-align:right">Coût catalogue</th>
+    <th style="padding:9px;text-align:right">Coût ligne</th>
+    <th style="padding:9px;text-align:right">Marge ligne</th>
+</tr></thead>
+<tbody>
+{% for l in cc.lines %}
+{% set lmarg = l.line_sale - l.line_cost %}
+<tr style="border-bottom:1px solid #f0f0f0;{% if l.changed %}background:#fff8ef{% endif %}">
+    <td style="padding:7px 9px"><strong>{{ l.designation }}</strong>{% if l.detail %}<div style="font-size:10px;color:#888">{{ l.detail }}</div>{% endif %}</td>
+    <td style="padding:7px 9px;text-align:center">{{ '{:g}'.format(l.qty) }}</td>
+    <td style="padding:7px 9px;text-align:right">{{ '{:,.0f}'.format(l.prix).replace(',', ' ') }}</td>
+    <td style="padding:4px 9px;text-align:right">
+        <input type="number" name="item_{{ l.num }}_cout" value="{{ '%g'|format(l.cout_used) }}" min="0" step="1"
+               style="width:100px;padding:5px;border:1.5px solid #ddd;border-radius:6px;text-align:right;font-size:12px">
+    </td>
+    <td style="padding:7px 9px;text-align:right;color:{% if l.changed %}#e65100{% else %}#888{% endif %}">
+        {% if l.cout_catalog is not none %}{{ '{:,.0f}'.format(l.cout_catalog).replace(',', ' ') }}{% if l.changed %} ⚠️{% endif %}{% else %}—{% endif %}
+    </td>
+    <td style="padding:7px 9px;text-align:right">{{ '{:,.0f}'.format(l.line_cost).replace(',', ' ') }}</td>
+    <td style="padding:7px 9px;text-align:right;color:{{ '#c53030' if lmarg < 0 else '#2e7d32' }};font-weight:600">{{ '{:,.0f}'.format(lmarg).replace(',', ' ') }}</td>
+</tr>
+{% endfor %}
+{% if not cc.lines %}
+<tr><td colspan="7" style="padding:24px;text-align:center;color:#999">Aucune ligne d'article.</td></tr>
+{% endif %}
+</tbody>
+</table></div>
+</div></div>
+
+<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
+    <button type="submit" class="btn btn-primary">💾 Enregistrer les coûts</button>
+    <span style="font-size:11px;color:#888">Le coût par défaut vient du prix d'achat du catalogue ; vous pouvez le corriger ligne par ligne.</span>
+</div>
+</form>
+
+<!-- Réactualisation + marge cible -->
+<div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px">
+    <div class="card" style="flex:1;min-width:260px"><div class="card-body">
+        <h3 style="margin:0 0 8px;font-size:14px;color:#1a3a5c">🔄 Réactualiser les coûts</h3>
+        <p style="font-size:12px;color:#666;margin:0 0 10px">Reprend le prix d'achat <strong>actuel</strong> du catalogue pour chaque article et recalcule la marge.</p>
+        <form method="post" onsubmit="return confirm('Remplacer les coûts saisis par les coûts actuels du catalogue ?')">
+            <input type="hidden" name="action" value="reactualiser">
+            <button type="submit" class="btn" style="background:#e65100;color:#fff">🔄 Réactualiser depuis le catalogue</button>
+        </form>
+    </div></div>
+
+    <div class="card" style="flex:1;min-width:260px"><div class="card-body">
+        <h3 style="margin:0 0 8px;font-size:14px;color:#1a3a5c">🎯 Recalculer le prix depuis une marge cible</h3>
+        <p style="font-size:12px;color:#666;margin:0 0 10px">Ajuste proportionnellement les prix de vente des lignes pour atteindre la marge visée (coûts inchangés).</p>
+        <form method="post" onsubmit="return confirm('Ajuster les prix de vente des lignes pour viser cette marge ?')" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <input type="hidden" name="action" value="target">
+            <div><label style="font-size:11px">Marge cible (%)</label>
+                <input type="number" name="target_margin" min="1" max="99" step="1" value="{{ '%.0f'|format(cc.min_margin) }}"
+                       style="width:110px;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+            <button type="submit" class="btn btn-primary">🎯 Ajuster les prix</button>
+        </form>
+    </div></div>
+</div>
+
+{% if cc.costs_source or devis.costs_updated_at %}
+<p style="font-size:11px;color:#999;margin-top:10px">Dernière mise à jour des coûts : {{ devis.costs_updated_at or '—' }}</p>
+{% endif %}
+
+{% endblock %}

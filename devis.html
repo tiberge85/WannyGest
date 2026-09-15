@@ -54,7 +54,12 @@
 <td><span class="badge-status {% if d.doc_type=='devis' %}sent{% else %}pending{% endif %}">{{ d.doc_type }}</span></td>
 <td>{{ d.client_name }}</td>
 <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ d.objet or '-' }}</td>
-<td><strong>{{ '{:,.0f}'.format(d.total_ttc) }} F</strong></td>
+<td><strong>{{ '{:,.0f}'.format(d.total_ttc) }} F</strong>
+    {% if d.cost_total and d.cost_total > 0 %}
+    {% set mp = d.margin_pct or 0 %}
+    {% set below = mp < (min_margin|default(25)) %}
+    <div style="font-size:10px;margin-top:2px"><span title="Marge estimée" style="padding:1px 6px;border-radius:8px;background:{{ '#fde8e8' if below else '#e8f5e9' }};color:{{ '#c53030' if below else '#2e7d32' }}">{{ '⚠️ ' if below else '💰 ' }}{{ '%.0f'|format(mp) }} %</span></div>
+    {% endif %}</td>
 <td>{% if d.status=='brouillon' %}<span class="badge-status" style="background:#e3f2fd;color:#1A7A6D">📝 Brouillon</span>
     {% elif d.status=='envoye' %}<span class="badge-status pending">📤 Envoyé</span>
     {% elif d.status=='accepte' %}<span class="badge-status sent">✅ Accepté</span>
@@ -63,6 +68,7 @@
 <td style="white-space:nowrap">
     <a href="/devis/preview/{{ d.id }}" class="btn btn-outline btn-sm" title="Prévisualiser" target="_blank">👁️</a>
     <a href="/devis/edit/{{ d.id }}" class="btn btn-outline btn-sm" title="Modifier (nouvelle fenêtre)" target="_blank">✏️</a>
+    {% if 'proforma_edit' in permissions or 'admin' in permissions %}<a href="/devis/{{ d.id }}/couts" class="btn btn-sm" style="background:#eef4f3;color:#1A7A6D" title="Coûts & marge" target="_blank">💹</a>{% endif %}
     <a href="/devis/pdf/{{ d.id }}" class="btn btn-primary btn-sm" title="PDF">📥</a>
     {% if d.status=='brouillon' %}
     <a href="/devis/status/{{ d.id }}/envoye" class="btn btn-sm" style="background:#ff9800;color:#fff" title="Marquer envoyé">📤</a>

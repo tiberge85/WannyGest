@@ -164,6 +164,13 @@
         <div><div style="font-size:10px;opacity:.85;text-transform:uppercase">TVA</div><div id="lt_tva" style="font-weight:800;font-size:16px">0 F</div></div>
         <div style="background:rgba(255,255,255,.15);border-radius:6px;padding:4px 8px"><div style="font-size:10px;opacity:.95;text-transform:uppercase">Total TTC</div><div id="lt_ttc" style="font-weight:900;font-size:19px">0 F</div></div>
     </div>
+    {# v180 : estimation de marge en direct (coûts catalogue) #}
+    <div id="liveMarge" style="background:#0f5d52;color:#fff;border-radius:10px;padding:10px 16px;margin-top:8px;display:none;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;font-size:13px">
+        <div><div style="font-size:10px;opacity:.85;text-transform:uppercase">Coût matériel (catalogue)</div><div id="lm_cost" style="font-weight:800;font-size:16px">0 F</div></div>
+        <div><div style="font-size:10px;opacity:.85;text-transform:uppercase">Marge (HT)</div><div id="lm_marge" style="font-weight:800;font-size:16px">0 F</div></div>
+        <div style="background:rgba(255,255,255,.15);border-radius:6px;padding:4px 8px"><div style="font-size:10px;opacity:.95;text-transform:uppercase">Marge %</div><div id="lm_pct" style="font-weight:900;font-size:18px">—</div></div>
+        <div style="font-size:10px;opacity:.9;align-self:center"><span id="lm_hint">Seuil min. {{ '%.0f'|format(proforma_min_margin()) }} %</span> · <a href="/devis/{{ devis.id }}/couts" style="color:#ffe;text-decoration:underline">💹 Coûts & marge</a></div>
+    </div>
     <div style="display:flex;gap:10px;margin-top:16px"><a href="/devis" class="btn btn-outline">Annuler</a><button type="submit" class="btn btn-orange" style="flex:1">💾 Sauvegarder</button></div>
 </form>
 <script>
@@ -191,12 +198,58 @@
         document.getElementById('lt_remise').textContent = remise ? '- ' + fmt(remise) : '0 F';
         document.getElementById('lt_tva').textContent = fmt(tva);
         document.getElementById('lt_ttc').textContent = fmt(baseHt + pf - remise + tva);
+
+        // v180 : estimation de marge (coûts catalogue)
+        try {
+            var costTotal = 0, known = false;
+            document.querySelectorAll('#items .item-row').forEach(function(row){
+                var q = num(byName(row,'_qty'));
+                var des = (byName(row,'_designation')||{}).value || '';
+                var det = (byName(row,'_detail')||{}).value || '';
+                var c = _costLookup(des, det);
+                if (c !== null) { known = true; costTotal += q * c; }
+            });
+            var box = document.getElementById('liveMarge');
+            if (known && box) {
+                box.style.display = 'grid';
+                var saleHt = totalHt + mo - remise;
+                var marge = saleHt - costTotal;
+                var pct = saleHt > 0 ? (marge / saleHt * 100) : 0;
+                document.getElementById('lm_cost').textContent = fmt(costTotal);
+                document.getElementById('lm_marge').textContent = fmt(marge);
+                document.getElementById('lm_pct').textContent = (saleHt>0? pct.toFixed(1):'—') + ' %';
+                var below = saleHt>0 && pct < MIN_MARGIN;
+                box.style.background = below ? '#8a1f1f' : '#0f5d52';
+                document.getElementById('lm_hint').textContent = below
+                    ? ('⚠️ sous le seuil de ' + MIN_MARGIN + ' %') : ('✅ seuil min. ' + MIN_MARGIN + ' %');
+            } else if (box) { box.style.display = 'none'; }
+        } catch(e){}
     }
     var form = document.querySelector('form');
     if (form) form.addEventListener('input', recalc);
     window._recalcDevis = recalc;
     recalc();
 })();
+// v180 : coûts catalogue pour l'estimation de marge
+var MIN_MARGIN = {{ '%.0f'|format(proforma_min_margin()) }};
+var _COST_DES = {}, _COST_REF = {};
+(function(){
+    try {
+        var el = document.getElementById('catData'); if(!el) return;
+        JSON.parse(el.textContent || '[]').forEach(function(a){
+            var pu = parseFloat(a.pu||0)||0;
+            if (a.designation) _COST_DES[(a.designation+'').trim().toLowerCase()] = pu;
+            if (a.ref) _COST_REF[(a.ref+'').trim().toLowerCase()] = pu;
+        });
+    } catch(e){}
+})();
+function _costLookup(des, det){
+    var d = (det||'').trim().toLowerCase(), g = (des||'').trim().toLowerCase();
+    if (d && _COST_REF[d] !== undefined) return _COST_REF[d];
+    if (g && _COST_DES[g] !== undefined) return _COST_DES[g];
+    if (d && _COST_DES[d] !== undefined) return _COST_DES[d];
+    return null;
+}
 // v161 : recherche client par code/nom (édition)
 function filterClientSelect(){
     var inp = document.getElementById('clientSearch'); if(!inp) return;
