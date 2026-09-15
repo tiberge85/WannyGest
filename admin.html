@@ -324,6 +324,37 @@ function filterPerms() {
     <button type="submit" class="btn btn-primary">💾 Enregistrer</button>
 </form>
 
+{# v181 : réglages proforma (validité, marge, coûts) #}
+{% if proforma_params %}
+<div style="background:#eef4f3;border-left:4px solid #1A7A6D;padding:12px;border-radius:6px;margin:22px 0 14px">
+    <strong style="color:#1A7A6D">🧾 Paramètres des proformas & devis</strong>
+    <p style="font-size:12px;margin:6px 0 0;color:#555">Validité, alertes d'expiration, marge minimum et seuil d'alerte de variation des coûts (module Devis & Proformas).</p>
+</div>
+<form method="post" action="/admin/proforma-params" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end">
+    <div class="form-group" style="margin-bottom:0">
+        <label>Durée de validité par défaut (jours)</label>
+        <input type="number" name="proforma_default_validity" value="{{ proforma_params.proforma_default_validity }}" min="1" max="365" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        <p style="font-size:11px;color:#888;margin:4px 0 0">Pré-sélectionnée à la création. Typique : 30.</p>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+        <label>Délai d'alerte avant expiration (jours)</label>
+        <input type="number" name="proforma_alert_days" value="{{ proforma_params.proforma_alert_days }}" min="1" max="180" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        <p style="font-size:11px;color:#888;margin:4px 0 0">« Expiration proche » et notification. Typique : 7.</p>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+        <label>Marge minimum (%)</label>
+        <input type="number" name="proforma_min_margin" value="{{ proforma_params.proforma_min_margin }}" min="0" max="100" step="0.5" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        <p style="font-size:11px;color:#888;margin:4px 0 0">Sous ce seuil : alerte + blocage de conversion. Typique : 25.</p>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+        <label>Seuil d'alerte variation de coût (%)</label>
+        <input type="number" name="proforma_cost_alert_pct" value="{{ proforma_params.proforma_cost_alert_pct }}" min="0" max="100" step="0.5" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px">
+        <p style="font-size:11px;color:#888;margin:4px 0 0">Écart catalogue déclenchant « à réactualiser ». Typique : 10.</p>
+    </div>
+    <div style="grid-column:1/-1"><button type="submit" class="btn btn-primary">💾 Enregistrer les paramètres proforma</button></div>
+</form>
+{% endif %}
+
 {% if ramya_days_default %}
 <div style="background:#e8f5e9;border-left:4px solid #2e7d32;padding:10px;border-radius:6px;margin-top:14px">
     <strong style="color:#2e7d32">✅ Défaut actuel : {{ ramya_days_default }} jours/mois</strong>

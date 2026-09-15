@@ -2003,6 +2003,49 @@ try:
 except Exception as _e:
     print(f"[v180-Proforma] Erreur : {_e}", flush=True)
 
+# v181 : Versioning + audit + réglages proforma (Phase 3)
+try:
+    from models import get_db as _v181db
+    _v181 = _v181db()
+    try: _v181.execute("ALTER TABLE devis ADD COLUMN version_no INTEGER DEFAULT 1")
+    except Exception: pass
+    _v181.execute("""CREATE TABLE IF NOT EXISTS devis_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        devis_id INTEGER NOT NULL,
+        version_no INTEGER,
+        snapshot_json TEXT,
+        total_ht REAL DEFAULT 0,
+        total_ttc REAL DEFAULT 0,
+        cost_total REAL DEFAULT 0,
+        margin_amount REAL DEFAULT 0,
+        margin_pct REAL DEFAULT 0,
+        reason TEXT,
+        created_by INTEGER,
+        created_by_name TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    _v181.execute("""CREATE TABLE IF NOT EXISTS proforma_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        devis_id INTEGER NOT NULL,
+        event TEXT,
+        detail TEXT,
+        user_id INTEGER,
+        user_name TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+    # Seeds des réglages proforma (n'écrase pas les valeurs existantes)
+    for _k, _v in (('proforma_default_validity', '30'), ('proforma_alert_days', '7'),
+                   ('proforma_min_margin', '25'), ('proforma_cost_alert_pct', '10')):
+        try: _v181.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)", (_k, _v))
+        except Exception: pass
+    # version_no par défaut = 1 pour l'existant
+    try: _v181.execute("UPDATE devis SET version_no=1 WHERE version_no IS NULL")
+    except Exception: pass
+    _v181.commit(); _v181.close()
+    print("[v181-Proforma] Versions + audit + réglages OK", flush=True)
+except Exception as _e:
+    print(f"[v181-Proforma] Erreur : {_e}", flush=True)
+
 
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
@@ -5670,6 +5713,34 @@ def admin_document_params():
     return render_template('admin_document_params.html', page='admin_doc_params', params=params)
 
 
+@app.route('/admin/proforma-params', methods=['POST'])
+@permission_required('admin')
+def admin_proforma_params():
+    """v181 : réglages proforma — validité par défaut, délai d'alerte, marge min, seuil de variation de coût."""
+    def _clean_num(v, lo, hi, dflt):
+        try:
+            n = float(str(v).replace(',', '.').strip())
+            return max(lo, min(hi, n))
+        except Exception:
+            return dflt
+    vals = {
+        'proforma_default_validity': int(_clean_num(request.form.get('proforma_default_validity'), 1, 365, 30)),
+        'proforma_alert_days':       int(_clean_num(request.form.get('proforma_alert_days'), 1, 180, 7)),
+        'proforma_min_margin':       _clean_num(request.form.get('proforma_min_margin'), 0, 100, 25),
+        'proforma_cost_alert_pct':   _clean_num(request.form.get('proforma_cost_alert_pct'), 0, 100, 10),
+    }
+    try:
+        conn = _gdb()
+        for k, v in vals.items():
+            conn.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                         (k, str(v)))
+        conn.commit(); conn.close()
+        flash("✅ Réglages proforma enregistrés.", "success")
+    except Exception as _e:
+        flash(f"Erreur d'enregistrement : {_e}", "error")
+    return redirect('/admin?section=settings')
+
+
 def auto_ecriture(conn, date, libelle, debit_account, credit_account, amount, reference=''):
     """Génère automatiquement une écriture comptable double (débit/crédit) SYSCOHADA.
     v153 : Écrit DANS LES DEUX systèmes pour que le dashboard Pro voie les données :
@@ -6118,6 +6189,66 @@ def _proforma_min_margin():
         pass
     return 25.0
 
+PROFORMA_SETTINGS_DEFAULTS = {
+    'proforma_default_validity': '30',   # durée de validité par défaut (jours)
+    'proforma_alert_days':       '7',    # délai d'alerte avant expiration (jours)
+    'proforma_min_margin':       '25',   # marge minimum (%)
+    'proforma_cost_alert_pct':   '10',   # seuil d'alerte de variation de coût (%)
+}
+
+def get_proforma_settings():
+    """Réglages proforma (Phase 3) avec valeurs par défaut."""
+    out = dict(PROFORMA_SETTINGS_DEFAULTS)
+    try:
+        conn = _gdb()
+        for k in list(out.keys()):
+            r = conn.execute("SELECT value FROM app_settings WHERE key=?", (k,)).fetchone()
+            if r and str(r['value']).strip():
+                out[k] = str(r['value']).strip()
+        conn.close()
+    except Exception:
+        pass
+    return out
+
+def _proforma_default_validity():
+    try:
+        return max(1, int(float(get_proforma_settings()['proforma_default_validity'])))
+    except Exception:
+        return 30
+
+def _proforma_cost_alert_pct():
+    try:
+        return max(0.0, float(str(get_proforma_settings()['proforma_cost_alert_pct']).replace(',', '.')))
+    except Exception:
+        return 10.0
+
+def _proforma_log(did, event, detail=''):
+    """v181 : journal d'audit d'une proforma/devis (traçabilité)."""
+    try:
+        uid = session.get('user_id')
+        uname = ''
+        try:
+            u = get_user_by_id(uid) if uid else None
+            uname = (u['full_name'] if u else '') or ''
+        except Exception:
+            pass
+        conn = _gdb()
+        conn.execute("INSERT INTO proforma_audit (devis_id, event, detail, user_id, user_name) VALUES (?,?,?,?,?)",
+                     (did, event, detail, uid, uname))
+        conn.commit(); conn.close()
+    except Exception as _e:
+        print(f"[v181] audit : {_e}", flush=True)
+
+def _proforma_audit(did, limit=50):
+    try:
+        conn = _gdb()
+        rows = conn.execute("SELECT * FROM proforma_audit WHERE devis_id=? ORDER BY id DESC LIMIT ?",
+                            (did, limit)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
 def _catalog_cost_map():
     """Coût d'achat unitaire du catalogue, indexé par référence ET par désignation (minuscules).
     Le coût = mg_stock_articles.prix_unitaire."""
@@ -6182,6 +6313,10 @@ def _devis_costs(devis, use='stored'):
         try: devis = dict(devis)
         except Exception: devis = {}
     ref_map, des_map = _catalog_cost_map()
+    try:
+        _alert_pct = _proforma_cost_alert_pct()
+    except Exception:
+        _alert_pct = 10.0
     items = _parse_items(devis.get('items_json'))
     lines = []
     cost_total = 0.0
@@ -6209,11 +6344,14 @@ def _devis_costs(devis, use='stored'):
         # Écart catalogue vs stocké → à réactualiser
         changed = False
         delta = 0.0
-        if cout_catalog is not None and cout_stored is not None and abs(cout_catalog - cout_stored) > 0.5:
-            changed = True
-            needs_react = True
-            delta = (cout_catalog - cout_stored) * qty
-            react_delta += delta
+        if cout_catalog is not None and cout_stored is not None:
+            _diff = abs(cout_catalog - cout_stored)
+            _rel = (_diff / cout_stored * 100.0) if cout_stored > 0 else (100.0 if _diff > 0 else 0.0)
+            if _diff > 0.5 and _rel >= _alert_pct:
+                changed = True
+                needs_react = True
+                delta = (cout_catalog - cout_stored) * qty
+                react_delta += delta
         lines.append({
             'num': idx, 'designation': it.get('designation', ''), 'detail': it.get('detail', ''),
             'qty': qty, 'prix': prix, 'remise': remise, 'line_sale': line_sale,
@@ -6309,6 +6447,77 @@ def _save_items_costs(did, items, recompute_sale=False):
     conn.commit(); conn.close()
     return cc
 
+def _snapshot_devis_version(did, reason=''):
+    """v181 : fige l'état courant d'un devis en tant que version Vn, puis incrémente version_no."""
+    try:
+        conn = _gdb()
+        row = conn.execute("SELECT * FROM devis WHERE id=?", (did,)).fetchone()
+        if not row:
+            conn.close(); return None
+        row = dict(row)
+        vno = int(row.get('version_no') or 1)
+        uid = session.get('user_id')
+        uname = ''
+        try:
+            u = get_user_by_id(uid) if uid else None
+            uname = (u['full_name'] if u else '') or ''
+        except Exception:
+            pass
+        conn.execute("""INSERT INTO devis_versions
+            (devis_id, version_no, snapshot_json, total_ht, total_ttc, cost_total, margin_amount, margin_pct, reason, created_by, created_by_name)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (did, vno, json.dumps(row),
+             float(row.get('total_ht') or 0), float(row.get('total_ttc') or 0),
+             float(row.get('cost_total') or 0), float(row.get('margin_amount') or 0), float(row.get('margin_pct') or 0),
+             reason, uid, uname))
+        conn.execute("UPDATE devis SET version_no=? WHERE id=?", (vno + 1, did))
+        conn.commit(); conn.close()
+        _proforma_log(did, 'Version', f"V{vno} figée" + (f" — {reason}" if reason else ""))
+        return vno
+    except Exception as _e:
+        print(f"[v181] snapshot version : {_e}", flush=True)
+        return None
+
+def _devis_versions(did):
+    try:
+        conn = _gdb()
+        rows = conn.execute("SELECT * FROM devis_versions WHERE devis_id=? ORDER BY id DESC", (did,)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+@app.route('/devis/<int:did>/version/<int:vid>/restore', methods=['POST'])
+@permission_required('proforma_edit')
+def devis_version_restore(did, vid):
+    """v181 : restaure une version antérieure (l'état courant est d'abord figé)."""
+    try:
+        conn = _gdb()
+        v = conn.execute("SELECT * FROM devis_versions WHERE id=? AND devis_id=?", (vid, did)).fetchone()
+        conn.close()
+        if not v:
+            flash("Version introuvable.", "error"); return redirect(f'/devis/{did}/couts')
+        snap = json.loads(dict(v).get('snapshot_json') or '{}')
+        # Fige l'état courant avant restauration (pour pouvoir revenir)
+        _snapshot_devis_version(did, f"Avant restauration de V{dict(v).get('version_no')}")
+        fields = ['items_json', 'total_ht', 'total_ttc', 'main_oeuvre', 'remise', 'petites_fournitures',
+                  'tva_active', 'tva_rate', 'tva_amount', 'cost_total', 'margin_amount', 'margin_pct',
+                  'objet', 'notes', 'validity_days', 'issue_date', 'expiry_date']
+        sets, params = [], []
+        for f in fields:
+            if f in snap:
+                sets.append(f"{f}=?"); params.append(snap.get(f))
+        if sets:
+            params.append(did)
+            conn = _gdb()
+            conn.execute(f"UPDATE devis SET {', '.join(sets)} WHERE id=?", params)
+            conn.commit(); conn.close()
+        _proforma_log(did, 'Restauration', f"Version V{dict(v).get('version_no')} restaurée")
+        flash(f"↩️ Version V{dict(v).get('version_no')} restaurée.", "success")
+    except Exception as _e:
+        flash(f"Restauration impossible : {_e}", "error")
+    return redirect(f'/devis/{did}/couts')
+
 @app.route('/devis/<int:did>/couts', methods=['GET', 'POST'])
 @permission_required('proforma_edit')
 def devis_couts(did):
@@ -6321,6 +6530,7 @@ def devis_couts(did):
         action = (request.form.get('action') or '').strip()
         items = _parse_items(devis.get('items_json'))
         if action == 'reactualiser':
+            _snapshot_devis_version(did, "Avant réactualisation des coûts")
             ref_map, des_map = _catalog_cost_map()
             n = 0
             for it in items:
@@ -6329,10 +6539,11 @@ def devis_couts(did):
                 if c is not None:
                     if abs(_to_float(it.get('cout', 0), 0) - c) > 0.5: n += 1
                     it['cout'] = c
-            _save_items_costs(did, items)
+            cc2 = _save_items_costs(did, items)
             _u = get_user_by_id(session['user_id'])
             log_activity(session['user_id'], _u['full_name'] if _u else '?', 'Devis',
                          f"Réactualisation des coûts {devis.get('reference','')} ({n} ligne(s))", request.remote_addr)
+            _proforma_log(did, 'Réactualisation', f"{n} ligne(s) — marge {cc2['margin_pct']:.1f} %" if cc2 else f"{n} ligne(s)")
             flash(f"✅ Coûts réactualisés depuis le catalogue — {n} ligne(s) mise(s) à jour.", "success")
         elif action == 'save':
             for idx, it in enumerate(items, 1):
@@ -6340,8 +6551,12 @@ def devis_couts(did):
                 v = request.form.get(f'item_{idx}_cout', '')
                 if v != '':
                     it['cout'] = _to_float(v, 0)
-            _save_items_costs(did, items)
+            cc2 = _save_items_costs(did, items)
+            _proforma_log(did, 'Coûts', f"Coûts saisis — marge {cc2['margin_pct']:.1f} %" if cc2 else "Coûts saisis")
             flash("💾 Coûts enregistrés — marge recalculée.", "success")
+        elif action == 'version':
+            _snapshot_devis_version(did, (request.form.get('reason', '') or '').strip())
+            flash("🗂️ Nouvelle version enregistrée dans l'historique.", "success")
         elif action == 'target':
             t = _to_float(request.form.get('target_margin', 0), 0)
             cc0 = _devis_costs({'items_json': items, 'total_ht': devis.get('total_ht', 0),
@@ -6363,15 +6578,18 @@ def devis_couts(did):
                 if factor <= 0:
                     flash("La marge cible est inatteignable avec la main d'œuvre/remise actuelles.", "error")
                 else:
+                    _snapshot_devis_version(did, f"Avant ajustement marge cible {t:.0f} %")
                     for it in items:
                         if isinstance(it, dict):
                             it['prix'] = round(_to_float(it.get('prix', 0)) * factor)
                     _save_items_costs(did, items, recompute_sale=True)
+                    _proforma_log(did, 'Marge cible', f"Prix ajustés ×{factor:.2f} pour viser {t:.0f} %")
                     flash(f"🎯 Prix de vente ajustés pour viser {t:.0f} % de marge (facteur ×{factor:.2f}).", "success")
         return redirect(f'/devis/{did}/couts')
 
     cc = _devis_costs(devis, use='stored')
-    return render_template('devis_couts.html', page='devis', devis=devis, cc=cc)
+    return render_template('devis_couts.html', page='devis', devis=devis, cc=cc,
+                           versions=_devis_versions(did), audit=_proforma_audit(did))
 
 
 @app.after_request
@@ -8152,7 +8370,7 @@ def admin_page():
     return render_template('admin.html', page='admin', users=users, stats=stats,
                           all_permissions=ALL_PERMISSIONS, role_perms=role_perms, perm_categories=PERM_CATEGORIES,
                           tenders=tenders, tab='tenders', smtp=smtp, admin_logs=admin_logs, section=section,
-                          ramya_days_default=ramya_days_default)
+                          ramya_days_default=ramya_days_default, proforma_params=get_proforma_settings())
 
 
 @app.route('/admin/ramya-days-required', methods=['POST'])
@@ -10022,7 +10240,8 @@ def devis_to_invoice(did):
             link=f"/comptabilite/facture/view/{conn.execute('SELECT last_insert_rowid()').fetchone()[0] if False else 0}",
             type='info', module='factures', icon='🧾', priority='high')
     except Exception as _e: print(f"[v136] notif facture err : {_e}", flush=True)
-    
+
+    _proforma_log(did, 'Conversion', f"Converti en facture {ref} — {total_ttc:,.0f} F TTC")
     flash(f"Devis {d.get('reference','')} converti en facture {ref} — " + (f"TVA {rate:.0f}% appliquée ({tva_amount:,.0f} F), total TTC {total_ttc:,.0f} F" if apply_tva else f"SANS TVA, total {total_ttc:,.0f} F"), "success")
     return redirect(url_for('comptabilite_page'))
 
@@ -11303,17 +11522,36 @@ def devis_page():
 
     d_stats = get_devis_stats()
 
-    # v179 : statistiques de validité (valides / expiration proche / expirées / validées)
-    d_val = {'valide': 0, 'expiration_proche': 0, 'expiree': 0, 'validee': 0}
+    # v179/v181 : statistiques de validité + montants + à réactualiser
+    d_val = {'valide': 0, 'expiration_proche': 0, 'expiree': 0, 'validee': 0, 'a_reactualiser': 0}
+    d_val_amt = {'valide': 0.0, 'expiration_proche': 0.0, 'expiree': 0.0, 'validee': 0.0}
     try:
         _cv = _gdb()
-        _rows = _cv.execute("SELECT status, validity_days, issue_date, expiry_date, created_at FROM devis").fetchall()
+        _rows = _cv.execute("""SELECT status, validity_days, issue_date, expiry_date, created_at,
+                                      total_ttc, items_json, cost_total FROM devis""").fetchall()
         _cv.close()
         _ad = _proforma_alert_days()
+        _ref_map, _des_map = _catalog_cost_map()   # chargé une seule fois
+        _alert_pct = _proforma_cost_alert_pct()
         for _r in _rows:
-            _pv = _proforma_validity(dict(_r), alert_days=_ad)
+            _rd = dict(_r)
+            _pv = _proforma_validity(_rd, alert_days=_ad)
             if _pv['active'] and _pv['status'] in d_val:
                 d_val[_pv['status']] += 1
+                d_val_amt[_pv['status']] += float(_rd.get('total_ttc') or 0)
+            # À réactualiser : un coût catalogue a évolué au-delà du seuil (documents non clôturés)
+            if (_rd.get('status') or 'brouillon') not in ('accepte', 'refuse'):
+                for _it in _parse_items(_rd.get('items_json')):
+                    if not isinstance(_it, dict):
+                        continue
+                    _cs = _it.get('cout')
+                    _cs = _to_float(_cs, None) if _cs not in (None, '') else None
+                    if _cs is None or _cs <= 0:
+                        continue
+                    _cc = _catalog_cost_for(_it, _ref_map, _des_map)
+                    if _cc is not None and abs(_cc - _cs) > 0.5 and (abs(_cc - _cs) / _cs * 100.0) >= _alert_pct:
+                        d_val['a_reactualiser'] += 1
+                        break
     except Exception as _e:
         print(f"[v179] stats validité : {_e}", flush=True)
 
@@ -11360,7 +11598,7 @@ def devis_page():
     except: mine_count = 0
     
     return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list,
-        d_stats=d_stats, d_val=d_val, search=search, mine_count=mine_count, statut=statut,
+        d_stats=d_stats, d_val=d_val, d_val_amt=d_val_amt, search=search, mine_count=mine_count, statut=statut,
         validite=validite, min_margin=_proforma_min_margin())
 
 @app.route('/devis/new', methods=['GET', 'POST'])
@@ -11474,6 +11712,8 @@ def devis_new():
         # v180 : coûts (catalogue) + marge
         _apply_devis_costs(did, items,
                            {'total_ht': total_ht, 'main_oeuvre': main_oeuvre, 'remise': remise_glob})
+        # v181 : traçabilité
+        _proforma_log(did, 'Création', f"{request.form.get('doc_type','devis')} — {total_ttc:,.0f} F TTC")
         
         user = get_user_by_id(session['user_id'])
         log_activity(session['user_id'], user['full_name'] if user else '?',
@@ -11499,7 +11739,7 @@ def devis_new():
     except Exception: _devis_tpls = []
     return render_template('devis_new.html', page='devis', clients=clients, stock_items=stock_items,
                            catalog_items=catalog_items, default_commercial=default_commercial,
-                           templates=_devis_tpls)
+                           templates=_devis_tpls, default_validity=_proforma_default_validity())
 
 @app.route('/devis/pdf/<int:did>')
 @permission_required_any('proforma', 'proforma_edit')  # v173 : voir OU éditer suffit pour exporter
@@ -11595,6 +11835,9 @@ def devis_unsign(did):
 def devis_status(did, status):
     if status in ('brouillon', 'envoye', 'accepte', 'refuse'):
         update_devis_status(did, status)
+        _labels = {'brouillon': 'Remis en brouillon', 'envoye': 'Marqué envoyé',
+                   'accepte': 'Validé (accepté)', 'refuse': 'Refusé'}
+        _proforma_log(did, 'Statut', _labels.get(status, status))
         # Stock deduction when devis is accepted
         if status == 'accepte':
             devis = get_devis_by_id(did)
@@ -11715,6 +11958,7 @@ def devis_edit(did):
         _apply_devis_costs(did, items,
                            {'total_ht': total_ht, 'main_oeuvre': main_oeuvre, 'remise': remise_glob},
                            preserve_items=_parse_items(devis.get('items_json')))
+        _proforma_log(did, 'Modification', f"Total {total_ttc:,.0f} F TTC")
         flash("Devis modifié" + (f" (TVA {tva_rate:.0f}% = {tva_amount:,.0f} F)" if tva_active else ""), "success"); return redirect(url_for('devis_page'))
     
     # v161 : parsing robuste — certains anciens devis ont un items_json non-JSON

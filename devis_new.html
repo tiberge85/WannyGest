@@ -18,13 +18,11 @@
     <div class="form-row">
         <div class="form-group"><label>⏳ Durée de validité</label>
             <select name="validity_days" id="validitySel" onchange="onValidityChange()">
-                <option value="7">7 jours</option>
-                <option value="15">15 jours</option>
-                <option value="30" selected>30 jours (par défaut)</option>
-                <option value="45">45 jours</option>
-                <option value="60">60 jours</option>
-                <option value="90">90 jours</option>
-                <option value="custom">Personnalisé…</option>
+                {% set _dv = default_validity|default(30) %}
+                {% for _d in [7,15,30,45,60,90] %}
+                <option value="{{ _d }}" {% if _dv == _d %}selected{% endif %}>{{ _d }} jours{% if _dv == _d %} (par défaut){% endif %}</option>
+                {% endfor %}
+                <option value="custom" {% if _dv not in [7,15,30,45,60,90] %}selected{% endif %}>Personnalisé…</option>
             </select>
         </div>
         <div class="form-group" id="validityCustomWrap" style="display:none"><label>Nombre de jours</label>
@@ -500,7 +498,7 @@ function onValidityChange(){
   _refreshExpiry();
 }
 document.addEventListener('DOMContentLoaded',function(){
-  _refreshExpiry();
+  onValidityChange();
   var c=document.getElementById('validityCustom'); if(c) c.addEventListener('input',_refreshExpiry);
 });
 </script>

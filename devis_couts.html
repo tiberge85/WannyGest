@@ -118,7 +118,64 @@
 </div>
 
 {% if cc.costs_source or devis.costs_updated_at %}
-<p style="font-size:11px;color:#999;margin-top:10px">Dernière mise à jour des coûts : {{ devis.costs_updated_at or '—' }}</p>
+<p style="font-size:11px;color:#999;margin-top:10px">Dernière mise à jour des coûts : {{ devis.costs_updated_at or '—' }} · Version courante : V{{ devis.version_no or 1 }}</p>
 {% endif %}
+
+<!-- Historique des versions -->
+<div class="card" style="margin-top:16px"><div class="card-body">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <h3 style="margin:0;font-size:14px;color:#1a3a5c">🗂️ Historique des versions</h3>
+        <form method="post" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <input type="hidden" name="action" value="version">
+            <input type="text" name="reason" placeholder="Motif (ex: nouvelle offre client)" style="padding:6px 9px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;min-width:200px">
+            <button type="submit" class="btn btn-sm btn-primary">➕ Figer une version</button>
+        </form>
+    </div>
+    {% if versions %}
+    <div class="table-wrap"><table style="width:100%;font-size:12px">
+    <thead style="background:#f2f7f6"><tr>
+        <th style="padding:7px;text-align:left">Version</th><th style="padding:7px;text-align:left">Date</th>
+        <th style="padding:7px;text-align:left">Par</th><th style="padding:7px;text-align:right">Total TTC</th>
+        <th style="padding:7px;text-align:right">Marge</th><th style="padding:7px;text-align:left">Motif</th><th></th>
+    </tr></thead><tbody>
+    {% for v in versions %}
+    <tr style="border-bottom:1px solid #f0f0f0">
+        <td style="padding:6px 7px"><strong>V{{ v.version_no }}</strong></td>
+        <td style="padding:6px 7px;white-space:nowrap">{{ (v.created_at or '')[:16] }}</td>
+        <td style="padding:6px 7px">{{ v.created_by_name or '—' }}</td>
+        <td style="padding:6px 7px;text-align:right">{{ '{:,.0f}'.format(v.total_ttc or 0).replace(',', ' ') }} F</td>
+        <td style="padding:6px 7px;text-align:right">{{ '%.0f'|format(v.margin_pct or 0) }} %</td>
+        <td style="padding:6px 7px;color:#666">{{ v.reason or '—' }}</td>
+        <td style="padding:6px 7px;text-align:right">
+            <form method="post" action="/devis/{{ devis.id }}/version/{{ v.id }}/restore" style="display:inline"
+                  onsubmit="return confirm('Restaurer la version V{{ v.version_no }} ? L\'état actuel sera d\'abord figé dans l\'historique.')">
+                <button type="submit" class="btn btn-sm btn-outline" title="Restaurer cette version">↩️ Restaurer</button>
+            </form>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}
+    <p style="font-size:12px;color:#999;margin:4px 0">Aucune version figée. Une version est créée automatiquement avant chaque réactualisation des coûts ou ajustement de marge, ou manuellement via « Figer une version ».</p>
+    {% endif %}
+</div></div>
+
+<!-- Journal de traçabilité -->
+<div class="card" style="margin-top:14px"><div class="card-body">
+    <h3 style="margin:0 0 8px;font-size:14px;color:#1a3a5c">📜 Journal de traçabilité</h3>
+    {% if audit %}
+    <div style="max-height:340px;overflow-y:auto">
+    {% for a in audit %}
+    <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #f4f4f4;font-size:12px">
+        <div style="flex:0 0 118px;color:#999;white-space:nowrap">{{ (a.created_at or '')[:16] }}</div>
+        <div style="flex:0 0 130px"><span style="background:#eef4f3;color:#1A7A6D;border-radius:8px;padding:1px 8px;font-size:11px">{{ a.event }}</span></div>
+        <div style="flex:1;color:#555">{{ a.detail or '' }}{% if a.user_name %} <span style="color:#999">· {{ a.user_name }}</span>{% endif %}</div>
+    </div>
+    {% endfor %}
+    </div>
+    {% else %}
+    <p style="font-size:12px;color:#999;margin:4px 0">Aucun évènement enregistré pour l'instant.</p>
+    {% endif %}
+</div></div>
 
 {% endblock %}
