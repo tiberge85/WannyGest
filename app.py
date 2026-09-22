@@ -39428,6 +39428,7 @@ def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0):
     """Dessine une icône d'équipement type-spécifique avec PIL (miroir des icônes de l'éditeur).
     v182 : sc = facteur d'agrandissement (par défaut 1.0) pour rendre les équipements plus visibles."""
     import math
+    raw = (typ or '').lower()
     typ = _imp_icon_family(typ)
     W = (255, 255, 255, 255)
     C = col + (255,)
@@ -39438,6 +39439,22 @@ def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0):
         a = math.radians(rot)
         px, py = s(px), s(py)
         return (x + px*math.cos(a) - py*math.sin(a), y + px*math.sin(a) + py*math.cos(a))
+    # v183 : mini-dôme / PTZ = boîtier rond + objectif décentré vers l'avant (montre la direction)
+    if raw in ('cam_dome', 'cam_ptz', 'cam_fisheye'):
+        r = s(9)
+        d.ellipse([x-r, y-r, x+r, y+r], fill=C, outline=W, width=lw)
+        r2 = s(6)
+        d.ellipse([x-r2, y-r2, x+r2, y+r2], outline=(11, 13, 17, 150), width=max(1, int(round(sc))))
+        if raw != 'cam_fisheye':
+            # tick avant + objectif décentré dans la direction de visée
+            tx1, ty1 = rp(9, 0); tx2, ty2 = rp(12.5, 0)
+            d.line([tx1, ty1, tx2, ty2], fill=(11, 13, 17, 255), width=lw)
+            lx, ly = rp(4, 0)
+        else:
+            lx, ly = x, y
+        d.ellipse([lx-s(2.8), ly-s(2.8), lx+s(2.8), ly+s(2.8)], fill=(11, 13, 17, 255))
+        d.ellipse([lx-s(1), ly-s(1), lx+s(1), ly+s(1)], fill=W)
+        return
     if typ in ('wifi',):
         d.ellipse(bx(-3, 3, 3, 9), fill=C)
         for rr in (7, 11):
