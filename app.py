@@ -39424,7 +39424,34 @@ def _imp_icon_family(typ):
         return 'network'
     return 'default'
 
-def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0):
+def _imp_cam_tile(raw, col, sc):
+    """v183 : tuile RGBA d'une caméra dôme (vue de face) ou bullet (vue de profil, objectif vers +x),
+    dessinée droite ; on la fait pivoter ensuite selon l'orientation."""
+    from PIL import Image as _I, ImageDraw as _ID
+    C = tuple(col) + (255,)
+    W = (255, 255, 255, 255)
+    def s(v): return v * sc
+    S = max(28, int(round(34 * sc)))
+    tile = _I.new('RGBA', (S, S), (0, 0, 0, 0))
+    td = _ID.Draw(tile)
+    cx = cy = S / 2.0
+    if raw == 'cam_dome':
+        td.rounded_rectangle([cx-s(10.5), cy-s(11), cx+s(10.5), cy-s(6.4)], radius=s(2.3), fill=C)
+        td.pieslice([cx-s(9), cy-s(14.4), cx+s(9), cy+s(3.6)], 0, 180, fill=C)
+        td.rounded_rectangle([cx-s(2.8), cy-s(3.6), cx+s(2.8), cy+s(5.4)], radius=s(2.8),
+                             outline=W, width=max(1, int(round(1.4 * sc))))
+        td.ellipse([cx-s(2), cy+s(0.6), cx+s(2), cy+s(4.6)], fill=W)
+        td.ellipse([cx+s(0.6)-s(0.9), cy+s(2.1)-s(0.9), cx+s(0.6)+s(0.9), cy+s(2.1)+s(0.9)], fill=C)
+    else:  # cam_bullet
+        td.rounded_rectangle([cx-s(10.5), cy+s(3), cx-s(7.5), cy+s(10.5)], radius=s(1), fill=C)
+        td.polygon([(cx-s(9), cy-s(5.5)), (cx+s(6), cy-s(7.5)), (cx+s(6.5), cy-s(4.2)), (cx-s(8.5), cy-s(2.2))], fill=C)
+        td.rounded_rectangle([cx-s(8.5), cy-s(4.8), cx+s(5.5), cy+s(4.4)], radius=s(3), fill=C)
+        td.ellipse([cx+s(6.3)-s(4.3), cy-s(4.3), cx+s(6.3)+s(4.3), cy+s(4.3)], fill=C, outline=W, width=max(1, int(round(1.2 * sc))))
+        td.ellipse([cx+s(6.3)-s(2), cy-s(2), cx+s(6.3)+s(2), cy+s(2)], fill=W)
+        td.ellipse([cx+s(7)-s(0.85), cy-s(0.6)-s(0.85), cx+s(7)+s(0.85), cy-s(0.6)+s(0.85)], fill=C)
+    return tile
+
+def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0, im=None):
     """Dessine une icône d'équipement type-spécifique avec PIL (miroir des icônes de l'éditeur).
     v182 : sc = facteur d'agrandissement (par défaut 1.0) pour rendre les équipements plus visibles."""
     import math
@@ -39439,8 +39466,18 @@ def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0):
         a = math.radians(rot)
         px, py = s(px), s(py)
         return (x + px*math.cos(a) - py*math.sin(a), y + px*math.sin(a) + py*math.cos(a))
-    # v183 : mini-dôme / PTZ = boîtier rond + objectif décentré vers l'avant (montre la direction,
-    # sans trait saillant). Fisheye = objectif centré (360°).
+    # v183 : dôme (vue de face) + bullet (vue de profil) = tuile pivotée selon l'orientation
+    if raw in ('cam_dome', 'cam_bullet') and im is not None:
+        try:
+            from PIL import Image as _I
+            tile = _imp_cam_tile(raw, col, sc)
+            tile = tile.rotate(-rot, resample=_I.BICUBIC, expand=True)
+            px = int(round(x - tile.width / 2.0)); py = int(round(y - tile.height / 2.0))
+            im.paste(tile, (px, py), tile)
+            return
+        except Exception:
+            pass
+    # PTZ / fisheye = boîtier rond + objectif (décentré = direction ; centré = 360°)
     if raw in ('cam_dome', 'cam_ptz', 'cam_fisheye'):
         r = s(9)
         d.ellipse([x-r, y-r, x+r, y+r], fill=C, outline=W, width=lw)
@@ -39597,7 +39634,7 @@ def _imp_render_scene(base_im, scene, only_system=None, overlays=False):
         col = _imp_hex(sysd.get('color'))
         x, y = float(o.get('x', 0)), float(o.get('y', 0))
         typ = o.get('type') or sysd.get('icon') or 'default'
-        _imp_draw_icon(d, typ, x, y, col, float(o.get('orientation', 0)), sc=icon_sc)
+        _imp_draw_icon(d, typ, x, y, col, float(o.get('orientation', 0)), sc=icon_sc, im=im)
         if o.get('ref'):
             _rf = _imp_font(int(round(11 * icon_sc / 1.6)), bold=True)
             d.text((x + 11*icon_sc, y - 12*icon_sc), str(o.get('ref')),
@@ -39941,13 +39978,15 @@ def implantation_pdf(sid):
     _logo_imp = next((_os.path.join(BASE_DIR, n) for n in ["logo_ramya.png", "logo_wannygest.png"]
                       if _os.path.exists(_os.path.join(BASE_DIR, n))), None)
 
+    _foot_l1 = "Abidjan Cocody ABATTA (derrière OLA ENERGY) · +225 05 07 75 78 47 /07 09 50 02 43/ 27 22 20 44 98"
+    _foot_l2 = "RCCM : CI-ABJ-2017-A-25092 · NCC : 1746141.B · scecompta@ramyaci.tech / direction@ramyaci.tech"
+
     def _imp_header_footer(canv, doc_):
         from reportlab.lib.units import mm as _mm
         from reportlab.lib.colors import HexColor as _HC
         W, H = A4
         canv.saveState()
-        # --- Entête ---
-        top = H - 10 * _mm
+        # --- Entête : logo + RAMYA TECHNOLOGIE & INNOVATION uniquement ---
         tx = 14 * _mm
         if _logo_imp:
             try:
@@ -39957,32 +39996,21 @@ def implantation_pdf(sid):
             except Exception:
                 pass
         canv.setFillColor(_HC('#1A7A6D'))
-        canv.setFont('Helvetica-Bold', 11)
-        canv.drawString(tx, H - 13 * _mm, (_dp.get('company_name') or 'RAMYA TECHNOLOGIE & INNOVATION')[:60])
-        canv.setFillColor(_HC('#555555'))
-        canv.setFont('Helvetica', 7.2)
-        _line2 = ' · '.join([p for p in [_dp.get('company_address'), _dp.get('company_phone')] if p])
-        canv.drawString(tx, H - 16.5 * _mm, _line2[:110])
-        _line3 = ' · '.join([p for p in [
-            ('RCCM : ' + _dp['company_rccm']) if _dp.get('company_rccm') else '',
-            ('NCC : ' + _dp['company_ncc']) if _dp.get('company_ncc') else '',
-            _dp.get('company_email') or ''] if p])
-        if _line3:
-            canv.drawString(tx, H - 19.3 * _mm, _line3[:110])
+        canv.setFont('Helvetica-Bold', 13)
+        canv.drawString(tx, H - 15 * _mm, (_dp.get('company_name') or 'RAMYA TECHNOLOGIE & INNOVATION'))
         canv.setStrokeColor(_HC('#1A7A6D'))
         canv.setLineWidth(1)
         canv.line(14 * _mm, H - 21 * _mm, W - 14 * _mm, H - 21 * _mm)
-        # --- Pied de page ---
+        # --- Pied de page : coordonnées RAMYA (2 lignes) ---
         canv.setStrokeColor(_HC('#cccccc'))
         canv.setLineWidth(0.5)
         canv.line(14 * _mm, 15 * _mm, W - 14 * _mm, 15 * _mm)
-        canv.setFillColor(_HC('#777777'))
-        canv.setFont('Helvetica', 7)
-        _foot = _dp.get('footer_text') or 'RAMYA TECHNOLOGIE & INNOVATION'
-        canv.drawString(14 * _mm, 11 * _mm, _foot[:95])
-        _legal = _dp.get('footer_legal') or 'Document généré par WannyGest ERP'
-        canv.drawString(14 * _mm, 8 * _mm, _legal[:95])
-        canv.drawRightString(W - 14 * _mm, 8 * _mm, 'Page %d' % canv.getPageNumber())
+        canv.setFillColor(_HC('#666666'))
+        canv.setFont('Helvetica', 6.8)
+        canv.drawCentredString(W / 2, 11 * _mm, _foot_l1)
+        canv.drawCentredString(W / 2, 8 * _mm, _foot_l2)
+        canv.setFillColor(_HC('#999999'))
+        canv.drawRightString(W - 14 * _mm, 5 * _mm, 'Page %d' % canv.getPageNumber())
         canv.restoreState()
 
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm, topMargin=26*mm, bottomMargin=18*mm)
