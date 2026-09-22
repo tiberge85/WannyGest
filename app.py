@@ -39439,21 +39439,20 @@ def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0):
         a = math.radians(rot)
         px, py = s(px), s(py)
         return (x + px*math.cos(a) - py*math.sin(a), y + px*math.sin(a) + py*math.cos(a))
-    # v183 : mini-dôme / PTZ = boîtier rond + objectif décentré vers l'avant (montre la direction)
+    # v183 : mini-dôme / PTZ = boîtier rond + objectif décentré vers l'avant (montre la direction,
+    # sans trait saillant). Fisheye = objectif centré (360°).
     if raw in ('cam_dome', 'cam_ptz', 'cam_fisheye'):
         r = s(9)
         d.ellipse([x-r, y-r, x+r, y+r], fill=C, outline=W, width=lw)
-        r2 = s(6)
-        d.ellipse([x-r2, y-r2, x+r2, y+r2], outline=(11, 13, 17, 150), width=max(1, int(round(sc))))
+        r2 = s(6.4)
+        d.ellipse([x-r2, y-r2, x+r2, y+r2], fill=(11, 13, 17, 46))
         if raw != 'cam_fisheye':
-            # tick avant + objectif décentré dans la direction de visée
-            tx1, ty1 = rp(9, 0); tx2, ty2 = rp(12.5, 0)
-            d.line([tx1, ty1, tx2, ty2], fill=(11, 13, 17, 255), width=lw)
-            lx, ly = rp(4, 0)
+            lx, ly = rp(3.4, 0)      # objectif décentré dans la direction de visée
         else:
             lx, ly = x, y
-        d.ellipse([lx-s(2.8), ly-s(2.8), lx+s(2.8), ly+s(2.8)], fill=(11, 13, 17, 255))
-        d.ellipse([lx-s(1), ly-s(1), lx+s(1), ly+s(1)], fill=W)
+        d.ellipse([lx-s(3.3), ly-s(3.3), lx+s(3.3), ly+s(3.3)], fill=(11, 13, 17, 255))
+        gx, gy = (lx + s(0.9), ly - s(0.9))
+        d.ellipse([gx-s(1), gy-s(1), gx+s(1), gy+s(1)], fill=W)
         return
     if typ in ('wifi',):
         d.ellipse(bx(-3, 3, 3, 9), fill=C)
@@ -39934,7 +39933,59 @@ def implantation_pdf(sid):
     used_systems = [s for s in systems if s.get('id') in _used_ids]
 
     buf = _io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm, topMargin=14*mm, bottomMargin=12*mm)
+    # v183 : entête + pied de page RAMYA (paramètres documents partagés)
+    try:
+        _dp = get_doc_params()
+    except Exception:
+        _dp = dict(DEFAULT_DOC_PARAMS)
+    _logo_imp = next((_os.path.join(BASE_DIR, n) for n in ["logo_ramya.png", "logo_wannygest.png"]
+                      if _os.path.exists(_os.path.join(BASE_DIR, n))), None)
+
+    def _imp_header_footer(canv, doc_):
+        from reportlab.lib.units import mm as _mm
+        from reportlab.lib.colors import HexColor as _HC
+        W, H = A4
+        canv.saveState()
+        # --- Entête ---
+        top = H - 10 * _mm
+        tx = 14 * _mm
+        if _logo_imp:
+            try:
+                canv.drawImage(_logo_imp, 14 * _mm, H - 20 * _mm, width=16 * _mm, height=16 * _mm,
+                               preserveAspectRatio=True, mask='auto')
+                tx = 34 * _mm
+            except Exception:
+                pass
+        canv.setFillColor(_HC('#1A7A6D'))
+        canv.setFont('Helvetica-Bold', 11)
+        canv.drawString(tx, H - 13 * _mm, (_dp.get('company_name') or 'RAMYA TECHNOLOGIE & INNOVATION')[:60])
+        canv.setFillColor(_HC('#555555'))
+        canv.setFont('Helvetica', 7.2)
+        _line2 = ' · '.join([p for p in [_dp.get('company_address'), _dp.get('company_phone')] if p])
+        canv.drawString(tx, H - 16.5 * _mm, _line2[:110])
+        _line3 = ' · '.join([p for p in [
+            ('RCCM : ' + _dp['company_rccm']) if _dp.get('company_rccm') else '',
+            ('NCC : ' + _dp['company_ncc']) if _dp.get('company_ncc') else '',
+            _dp.get('company_email') or ''] if p])
+        if _line3:
+            canv.drawString(tx, H - 19.3 * _mm, _line3[:110])
+        canv.setStrokeColor(_HC('#1A7A6D'))
+        canv.setLineWidth(1)
+        canv.line(14 * _mm, H - 21 * _mm, W - 14 * _mm, H - 21 * _mm)
+        # --- Pied de page ---
+        canv.setStrokeColor(_HC('#cccccc'))
+        canv.setLineWidth(0.5)
+        canv.line(14 * _mm, 15 * _mm, W - 14 * _mm, 15 * _mm)
+        canv.setFillColor(_HC('#777777'))
+        canv.setFont('Helvetica', 7)
+        _foot = _dp.get('footer_text') or 'RAMYA TECHNOLOGIE & INNOVATION'
+        canv.drawString(14 * _mm, 11 * _mm, _foot[:95])
+        _legal = _dp.get('footer_legal') or 'Document généré par WannyGest ERP'
+        canv.drawString(14 * _mm, 8 * _mm, _legal[:95])
+        canv.drawRightString(W - 14 * _mm, 8 * _mm, 'Page %d' % canv.getPageNumber())
+        canv.restoreState()
+
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm, topMargin=26*mm, bottomMargin=18*mm)
     TEAL = HexColor('#1A7A6D')
     h1 = ParagraphStyle('h1', fontSize=20, fontName='Helvetica-Bold', textColor=TEAL, spaceAfter=6)
     h2 = ParagraphStyle('h2', fontSize=13, fontName='Helvetica-Bold', textColor=TEAL, spaceBefore=10, spaceAfter=6)
@@ -40073,7 +40124,7 @@ def implantation_pdf(sid):
                                 ('ROWBACKGROUNDS', (0,1), (-1,-1), [white, HexColor('#f6faf9')]), ('VALIGN', (0,0), (-1,-1), 'TOP')]))
         story.append(ot)
 
-    doc.build(story)
+    doc.build(story, onFirstPage=_imp_header_footer, onLaterPages=_imp_header_footer)
     buf.seek(0)
     fn = (st.get('reference') or ('implantation_%d' % sid)) + '.pdf'
     return Response(buf.getvalue(), mimetype='application/pdf',

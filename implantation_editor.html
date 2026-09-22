@@ -141,7 +141,7 @@
 </style>
 
 <div class="ud" id="udApp">
-  <svg id="impSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg id="impSvg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"></svg>
   <div id="wifiTip"></div>
 
   <!-- Barre supérieure -->
@@ -302,7 +302,7 @@ const PLAN_H = {{ study.plan_h or 700 }};
 const HAS_PLAN = {{ 'true' if study.has_plan else 'false' }};
 const STUDY_STATUS = {{ (study.status or 'Brouillon')|tojson }};
 const CURRENT_LEVEL = {{ current_level|tojson }};
-const PLAN_IMG = {{ plan_img_url|tojson }};
+let PLAN_IMG = {{ plan_img_url|tojson }};
 let S = {{ scene_json|safe }};
 if(!S || typeof S !== 'object') S = {};
 S.systems = S.systems || [
@@ -321,9 +321,9 @@ if(!S.iconScale || S.iconScale < 1) S.iconScale = 2.6;   // v182 : taille des ic
 
 /* ===================== ICÔNES SVG ===================== */
 const ICONS = {
-  cam_dome:  (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="0" r="6" fill="none" stroke="#0b0d11" stroke-width="1" opacity="0.55"/><line x1="9" y1="0" x2="12.5" y2="0" stroke="#0b0d11" stroke-width="1.8"/><circle cx="4" cy="0" r="2.8" fill="#0b0d11"/><circle cx="4" cy="0" r="1" fill="#fff"/>`,
-  cam_bullet:(c)=>`<rect x="-9" y="-5" width="12" height="10" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="6" cy="0" r="3.4" fill="#0b0d11"/><rect x="-5" y="-9" width="6" height="3" rx="1" fill="${c}"/>`,
-  cam_ptz:   (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><path d="M 8 -4 L 14 0 L 8 4 Z" fill="${c}" stroke="#0b0d11" stroke-width="1" stroke-linejoin="round"/><circle cx="3.5" cy="0" r="3.2" fill="#0b0d11"/><circle cx="3.5" cy="0" r="1.1" fill="#fff"/>`,
+  cam_dome:  (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.4"/><circle cx="0" cy="0" r="6.4" fill="#0b0d11" opacity="0.18"/><circle cx="3.4" cy="0" r="3.3" fill="#0b0d11"/><circle cx="3.4" cy="0" r="1.7" fill="#2b2f36"/><circle cx="4.4" cy="-1" r="1" fill="#fff" opacity="0.9"/>`,
+  cam_bullet:(c)=>`<rect x="-9" y="-5" width="12" height="10" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="6" cy="0" r="3.4" fill="#0b0d11"/><circle cx="6.8" cy="-1" r="1" fill="#fff" opacity="0.85"/><rect x="-5" y="-9" width="6" height="3" rx="1" fill="${c}"/>`,
+  cam_ptz:   (c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.4"/><circle cx="0" cy="0" r="6.4" fill="#0b0d11" opacity="0.18"/><circle cx="3.2" cy="0" r="3" fill="#0b0d11"/><circle cx="4" cy="-0.9" r="0.9" fill="#fff" opacity="0.9"/><path d="M -4.5 -5 A 6.8 6.8 0 0 1 4.5 -5" fill="none" stroke="#fff" stroke-width="1.1" opacity="0.75"/>`,
   cam_fisheye:(c)=>`<circle cx="0" cy="0" r="9" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="0" cy="0" r="5.5" fill="none" stroke="#0b0d11" stroke-width="1.2"/><circle cx="0" cy="0" r="2" fill="#0b0d11"/>`,
   cam_thermal:(c)=>`<rect x="-9" y="-6" width="12" height="12" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="6.5" cy="0" r="3.4" fill="#0b0d11"/><path d="M -6 3 q 2 -4 4 0" fill="none" stroke="#0b0d11" stroke-width="1.3"/>`,
   camera:    (c)=>`<rect x="-9" y="-6" width="12" height="12" rx="2" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/><circle cx="6.5" cy="0" r="3.6" fill="#0b0d11"/>`,
@@ -544,7 +544,7 @@ function doriBandPath(o,dir,hfovDeg,ri,ro,col){
   return '<path d="M '+ox1+' '+oy1+' A '+ro+' '+ro+' 0 '+large+' 1 '+ox2+' '+oy2+' L '+ix2+' '+iy2+' A '+ri+' '+ri+' 0 '+large+' 0 '+ix1+' '+iy1+' Z" fill="'+col+'66" stroke="'+col+'" stroke-width="1"/>';
 }
 function renderObjects(){
-  let bg = HAS_PLAN ? '<image href="'+PLAN_IMG+'" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
+  let bg = HAS_PLAN ? '<image href="'+PLAN_IMG+'" xlink:href="'+PLAN_IMG+'" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
   let cover='', dori='', wifi='', wifiDefs='', liaisons='', marks='';
   const ICON_SC = (S.iconScale && S.iconScale>=1) ? S.iconScale : 2.6;   // v182 : taille des icônes
   const realPpm=S.scale.px_per_m;   // réel (labels de longueur)
@@ -976,6 +976,13 @@ document.getElementById('btnPublish').onclick=()=>{ const label=prompt('Nom de l
 /* init */
 renderSystems(); renderPalette();
 if(HAS_PLAN){ renderObjects(); renderProps(); updateScaleBar(); pushHist(); }
+// v183 : charger le plan UNE seule fois en mémoire (blob) pour éviter qu'il se recharge
+// — et clignote en image cassée « ? » — à chaque rendu (rotation, déplacement, sélection…).
+if(HAS_PLAN && PLAN_IMG && PLAN_IMG.indexOf('data:')!==0){
+  fetch(PLAN_IMG, {cache:'force-cache'}).then(function(r){ if(!r.ok) throw 0; return r.blob(); })
+    .then(function(b){ try{ PLAN_IMG = URL.createObjectURL(b); renderObjects(); }catch(e){} })
+    .catch(function(){ /* on garde l'URL d'origine si le préchargement échoue */ });
+}
 window.addEventListener('resize',()=>{ setViewBox(); });
 </script>
 {% endblock %}
