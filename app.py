@@ -39424,46 +39424,51 @@ def _imp_icon_family(typ):
         return 'network'
     return 'default'
 
-def _imp_draw_icon(d, typ, x, y, col, rot=0):
-    """Dessine une icône d'équipement type-spécifique avec PIL (miroir des icônes de l'éditeur)."""
+def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0):
+    """Dessine une icône d'équipement type-spécifique avec PIL (miroir des icônes de l'éditeur).
+    v182 : sc = facteur d'agrandissement (par défaut 1.0) pour rendre les équipements plus visibles."""
     import math
     typ = _imp_icon_family(typ)
     W = (255, 255, 255, 255)
     C = col + (255,)
-    def rp(px, py):  # rotation autour de (x,y)
+    lw = max(2, int(round(2 * sc)))
+    def s(v): return v * sc                      # offset mis à l'échelle
+    def bx(a, b, c, e): return [x+s(a), y+s(b), x+s(c), y+s(e)]
+    def rp(px, py):  # rotation autour de (x,y), offsets mis à l'échelle
         a = math.radians(rot)
-        return (x + (px)*math.cos(a) - (py)*math.sin(a), y + (px)*math.sin(a) + (py)*math.cos(a))
+        px, py = s(px), s(py)
+        return (x + px*math.cos(a) - py*math.sin(a), y + px*math.sin(a) + py*math.cos(a))
     if typ in ('wifi',):
-        d.ellipse([x-3, y+3, x+3, y+9], fill=C)
+        d.ellipse(bx(-3, 3, 3, 9), fill=C)
         for rr in (7, 11):
-            d.arc([x-rr, y-rr+4, x+rr, y+rr+4], 200, 340, fill=C, width=2)
+            d.arc(bx(-rr, -rr+4, rr, rr+4), 200, 340, fill=C, width=lw)
     elif typ in ('camera', 'cam_dome', 'cam_bullet'):
         pts = [rp(-8, -6), rp(4, -6), rp(4, 6), rp(-8, 6)]
         d.polygon(pts, fill=C, outline=W)
         lx, ly = rp(7, 0)
-        d.ellipse([lx-3, ly-3, lx+3, ly+3], fill=W, outline=C)
+        d.ellipse([lx-s(3), ly-s(3), lx+s(3), ly+s(3)], fill=W, outline=C)
     elif typ in ('reader', 'access', 'door'):
-        d.rounded_rectangle([x-6, y-9, x+6, y+9], radius=3, fill=C, outline=W, width=2)
-        d.ellipse([x-2, y-5, x+2, y-1], fill=W)
-        d.rectangle([x-3, y+2, x+3, y+4], fill=W)
+        d.rounded_rectangle(bx(-6, -9, 6, 9), radius=max(2, int(s(3))), fill=C, outline=W, width=lw)
+        d.ellipse(bx(-2, -5, 2, -1), fill=W)
+        d.rectangle(bx(-3, 2, 3, 4), fill=W)
     elif typ in ('motion', 'intrusion'):
-        d.ellipse([x-9, y-9, x+9, y+9], fill=C, outline=W, width=2)
-        d.rectangle([x-4, y-3, x+4, y+3], fill=W)
+        d.ellipse(bx(-9, -9, 9, 9), fill=C, outline=W, width=lw)
+        d.rectangle(bx(-4, -3, 4, 3), fill=W)
     elif typ in ('smoke', 'incendie', 'detector'):
-        d.ellipse([x-9, y-9, x+9, y+9], fill=C, outline=W, width=2)
-        d.ellipse([x-3, y-3, x+3, y+3], fill=W)
+        d.ellipse(bx(-9, -9, 9, 9), fill=C, outline=W, width=lw)
+        d.ellipse(bx(-3, -3, 3, 3), fill=W)
     elif typ in ('speaker', 'sono'):
-        d.rectangle([x-7, y-4, x-2, y+4], fill=C, outline=W)
-        d.polygon([(x-2, y-4), (x+7, y-9), (x+7, y+9), (x-2, y+4)], fill=C, outline=W)
+        d.rectangle(bx(-7, -4, -2, 4), fill=C, outline=W)
+        d.polygon([(x-s(2), y-s(4)), (x+s(7), y-s(9)), (x+s(7), y+s(9)), (x-s(2), y+s(4))], fill=C, outline=W)
     elif typ in ('siren',):
-        d.polygon([(x, y-9), (x-8, y+7), (x+8, y+7)], fill=C, outline=W)
-        d.ellipse([x-2, y-1, x+2, y+3], fill=W)
+        d.polygon([(x, y-s(9)), (x-s(8), y+s(7)), (x+s(8), y+s(7))], fill=C, outline=W)
+        d.ellipse(bx(-2, -1, 2, 3), fill=W)
     elif typ in ('network', 'reseau', 'switch', 'socket'):
-        d.rounded_rectangle([x-9, y-6, x+9, y+6], radius=2, fill=C, outline=W, width=2)
+        d.rounded_rectangle(bx(-9, -6, 9, 6), radius=max(1, int(s(2))), fill=C, outline=W, width=lw)
         for i in (-5, 0, 5):
-            d.rectangle([x+i-1, y+1, x+i+1, y+4], fill=W)
+            d.rectangle([x+s(i)-s(1), y+s(1), x+s(i)+s(1), y+s(4)], fill=W)
     else:
-        d.ellipse([x-8, y-8, x+8, y+8], fill=C, outline=W, width=2)
+        d.ellipse(bx(-8, -8, 8, 8), fill=C, outline=W, width=lw)
 
 _IMP_SENSOR_W = {'1/4"': 3.6, '1/3.6"': 4.0, '1/3"': 4.8, '1/2.9"': 4.96, '1/2.8"': 5.37,
                  '1/2.7"': 5.37, '1/2.5"': 5.76, '1/2.3"': 6.17, '1/2"': 6.4, '1/1.8"': 7.18,
@@ -39514,6 +39519,12 @@ def _imp_render_scene(base_im, scene, only_system=None, overlays=False):
             return o.get('system') == only_system
         return sysmap.get(o.get('system'), {}).get('visible', True)
     fam = _imp_icon_family
+    # v182 : facteur d'agrandissement des icônes (repris de l'éditeur, borné)
+    try:
+        _icsc = float(scene.get('iconScale') or 2.6)
+    except Exception:
+        _icsc = 2.6
+    icon_sc = max(1.4, min(3.2, _icsc * 0.8))
     # 0) overlays de simulation (sous les zones classiques)
     if overlays and ppm:
         for o in scene.get('objects', []):
@@ -39570,9 +39581,11 @@ def _imp_render_scene(base_im, scene, only_system=None, overlays=False):
         col = _imp_hex(sysd.get('color'))
         x, y = float(o.get('x', 0)), float(o.get('y', 0))
         typ = o.get('type') or sysd.get('icon') or 'default'
-        _imp_draw_icon(d, typ, x, y, col, float(o.get('orientation', 0)))
+        _imp_draw_icon(d, typ, x, y, col, float(o.get('orientation', 0)), sc=icon_sc)
         if o.get('ref'):
-            d.text((x+12, y-16), str(o.get('ref')), fill=(20, 20, 20, 255))
+            _rf = _imp_font(int(round(11 * icon_sc / 1.6)), bold=True)
+            d.text((x + 11*icon_sc, y - 12*icon_sc), str(o.get('ref')),
+                   fill=(20, 20, 20, 255), font=_rf)
     return im
 
 # ---- Fonte robuste (DejaVu -> Liberation -> défaut PIL) ----
@@ -39899,6 +39912,9 @@ def implantation_pdf(sid):
     for lv in levels:
         objects.extend(lv['scene'].get('objects', []))
     agg_scene = {'systems': systems, 'objects': objects, 'scale': scene.get('scale', {})}
+    # v182 : ne garder que les systèmes réellement utilisés (au moins un équipement placé)
+    _used_ids = set(o.get('system') for o in objects if o.get('kind') != 'liaison')
+    used_systems = [s for s in systems if s.get('id') in _used_ids]
 
     buf = _io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm, topMargin=14*mm, bottomMargin=12*mm)
@@ -39934,11 +39950,11 @@ def implantation_pdf(sid):
     story.append(mt)
     story.append(PageBreak())
 
-    # 2. Légende
+    # 2. Légende — uniquement les systèmes choisis (utilisés)
     story.append(Paragraph("Légende des systèmes", h2))
-    if systems:
+    if used_systems:
         leg = [[Paragraph('Système', cellh), Paragraph('Représentation', cellh), Paragraph('Équipements', cellh)]]
-        for s in systems:
+        for s in used_systems:
             n = len([o for o in objects if o.get('system') == s['id']])
             leg.append([Paragraph(s.get('name', ''), small),
                         Paragraph('● ' + (s.get('color') or ''), ParagraphStyle('lc', fontSize=8, textColor=HexColor(s.get('color') or '#1A7A6D'))),
@@ -40014,7 +40030,7 @@ def implantation_pdf(sid):
     statuts = {}
     for o in objects:
         statuts[o.get('statut', 'Proposé')] = statuts.get(o.get('statut', 'Proposé'), 0) + 1
-    syn = [['Équipements implantés', str(len(objects))], ['Systèmes', str(len(systems))],
+    syn = [['Équipements implantés', str(len(objects))], ['Systèmes', str(len(used_systems))],
            ['Échelle', ('%.1f px/m' % scene.get('scale', {}).get('px_per_m')) if scene.get('scale', {}).get('px_per_m') else 'non calibrée']]
     for k, v in statuts.items():
         syn.append(['— dont « %s »' % k, str(v)])
@@ -40075,11 +40091,8 @@ def _imp_run_controls(st, scene):
     inc = [o for o in equips if (o.get('statut') or 'Proposé') in ('Proposé', 'À valider', 'À modifier')]
     if inc:
         alerts.append({'level': 'info', 'msg': "%d équipement(s) non encore validé(s) (statut Proposé / À valider / À modifier)." % len(inc)})
-    # systèmes vides
-    used = set(o.get('system') for o in equips)
-    empty = [s for s in systems if s['id'] not in used]
-    for s in empty:
-        alerts.append({'level': 'info', 'msg': "Le système « %s » ne contient aucun équipement." % s.get('name', '')})
+    # v182 : les systèmes non utilisés ne figurent plus dans le rapport (seuls les systèmes
+    # choisis apparaissent) — on ne génère donc plus d'observation « système vide ».
     # liaisons dégénérées
     badl = [o for o in liaisons if float(o.get('x', 0)) == float(o.get('x2', 0)) and float(o.get('y', 0)) == float(o.get('y2', 0))]
     if badl:

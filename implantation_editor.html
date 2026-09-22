@@ -244,6 +244,9 @@
     <div class="t tool" data-tool="liaison" title="Liaison / câblage">🔌</div>
     <div class="t" id="btnCalibrate" title="Calibrer l'échelle">📏</div>
     <div class="sep"></div>
+    <div class="t" id="btnIconMinus" title="Réduire la taille des équipements" style="font-weight:700">🔎−</div>
+    <div class="t" id="btnIconPlus" title="Agrandir la taille des équipements" style="font-weight:700">🔎+</div>
+    <div class="sep"></div>
     <div class="t" id="btnCamSim" title="Simulation de caméra">🎥</div>
     <div class="t" id="btnWifiSim" title="Expérience client WiFi">📶</div>
     <div class="sep"></div>
@@ -314,6 +317,7 @@ S.systems = S.systems || [
 S.objects = S.objects || [];
 S.scale = S.scale || {px_per_m:null};
 S.env = S.env || {lux:10000, noise:35};
+if(!S.iconScale || S.iconScale < 1) S.iconScale = 2.6;   // v182 : taille des icônes équipements (ajustable)
 
 /* ===================== ICÔNES SVG ===================== */
 const ICONS = {
@@ -542,6 +546,7 @@ function doriBandPath(o,dir,hfovDeg,ri,ro,col){
 function renderObjects(){
   let bg = HAS_PLAN ? '<image href="'+PLAN_IMG+'" x="0" y="0" width="'+PLAN_W+'" height="'+PLAN_H+'" preserveAspectRatio="none"/>' : '';
   let cover='', dori='', wifi='', wifiDefs='', liaisons='', marks='';
+  const ICON_SC = (S.iconScale && S.iconScale>=1) ? S.iconScale : 2.6;   // v182 : taille des icônes
   const realPpm=S.scale.px_per_m;   // réel (labels de longueur)
   const ppm=effPpm();               // effectif (couvertures / DORI / wifi)
   if(showWifi){
@@ -577,9 +582,9 @@ function renderObjects(){
     } else { cover+=coverPath(o); }
     const sel=(o.id===selId); const typ=o.type||sys.icon||'default';
     marks+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
-      +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="26" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/>':'')
-      +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+') scale('+(o.iconScale||1.9)+')">'+iconSvg(typ,sys.color)+'</g>'
-      +'<text x="'+(o.x+22)+'" y="'+(o.y-19)+'" font-size="14" font-weight="600" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3.5px">'+(o.ref||'')+'</text></g>';
+      +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="'+(14*ICON_SC)+'" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/>':'')
+      +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+') scale('+(o.iconScale||ICON_SC)+')">'+iconSvg(typ,sys.color)+'</g>'
+      +'<text x="'+(o.x+11*ICON_SC)+'" y="'+(o.y-10*ICON_SC)+'" font-size="'+(7+3*ICON_SC)+'" font-weight="600" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3.5px">'+(o.ref||'')+'</text></g>';
   });
   // poignée de rotation + marqueur cible (objet sélectionné)
   let handleLayer='';
@@ -894,7 +899,16 @@ if(HAS_PLAN){
   document.getElementById('zoomOut').onclick=()=>{ view.w*=1.18; view.h*=1.18; setViewBox(); };
   const fitFn=()=>{ view={x:0,y:0,w:PLAN_W,h:PLAN_H}; setViewBox(); };
   document.getElementById('zoomFit').onclick=fitFn; document.getElementById('railFit').onclick=fitFn;
-  document.getElementById('btnCalibrate').onclick=(e)=>{ calib.on=!calib.on; calib.pts=[]; e.currentTarget.classList.toggle('active',calib.on); if(calib.on) alert('Cliquez 2 points de distance connue sur le plan.'); renderObjects(); };
+  document.getElementById('btnCalibrate').onclick=(e)=>{ calib.on=!calib.on; calib.pts=[]; e.currentTarget.classList.toggle('active',calib.on); if(calib.on) alert("📏 Calibrage de l'échelle :\n\n1. Repérez sur le plan deux points dont vous connaissez la distance réelle (ex. une porte de 0,90 m, un mur coté).\n2. Cliquez le 1er point, puis le 2e point.\n3. Saisissez la distance réelle en mètres.\n\nLes portées et longueurs de câble seront alors à l'échelle."); renderObjects(); };
+  // v182 : réglage de la taille des icônes d'équipement (persisté avec la scène)
+  function _bumpIcon(delta){
+    var v = (S.iconScale && S.iconScale>=1) ? S.iconScale : 2.6;
+    v = Math.max(1.2, Math.min(5, Math.round((v+delta)*10)/10));
+    S.iconScale = v; renderObjects();
+    try{ if(window.pushHist) pushHist(); }catch(e){}
+  }
+  var _bi = document.getElementById('btnIconMinus'); if(_bi) _bi.onclick=()=>_bumpIcon(-0.3);
+  var _bp = document.getElementById('btnIconPlus');  if(_bp) _bp.onclick=()=>_bumpIcon(+0.3);
 }
 document.getElementById('btnUndo').onclick=undo;
 document.getElementById('btnRedo').onclick=redo;
