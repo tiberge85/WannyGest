@@ -39431,24 +39431,25 @@ def _imp_cam_tile(raw, col, sc):
     C = tuple(col) + (255,)
     W = (255, 255, 255, 255)
     def s(v): return v * sc
-    S = max(28, int(round(34 * sc)))
+    S = max(32, int(round(40 * sc)))
     tile = _I.new('RGBA', (S, S), (0, 0, 0, 0))
     td = _ID.Draw(tile)
     cx = cy = S / 2.0
+    lw1 = max(1, int(round(1.5 * sc)))
     if raw == 'cam_dome':
-        td.rounded_rectangle([cx-s(10.5), cy-s(11), cx+s(10.5), cy-s(6.4)], radius=s(2.3), fill=C)
-        td.pieslice([cx-s(9), cy-s(14.4), cx+s(9), cy+s(3.6)], 0, 180, fill=C)
-        td.rounded_rectangle([cx-s(2.8), cy-s(3.6), cx+s(2.8), cy+s(5.4)], radius=s(2.8),
-                             outline=W, width=max(1, int(round(1.4 * sc))))
-        td.ellipse([cx-s(2), cy+s(0.6), cx+s(2), cy+s(4.6)], fill=W)
-        td.ellipse([cx+s(0.6)-s(0.9), cy+s(2.1)-s(0.9), cx+s(0.6)+s(0.9), cy+s(2.1)+s(0.9)], fill=C)
-    else:  # cam_bullet
-        td.rounded_rectangle([cx-s(10.5), cy+s(3), cx-s(7.5), cy+s(10.5)], radius=s(1), fill=C)
-        td.polygon([(cx-s(9), cy-s(5.5)), (cx+s(6), cy-s(7.5)), (cx+s(6.5), cy-s(4.2)), (cx-s(8.5), cy-s(2.2))], fill=C)
-        td.rounded_rectangle([cx-s(8.5), cy-s(4.8), cx+s(5.5), cy+s(4.4)], radius=s(3), fill=C)
-        td.ellipse([cx+s(6.3)-s(4.3), cy-s(4.3), cx+s(6.3)+s(4.3), cy+s(4.3)], fill=C, outline=W, width=max(1, int(round(1.2 * sc))))
-        td.ellipse([cx+s(6.3)-s(2), cy-s(2), cx+s(6.3)+s(2), cy+s(2)], fill=W)
-        td.ellipse([cx+s(7)-s(0.85), cy-s(0.6)-s(0.85), cx+s(7)+s(0.85), cy-s(0.6)+s(0.85)], fill=C)
+        td.rounded_rectangle([cx-s(11), cy-s(12), cx+s(11), cy-s(7)], radius=s(2.5), fill=C)
+        td.pieslice([cx-s(10), cy-s(16.5), cx+s(10), cy+s(3.5)], 0, 180, fill=C)   # dôme bulge bas
+        td.rounded_rectangle([cx-s(3), cy-s(4), cx+s(3), cy+s(6)], radius=s(3), outline=W, width=lw1)
+        r = s(2.3)
+        td.ellipse([cx-r, cy+s(2.5)-r, cx+r, cy+s(2.5)+r], outline=W, width=max(1, int(round(1.2*sc))))
+        td.ellipse([cx+s(0.7)-s(1), cy+s(3)-s(1), cx+s(0.7)+s(1), cy+s(3)+s(1)], fill=W)
+    else:  # cam_bullet (profil, objectif vers +x)
+        td.polygon([(cx-s(11), cy-s(3)), (cx-s(13.5), cy-s(5)), (cx-s(13.5), cy+s(4)), (cx-s(11), cy+s(3))], fill=C)
+        td.rounded_rectangle([cx-s(9), cy-s(5), cx+s(6), cy+s(5)], radius=s(4), fill=C)
+        td.polygon([(cx-s(8), cy-s(6.5)), (cx+s(6), cy-s(8)), (cx+s(7), cy-s(4.5)), (cx-s(7), cy-s(3))], fill=C)
+        td.ellipse([cx+s(6.5)-s(4.6), cy-s(4.6), cx+s(6.5)+s(4.6), cy+s(4.6)], fill=C, outline=W, width=max(1, int(round(1.4*sc))))
+        td.ellipse([cx+s(6.5)-s(2.4), cy-s(2.4), cx+s(6.5)+s(2.4), cy+s(2.4)], fill=W)
+        td.ellipse([cx+s(7.3)-s(1), cy-s(0.7)-s(1), cx+s(7.3)+s(1), cy-s(0.7)+s(1)], fill=C)
     return tile
 
 def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0, im=None):
