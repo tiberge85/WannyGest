@@ -353,6 +353,9 @@ const ICONS = {
   default:(c)=>`<circle cx="0" cy="0" r="8" fill="${c}" stroke="#0b0d11" stroke-width="1.5"/>`
 };
 function iconSvg(typ,c){ return (ICONS[typ]||ICONS.default)(c); }
+// v183 : angle (deg) vers lequel « regarde » l'icône dans son dessin de base (0 = droite/+x),
+// pour aligner l'icône sur la direction du cône de couverture.
+function iconAngleOffset(typ){ return (typ==='cam_dome') ? 90 : 0; }  // dôme : objectif en bas du dessin
 function famOf(t){
   if(!t) return 'other';
   if(t.indexOf('cam')===0||t==='camera') return 'camera';
@@ -583,7 +586,7 @@ function renderObjects(){
     const sel=(o.id===selId); const typ=o.type||sys.icon||'default';
     marks+='<g class="imp-obj" data-id="'+o.id+'" style="cursor:pointer">'
       +(sel?'<circle cx="'+o.x+'" cy="'+o.y+'" r="'+(14*ICON_SC)+'" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2"/>':'')
-      +'<g transform="translate('+o.x+' '+o.y+') rotate('+(o.orientation||0)+') scale('+(o.iconScale||ICON_SC)+')">'+iconSvg(typ,sys.color)+'</g>'
+      +'<g transform="translate('+o.x+' '+o.y+') rotate('+((o.orientation||0)-iconAngleOffset(typ))+') scale('+(o.iconScale||ICON_SC)+')">'+iconSvg(typ,sys.color)+'</g>'
       +'<text x="'+(o.x+11*ICON_SC)+'" y="'+(o.y-10*ICON_SC)+'" font-size="'+(7+3*ICON_SC)+'" font-weight="600" fill="#fff" style="paint-order:stroke;stroke:#0b0d11;stroke-width:3.5px">'+(o.ref||'')+'</text></g>';
   });
   // poignée de rotation + marqueur cible (objet sélectionné)

@@ -39472,7 +39472,10 @@ def _imp_draw_icon(d, typ, x, y, col, rot=0, sc=1.0, im=None):
         try:
             from PIL import Image as _I
             tile = _imp_cam_tile(raw, col, sc)
-            tile = tile.rotate(-rot, resample=_I.BICUBIC, expand=True)
+            # v183 : décalage d'angle pour aligner l'icône sur la direction du cône
+            #   (dôme : objectif en bas du dessin → +90° ; bullet : objectif à droite → 0°)
+            _off = 90 if raw == 'cam_dome' else 0
+            tile = tile.rotate(_off - rot, resample=_I.BICUBIC, expand=True)
             px = int(round(x - tile.width / 2.0)); py = int(round(y - tile.height / 2.0))
             im.paste(tile, (px, py), tile)
             return
