@@ -40705,18 +40705,28 @@ def mg_demande_edit(did):
         urgency = request.form.get('urgency', 'normale')
         date_d = request.form.get('date') or demande.get('date')
         fournisseur = (request.form.get('fournisseur', '') or '').strip()
+        # v183 : garder fournisseur_id (table suppliers) synchronisé avec le nom saisi
+        # → si le nom correspond à un fournisseur connu, on relie l'ID ; sinon on garde
+        #   juste le texte libre (ID remis à NULL) pour que l'affichage reste cohérent.
+        fid = None
+        if fournisseur:
+            try:
+                _fr = conn.execute("SELECT id FROM suppliers WHERE lower(nom)=lower(?) LIMIT 1", (fournisseur,)).fetchone()
+                fid = _fr['id'] if _fr else None
+            except Exception:
+                fid = None
 
         try:
             try:
                 conn.execute("""UPDATE achats_demandes SET
-                    description=?, department=?, urgency=?, date=?, fournisseur=?
-                    WHERE id=?""", (description, department, urgency, date_d, fournisseur, did))
+                    description=?, department=?, urgency=?, date=?, fournisseur=?, fournisseur_id=?
+                    WHERE id=?""", (description, department, urgency, date_d, fournisseur, fid, did))
             except Exception:
                 # repli si la colonne fournisseur n'existe pas encore
                 conn.execute("ALTER TABLE achats_demandes ADD COLUMN fournisseur TEXT")
                 conn.execute("""UPDATE achats_demandes SET
-                    description=?, department=?, urgency=?, date=?, fournisseur=?
-                    WHERE id=?""", (description, department, urgency, date_d, fournisseur, did))
+                    description=?, department=?, urgency=?, date=?, fournisseur=?, fournisseur_id=?
+                    WHERE id=?""", (description, department, urgency, date_d, fournisseur, fid, did))
             
             # Mise à jour des items
             # Supprimer tous les items existants
@@ -40926,18 +40936,22 @@ def compta_demandes_mg():
     # Toutes les demandes envoyées en compta (avec compta_status défini)
     if statut == 'all':
         rows = conn.execute("""SELECT d.*, u.username as requester_name, u.full_name as requester_full,
+            f.nom as fournisseur_name,
             COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items,
             COALESCE((SELECT SUM(quantity * COALESCE(estimated_price,0)) FROM achats_demande_items WHERE demande_id=d.id),0) as total_items
-            FROM achats_demandes d 
+            FROM achats_demandes d
             LEFT JOIN users u ON d.requested_by = u.id
+            LEFT JOIN suppliers f ON d.fournisseur_id = f.id
             WHERE d.compta_visible_at IS NOT NULL
             ORDER BY d.compta_visible_at DESC""").fetchall()
     else:
         rows = conn.execute("""SELECT d.*, u.username as requester_name, u.full_name as requester_full,
+            f.nom as fournisseur_name,
             COALESCE((SELECT COUNT(*) FROM achats_demande_items WHERE demande_id=d.id),0) as nb_items,
             COALESCE((SELECT SUM(quantity * COALESCE(estimated_price,0)) FROM achats_demande_items WHERE demande_id=d.id),0) as total_items
-            FROM achats_demandes d 
+            FROM achats_demandes d
             LEFT JOIN users u ON d.requested_by = u.id
+            LEFT JOIN suppliers f ON d.fournisseur_id = f.id
             WHERE d.compta_status=? AND d.compta_visible_at IS NOT NULL
             ORDER BY d.compta_visible_at DESC""", (statut,)).fetchall()
     demandes = [dict(r) for r in rows]
@@ -41058,6 +41072,12 @@ def compta_demande_mg_preview(did):
         flash("Demande introuvable", "error")
         return redirect('/comptabilite/demandes-mg')
     demande = dict(row)
+    # v183 : nom du fournisseur (table suppliers si relié, sinon texte libre)
+    if demande.get('fournisseur_id'):
+        try:
+            _fr = conn.execute("SELECT nom FROM suppliers WHERE id=?", (demande['fournisseur_id'],)).fetchone()
+            if _fr: demande['fournisseur_name'] = _fr['nom']
+        except Exception: pass
 
     # Récupérer les items
     items = [dict(r) for r in conn.execute("""SELECT * FROM achats_demande_items

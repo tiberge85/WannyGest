@@ -49,6 +49,7 @@
                     <tr><td style="padding:8px;color:#666">Date de demande</td><td style="padding:8px">{{ demande.date or '-' }}</td></tr>
                     <tr><td style="padding:8px;color:#666">Département</td><td style="padding:8px"><strong>{{ demande.department or '-' }}</strong></td></tr>
                     <tr><td style="padding:8px;color:#666">Demandeur initial</td><td style="padding:8px">{{ demande.requester_full or demande.requester_name or '-' }}</td></tr>
+                    <tr><td style="padding:8px;color:#666">🏬 Fournisseur</td><td style="padding:8px">{% if demande.fournisseur_name or demande.fournisseur %}<strong>{{ demande.fournisseur_name or demande.fournisseur }}</strong>{% else %}<span style="color:#999">— à définir</span>{% endif %}</td></tr>
                     <tr><td style="padding:8px;color:#666">Niveau d'urgence</td><td style="padding:8px">
                         {% set urg_color = {'normale':'#2e7d32','urgente':'#e8672a','tres_urgente':'#c53030'} %}
                         <span style="background:{{ urg_color.get(demande.urgency, '#888') }};color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700">{{ demande.urgency or 'normale' }}</span>

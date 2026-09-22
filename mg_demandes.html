@@ -38,7 +38,7 @@
 <td>{{ d.date or '-' }}</td>
 <td>{{ d.department or '-' }}</td>
 <td>{{ d.requester_name or '-' }}</td>
-<td>{{ d.fournisseur_name or '-' }}</td>
+<td>{{ d.fournisseur_name or d.fournisseur or '-' }}</td>
 <td>{{ d.site_name or '-' }}</td>
 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ d.description }}">{{ d.description|truncate(50) }}</td>
 <td>
