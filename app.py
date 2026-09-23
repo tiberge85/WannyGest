@@ -3903,7 +3903,10 @@ def get_user_pending_tasks(user_id, user_role=None):
     finally:
         conn.close()
     
-    total = sum(len(v) for v in result.values())
+    # v184b : les NOTIFICATIONS ne bloquent plus la clôture (ce sont des rappels, pas des tâches).
+    # Elles restent affichées à titre informatif ; le DG garde sa vérification dédiée
+    # « toutes les notifications lues » dans closure_submit.
+    total = sum(len(v) for k, v in result.items() if k != 'notifications')
     result['_total'] = total
     return result
 

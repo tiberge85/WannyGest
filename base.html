@@ -363,8 +363,8 @@
                     {% if 'proforma' in permissions or 'admin' in permissions %}<a href="/devis" class="{% if page == 'devis' %}active{% endif %}">Devis / Proformas</a>{% endif %}
                     {% if 'proforma' in permissions or 'admin' in permissions %}<a href="/devis/templates" class="{% if page == 'devis_tpl' %}active{% endif %}">Modèles de devis</a>{% endif %}
                     {% if 'contrats' in permissions or 'admin' in permissions %}<a href="/contrats" class="{% if page == 'contrats' %}active{% endif %}">Contrats</a>{% endif %}
-                    {# v184 : Implantation sur plan — permission dédiée « implantation » (attribuable dans Rôles & permissions).
-                       Affichée ici uniquement si l'utilisateur ne voit pas déjà la section Gestion de projets. #}
+                    {# v184b : Implantation sur plan — permission dédiée « implantation » (attribuable dans Rôles & permissions).
+                       Affichée dans CRM si l'utilisateur ne voit pas déjà la section Gestion de projets (évite le doublon). #}
                     {% if 'implantation' in permissions and not ('section_projets' in permissions or 'resp_projet' in permissions or 'admin' in permissions or user_role in ('gestionnaire_projet','coordinateur')) %}
                     <a href="/implantation" class="{% if page == 'implantation' %}active{% endif %}">🧭 Implantation sur plan</a>
                     {% endif %}
