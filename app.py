@@ -39172,7 +39172,7 @@ def _pdf_first_page_to_png(raw):
     return None
 
 @app.route('/implantation/<int:sid>/delete', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_delete(sid):
     _ensure_implantation_tables()
     c = _gdb()
@@ -39192,7 +39192,7 @@ def implantation_delete(sid):
     return redirect('/implantation')
 
 @app.route('/implantation')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_list():
     _ensure_implantation_tables()
     import json as _json
@@ -39210,7 +39210,7 @@ def implantation_list():
     return render_template('implantation_list.html', studies=rows)
 
 @app.route('/implantation/new', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_new():
     _ensure_implantation_tables()
     title = (request.form.get('title') or '').strip()
@@ -39237,7 +39237,7 @@ def _imp_levels_list(sid, conn):
     return lv
 
 @app.route('/implantation/<int:sid>')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_editor(sid):
     _ensure_implantation_tables()
     level = request.args.get('level') or 'base'
@@ -39290,7 +39290,7 @@ def _imp_process_plan(f):
         return None, "Image illisible : %s" % e, 0, 0
 
 @app.route('/implantation/<int:sid>/plan', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_plan_upload(sid):
     _ensure_implantation_tables()
     level = request.args.get('level') or 'base'
@@ -39315,7 +39315,7 @@ def implantation_plan_upload(sid):
     return redirect(f'/implantation/{sid}?level={level}')
 
 @app.route('/implantation/<int:sid>/level/new', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_level_new(sid):
     _ensure_implantation_tables()
     import json as _json
@@ -39341,7 +39341,7 @@ def implantation_level_new(sid):
     return redirect(f'/implantation/{sid}?level={pid}')
 
 @app.route('/implantation/<int:sid>/level/<int:pid>/rename', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_level_rename(sid, pid):
     name = (request.form.get('name') or '').strip()
     if name:
@@ -39349,14 +39349,14 @@ def implantation_level_rename(sid, pid):
     return redirect(f'/implantation/{sid}?level={pid}')
 
 @app.route('/implantation/<int:sid>/level/<int:pid>/delete', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_level_delete(sid, pid):
     c = _gdb(); c.execute("DELETE FROM implantation_plans WHERE id=? AND study_id=?", (pid, sid)); c.commit(); c.close()
     flash("Niveau supprimé.", "success")
     return redirect(f'/implantation/{sid}')
 
 @app.route('/implantation/<int:sid>/level/<int:pid>/img')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_level_img(sid, pid):
     c = _gdb()
     r = c.execute("SELECT plan_image, plan_mime FROM implantation_plans WHERE id=? AND study_id=?", (pid, sid)).fetchone()
@@ -39367,7 +39367,7 @@ def implantation_level_img(sid, pid):
                     headers={'Cache-Control': 'private, max-age=120'})
 
 @app.route('/implantation/<int:sid>/plan/img')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_plan_img(sid):
     c = _gdb()
     r = c.execute("SELECT plan_image, plan_mime FROM implantation_studies WHERE id=?", (sid,)).fetchone()
@@ -39378,7 +39378,7 @@ def implantation_plan_img(sid):
                     headers={'Cache-Control': 'private, max-age=120'})
 
 @app.route('/implantation/<int:sid>/save', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_save(sid):
     import json as _json
     try:
@@ -39830,7 +39830,7 @@ def _imp_agg_scene(sid):
     return (r['title'] or ''), {'systems': systems, 'objects': objects, 'scale': base.get('scale', {})}
 
 @app.route('/implantation/<int:sid>/topology.png')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_topology_png(sid):
     import io as _io
     title, scene = _imp_agg_scene(sid)
@@ -39841,7 +39841,7 @@ def implantation_topology_png(sid):
     return Response(b.getvalue(), mimetype='image/png', headers={'Cache-Control': 'no-store'})
 
 @app.route('/implantation/<int:sid>/rack.png')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_rack_png(sid):
     import io as _io
     title, scene = _imp_agg_scene(sid)
@@ -39852,7 +39852,7 @@ def implantation_rack_png(sid):
     return Response(b.getvalue(), mimetype='image/png', headers={'Cache-Control': 'no-store'})
 
 @app.route('/implantation/<int:sid>/views')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_views(sid):
     c = _gdb(); r = c.execute("SELECT id, title FROM implantation_studies WHERE id=?", (sid,)).fetchone(); c.close()
     if not r:
@@ -39860,7 +39860,7 @@ def implantation_views(sid):
     return render_template('implantation_views.html', study=dict(r))
 
 @app.route('/implantation/<int:sid>/systeme')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_systeme(sid):
     _ensure_implantation_tables()
     c = _gdb()
@@ -39872,7 +39872,7 @@ def implantation_systeme(sid):
                            builder_json=(r['builder_json'] or '{}'))
 
 @app.route('/implantation/<int:sid>/builder/save', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_builder_save(sid):
     import json as _json
     _ensure_implantation_tables()
@@ -39887,7 +39887,7 @@ def implantation_builder_save(sid):
         return jsonify({'ok': False, 'error': str(e)}), 200
 
 @app.route('/implantation/<int:sid>/scene.json')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_scene_json(sid):
     import json as _json
     lvl = request.args.get('level')
@@ -39922,7 +39922,7 @@ def implantation_scene_json(sid):
     return jsonify({'scene': scene})
 
 @app.route('/implantation/<int:sid>/pdf')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_pdf(sid):
     import json as _json, io as _io, os as _os
     from PIL import Image as _PImg
@@ -40203,7 +40203,7 @@ def _imp_run_controls(st, scene):
 
 
 @app.route('/implantation/<int:sid>/controls')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_controls(sid):
     import json as _json
     level = request.args.get('level') or 'base'
@@ -40225,7 +40225,7 @@ def implantation_controls(sid):
 
 
 @app.route('/implantation/<int:sid>/status', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_status(sid):
     status = (request.get_json(force=True, silent=True) or {}).get('status') or request.form.get('status')
     allowed = ['Brouillon', 'En étude', 'À valider', 'Validé', 'Publié']
@@ -40238,7 +40238,7 @@ def implantation_status(sid):
 
 
 @app.route('/implantation/<int:sid>/publish', methods=['POST'])
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_publish(sid):
     """Fige une version publiée (snapshot du scene_json) et passe le statut à Publié."""
     import json as _json
@@ -40257,7 +40257,7 @@ def implantation_publish(sid):
 
 
 @app.route('/implantation/<int:sid>/versions')
-@permission_required_any('projets', 'resp_projet', 'admin')
+@permission_required_any('projets', 'resp_projet', 'proforma', 'admin')
 def implantation_versions(sid):
     _ensure_implantation_tables()
     c = _gdb()
