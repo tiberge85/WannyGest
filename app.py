@@ -2067,6 +2067,23 @@ try:
 except Exception as _e:
     print(f"[v185-Perms] Erreur : {_e}", flush=True)
 
+# v186 : Montant déjà réglé (cumul) sur une demande MG → gestion des paiements partiels
+try:
+    from models import get_db as _v186db
+    _v186 = _v186db()
+    try: _v186.execute("ALTER TABLE achats_demandes ADD COLUMN tresorerie_paye REAL DEFAULT 0")
+    except Exception: pass
+    # Backfill : les demandes déjà débitées en totalité sont considérées soldées
+    try:
+        _v186.execute("""UPDATE achats_demandes
+            SET tresorerie_paye = COALESCE(NULLIF(tresorerie_paye,0), tresorerie_montant, 0)
+            WHERE COALESCE(tresorerie_debited,0)=1 AND COALESCE(tresorerie_paye,0)=0""")
+    except Exception: pass
+    _v186.commit(); _v186.close()
+    print("[v186-MG] Colonne tresorerie_paye OK", flush=True)
+except Exception as _e:
+    print(f"[v186-MG] Erreur : {_e}", flush=True)
+
 
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
@@ -41038,21 +41055,23 @@ def compta_demandes_mg():
             FROM achats_demandes d
             LEFT JOIN users u ON d.requested_by = u.id
             LEFT JOIN suppliers f ON d.fournisseur_id = f.id
-            WHERE d.compta_status=? AND d.compta_visible_at IS NOT NULL
-            ORDER BY d.compta_visible_at DESC""", (statut,)).fetchall()
+            WHERE d.compta_status IN (%s) AND d.compta_visible_at IS NOT NULL
+            ORDER BY d.compta_visible_at DESC""" % (
+                "'a_valider','partiel'" if statut == 'a_valider' else '?'),
+            () if statut == 'a_valider' else (statut,)).fetchall()
     demandes = [dict(r) for r in rows]
-    
-    # Stats globales
+
+    # Stats globales — v186 : les demandes « partiel » (réglées en partie) restent À VALIDER
     stats = {
-        'a_valider': conn.execute("SELECT COUNT(*) FROM achats_demandes WHERE compta_status='a_valider'").fetchone()[0],
+        'a_valider': conn.execute("SELECT COUNT(*) FROM achats_demandes WHERE compta_status IN ('a_valider','partiel')").fetchone()[0],
         'validee': conn.execute("SELECT COUNT(*) FROM achats_demandes WHERE compta_status='validee'").fetchone()[0],
         'refusee': conn.execute("SELECT COUNT(*) FROM achats_demandes WHERE compta_status='refusee'").fetchone()[0],
     }
     stats['total'] = stats['a_valider'] + stats['validee'] + stats['refusee']
-    
-    # Montant total estimé en attente
-    montant_attente = conn.execute("""SELECT COALESCE(SUM(compta_montant_estime), 0) 
-        FROM achats_demandes WHERE compta_status='a_valider'""").fetchone()[0]
+
+    # Montant total estimé en attente (inclut les demandes partiellement réglées)
+    montant_attente = conn.execute("""SELECT COALESCE(SUM(compta_montant_estime), 0)
+        FROM achats_demandes WHERE compta_status IN ('a_valider','partiel')""").fetchone()[0]
     
     conn.close()
     
@@ -41065,6 +41084,36 @@ def compta_demandes_mg():
     return render_template('compta_demandes_mg.html', page='compta_demandes_mg',
         demandes=demandes, current_statut=statut, stats=stats, montant_attente=montant_attente,
         solde_caisse=solde_caisse)
+
+
+def _all_wallets(conn):
+    """v186 : Retourne (caisses, banques) — TOUTES les caisses et TOUS les comptes bancaires actifs
+    (pas seulement ceux tagués « fournisseur »), pour le règlement d'une demande MG.
+    Solde caisse recalculé depuis caisse_operations (source partagée trésorerie/MG)."""
+    caisses = []
+    try:
+        caisses = [dict(r) for r in conn.execute("""
+            SELECT id, name, COALESCE(solde_initial,0) AS solde_initial, COALESCE(solde_actuel,0) AS solde_actuel
+            FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name""").fetchall()]
+        for c in caisses:
+            try:
+                e = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (c['id'],)).fetchone()[0] or 0
+                s = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (c['id'],)).fetchone()[0] or 0
+                ti = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+                to = conn.execute("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'", (c['id'],)).fetchone()[0] or 0
+                c['solde'] = float(c['solde_initial']) + float(e) + float(ti) - float(s) - float(to)
+            except Exception:
+                c['solde'] = float(c.get('solde_actuel', 0) or 0)
+    except Exception:
+        caisses = []
+    banques = []
+    try:
+        banques = [dict(r) for r in conn.execute("""
+            SELECT id, nom, banque, numero_compte, COALESCE(solde_actuel,0) AS solde
+            FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom""").fetchall()]
+    except Exception:
+        banques = []
+    return caisses, banques
 
 
 def _fournisseur_wallets(conn):
@@ -41170,8 +41219,14 @@ def compta_demande_mg_preview(did):
         WHERE demande_id=? ORDER BY id""", (did,)).fetchall()]
     total_items = sum((it.get('quantity') or 0) * (it.get('estimated_price') or 0) for it in items)
 
-    # v160 : portefeuilles fournisseur sélectionnables pour le débit à la validation
-    caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
+    # v186 : TOUTES les caisses et TOUS les comptes bancaires sélectionnables pour le règlement
+    caisses_fourn, banques_fourn = _all_wallets(conn)
+    # v186 : montant déjà réglé / restant (paiements partiels)
+    _tot = float(demande.get('compta_montant_estime') or 0) or float(total_items or 0)
+    _paye = float(demande.get('tresorerie_paye') or 0)
+    demande['montant_total'] = _tot
+    demande['montant_paye'] = _paye
+    demande['montant_restant'] = max(0.0, _tot - _paye)
 
     conn.close()
 
@@ -41211,7 +41266,8 @@ def compta_demande_mg_decision(did):
     try:
         conn = _gdb()
         row = conn.execute("""SELECT id, reference, requested_by, compta_montant_estime, department,
-            COALESCE(tresorerie_debited,0) AS tresorerie_debited
+            COALESCE(tresorerie_debited,0) AS tresorerie_debited,
+            COALESCE(tresorerie_paye,0) AS tresorerie_paye
             FROM achats_demandes WHERE id=?""", (did,)).fetchone()
         if not row:
             conn.close()
@@ -41228,86 +41284,89 @@ def compta_demande_mg_decision(did):
                     (did,)).fetchone()[0] or 0)
             except: montant = 0
 
-        # v160 : si validation → exiger et débiter un portefeuille fournisseur
+        # v186 : règlement TOTAL ou PARTIEL sur TOUTES les caisses/banques.
+        #  - « validée » UNIQUEMENT si la demande est ENTIÈREMENT réglée.
+        #  - un règlement partiel laisse la demande en statut « partiel » (réouvrable : on peut
+        #    payer le reste plus tard) ; on ne crée plus de dossier de crédit automatique.
         debit_msg = ""
+        final_status = action           # peut devenir 'partiel'
         if action == 'validee':
-            already_debited = int(row.get('tresorerie_debited') or 0) == 1
-            if not already_debited:
-                caisses_fourn, banques_fourn = _fournisseur_wallets(conn)
-                # v170p : caisse/banque -> paiement TOTAL ou PARTIEL. Si partiel, on décaisse le
-                # montant partiel et le RESTE devient une dette suivie (dossier de crédit fournisseur).
+            already_paye = float(row.get('tresorerie_paye') or 0)
+            remaining = round(montant - already_paye, 2)
+            if remaining <= 0.5:
+                final_status = 'validee'   # déjà soldée
+            else:
+                caisses_all, banques_all = _all_wallets(conn)
                 _pay_mode = (request.form.get('paiement_mode', 'total') or 'total').strip()
                 def _npm(v):
                     try: return float(str(v).replace('\xa0', '').replace(' ', '').replace(',', '.') or 0)
                     except Exception: return 0.0
-                pay_amount = montant
-                is_partiel = False
                 if _pay_mode == 'partiel' and tresorerie_type in ('caisse', 'banque'):
                     pay_amount = _npm(request.form.get('montant_partiel'))
-                    if pay_amount <= 0 or pay_amount > montant:
+                    if pay_amount <= 0 or pay_amount > remaining + 0.5:
                         conn.close()
-                        flash("⚠️ Montant partiel invalide (doit être supérieur à 0 et ≤ au total).", "error")
+                        flash("⚠️ Montant partiel invalide (doit être supérieur à 0 et ≤ au montant restant %.0f F)." % remaining, "error")
                         return redirect(f'/comptabilite/demandes-mg/{did}/preview')
-                    is_partiel = pay_amount < montant
+                else:
+                    pay_amount = remaining
                 if tresorerie_type == 'caisse':
                     cid = request.form.get('tresorerie_caisse_id', '')
                     cid = int(cid) if str(cid).isdigit() else 0
-                    target = next((c for c in caisses_fourn if c['id'] == cid), None)
+                    target = next((c for c in caisses_all if c['id'] == cid), None)
                     if not target:
                         conn.close()
-                        flash("⚠️ Sélectionnez une caisse fournisseur valide à débiter.", "error")
+                        flash("⚠️ Sélectionnez une caisse valide à débiter.", "error")
                         return redirect(f'/comptabilite/demandes-mg/{did}/preview')
-                    if pay_amount > 0:
-                        # v160 : décaissement dans caisse_operations (source partagée trésorerie/MG)
-                        conn.execute("""INSERT INTO caisse_operations
-                            (caisse_id, type, amount, description, reference, category, created_by, created_at)
-                            VALUES (?, 'sortie', ?, ?, ?, 'fournisseur', ?, datetime('now'))""",
-                            (cid, pay_amount, f"Demande MG {row['reference']}", row['reference'], session.get('user_id')))
-                        conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
-                                     (pay_amount, cid))
-                        debit_msg = f" — {pay_amount:,.0f} XOF débités de la caisse « {target['name']} »"
+                    conn.execute("""INSERT INTO caisse_operations
+                        (caisse_id, type, amount, description, reference, category, created_by, created_at)
+                        VALUES (?, 'sortie', ?, ?, ?, 'fournisseur', ?, datetime('now'))""",
+                        (cid, pay_amount, f"Demande MG {row['reference']}", row['reference'], session.get('user_id')))
+                    conn.execute("UPDATE caisses SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
+                                 (pay_amount, cid))
+                    new_paye = already_paye + pay_amount
+                    fully = new_paye >= montant - 0.5
                     conn.execute("""UPDATE achats_demandes SET tresorerie_type='caisse',
-                        tresorerie_caisse_id=?, tresorerie_banque_id=NULL, tresorerie_montant=?,
-                        tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
-                        (cid, pay_amount, did))
-                    if is_partiel:
-                        _nc = _mg_credit_create_from_demande(conn, did, montant, request.form, user,
-                            paye_initial=pay_amount, pay_mode='caisse', caisse_id=cid)
-                        debit_msg += f" — reste {montant-pay_amount:,.0f} F suivi en crédit ({_nc})"
+                        tresorerie_caisse_id=?, tresorerie_banque_id=NULL, tresorerie_montant=?, tresorerie_paye=?,
+                        tresorerie_debited=?, tresorerie_debited_at=datetime('now') WHERE id=?""",
+                        (cid, new_paye, new_paye, 1 if fully else 0, did))
+                    debit_msg = f" — {pay_amount:,.0f} XOF débités de la caisse « {target['name']} »"
+                    if not fully:
+                        final_status = 'partiel'
+                        debit_msg += f" — reste à payer {montant-new_paye:,.0f} F"
                 elif tresorerie_type == 'banque':
                     bid = request.form.get('tresorerie_banque_id', '')
                     bid = int(bid) if str(bid).isdigit() else 0
-                    target = next((b for b in banques_fourn if b['id'] == bid), None)
+                    target = next((b for b in banques_all if b['id'] == bid), None)
                     if not target:
                         conn.close()
-                        flash("⚠️ Sélectionnez un compte bancaire fournisseur valide à débiter.", "error")
+                        flash("⚠️ Sélectionnez un compte bancaire valide à débiter.", "error")
                         return redirect(f'/comptabilite/demandes-mg/{did}/preview')
-                    if pay_amount > 0:
-                        conn.execute("UPDATE tresorerie_comptes_bancaires SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
-                                     (pay_amount, bid))
-                        try:
-                            conn.execute("""INSERT INTO tresorerie_mouvements
-                                (type, sens, source, source_id, date, montant, libelle, reference, banque_id, created_by)
-                                VALUES ('decaissement','sortie','demande_mg',?,?,?,?,?,?,?)""",
-                                (did, datetime.now().strftime('%Y-%m-%d'), pay_amount,
-                                 f"Demande MG {row['reference']}", row['reference'], bid, session.get('user_id')))
-                        except: pass
-                        debit_msg = f" — {pay_amount:,.0f} XOF débités du compte « {target['nom']} »"
+                    conn.execute("UPDATE tresorerie_comptes_bancaires SET solde_actuel = COALESCE(solde_actuel,0) - ? WHERE id=?",
+                                 (pay_amount, bid))
+                    try:
+                        conn.execute("""INSERT INTO tresorerie_mouvements
+                            (type, sens, source, source_id, date, montant, libelle, reference, banque_id, created_by)
+                            VALUES ('decaissement','sortie','demande_mg',?,?,?,?,?,?,?)""",
+                            (did, datetime.now().strftime('%Y-%m-%d'), pay_amount,
+                             f"Demande MG {row['reference']}", row['reference'], bid, session.get('user_id')))
+                    except: pass
+                    new_paye = already_paye + pay_amount
+                    fully = new_paye >= montant - 0.5
                     conn.execute("""UPDATE achats_demandes SET tresorerie_type='banque',
-                        tresorerie_banque_id=?, tresorerie_caisse_id=NULL, tresorerie_montant=?,
-                        tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
-                        (bid, pay_amount, did))
-                    if is_partiel:
-                        _nc = _mg_credit_create_from_demande(conn, did, montant, request.form, user,
-                            paye_initial=pay_amount, pay_mode='banque', banque_id=bid)
-                        debit_msg += f" — reste {montant-pay_amount:,.0f} F suivi en crédit ({_nc})"
+                        tresorerie_banque_id=?, tresorerie_caisse_id=NULL, tresorerie_montant=?, tresorerie_paye=?,
+                        tresorerie_debited=?, tresorerie_debited_at=datetime('now') WHERE id=?""",
+                        (bid, new_paye, new_paye, 1 if fully else 0, did))
+                    debit_msg = f" — {pay_amount:,.0f} XOF débités du compte « {target['nom']} »"
+                    if not fully:
+                        final_status = 'partiel'
+                        debit_msg += f" — reste à payer {montant-new_paye:,.0f} F"
                 elif tresorerie_type == 'credit':
-                    # v170o : ACHAT À CRÉDIT — aucun décaissement ; on crée un dossier de crédit fournisseur.
+                    # v170o : ACHAT À CRÉDIT — aucun décaissement ; dossier de crédit fournisseur (soldé côté trésorerie).
                     try:
                         _num_credit = _mg_credit_create_from_demande(conn, did, montant, request.form, user)
                         conn.execute("""UPDATE achats_demandes SET tresorerie_type='credit',
-                            tresorerie_montant=?, tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
-                            (montant, did))
+                            tresorerie_montant=?, tresorerie_paye=?, tresorerie_debited=1, tresorerie_debited_at=datetime('now') WHERE id=?""",
+                            (montant, montant, did))
                         debit_msg = f" — 🧾 achat à CRÉDIT enregistré (dossier {_num_credit})"
                     except Exception as _ce:
                         conn.close()
@@ -41323,28 +41382,29 @@ def compta_demande_mg_decision(did):
             compta_status=?, compta_user_id=?, compta_user_name=?, compta_decision_at=datetime('now'),
             compta_notes=?, compta_refus_motif=?
             WHERE id=?""",
-            (action, session.get('user_id'), user_name,
+            (final_status, session.get('user_id'), user_name,
              notes, motif if action == 'refusee' else None, did))
         conn.commit()
+        _done_label = {'validee': 'validée', 'partiel': 'réglée partiellement', 'refusee': 'refusée'}.get(final_status, final_status)
         # Notifier le demandeur initial
         if row['requested_by']:
             try:
-                if action == 'validee':
-                    msg = f"✅ Demande MG {row['reference']} validée par la Comptabilité{debit_msg}"
-                else:
+                if final_status == 'refusee':
                     msg = f"❌ Demande MG {row['reference']} refusée par la Comptabilité : {motif[:80]}"
+                else:
+                    _ic = '✅' if final_status == 'validee' else '🟠'
+                    msg = f"{_ic} Demande MG {row['reference']} {_done_label} par la Comptabilité{debit_msg}"
                 notify(row['requested_by'], msg)
             except: pass
         conn.close()
         # v160 : notifier le département concerné par la décision comptable
         try:
-            _lbl = 'validée' if action == 'validee' else 'refusée'
             notify_department(row.get('department'),
-                f"💰 Demande interne {row['reference']} {_lbl} (Comptabilité)",
-                f"La demande interne {row['reference']} a été {_lbl} par la Comptabilité{debit_msg if action=='validee' else ''}.",
+                f"💰 Demande interne {row['reference']} {_done_label} (Comptabilité)",
+                f"La demande interne {row['reference']} a été {_done_label} par la Comptabilité{debit_msg if final_status!='refusee' else ''}.",
                 link=f"/mg/demandes/{did}/preview", type='mg_demande', module='comptabilite', icon='💰')
         except Exception as _e: print(f"[v160-NotifDept] {_e}", flush=True)
-        flash(f"✅ Demande {row['reference']} {'validée' if action == 'validee' else 'refusée'}{debit_msg}", "success")
+        flash(f"✅ Demande {row['reference']} {_done_label}{debit_msg}", "success")
     except Exception as e:
         flash(f"Erreur : {e}", "error")
     return redirect('/comptabilite/demandes-mg')

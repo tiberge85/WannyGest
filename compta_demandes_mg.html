@@ -116,6 +116,9 @@
                 <td style="text-align:center;padding:8px">
                     {% if d.compta_status == 'a_valider' %}
                     <span style="background:#e8672a;color:#fff;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700">⏳ À valider</span>
+                    {% elif d.compta_status == 'partiel' %}
+                    <span style="background:#f29f2f;color:#fff;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700" title="Réglée en partie — reste à payer">🟠 Partiel</span>
+                    {% if d.compta_montant_estime and d.tresorerie_paye %}<div style="font-size:9px;color:#b8561f;margin-top:2px">Reste {{ '{:,.0f}'.format((d.compta_montant_estime or 0) - (d.tresorerie_paye or 0)).replace(',', ' ') }} F</div>{% endif %}
                     {% elif d.compta_status == 'validee' %}
                     <span style="background:#2e7d32;color:#fff;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700">✅ Validée</span>
                     {% elif d.compta_status == 'refusee' %}
