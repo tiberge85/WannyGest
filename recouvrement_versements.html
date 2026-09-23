@@ -48,6 +48,11 @@
             <div><label style="font-size:10px;color:#666;display:block">Bordereau (scan/photo)</label><input type="file" name="bordereau_file" accept="image/*,.pdf" style="width:100%;padding:5px;border:1.5px solid #ddd;border-radius:5px;font-size:11px"></div>
         </div>
         <input type="text" name="notes" placeholder="Motif de l'opération (ex : versement recette, remise de chèque client X...)" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:5px;margin-bottom:8px">
+        {# v187 : éviter le double crédit quand la compta a déjà fait un ordre de virement vers ce compte #}
+        <label style="display:flex;gap:8px;align-items:flex-start;background:#fff8e1;border:1.5px solid #f29f2f;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;cursor:pointer">
+            <input type="checkbox" name="no_credit" value="1" style="margin-top:2px">
+            <span><strong>Ne pas créditer le compte</strong> — ce dépôt correspond à un <strong>ordre de virement déjà enregistré</strong> par la comptabilité (on garde seulement le bordereau comme justificatif, sans re-créditer le compte pour éviter un double crédit).</span>
+        </label>
         <div style="display:flex;justify-content:flex-end"><button type="submit" class="btn" style="background:#1565c0;color:#fff;font-weight:700">💾 Enregistrer le versement</button></div>
     </form>
     <p style="font-size:11px;color:#888;margin:8px 0 0">ℹ️ Ce registre trace vos remises/versements (justificatif). Le crédit comptable en caisse reste effectué lors de la validation par la caissière.</p>

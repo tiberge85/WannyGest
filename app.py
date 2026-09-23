@@ -2084,6 +2084,18 @@ try:
 except Exception as _e:
     print(f"[v186-MG] Erreur : {_e}", flush=True)
 
+# v187 : Bordereau de versement « ne pas créditer » (évite le double crédit quand un ordre de
+# virement a déjà crédité le compte destination).
+try:
+    from models import get_db as _v187db
+    _v187 = _v187db()
+    try: _v187.execute("ALTER TABLE recouvrement_versements ADD COLUMN no_credit INTEGER DEFAULT 0")
+    except Exception: pass
+    _v187.commit(); _v187.close()
+    print("[v187-Rec] Colonne no_credit OK", flush=True)
+except Exception as _e:
+    print(f"[v187-Rec] Erreur : {_e}", flush=True)
+
 
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
@@ -25896,6 +25908,10 @@ def _crediter_versement(conn, v):
     Met à jour le solde + crée le mouvement de trésorerie + l'écriture comptable. Retourne True si crédité."""
     if int(v.get('credite') or 0) == 1:
         return False
+    # v187 : versement marqué « ne pas créditer » (déjà crédité par un ordre de virement) → on ne
+    # touche pas au solde, on garde juste le bordereau comme justificatif.
+    if int(v.get('no_credit') or 0) == 1:
+        return False
     montant = float(v.get('montant') or 0)
     if montant <= 0:
         return False
@@ -25942,7 +25958,7 @@ def _recouvrement_crediter_dus(conn):
     today = datetime.now().strftime('%Y-%m-%d')
     try:
         rows = [dict(r) for r in conn.execute(
-            "SELECT * FROM recouvrement_versements WHERE COALESCE(credite,0)=0 "
+            "SELECT * FROM recouvrement_versements WHERE COALESCE(credite,0)=0 AND COALESCE(no_credit,0)=0 "
             "AND (banque_id IS NOT NULL OR caisse_id IS NOT NULL) "
             "AND (COALESCE(date_disponibilite, date_versement, ?) <= ?)", (today, today)).fetchall()]
     except Exception:
@@ -25991,10 +26007,16 @@ def recouvrement_versement_add():
          request.form.get('bordereau_number', ''), bordereau_file,
          date_versement, request.form.get('notes', ''), type_op, date_dispo, statut))
     _vid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    # v187 : « ne pas créditer » — le compte a déjà été crédité par un ordre de virement pour le
+    # même argent ; on enregistre le bordereau comme justificatif sans re-créditer le compte.
+    _no_credit = 1 if request.form.get('no_credit') in ('1', 'on', 'true', 'yes') else 0
+    if _no_credit:
+        try: conn.execute("UPDATE recouvrement_versements SET no_credit=1, statut='verse' WHERE id=?", (_vid,))
+        except Exception: pass
     # v170r : si disponible immédiatement (versement), créditer RÉELLEMENT le compte/caisse tout de suite.
     # Une remise de chèque sera créditée à sa date de disponibilité (via _recouvrement_crediter_dus).
     _credite_now = False
-    if statut == 'verse' and (banque_id or caisse_id):
+    if statut == 'verse' and (banque_id or caisse_id) and not _no_credit:
         try:
             _v = dict(conn.execute("SELECT * FROM recouvrement_versements WHERE id=?", (_vid,)).fetchone())
             _credite_now = _crediter_versement(conn, _v)
@@ -26013,6 +26035,8 @@ def recouvrement_versement_add():
     _dest_lbl = (banque_name or caisse_name or '')
     if type_op == 'remise':
         flash(f"✅ Remise de chèque de {montant:,.0f} XOF enregistrée — ⏳ en attente, le compte « {_dest_lbl} » sera crédité le {date_dispo} (3 jours ouvrés).", "success")
+    elif _no_credit:
+        flash(f"✅ Versement de {montant:,.0f} XOF enregistré (bordereau justificatif) — compte « {_dest_lbl} » NON recrédité (déjà crédité par un ordre de virement).", "success")
     else:
         flash(f"✅ Versement de {montant:,.0f} XOF enregistré" + (f" et crédité sur « {_dest_lbl} »." if _credite_now else "."), "success")
     return redirect('/recouvrement/versements')
