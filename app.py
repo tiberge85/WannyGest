@@ -2046,6 +2046,27 @@ try:
 except Exception as _e:
     print(f"[v181-Proforma] Erreur : {_e}", flush=True)
 
+# v185 : Permission 'implantation' accordée par défaut au rôle 'commercial' (une seule fois).
+# L'admin peut la retirer/attribuer ensuite dans Rôles & permissions.
+try:
+    from models import get_db as _v185db
+    _v185 = _v185db()
+    _f185 = _v185.execute("SELECT value FROM app_settings WHERE key='v185_implantation_seeded'").fetchone()
+    if not _f185:
+        for _role in ('commercial',):
+            try:
+                _ex = _v185.execute("SELECT 1 FROM permissions WHERE role=? AND permission='implantation'", (_role,)).fetchone()
+                if not _ex:
+                    _v185.execute("INSERT INTO permissions (role, permission) VALUES (?, 'implantation')", (_role,))
+            except Exception: pass
+        try: _v185.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v185_implantation_seeded','1',datetime('now'))")
+        except Exception: pass
+        _v185.commit()
+        print("[v185-Perms] Permission 'implantation' accordée au rôle commercial", flush=True)
+    _v185.close()
+except Exception as _e:
+    print(f"[v185-Perms] Erreur : {_e}", flush=True)
+
 
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
@@ -3797,26 +3818,10 @@ def get_user_pending_tasks(user_id, user_role=None):
             except: pass
         
         # 6. Devis non envoyés ou en cours
-        if user_role in ('commercial', 'dg', 'coordinateur') and not is_admin_silent:
-            try:
-                # v184 : ne bloquent la clôture QUE les brouillons NON finalisés créés AUJOURD'HUI.
-                # Les devis envoyés / en négociation attendent le CLIENT (pas une action du commercial)
-                # et les anciens brouillons ne doivent pas s'accumuler indéfiniment → sinon le
-                # commercial ne peut jamais clôturer sa journée.
-                rows = conn.execute("""SELECT id, reference, client_name, total_ttc, status
-                    FROM devis
-                    WHERE created_by=? AND status='brouillon'
-                      AND date(COALESCE(created_at, date('now'))) = date('now')
-                    ORDER BY id DESC LIMIT 20""", (user_id,)).fetchall()
-                for r in rows:
-                    result['devis'].append({
-                        'id': r['id'], 'task_type': 'devis',
-                        'label': f"{r['reference']} — {r['client_name']} ({r['total_ttc']:,.0f} F)",
-                        # v141 : /devis/<id> n'existe pas, on utilise /devis/edit/<id>
-                        'link': f"/devis/edit/{r['id']}",
-                        'status': r['status'],
-                    })
-            except: pass
+        # v184c : Les DEVIS ne bloquent plus du tout la clôture de journée. Un devis (brouillon,
+        # envoyé, en négociation) fait partie du pipeline commercial (suivi sur plusieurs jours,
+        # souvent en attente du client) et n'est pas une tâche du jour à justifier avant de partir.
+        # Ils restent accessibles dans « Devis / Proformas ».
         
         # v184 : Les visites à traiter et les remontées « nouveau projet » ne BLOQUENT PLUS la
         # clôture de journée : ces listes étaient à l'échelle de TOUTE l'entreprise (non filtrées
