@@ -365,7 +365,7 @@
                     {% if 'contrats' in permissions or 'admin' in permissions %}<a href="/contrats" class="{% if page == 'contrats' %}active{% endif %}">Contrats</a>{% endif %}
                     {# v184b : Implantation sur plan — permission dédiée « implantation » (attribuable dans Rôles & permissions).
                        Affichée dans CRM si l'utilisateur ne voit pas déjà la section Gestion de projets (évite le doublon). #}
-                    {% if 'implantation' in permissions and not ('section_projets' in permissions or 'resp_projet' in permissions or 'admin' in permissions or user_role in ('gestionnaire_projet','coordinateur')) %}
+                    {% if ('implantation' in permissions or 'proforma' in permissions) and not ('section_projets' in permissions or 'resp_projet' in permissions or 'admin' in permissions or user_role in ('gestionnaire_projet','coordinateur')) %}
                     <a href="/implantation" class="{% if page == 'implantation' %}active{% endif %}">🧭 Implantation sur plan</a>
                     {% endif %}
                 </div>
