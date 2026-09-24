@@ -5878,6 +5878,29 @@ def app_version():
     commit = os.environ.get('RENDER_GIT_COMMIT', '') or 'inconnu'
     return Response(f"commit={commit}\n", mimetype='text/plain')
 
+@app.route('/mes-permissions')
+@login_required
+def debug_my_permissions():
+    """v187d : diagnostic — affiche le rôle et les permissions RÉELLES de l'utilisateur connecté,
+    plus celles du rôle 'commercial', pour vérifier l'accès Implantation."""
+    from flask import Response
+    u = get_user_by_id(session['user_id'])
+    my_role = u['role'] if u else '?'
+    my_perms = sorted(get_role_permissions(my_role))
+    com_perms = sorted(get_role_permissions('commercial'))
+    lines = []
+    lines.append("=== VOTRE COMPTE ===")
+    lines.append("Rôle : %s" % my_role)
+    lines.append("implantation dans vos permissions : %s" % ('OUI' if 'implantation' in my_perms else 'NON'))
+    lines.append("proforma dans vos permissions    : %s" % ('OUI' if 'proforma' in my_perms else 'NON'))
+    lines.append("Toutes vos permissions : %s" % ', '.join(my_perms))
+    lines.append("")
+    lines.append("=== ROLE 'commercial' (en base) ===")
+    lines.append("implantation : %s" % ('OUI' if 'implantation' in com_perms else 'NON'))
+    lines.append("proforma     : %s" % ('OUI' if 'proforma' in com_perms else 'NON'))
+    lines.append("Permissions du rôle commercial : %s" % ', '.join(com_perms))
+    return Response('\n'.join(lines) + '\n', mimetype='text/plain')
+
 
 @app.route('/comptabilite/_debug_cloture')
 @admin_only_required
