@@ -5952,6 +5952,13 @@ def comptabilite_debug_cloture():
     conn.close()
     return Response("\n".join(out), mimetype='text/plain')
 
+APP_BUILD = 'v187c-2026-09-24'  # marqueur de version déployée (diagnostic)
+
+@app.route('/version')
+def app_version():
+    """Point de contrôle public : indique quelle version du code tourne réellement en ligne."""
+    return jsonify({'build': APP_BUILD})
+
 @app.route('/')
 def welcome():
     if 'user_id' in session:
