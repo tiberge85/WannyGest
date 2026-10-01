@@ -279,8 +279,9 @@
         </div>
         <div class="form-row">
             <div class="form-group"><label>Email</label><input type="email" name="email"></div>
-            <div class="form-group"><label>Statut</label>
-                <select name="client_status">
+            <div class="form-group"><label>Statut <span style="color:#c0392b">*</span></label>
+                <select name="client_status" required>
+                    <option value="" disabled selected>— Choisir —</option>
                     <option value="entreprise_sans_contrat">Entreprise sans contrat</option>
                     <option value="entreprise_sous_contrat">Entreprise sous contrat</option>
                     <option value="particulier_sans_contrat">Particulier sans contrat</option>
@@ -291,10 +292,11 @@
             </div>
         </div>
         <div class="form-row">
-            <div class="form-group"><label>Catégorie tarifaire (prix proforma)</label>
-                <select name="categorie_tarif">
+            <div class="form-group"><label>Catégorie tarifaire (prix proforma) <span style="color:#c0392b">*</span></label>
+                <select name="categorie_tarif" required>
+                    <option value="" disabled selected>— Choisir —</option>
                     <option value="particulier">Particulier</option>
-                    <option value="pme" selected>PME</option>
+                    <option value="pme">PME</option>
                     <option value="grande_entreprise">Grande entreprise</option>
                 </select>
             </div>

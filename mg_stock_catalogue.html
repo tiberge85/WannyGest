@@ -40,6 +40,9 @@
                 style="padding:10px 12px 10px 38px;border:1.5px solid #1A7A6D;border-radius:7px;width:100%;font-size:13px" autofocus>
             <span style="position:absolute;left:12px;top:10px;font-size:14px">🔎</span>
         </div>
+        <span style="font-size:12px;color:#666">Créé&nbsp;:</span>
+        <input type="date" name="date_from" value="{{ date_from or '' }}" title="À partir du" style="padding:9px 8px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
+        <input type="date" name="date_to" value="{{ date_to or '' }}" title="Jusqu'au" style="padding:9px 8px;border:1.5px solid #ddd;border-radius:7px;font-size:12px">
         <select name="cat" style="padding:9px 10px;border:1.5px solid #ddd;border-radius:7px;min-width:140px">
             <option value="">Toutes catégories</option>
             {% for c in categories %}<option value="{{ c }}" {% if c == cat_filter %}selected{% endif %}>{{ c }}</option>{% endfor %}

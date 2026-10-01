@@ -66,6 +66,9 @@
     <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="search" name="q" value="{{ q_filter or '' }}" placeholder="🔎 Référence ou désignation..."
             style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;min-width:200px">
+        <span style="font-size:12px;color:#666">Créé&nbsp;:</span>
+        <input type="date" name="date_from" value="{{ date_from or '' }}" title="À partir du" style="padding:6px 8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+        <input type="date" name="date_to" value="{{ date_to or '' }}" title="Jusqu'au" style="padding:6px 8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
         <select name="cat" onchange="this.form.submit()" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px">
             <option value="">Toutes catégories</option>
             {% for c in categories %}<option value="{{ c }}" {% if c == cat_filter %}selected{% endif %}>{{ c }}</option>{% endfor %}

@@ -44,6 +44,10 @@
         <input type="date" name="date_min" value="{{ f_date_min }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
     <div><label style="font-size:11px;color:#666;display:block">Date fin</label>
         <input type="date" name="date_max" value="{{ f_date_max }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#666;display:block">Créé du</label>
+        <input type="date" name="date_from" value="{{ date_from or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#666;display:block">Créé au</label>
+        <input type="date" name="date_to" value="{{ date_to or '' }}" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
     <div><label style="font-size:11px;color:#666;display:block">Montant min (F)</label>
         <input type="number" name="amount_min" value="{{ f_amount_min }}" step="1" style="width:100%;padding:7px;border:1.5px solid #ddd;border-radius:6px"></div>
     <div><label style="font-size:11px;color:#666;display:block">Montant max (F)</label>

@@ -118,6 +118,9 @@
     {# v152 : Filtre par jour #}
     <input type="date" name="day" value="{{ day_filter }}" title="Filtrer un jour précis"
         style="padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px;min-width:140px">
+    <span style="font-size:12px;color:#666">Créé&nbsp;:</span>
+    <input type="date" name="date_from" value="{{ date_from or '' }}" title="Créé à partir du" style="padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    <input type="date" name="date_to" value="{{ date_to or '' }}" title="Créé jusqu'au" style="padding:8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
     <button type="submit" class="btn btn-primary btn-sm" style="font-size:12px;padding:8px 16px;background:#1A7A6D;color:#fff">🔍 Filtrer</button>
     {% if search or status_filter or day_filter %}
     <a href="?tab=sorties&month={{ month }}" class="btn btn-outline btn-sm" style="font-size:12px;background:#888;color:#fff;text-decoration:none">✖ Effacer</a>

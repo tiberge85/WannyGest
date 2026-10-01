@@ -8183,6 +8183,12 @@ def client_reminder_done(cid, rid):
 @app.route('/clients/add', methods=['POST'])
 @permission_required('clients_edit')
 def clients_add():
+    # v188b : Statut et catégorie tarifaire obligatoires
+    _cstatus = (request.form.get('client_status') or '').strip()
+    _ctarif = (request.form.get('categorie_tarif') or '').strip()
+    if not _cstatus or not _ctarif:
+        flash("Le statut et la catégorie tarifaire sont obligatoires.", "error")
+        return redirect(url_for('clients_page'))
     create_client(
         request.form['name'], request.form.get('tel', ''),
         request.form.get('email', ''), request.form.get('contact_name', ''),
@@ -8699,6 +8705,35 @@ def _group_by_month(rows, key='created_at'):
         try: y, m = k.split('-'); return f"{_MOIS_FR_G[int(m)]} {y}"
         except Exception: return "Sans date"
     return [(_lbl(k), rs) for k, rs in sorted(g.items(), key=lambda kv: kv[0], reverse=True)]
+
+
+def _period_bounds():
+    """v189 : lit la période de création demandée (date_from / date_to) depuis l'URL."""
+    df = (request.args.get('date_from', '') or '').strip()
+    dt = (request.args.get('date_to', '') or '').strip()
+    return df, dt
+
+
+def _apply_period(rows, date_from, date_to, field='created_at'):
+    """v189 : filtre une liste de dicts sur la date de création (champ created_at) entre deux dates (incluses).
+    Les dates sont au format 'YYYY-MM-DD' ; created_at est 'YYYY-MM-DD HH:MM:SS' → comparaison sur les 10 premiers caractères."""
+    if not date_from and not date_to:
+        return rows
+    out = []
+    for r in rows:
+        try:
+            v = r.get(field) if hasattr(r, 'get') else r[field]
+        except Exception:
+            v = None
+        d = (v or '')[:10]
+        if not d:
+            continue
+        if date_from and d < date_from:
+            continue
+        if date_to and d > date_to:
+            continue
+        out.append(r)
+    return out
 
 
 @app.route('/admin/sidebar/order', methods=['POST'])
@@ -11655,10 +11690,11 @@ def devis_page():
             "SELECT COUNT(*) FROM devis WHERE created_by=?", (session['user_id'],)).fetchone()[0]
         conn.close()
     except: mine_count = 0
-    
+    _pf_from, _pf_to = _period_bounds()
+    devis_list = _apply_period(devis_list, _pf_from, _pf_to)
     return render_template('devis.html', page='devis', tab=tab, devis_list=devis_list,
         d_stats=d_stats, d_val=d_val, d_val_amt=d_val_amt, search=search, mine_count=mine_count, statut=statut,
-        validite=validite, min_margin=_proforma_min_margin())
+        validite=validite, min_margin=_proforma_min_margin(), date_from=_pf_from, date_to=_pf_to)
 
 @app.route('/devis/new', methods=['GET', 'POST'])
 @permission_required('proforma_edit')
@@ -13535,8 +13571,11 @@ def rh_mises_a_pied():
     }
     employees = get_all_employees(status=None)
     conn.close()
+    _pf_from, _pf_to = _period_bounds()
+    items = _apply_period(items, _pf_from, _pf_to)
     return render_template('rh_mises_a_pied.html', page='mises_a_pied',
-        items=items, tab=tab, counts=counts, search=search, employees=employees, today=today)
+        items=items, tab=tab, counts=counts, search=search, employees=employees, today=today,
+        date_from=_pf_from, date_to=_pf_to)
 
 @app.route('/rh/mise-a-pied/add', methods=['POST'])
 @permission_required('fichiers')
@@ -20071,10 +20110,13 @@ def notifications_page():
     except: pass
     
     conn.close()
+    _pf_from, _pf_to = _period_bounds()
+    notifs = _apply_period(notifs, _pf_from, _pf_to)
     return render_template('notifications_center.html', page='notifications',
         notifs=notifs, filter_state=filter_state, notif_counts=counts,
         module_stats=module_stats, module_filter=module_filter, type_filter=type_filter, q=q,
-        dept_filter=dept_filter, departments=departments, see_all_notifs=see_all)
+        dept_filter=dept_filter, departments=departments, see_all_notifs=see_all,
+        date_from=_pf_from, date_to=_pf_to)
 
 
 # v129 : Page préférences utilisateur — gestion des abonnements multi-canal
@@ -20368,9 +20410,12 @@ def admin_notifications_sent():
     except: module_counts = {}
     
     conn.close()
+    _pf_from, _pf_to = _period_bounds()
+    notifs = _apply_period(notifs, _pf_from, _pf_to)
     return render_template('admin_notif_sent.html', page='admin_notif_sent',
         notifs=notifs, stats=stats, users=users, module_counts=module_counts,
-        q=q, module_filter=module_filter, user_filter=user_filter, status_filter=status_filter)
+        q=q, module_filter=module_filter, user_filter=user_filter, status_filter=status_filter,
+        date_from=_pf_from, date_to=_pf_to)
 
 
 @app.route('/admin/notifications-sent/<int:nid>/resend', methods=['POST'])
@@ -23138,7 +23183,9 @@ def mg_stock_dashboard():
         articles = [a for a in articles
                     if q_filter in (a.get('designation','') or '').lower()
                     or q_filter in (a.get('reference','') or '').lower()]
-    
+    _pf_from, _pf_to = _period_bounds()
+    articles = _apply_period(articles, _pf_from, _pf_to)
+
     # v119 : Pagination
     try: page_num = max(1, int(request.args.get('page', 1)))
     except: page_num = 1
@@ -23154,7 +23201,7 @@ def mg_stock_dashboard():
     return render_template('mg_stock_dashboard.html', page='mg_stock',
         articles=articles_page, stats=stats, categories=categories,
         cat_filter=cat_filter, alerte_filter=alerte_filter, q_filter=q_filter,
-        recent_entries=recent_entries, recent_exits=recent_exits,
+        recent_entries=recent_entries, recent_exits=recent_exits, date_from=_pf_from, date_to=_pf_to,
         page_num=page_num, total_pages=total_pages, total_count=total_count, per_page=per_page)
 
 
@@ -23207,11 +23254,13 @@ def mg_stock_inventaires():
             q in (a.get('unite') or '').lower()]
     if alerte_filter:
         articles = [a for a in articles if a.get('alerte') == alerte_filter]
-    
+    _pf_from, _pf_to = _period_bounds()
+    articles = _apply_period(articles, _pf_from, _pf_to)
+
     conn.close()
     return render_template('mg_stock_inventaires.html', page='mg_stock_inventaires',
         articles=articles, totaux=totaux, categories=categories, cat_filter=cat_filter,
-        q=q, alerte_filter=alerte_filter)
+        q=q, alerte_filter=alerte_filter, date_from=_pf_from, date_to=_pf_to)
 
 
 @app.route('/mg/stock/marchandise')
@@ -23242,7 +23291,9 @@ def mg_stock_catalogue():
                     q in (a.get('notes') or '').lower()]
     if cat_filter:
         articles = [a for a in articles if (a.get('categorie') or '') == cat_filter]
-    
+    _pf_from, _pf_to = _period_bounds()
+    articles = _apply_period(articles, _pf_from, _pf_to)
+
     # Tri
     if sort == 'prix':
         articles = sorted(articles, key=lambda a: -(a.get('prix_unitaire') or 0))
@@ -23273,7 +23324,7 @@ def mg_stock_catalogue():
     conn.close()
     return render_template('mg_stock_catalogue.html', page='mg_stock_marchandise',
         articles=articles_page, categories=categories, total_catalogue=total_catalogue,
-        marges=marges, q=q, cat_filter=cat_filter, sort=sort,
+        marges=marges, q=q, cat_filter=cat_filter, sort=sort, date_from=_pf_from, date_to=_pf_to,
         nb_total=nb_total, nb_total_all=len(all_articles), page_num=page, nb_pages=nb_pages, per_page=per_page,
         start=start+1, end=min(end, nb_total))
 
@@ -24479,7 +24530,9 @@ def field_reports_list():
     type_f = (request.args.get('type', '') or '').strip()
     q = (request.args.get('q', '') or '').strip()
     filtered = _filter_field_reports(all_reports, statut_f, priorite_f, type_f, q)
-    
+    _pf_from, _pf_to = _period_bounds()
+    filtered = _apply_period(filtered, _pf_from, _pf_to)
+
     # v131 : Séparer en listes — À traiter / En exécution / Facturation à décider / Déjà exécutées
     to_treat_statuts = ('recue', 'en_analyse')
     in_execution_statuts = ('en_execution', 'transformee_intervention')  # technicien assigné
@@ -24570,7 +24623,7 @@ def field_reports_list():
         top_auteurs=top_auteurs,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
         statut_filter=statut_f, priorite_filter=priorite_f, type_filter=type_f, q=q,
-        can_view_all=can_view_all)
+        can_view_all=can_view_all, date_from=_pf_from, date_to=_pf_to)
 
 
 @app.route('/field-reports/liste')
@@ -24614,7 +24667,9 @@ def field_reports_full_list():
     type_info = request.args.get('type', '').strip()
     q = request.args.get('q', '').strip()
     reports = _filter_field_reports(reports, statut, priorite, type_info, q)
-    
+    _pf_from, _pf_to = _period_bounds()
+    reports = _apply_period(reports, _pf_from, _pf_to)
+
     for r in reports:
         sl = FIELD_REPORT_STATUTS.get(r['statut'], (r['statut'], '#888'))
         pl = FIELD_REPORT_PRIORITIES.get(r['priorite'], (r['priorite'], '#888'))
@@ -24625,7 +24680,8 @@ def field_reports_full_list():
     return render_template('field_reports_list.html', page='field_reports_liste',
         reports=reports, stats=stats,
         types=FIELD_REPORT_TYPES, priorities=FIELD_REPORT_PRIORITIES, statuts=FIELD_REPORT_STATUTS,
-        statut_filter=statut, priorite_filter=priorite, type_filter=type_info, q=q)
+        statut_filter=statut, priorite_filter=priorite, type_filter=type_info, q=q,
+        date_from=_pf_from, date_to=_pf_to)
 
 
 # v137 : API client full-info — utilisé par le formulaire de remontée pour auto-remplir
@@ -25524,8 +25580,10 @@ def factures_a_editer():
     }
     
     conn.close()
+    _pf_from, _pf_to = _period_bounds()
+    items = _apply_period(items, _pf_from, _pf_to)
     return render_template('recouvrement_factures_a_editer.html', page='factures_a_editer',
-        items=items, tab=tab, counts=counts, search=search)
+        items=items, tab=tab, counts=counts, search=search, date_from=_pf_from, date_to=_pf_to)
 
 
 @app.route('/recouvrement/facture/<int:fri_id>/preview')
@@ -25866,11 +25924,13 @@ def recouvrement_dashboard():
 
     conn.close()
 
+    _pf_from, _pf_to = _period_bounds()
+    items = _apply_period(items, _pf_from, _pf_to)
     return render_template('recouvrement_dashboard.html', page='recouvrement',
         items=items, caisses=caisses,
         recovery_methods=RECOVERY_METHODS,
         payment_types=PAYMENT_TYPES,
-        tab=tab, counts=counts, totals=totals, search=search)
+        tab=tab, counts=counts, totals=totals, search=search, date_from=_pf_from, date_to=_pf_to)
 
 
 @app.route('/recouvrement/versements')
@@ -26310,9 +26370,11 @@ def caissiere_paiements():
         "SELECT id, name FROM caisses WHERE COALESCE(is_active,1)=1 ORDER BY name").fetchall()]
     conn.close()
 
+    _pf_from, _pf_to = _period_bounds()
+    items = _apply_period(items, _pf_from, _pf_to)
     return render_template('caissiere_paiements.html', page='caissiere_paiements',
         items=items, tab=tab, counts=counts, totals=totals, search=search,
-        payment_types=PAYMENT_TYPES, caisses=caisses)
+        payment_types=PAYMENT_TYPES, caisses=caisses, date_from=_pf_from, date_to=_pf_to)
 
 
 @app.route('/caissiere/paiement/<int:fri_id>/valider', methods=['POST'])
@@ -30644,7 +30706,9 @@ def depenses_list():
         {where_sql}
         ORDER BY d.date DESC, d.id DESC LIMIT 500"""
     depenses = [dict(r) for r in conn.execute(sql, params).fetchall()]
-    
+    _pf_from, _pf_to = _period_bounds()
+    depenses = _apply_period(depenses, _pf_from, _pf_to)
+
     total = sum(d['amount'] for d in depenses)
     nb = len(depenses)
     
@@ -30657,6 +30721,7 @@ def depenses_list():
         f_q=f_q, f_cat=f_cat, f_source=f_source,
         f_date_min=f_date_min, f_date_max=f_date_max,
         f_amount_min=f_amount_min, f_amount_max=f_amount_max,
+        date_from=_pf_from, date_to=_pf_to,
         today=datetime.now().strftime('%Y-%m-%d'))
 
 
@@ -30812,6 +30877,7 @@ def historique():
         trail = [dict(r) for r in conn.execute("SELECT * FROM audit_trail ORDER BY created_at DESC LIMIT 300").fetchall()]
     except: trail = []
     conn.close()
+    trail = _apply_period(trail, date_from, date_to)
     return render_template('historique.html', page='historique', trail=trail, logs=logs,
         logs_by_month=_group_by_month(logs), trail_by_month=_group_by_month(trail),
         facets=facets, q=q, f_user=f_user, f_action=f_action, date_from=date_from, date_to=date_to,
@@ -31106,6 +31172,8 @@ def taches_dashboard():
     def _mlabel(k):
         try: y, m = k.split('-'); return f"{_MOIS_FR[int(m)]} {y}"
         except Exception: return "Sans échéance"
+    _pf_from, _pf_to = _period_bounds()
+    taches = _apply_period(taches, _pf_from, _pf_to)
     _grp = {}
     for t in taches:
         k = (t.get('date_limite') or t.get('created_at') or '')[:7]
@@ -31119,7 +31187,8 @@ def taches_dashboard():
         a_risque=a_risque[:12], absents=list(absents),
         stats={'total': total, 'terminees': terminees, 'refusees': refusees, 'en_retard': en_retard, 'taux': taux},
         can_manage=_tache_can_manage(user), can_edit=_tache_can_edit(user),
-        q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date, f_retard=f_retard)
+        q=q, f_emp=f_emp, f_dep=f_dep, f_prio=f_prio, f_stat=f_stat, f_cat=f_cat, f_date=f_date, f_retard=f_retard,
+        date_from=_pf_from, date_to=_pf_to)
 
 
 def _tache_dep_from_assignees(conn, tid):
@@ -36297,12 +36366,16 @@ def caisse_sortie():
     conn.close()
     
     solde_caisse_fonct = get_caisse_fonctionnement_solde()
-    
+
+    _pf_from, _pf_to = _period_bounds()
+    sorties_dict = _apply_period(sorties_dict, _pf_from, _pf_to)
+    entrees = _apply_period(entrees, _pf_from, _pf_to)
     return render_template('caisse_sortie.html', page='caisse_sortie',
         sorties=sorties_dict, stats=stats, month=month,
         tab=tab, entrees=entrees, total_entrees=total_entrees, caisses=caisses,
         voit_tout=voit_tout, solde_caisse_fonct=solde_caisse_fonct,
-        status_filter=status_filter, search=search, day_filter=day_filter)
+        status_filter=status_filter, search=search, day_filter=day_filter,
+        date_from=_pf_from, date_to=_pf_to)
 
 @app.route('/caisse-sortie/demande', methods=['GET','POST'])
 @login_required
@@ -44391,14 +44464,19 @@ def compta_pro_ecritures():
         LEFT JOIN users u ON e.created_by=u.id
         WHERE {where_sql}
         ORDER BY e.date DESC, e.id DESC LIMIT 500""", tuple(params)).fetchall()]
-    
+
     journaux = [dict(r) for r in conn.execute(
         "SELECT * FROM compta_journaux WHERE COALESCE(is_active,1)=1 ORDER BY code").fetchall()]
     conn.close()
+    # v189 : filtre complémentaire par période de création (created_at), distinct de la date comptable
+    _cree_du = (request.args.get('cree_du', '') or '').strip()
+    _cree_au = (request.args.get('cree_au', '') or '').strip()
+    ecritures = _apply_period(ecritures, _cree_du, _cree_au)
     return render_template('compta_ecritures_list.html', page='compta_pro', section='ecritures',
                           ecritures=ecritures, journaux=journaux,
                           statut_filter=statut_filter, journal_filter=journal_filter,
-                          date_from=date_from, date_to=date_to, search=search)
+                          date_from=date_from, date_to=date_to, search=search,
+                          cree_du=_cree_du, cree_au=_cree_au)
 
 
 @app.route('/compta-pro/ecriture/<int:eid>')
@@ -46243,8 +46321,11 @@ def recrutement_cvtheque():
     villes = [r[0] for r in conn.execute(
         "SELECT DISTINCT ville FROM candidats WHERE COALESCE(ville,'')!='' ORDER BY ville").fetchall()]
     conn.close()
+    _pf_from, _pf_to = _period_bounds()
+    candidats = _apply_period(candidats, _pf_from, _pf_to)
     return render_template('recrutement_cvtheque.html', page='recrutement', candidats=candidats,
-        q=q, ville=ville, niveau=niveau, villes=villes, total=len(candidats))
+        q=q, ville=ville, niveau=niveau, villes=villes, total=len(candidats),
+        date_from=_pf_from, date_to=_pf_to)
 
 
 # ───────────────────────── STATISTIQUES ─────────────────────────

@@ -10,6 +10,8 @@
         <select name="ville" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"><option value="">Toutes</option>
             {% for v in villes %}<option value="{{ v }}" {% if ville == v %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
     <div><label style="font-size:11px;color:#888">Niveau d'étude</label><input name="niveau" value="{{ niveau }}" placeholder="Bac+3…" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888">Créé du</label><input type="date" name="date_from" value="{{ date_from or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
+    <div><label style="font-size:11px;color:#888">Créé au</label><input type="date" name="date_to" value="{{ date_to or '' }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:6px"></div>
     <button class="btn btn-primary btn-sm" type="submit">Rechercher</button>
 </form>
 

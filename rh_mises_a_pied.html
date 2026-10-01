@@ -25,6 +25,9 @@
 <form method="get" style="background:#fff;padding:10px;border-radius:8px;margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
     <input type="hidden" name="tab" value="{{ tab }}">
     <input type="text" name="q" value="{{ search }}" placeholder="🔍 Employé ou motif..." style="flex:1;min-width:200px;padding:7px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    <span style="font-size:12px;color:#666">Créé&nbsp;:</span>
+    <input type="date" name="date_from" value="{{ date_from or '' }}" title="À partir du" style="padding:7px 8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    <input type="date" name="date_to" value="{{ date_to or '' }}" title="Jusqu'au" style="padding:7px 8px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
     <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
     {% if search %}<a href="/rh/mise-a-pied?tab={{ tab }}" class="btn btn-sm btn-outline">✖ Effacer</a>{% endif %}
 </form>

@@ -38,10 +38,13 @@
         <option value="{{ j.code }}" {% if journal_filter == j.code %}selected{% endif %}>{{ j.code }} — {{ j.libelle }}</option>
         {% endfor %}
     </select>
-    <input type="date" name="from" value="{{ date_from }}" title="Du">
-    <input type="date" name="to" value="{{ date_to }}" title="Au">
+    <input type="date" name="from" value="{{ date_from }}" title="Date comptable — du">
+    <input type="date" name="to" value="{{ date_to }}" title="Date comptable — au">
+    <span style="font-size:12px;color:#666">Créé&nbsp;:</span>
+    <input type="date" name="cree_du" value="{{ cree_du or '' }}" title="Créé à partir du">
+    <input type="date" name="cree_au" value="{{ cree_au or '' }}" title="Créé jusqu'au">
     <button type="submit" class="btn btn-primary btn-sm">🔍 Filtrer</button>
-    {% if search or statut_filter or journal_filter or date_from or date_to %}
+    {% if search or statut_filter or journal_filter or date_from or date_to or cree_du or cree_au %}
         <a href="/compta-pro/ecritures" class="btn btn-outline btn-sm">✖ Effacer</a>
     {% endif %}
 </form>
