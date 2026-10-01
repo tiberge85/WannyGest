@@ -2096,6 +2096,27 @@ try:
 except Exception as _e:
     print(f"[v187-Rec] Erreur : {_e}", flush=True)
 
+# v188 : Catégorie tarifaire du client (particulier / pme / grande_entreprise) → prix proforma
+try:
+    from models import get_db as _v188db
+    _v188 = _v188db()
+    try: _v188.execute("ALTER TABLE clients ADD COLUMN categorie_tarif TEXT")
+    except Exception: pass
+    # Backfill depuis l'ancien champ client_status, quand c'est possible
+    try:
+        _v188.execute("""UPDATE clients SET categorie_tarif='grande_entreprise'
+            WHERE (categorie_tarif IS NULL OR categorie_tarif='') AND LOWER(COALESCE(client_status,'')) LIKE '%gros%'""")
+        _v188.execute("""UPDATE clients SET categorie_tarif='particulier'
+            WHERE (categorie_tarif IS NULL OR categorie_tarif='') AND LOWER(COALESCE(client_status,'')) LIKE '%particulier%'""")
+        _v188.execute("""UPDATE clients SET categorie_tarif='pme'
+            WHERE (categorie_tarif IS NULL OR categorie_tarif='') AND LOWER(COALESCE(client_status,'')) LIKE '%entreprise%'""")
+    except Exception as _eb:
+        print(f"[v188-Client] backfill : {_eb}", flush=True)
+    _v188.commit(); _v188.close()
+    print("[v188-Client] Colonne categorie_tarif OK", flush=True)
+except Exception as _e:
+    print(f"[v188-Client] Erreur : {_e}", flush=True)
+
 
 # v116 : Backfill des permissions de section pour tous les rôles
 # Attribue par défaut à chaque rôle ses sections sidebar appropriées
@@ -8182,7 +8203,7 @@ def clients_add():
     cid = conn.execute("SELECT id FROM clients ORDER BY id DESC LIMIT 1").fetchone()['id']
     for field in ['sector','city','country','website','rc_number','cnps_number',
                   'contact_title','contact_tel2','contact_email2','payment_terms',
-                  'source','status']:
+                  'source','status','categorie_tarif']:
         val = request.form.get(field, '')
         if val:
             try: conn.execute(f"UPDATE clients SET {field}=? WHERE id=?", (val, cid))
@@ -8315,7 +8336,7 @@ def clients_edit(cid):
         conn = _gdb3()
         for field in ['sector','city','country','website','rc_number','cnps_number',
                       'contact_title','contact_tel2','contact_email2','payment_terms',
-                      'source','status','client_status','client_code']:
+                      'source','status','client_status','client_code','categorie_tarif']:
             val = request.form.get(field, '')
             try: conn.execute(f"UPDATE clients SET {field}=? WHERE id=?", (val, cid))
             except: pass

@@ -43,7 +43,8 @@
                     data-tel="{{ c.tel or '' }}"
                     data-email="{{ c.email or '' }}"
                     data-address="{{ c.address or '' }}"
-                    data-status="{{ c.client_status or c.type or '' }}">
+                    data-status="{{ c.client_status or c.type or '' }}"
+                    data-tier="{{ c.categorie_tarif or '' }}">
                     {% if c.client_code %}[{{ c.client_code }}] {% endif %}{{ c.name }}{% if c.contact_name %} — {{ c.contact_name }}{% endif %}
                 </option>
             {% endfor %}
@@ -355,8 +356,13 @@ function addItem(){itemCount++;document.getElementById('items').insertAdjacentHT
     if(window._recalcDevis)window._recalcDevis();}
 // v172 : détermine le palier de prix selon le type (statut) du client sélectionné
 function _clientTier(){
-    var sel=document.getElementById('clientSel');var st='';
-    if(sel&&sel.value){var o=sel.options[sel.selectedIndex];st=(o.getAttribute('data-status')||'').toLowerCase();}
+    var sel=document.getElementById('clientSel');var st='';var tier='';
+    if(sel&&sel.value){var o=sel.options[sel.selectedIndex];st=(o.getAttribute('data-status')||'').toLowerCase();tier=(o.getAttribute('data-tier')||'').toLowerCase();}
+    // v188 : catégorie tarifaire explicite du client (prioritaire)
+    if(tier==='grande_entreprise') return {key:'pge',label:'Grande Entreprise'};
+    if(tier==='pme') return {key:'ppme',label:'PME'};
+    if(tier==='particulier') return {key:'pp',label:'Particulier'};
+    // fallback : ancien champ statut
     if(st.indexOf('gros')>-1||st.indexOf('grande')>-1) return {key:'pge',label:'Grande Entreprise'};
     if(st.indexOf('entreprise')>-1) return {key:'ppme',label:'PME'};
     if(st.indexOf('particulier')>-1) return {key:'pp',label:'Particulier'};
