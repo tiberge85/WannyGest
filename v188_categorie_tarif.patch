@@ -1,0 +1,176 @@
+From 7fecb76dee7caa0a80cf937af194b475b8855af2 Mon Sep 17 00:00:00 2001
+From: tiberge85 <mediart94@gmail.com>
+Date: Thu, 1 Oct 2026 10:27:30 +0000
+Subject: [PATCH] =?UTF-8?q?Cat=C3=A9gorie=20tarifaire=20client=20(Particul?=
+ =?UTF-8?q?ier=20/=20PME=20/=20Grande=20entreprise)=20=E2=86=92=20prix=20p?=
+ =?UTF-8?q?roforma=20=E2=80=94=20v188?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- clients: nouvelle colonne categorie_tarif (migration + backfill depuis client_status)
+- Formulaires ajout/édition client : sélecteur « Catégorie tarifaire »
+- Enregistré dans clients_add / clients_edit
+- devis_new / devis_edit : data-tier sur le client ; _clientTier() lit en priorité la catégorie tarifaire explicite (particulier→pp, pme→ppme, grande_entreprise→pge), avec repli sur l'ancien statut
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DWnqF8XGfxfCMKAbKQEMce
+---
+ app.py          | 25 +++++++++++++++++++++++--
+ clients.html    |  9 +++++++++
+ devis_edit.html | 12 +++++++++---
+ devis_new.html  | 12 +++++++++---
+ edit_pages.html |  7 +++++++
+ 5 files changed, 57 insertions(+), 8 deletions(-)
+
+diff --git a/app.py b/app.py
+index a4f2e7b..d035998 100644
+--- a/app.py
++++ b/app.py
+@@ -2096,6 +2096,27 @@ try:
+ except Exception as _e:
+     print(f"[v187-Rec] Erreur : {_e}", flush=True)
+ 
++# v188 : Catégorie tarifaire du client (particulier / pme / grande_entreprise) → prix proforma
++try:
++    from models import get_db as _v188db
++    _v188 = _v188db()
++    try: _v188.execute("ALTER TABLE clients ADD COLUMN categorie_tarif TEXT")
++    except Exception: pass
++    # Backfill depuis l'ancien champ client_status, quand c'est possible
++    try:
++        _v188.execute("""UPDATE clients SET categorie_tarif='grande_entreprise'
++            WHERE (categorie_tarif IS NULL OR categorie_tarif='') AND LOWER(COALESCE(client_status,'')) LIKE '%gros%'""")
++        _v188.execute("""UPDATE clients SET categorie_tarif='particulier'
++            WHERE (categorie_tarif IS NULL OR categorie_tarif='') AND LOWER(COALESCE(client_status,'')) LIKE '%particulier%'""")
++        _v188.execute("""UPDATE clients SET categorie_tarif='pme'
++            WHERE (categorie_tarif IS NULL OR categorie_tarif='') AND LOWER(COALESCE(client_status,'')) LIKE '%entreprise%'""")
++    except Exception as _eb:
++        print(f"[v188-Client] backfill : {_eb}", flush=True)
++    _v188.commit(); _v188.close()
++    print("[v188-Client] Colonne categorie_tarif OK", flush=True)
++except Exception as _e:
++    print(f"[v188-Client] Erreur : {_e}", flush=True)
++
+ 
+ # v116 : Backfill des permissions de section pour tous les rôles
+ # Attribue par défaut à chaque rôle ses sections sidebar appropriées
+@@ -8182,7 +8203,7 @@ def clients_add():
+     cid = conn.execute("SELECT id FROM clients ORDER BY id DESC LIMIT 1").fetchone()['id']
+     for field in ['sector','city','country','website','rc_number','cnps_number',
+                   'contact_title','contact_tel2','contact_email2','payment_terms',
+-                  'source','status']:
++                  'source','status','categorie_tarif']:
+         val = request.form.get(field, '')
+         if val:
+             try: conn.execute(f"UPDATE clients SET {field}=? WHERE id=?", (val, cid))
+@@ -8315,7 +8336,7 @@ def clients_edit(cid):
+         conn = _gdb3()
+         for field in ['sector','city','country','website','rc_number','cnps_number',
+                       'contact_title','contact_tel2','contact_email2','payment_terms',
+-                      'source','status','client_status','client_code']:
++                      'source','status','client_status','client_code','categorie_tarif']:
+             val = request.form.get(field, '')
+             try: conn.execute(f"UPDATE clients SET {field}=? WHERE id=?", (val, cid))
+             except: pass
+diff --git a/clients.html b/clients.html
+index 5c2ad79..03b2fdb 100644
+--- a/clients.html
++++ b/clients.html
+@@ -290,6 +290,15 @@
+                 </select>
+             </div>
+         </div>
++        <div class="form-row">
++            <div class="form-group"><label>Catégorie tarifaire (prix proforma)</label>
++                <select name="categorie_tarif">
++                    <option value="particulier">Particulier</option>
++                    <option value="pme" selected>PME</option>
++                    <option value="grande_entreprise">Grande entreprise</option>
++                </select>
++            </div>
++        </div>
+         <div class="form-group"><label>Adresse</label><input type="text" name="address"></div>
+         <div class="form-group"><label>Notes</label><textarea name="notes" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea></div>
+         <div style="display:flex;gap:8px;justify-content:flex-end">
+diff --git a/devis_edit.html b/devis_edit.html
+index cfc77d7..9427ffb 100644
+--- a/devis_edit.html
++++ b/devis_edit.html
+@@ -43,7 +43,8 @@
+                     data-tel="{{ c.tel or '' }}"
+                     data-email="{{ c.email or '' }}"
+                     data-address="{{ c.address or '' }}"
+-                    data-status="{{ c.client_status or c.type or '' }}">
++                    data-status="{{ c.client_status or c.type or '' }}"
++                    data-tier="{{ c.categorie_tarif or '' }}">
+                     {% if c.client_code %}[{{ c.client_code }}] {% endif %}{{ c.name }}{% if c.contact_name %} — {{ c.contact_name }}{% endif %}
+                 </option>
+             {% endfor %}
+@@ -355,8 +356,13 @@ function addItem(){itemCount++;document.getElementById('items').insertAdjacentHT
+     if(window._recalcDevis)window._recalcDevis();}
+ // v172 : détermine le palier de prix selon le type (statut) du client sélectionné
+ function _clientTier(){
+-    var sel=document.getElementById('clientSel');var st='';
+-    if(sel&&sel.value){var o=sel.options[sel.selectedIndex];st=(o.getAttribute('data-status')||'').toLowerCase();}
++    var sel=document.getElementById('clientSel');var st='';var tier='';
++    if(sel&&sel.value){var o=sel.options[sel.selectedIndex];st=(o.getAttribute('data-status')||'').toLowerCase();tier=(o.getAttribute('data-tier')||'').toLowerCase();}
++    // v188 : catégorie tarifaire explicite du client (prioritaire)
++    if(tier==='grande_entreprise') return {key:'pge',label:'Grande Entreprise'};
++    if(tier==='pme') return {key:'ppme',label:'PME'};
++    if(tier==='particulier') return {key:'pp',label:'Particulier'};
++    // fallback : ancien champ statut
+     if(st.indexOf('gros')>-1||st.indexOf('grande')>-1) return {key:'pge',label:'Grande Entreprise'};
+     if(st.indexOf('entreprise')>-1) return {key:'ppme',label:'PME'};
+     if(st.indexOf('particulier')>-1) return {key:'pp',label:'Particulier'};
+diff --git a/devis_new.html b/devis_new.html
+index 164ad10..14cb3f0 100644
+--- a/devis_new.html
++++ b/devis_new.html
+@@ -45,7 +45,8 @@
+                     data-tel="{{ c.tel or '' }}"
+                     data-email="{{ c.email or '' }}"
+                     data-address="{{ c.address or '' }}"
+-                    data-status="{{ c.client_status or c.type or '' }}">
++                    data-status="{{ c.client_status or c.type or '' }}"
++                    data-tier="{{ c.categorie_tarif or '' }}">
+                     {% if c.client_code %}[{{ c.client_code }}] {% endif %}{{ c.name }}{% if c.contact_name %} — {{ c.contact_name }}{% endif %}
+                 </option>
+             {% endfor %}
+@@ -282,8 +283,13 @@ function filterClientSelect(){
+ }
+ // v172 : palier de prix selon le type (statut) du client sélectionné
+ function _clientTier(){
+-    var sel=document.getElementById('clientSel');var st='';
+-    if(sel&&sel.value){var o=sel.options[sel.selectedIndex];st=(o.getAttribute('data-status')||'').toLowerCase();}
++    var sel=document.getElementById('clientSel');var st='';var tier='';
++    if(sel&&sel.value){var o=sel.options[sel.selectedIndex];st=(o.getAttribute('data-status')||'').toLowerCase();tier=(o.getAttribute('data-tier')||'').toLowerCase();}
++    // v188 : catégorie tarifaire explicite du client (prioritaire)
++    if(tier==='grande_entreprise') return {key:'pge',label:'Grande Entreprise'};
++    if(tier==='pme') return {key:'ppme',label:'PME'};
++    if(tier==='particulier') return {key:'pp',label:'Particulier'};
++    // fallback : ancien champ statut
+     if(st.indexOf('gros')>-1||st.indexOf('grande')>-1) return {key:'pge',label:'Grande Entreprise'};
+     if(st.indexOf('entreprise')>-1) return {key:'ppme',label:'PME'};
+     if(st.indexOf('particulier')>-1) return {key:'pp',label:'Particulier'};
+diff --git a/edit_pages.html b/edit_pages.html
+index 3679b06..8b982fb 100644
+--- a/edit_pages.html
++++ b/edit_pages.html
+@@ -50,6 +50,13 @@
+                     {% endfor %}
+                 </select>
+             </div>
++            <div class="form-group"><label>Catégorie tarifaire (prix proforma)</label>
++                <select name="categorie_tarif">
++                    {% for val,label in [('particulier','Particulier'),('pme','PME'),('grande_entreprise','Grande entreprise')] %}
++                    <option value="{{ val }}" {% if (client.categorie_tarif or 'pme') == val %}selected{% endif %}>{{ label }}</option>
++                    {% endfor %}
++                </select>
++            </div>
+             <div class="form-row">
+                 <div class="form-group"><label>Conditions paiement</label><select name="payment_terms"><option value="">—</option>{% for p in ['comptant','30 jours','60 jours','90 jours'] %}<option {% if client.payment_terms==p %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></div>
+                 <div class="form-group"><label>Encours max (F)</label><input type="number" name="credit_limit" step="1" value="{{ client.credit_limit or 0 }}"></div>
+-- 
+2.43.0
+
