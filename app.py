@@ -39040,15 +39040,97 @@ def super_admin_agences():
     agences = list_agencies(include_inactive=True)
     return render_template('super_admin_agences.html', agences=agences)
 
+
+def _can_switch_agency():
+    """v191 : qui peut basculer d'agence en cours de session.
+    Réservé à l'admin de l'agence principale (super admin). Une fois une bascule
+    active, l'accès reste ouvert pour pouvoir changer d'agence ou revenir."""
+    try:
+        u = get_user_by_id(session.get('user_id'))
+        if not u or u['role'] not in ('admin', 'dg'):
+            return False
+        return _is_super_admin() or bool(session.get('_agency_switch_active'))
+    except Exception:
+        return False
+
+
+@app.route('/admin/switch-agency', methods=['POST'])
+@login_required
+def admin_switch_agency():
+    """v191 : bascule l'agence active sans se déconnecter (réservé au super admin).
+    On re-route la session vers la base de l'agence cible et on s'y identifie comme
+    administrateur de cette agence. Le retour à l'agence d'origine restaure l'identité initiale."""
+    if not _can_switch_agency():
+        flash("Accès réservé à l'administrateur de l'agence principale.", "error")
+        return redirect(url_for('dashboard'))
+    from models import list_agencies
+    try:
+        target = int(request.form.get('agency_id', 0) or 0)
+    except Exception:
+        target = 0
+    agences = {a['id']: a for a in list_agencies()}
+    if target not in agences:
+        flash("Agence invalide.", "error")
+        return redirect(request.referrer or url_for('dashboard'))
+
+    # Mémoriser l'agence/identité d'origine à la première bascule
+    if not session.get('_agency_switch_active'):
+        session['_agency_home_id'] = int(session.get('agency_id', 1) or 1)
+        session['_agency_home_user'] = session.get('user_id')
+    home_id = int(session.get('_agency_home_id', 1) or 1)
+    home_user = session.get('_agency_home_user')
+
+    # Retour à l'agence d'origine → restaurer l'identité initiale
+    if target == home_id:
+        session['agency_id'] = home_id
+        if home_user:
+            session['user_id'] = home_user
+        session.pop('_agency_switch_active', None)
+        session.pop('_agency_home_id', None)
+        session.pop('_agency_home_user', None)
+        session['last_active'] = datetime.now().isoformat()
+        flash(f"Retour à l'agence « {agences[target]['nom']} ».", "success")
+        return redirect(url_for('dashboard'))
+
+    # Bascule vers une autre agence : s'identifier comme administrateur de cette agence
+    session['agency_id'] = target
+    conn = _gdb()  # routé vers la base de l'agence cible
+    try:
+        row = conn.execute("""SELECT id, full_name FROM users
+            WHERE COALESCE(is_active,1)=1 AND role IN ('admin','dg')
+            ORDER BY (role='admin') DESC, id LIMIT 1""").fetchone()
+    except Exception:
+        row = None
+    conn.close()
+    if not row:
+        session['agency_id'] = home_id  # annuler la bascule
+        flash("Cette agence n'a pas de compte administrateur actif : bascule impossible.", "error")
+        return redirect(request.referrer or url_for('dashboard'))
+    session['user_id'] = row['id']
+    session['_agency_switch_active'] = True
+    session['last_active'] = datetime.now().isoformat()
+    flash(f"Agence active : « {agences[target]['nom']} » — vous agissez en tant qu'administrateur de cette agence.", "success")
+    return redirect(url_for('dashboard'))
+
 @app.context_processor
 def _inject_agency_context():
     """Rend l'agence active, le nombre d'agences et l'existence d'une photo de profil dans tous les gabarits."""
-    ctx = {'active_agency': None, 'agencies_total': 1, 'current_user_has_photo': False}
+    ctx = {'active_agency': None, 'agencies_total': 1, 'current_user_has_photo': False,
+           'can_switch_agency': False, 'all_agencies': [], 'agency_home_id': 1}
     try:
         from models import get_agency, list_agencies
         aid = int(session.get('agency_id', 1) or 1)
         ctx['active_agency'] = get_agency(aid)
-        ctx['agencies_total'] = len(list_agencies())
+        _ags = list_agencies()
+        ctx['agencies_total'] = len(_ags)
+        # v191 : sélecteur de bascule d'agence (super admin uniquement)
+        try:
+            if _can_switch_agency():
+                ctx['can_switch_agency'] = True
+                ctx['all_agencies'] = _ags
+                ctx['agency_home_id'] = int(session.get('_agency_home_id', aid) or aid)
+        except Exception:
+            pass
     except Exception:
         pass
     try:

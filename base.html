@@ -273,6 +273,21 @@
                 <a href="/super-admin/agences" title="Gérer les agences" style="color:#7fe3d3;text-decoration:none;margin-left:2px">⚙️ agences</a>
                 {% endif %}
             </div>
+            {% if can_switch_agency and all_agencies and all_agencies|length > 1 %}
+            <form method="post" action="/admin/switch-agency" style="margin-top:6px">
+                <label style="display:block;font-size:10px;color:rgba(255,255,255,0.7);margin-bottom:2px">🔄 Basculer d'agence</label>
+                <select name="agency_id" onchange="this.form.submit()"
+                    style="width:100%;padding:5px 8px;border:1px solid rgba(255,255,255,0.25);border-radius:7px;font-size:12px;background:rgba(255,255,255,0.14);color:#fff;outline:none;cursor:pointer">
+                    {% for a in all_agencies %}
+                    <option value="{{ a.id }}" {% if (session.get('agency_id',1)|int) == a.id %}selected{% endif %} style="color:#111">{{ a.nom }}{% if a.id == agency_home_id %} (principale){% endif %}</option>
+                    {% endfor %}
+                </select>
+                {% if (session.get('agency_id',1)|int) != agency_home_id %}
+                <div style="font-size:10px;color:#ffd27f;margin-top:3px">Vous agissez sur une autre agence — sélectionnez « (principale) » pour revenir.</div>
+                {% endif %}
+                <noscript><button type="submit" class="btn btn-sm" style="margin-top:4px">OK</button></noscript>
+            </form>
+            {% endif %}
             {% endif %}
         </div>
         {# v162 : recherche d'un onglet dans tout le menu #}
