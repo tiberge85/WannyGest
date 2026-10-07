@@ -6277,15 +6277,19 @@ def tresorerie_solde_caisse(caisse_id=None, date_to=None):
 
 
 def tresorerie_solde_banque(banque_id=None, date_to=None):
-    """Calcule le solde banque (intégrant solde initial)."""
+    """Calcule le solde banque (intégrant solde initial).
+    v190 : on compte TOUS les mouvements rattachés à un compte bancaire (banque_id non nul),
+    quel que soit le `type` du mouvement ('banque', 'decaissement', 'virement'…), car certains
+    décaissements (demandes MG, crédits fournisseurs) sont enregistrés avec type='decaissement'
+    mais portent bien un banque_id — les ignorer faussait le solde affiché en trésorerie."""
     conn = get_db()
-    where = "WHERE type='banque'"
+    where = "WHERE banque_id IS NOT NULL"
     params = []
     if banque_id:
         where += " AND banque_id=?"; params.append(banque_id)
     if date_to:
         where += " AND date<=?"; params.append(date_to)
-    
+
     try:
         entrees = conn.execute(f"SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements {where} AND sens='entree'", tuple(params)).fetchone()[0] or 0
         sorties = conn.execute(f"SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements {where} AND sens='sortie'", tuple(params)).fetchone()[0] or 0

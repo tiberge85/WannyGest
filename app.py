@@ -1858,6 +1858,37 @@ except Exception as _e:
     print(f"[v115-SoldeSync] Erreur : {_e}", flush=True)
 
 
+# v190 : Sync tresorerie_comptes_bancaires.solde_actuel avec le calcul réel (à chaque démarrage)
+# pour garantir la cohérence du solde banque dans TOUT le programme.
+# Solde réel = solde_initial + Σ(mouvements entrée) - Σ(mouvements sortie) rattachés au compte
+# (banque_id), quel que soit le type (banque/decaissement/virement…).
+try:
+    from models import get_db as _v190_db
+    _v190 = _v190_db()
+    # S'assurer que la colonne existe (indépendant de l'ordre des migrations)
+    try: _v190.execute("ALTER TABLE tresorerie_comptes_bancaires ADD COLUMN solde_actuel REAL DEFAULT 0")
+    except Exception: pass
+    try: _v190.execute("ALTER TABLE tresorerie_comptes_bancaires ADD COLUMN solde_initial REAL DEFAULT 0")
+    except Exception: pass
+    _banks = _v190.execute("SELECT id, COALESCE(solde_initial,0) AS si, COALESCE(solde_actuel,0) AS sa FROM tresorerie_comptes_bancaires").fetchall()
+    _nb = 0
+    for _b in _banks:
+        _bid = _b['id']
+        _e = _v190.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='entree'", (_bid,)).fetchone()[0] or 0
+        _s = _v190.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='sortie'", (_bid,)).fetchone()[0] or 0
+        _reel = float(_b['si'] or 0) + float(_e) - float(_s)
+        if abs(float(_b['sa'] or 0) - _reel) > 0.01:
+            _v190.execute("UPDATE tresorerie_comptes_bancaires SET solde_actuel=? WHERE id=?", (_reel, _bid))
+            _nb += 1
+    _v190.commit(); _v190.close()
+    if _nb > 0:
+        print(f"[v190-BanqueSync] {_nb} compte(s) bancaire(s) resynchronisé(s) depuis les mouvements", flush=True)
+    else:
+        print("[v190-BanqueSync] Soldes bancaires déjà cohérents", flush=True)
+except Exception as _e:
+    print(f"[v190-BanqueSync] Erreur : {_e}", flush=True)
+
+
 # v115 : Enrichissement du plan comptable existant — ajouter les sous-comptes manquants
 # (pour bilan comptable fonctionnel sur BDD existantes)
 try:
@@ -36315,11 +36346,12 @@ def caisse_sortie():
     user_role = user['role'] if user else None
     user_dept = user.get('department') if user else None
     
-    # Rôles qui voient TOUT (comptabilité, RH validateur, admin, DG, direction)
-    roles_voient_tout = ('admin', 'comptable', 'comptabilite', 'rh', 'dg', 'directeur', 'moyens_generaux', 'mg')
+    # v190 : Seuls la comptable et les admin voient l'INTÉGRALITÉ des sorties/demandes de caisse.
+    # Tous les autres utilisateurs ne voient que LEURS PROPRES demandes (suivi de leur évolution).
+    roles_voient_tout = ('admin', 'comptable', 'comptabilite')
     voit_tout = user_role in roles_voient_tout
-    
-    # Filtrer par demandeur OU par département
+
+    # Filtrer : tout (comptable/admin) OU uniquement les demandes de l'utilisateur
     if voit_tout:
         sorties = get_caisse_sorties(month=month)
     else:
@@ -36327,8 +36359,7 @@ def caisse_sortie():
         sorties = []
         for s in all_sorties:
             s_dict = dict(s) if hasattr(s, 'keys') else s
-            if (s_dict.get('demandeur_id') == session.get('user_id') or
-                (user_dept and s_dict.get('department') == user_dept)):
+            if s_dict.get('demandeur_id') == session.get('user_id'):
                 sorties.append(s_dict)
     
     # v151 : Appliquer le filtre par statut côté Python (compat avec get_caisse_sorties)
@@ -36353,12 +36384,32 @@ def caisse_sortie():
                 or s_low in (s.get('beneficiaire','') or '').lower()
                 or s_low in (s.get('motif','') or '').lower())]
     
-    stats = get_caisse_stats(month=month)
+    # v190 : stats + entrées limitées selon le périmètre.
+    # Comptable/admin : vue globale. Autres : uniquement leurs propres demandes, pas les entrées de caisse.
     conn = _gdb()
-    entrees = [dict(r) for r in conn.execute("SELECT * FROM caisse_entrees WHERE strftime('%Y-%m',date)=? ORDER BY date DESC", (month,)).fetchall()]
-    total_entrees = conn.execute("SELECT COALESCE(SUM(montant),0) FROM caisse_entrees WHERE strftime('%Y-%m',date)=?", (month,)).fetchone()[0]
     caisses = [dict(r) for r in conn.execute("SELECT * FROM caisses WHERE is_active=1 ORDER BY name").fetchall()]
     caisses_map = {r['id']: r['name'] for r in caisses}
+    if voit_tout:
+        stats = get_caisse_stats(month=month)
+        entrees = [dict(r) for r in conn.execute("SELECT * FROM caisse_entrees WHERE strftime('%Y-%m',date)=? ORDER BY date DESC", (month,)).fetchall()]
+        total_entrees = conn.execute("SELECT COALESCE(SUM(montant),0) FROM caisse_entrees WHERE strftime('%Y-%m',date)=?", (month,)).fetchone()[0]
+    else:
+        tab = 'sorties'  # les autres utilisateurs n'ont pas accès aux entrées de caisse
+        _own = sorties  # demandes du mois de l'utilisateur (avant filtres statut/jour/recherche)
+        def _m(cond):
+            return sum(float(x.get('montant') or 0) for x in _own if cond(x))
+        stats = {
+            'total': len(_own),
+            'en_attente': sum(1 for x in _own if (x.get('status') or '') == 'en_attente'),
+            'valide': sum(1 for x in _own if (x.get('status') or '') == 'valide'),
+            'refuse': sum(1 for x in _own if (x.get('status') or '') == 'refuse'),
+            'montant_total': _m(lambda x: (x.get('status') or '') == 'valide'),
+            'montant_espece': _m(lambda x: (x.get('status') or '') == 'valide' and (x.get('nature') or '') == 'espece'),
+            'montant_cheque': _m(lambda x: (x.get('status') or '') == 'valide' and (x.get('nature') or '') == 'cheque'),
+            'montant_virement': _m(lambda x: (x.get('status') or '') == 'valide' and (x.get('nature') or '') == 'virement'),
+        }
+        entrees = []
+        total_entrees = 0
     for e in entrees:
         e['caisse_name'] = caisses_map.get(e.get('caisse_id'), '')
     for s in sorties_dict:
@@ -41250,8 +41301,18 @@ def _all_wallets(conn):
     banques = []
     try:
         banques = [dict(r) for r in conn.execute("""
-            SELECT id, nom, banque, numero_compte, COALESCE(solde_actuel,0) AS solde
+            SELECT id, nom, banque, numero_compte, COALESCE(solde_initial,0) AS solde_initial, COALESCE(solde_actuel,0) AS solde_actuel
             FROM tresorerie_comptes_bancaires WHERE COALESCE(is_active,1)=1 ORDER BY nom""").fetchall()]
+        for b in banques:
+            try:
+                # v190 : MÊME calcul que la trésorerie → tous les mouvements rattachés au compte
+                # (banque_id), quel que soit le type (banque/decaissement/virement). Évite l'écart
+                # de solde constaté entre cette page et la trésorerie.
+                e = conn.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='entree'", (b['id'],)).fetchone()[0] or 0
+                s = conn.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='sortie'", (b['id'],)).fetchone()[0] or 0
+                b['solde'] = float(b['solde_initial']) + float(e) - float(s)
+            except Exception:
+                b['solde'] = float(b.get('solde_actuel', 0) or 0)
     except Exception:
         banques = []
     return caisses, banques
@@ -41287,11 +41348,18 @@ def _fournisseur_wallets(conn):
     banques = []
     try:
         banques = [dict(r) for r in conn.execute(f"""
-            SELECT id, nom, banque, numero_compte, COALESCE(solde_actuel,0) AS solde
+            SELECT id, nom, banque, numero_compte, COALESCE(solde_initial,0) AS solde_initial, COALESCE(solde_actuel,0) AS solde_actuel
             FROM tresorerie_comptes_bancaires
             WHERE COALESCE(is_active,1)=1
               AND (is_fournisseur=1 OR (is_fournisseur IS NULL AND ({like_b})))
             ORDER BY is_fournisseur DESC, nom""").fetchall()]
+        for b in banques:
+            try:
+                e = conn.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='entree'", (b['id'],)).fetchone()[0] or 0
+                s = conn.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='sortie'", (b['id'],)).fetchone()[0] or 0
+                b['solde'] = float(b['solde_initial']) + float(e) - float(s)
+            except Exception:
+                b['solde'] = float(b.get('solde_actuel', 0) or 0)
     except: banques = []
     return caisses, banques
 
@@ -41323,11 +41391,18 @@ def _prestataire_wallets(conn):
     banques = []
     try:
         banques = [dict(r) for r in conn.execute(f"""
-            SELECT id, nom, banque, numero_compte, COALESCE(solde_actuel,0) AS solde
+            SELECT id, nom, banque, numero_compte, COALESCE(solde_initial,0) AS solde_initial, COALESCE(solde_actuel,0) AS solde_actuel
             FROM tresorerie_comptes_bancaires
             WHERE COALESCE(is_active,1)=1
               AND (is_prestataire=1 OR (COALESCE(is_prestataire,0)=0 AND ({like_b})))
             ORDER BY is_prestataire DESC, nom""").fetchall()]
+        for b in banques:
+            try:
+                e = conn.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='entree'", (b['id'],)).fetchone()[0] or 0
+                s = conn.execute("SELECT COALESCE(SUM(montant),0) FROM tresorerie_mouvements WHERE banque_id=? AND sens='sortie'", (b['id'],)).fetchone()[0] or 0
+                b['solde'] = float(b['solde_initial']) + float(e) - float(s)
+            except Exception:
+                b['solde'] = float(b.get('solde_actuel', 0) or 0)
     except: banques = []
     return caisses, banques
 

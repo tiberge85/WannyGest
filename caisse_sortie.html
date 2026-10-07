@@ -21,7 +21,7 @@
 <!-- Tabs -->
 <div style="display:flex;gap:6px;margin-bottom:14px;align-items:center">
     <a href="/caisse-sortie?tab=sorties&month={{ month }}" class="btn {% if tab=='sorties' %}btn-primary{% else %}btn-outline{% endif %} btn-sm">📤 Demandes de sortie</a>
-    <a href="/caisse-sortie?tab=entrees&month={{ month }}" class="btn {% if tab=='entrees' %}btn-primary{% else %}btn-outline{% endif %} btn-sm">📥 Entrées de caisse</a>
+    {% if voit_tout %}<a href="/caisse-sortie?tab=entrees&month={{ month }}" class="btn {% if tab=='entrees' %}btn-primary{% else %}btn-outline{% endif %} btn-sm">📥 Entrées de caisse</a>{% endif %}
     <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
         <form method="get" style="display:flex;gap:4px;align-items:center"><input type="hidden" name="tab" value="{{ tab }}">
         <input type="month" name="month" value="{{ month }}" style="padding:4px 8px;border:1px solid #ddd;border-radius:6px;font-size:12px">
