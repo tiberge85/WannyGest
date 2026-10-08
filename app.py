@@ -4830,6 +4830,7 @@ PERM_CATEGORIES = {
     '⚙️ ADMINISTRATION (Section sidebar)': [
         ('section_admin', 'Voir la section ADMINISTRATION dans la sidebar'),
         ('admin', 'Accès administration complet'),
+        ('users_manage', 'Gérer les utilisateurs (créer / modifier / désactiver — sans la gestion des rôles)'),
         ('logs', 'Logs d\'activité'),
         ('dashboard_general', 'Voir le tableau de bord général'),
     ],
@@ -4973,6 +4974,50 @@ for _cat, _perms in PERM_CATEGORIES.items():
     for _perm, _label in _perms:
         if _perm not in ALL_PERMISSIONS:
             ALL_PERMISSIONS.append(_perm)
+
+
+# v192 : rôle 'chef_agence' — quasi-admin de SON agence (initialisé une seule fois par agence).
+# Permissions = TOUTES sauf 'admin' (la gestion des rôles/permissions et des agences reste
+# réservée au super-admin) + 'users_manage' (gestion des utilisateurs de l'agence).
+# L'admin peut ensuite ajuster dans Rôles & permissions.
+try:
+    from models import (get_db as _v192db, list_agencies as _v192_list,
+                        set_forced_agency as _v192_set, clear_forced_agency as _v192_clear)
+    _perms192 = [p for p in ALL_PERMISSIONS if p != 'admin']
+    if 'users_manage' not in _perms192:
+        _perms192.append('users_manage')
+    try:
+        _ags192 = _v192_list() or [{'id': 1}]
+    except Exception:
+        _ags192 = [{'id': 1}]
+    _seeded192 = 0
+    for _ag in _ags192:
+        try:
+            _v192_set(_ag['id'])
+            _c = _v192db()
+            _f = _c.execute("SELECT value FROM app_settings WHERE key='v192_chef_agence_seeded'").fetchone()
+            if not _f:
+                for _p in _perms192:
+                    try:
+                        if not _c.execute("SELECT 1 FROM permissions WHERE role='chef_agence' AND permission=?", (_p,)).fetchone():
+                            _c.execute("INSERT INTO permissions (role, permission) VALUES ('chef_agence', ?)", (_p,))
+                    except Exception:
+                        pass
+                try:
+                    _c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v192_chef_agence_seeded','1',datetime('now'))")
+                except Exception:
+                    pass
+                _c.commit(); _seeded192 += 1
+            _c.close()
+        except Exception:
+            pass
+        finally:
+            try: _v192_clear()
+            except Exception: pass
+    if _seeded192:
+        print(f"[v192-Perms] Rôle 'chef_agence' initialisé sur {_seeded192} agence(s)", flush=True)
+except Exception as _e:
+    print(f"[v192-Perms] Erreur : {_e}", flush=True)
 
 
 def allowed_file(fn):
@@ -8437,14 +8482,27 @@ def clients_merge():
 
 # ======================== ADMIN ========================
 
+def _actor_is_full_admin():
+    """v192 : l'utilisateur courant a-t-il l'accès administration complet ('admin') ?
+    Sert à empêcher un gestionnaire d'utilisateurs (ex. chef d'agence) de créer/modifier
+    un compte administrateur (escalade de privilèges)."""
+    try:
+        u = get_user_by_id(session.get('user_id'))
+        if not u:
+            return False
+        return u['role'] == 'admin' or ('admin' in get_role_permissions(u['role']))
+    except Exception:
+        return False
+
+
 @app.route('/admin')
-@permission_required('admin')
+@permission_required_any('admin', 'users_manage')
 def admin_page():
     users = get_all_users()
     stats = get_dashboard_stats()
     # v162 : inclure TOUTES les colonnes de la matrice (sinon leurs cases s'affichent toujours
     # décochées même si la permission est bien enregistrée — ex. agent_recouvreur, caissiere)
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire', 'chef_agence']}
     # v162 : comptable et comptabilite = même rôle → la colonne « comptable » montre l'union des deux
     role_perms['comptable'] = sorted(set(role_perms.get('comptable', [])) | set(get_role_permissions('comptabilite')))
     conn = _gdb()
@@ -8499,12 +8557,17 @@ def admin_set_ramya_days_required():
     return redirect(url_for('admin_page', section='settings'))
 
 @app.route('/admin/add', methods=['POST'])
-@permission_required('admin')
+@permission_required_any('admin', 'users_manage')
 def admin_add_user():
+    # v192 : un gestionnaire d'utilisateurs non-admin ne peut pas créer de compte 'admin'
+    _new_role = request.form.get('role', 'technicien')
+    if _new_role == 'admin' and not _actor_is_full_admin():
+        flash("Seul un administrateur complet peut créer un compte administrateur.", "error")
+        return redirect(url_for('admin_page'))
     ok, msg = create_user(
         request.form['username'], request.form['email'],
         request.form['password'], request.form['full_name'],
-        request.form.get('role', 'technicien')
+        _new_role
     )
     # Si création OK et département fourni, l'enregistrer
     if ok:
@@ -8558,16 +8621,21 @@ def admin_reset():
     return redirect(url_for('admin_page'))
 
 @app.route('/admin/edit/<int:uid>', methods=['GET', 'POST'])
-@permission_required('admin')
+@permission_required_any('admin', 'users_manage')
 def admin_edit_user(uid):
     u = get_user_by_id(uid)
     if not u:
         flash("Utilisateur non trouvé", "error")
         return redirect(url_for('admin_page'))
     if request.method == 'POST':
+        # v192 : un gestionnaire non-admin ne peut ni promouvoir en 'admin' ni modifier un admin
+        _new_role = request.form['role']
+        if not _actor_is_full_admin() and (_new_role == 'admin' or u['role'] == 'admin'):
+            flash("Seul un administrateur complet peut gérer un compte administrateur.", "error")
+            return redirect(url_for('admin_page'))
         updates = {'full_name': request.form['full_name'],
                    'email': request.form['email'],
-                   'role': request.form['role']}
+                   'role': _new_role}
         pwd = request.form.get('password', '').strip()
         if pwd:
             updates['password'] = pwd
@@ -8590,7 +8658,7 @@ def admin_edit_user(uid):
     return render_template('edit_pages.html', page='admin', edit_user=u)
 
 @app.route('/admin/toggle/<int:uid>')
-@permission_required('admin')
+@permission_required_any('admin', 'users_manage')
 def admin_toggle_user(uid):
     u = get_user_by_id(uid)
     if u and u['role'] != 'admin':
@@ -8599,13 +8667,15 @@ def admin_toggle_user(uid):
     return redirect(url_for('admin_page'))
 
 @app.route('/admin/delete/<int:uid>')
-@permission_required('admin')
+@permission_required_any('admin', 'users_manage')
 def admin_delete_user(uid):
     u = get_user_by_id(uid)
     if not u:
         flash("Utilisateur non trouvé", "error")
     elif u['role'] == 'admin' and u['username'] == 'admin':
         flash("Impossible de supprimer le compte admin principal", "error")
+    elif u['role'] == 'admin' and not _actor_is_full_admin():
+        flash("Seul un administrateur complet peut supprimer un compte administrateur.", "error")
     elif uid == session.get('user_id'):
         flash("Impossible de supprimer votre propre compte", "error")
     else:
@@ -8629,7 +8699,7 @@ def admin_permissions():
     # Rôles affichés en colonnes dans admin.html (doit rester synchronisé avec le template)
     matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable',
                     'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique',
-                    'coordinateur', 'proprietaire', 'concierge', 'secretaire']
+                    'coordinateur', 'proprietaire', 'concierge', 'secretaire', 'chef_agence']
     for role in matrix_roles:
         existing = set(get_role_permissions(role))
         preserved = {p for p in existing if p not in matrix_perms}          # hors-matrice : conservées

@@ -823,7 +823,8 @@
             <div class="nav-section" id="sec-admin">
                 <div class="nav-section-title" onclick="toggleSection('sec-admin')">⚙️ ADMINISTRATION <span class="arrow">▼</span></div>
                 <div class="nav-section-items">
-                    <a href="/admin" class="{% if page == 'admin' %}active{% endif %}">Utilisateurs & rôles</a>
+                    <a href="/admin" class="{% if page == 'admin' %}active{% endif %}">{% if 'admin' in permissions %}Utilisateurs & rôles{% else %}Utilisateurs{% endif %}</a>
+                    {% if 'admin' in permissions %}
                     <a href="/admin/client-requests" class="{% if page == 'client_requests' %}active{% endif %}" style="position:relative">📩 Demandes clients{% if pending_requests_count and pending_requests_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_requests_count }}</span>{% endif %}</a>
                     <a href="/admin/client-users" class="{% if page == 'client_users' %}active{% endif %}">👤 Portail clients</a>
                     <a href="/admin/client-users/pending" class="{% if page == 'client_users_pending' %}active{% endif %}" style="position:relative">⏳ Comptes à valider{% if pending_clients_count and pending_clients_count > 0 %} <span style="background:#e8672a;color:#fff;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;margin-left:4px">{{ pending_clients_count }}</span>{% endif %}</a>
@@ -843,6 +844,7 @@
                     <a href="/logs" class="{% if page == 'logs' %}active{% endif %}">Logs d'activité</a>
                     <a href="/admin/backup">Sauvegarde BDD</a>
                     <a href="/export/stats">Export statistiques</a>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
