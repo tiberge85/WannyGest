@@ -1,7 +1,12 @@
 {% extends "base.html" %}{% block title %}WannyGest - Paie{% endblock %}{% block content %}
 <div class="page-header"><h1>💵 Gestion de la paie</h1>
-<div style="display:flex;gap:6px">
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
 <form method="post" action="/rh/paie/bulk-compta" style="display:inline"><button type="submit" class="btn btn-sm" style="background:#1A7A6D;color:#fff" onclick="return confirm('Envoyer tous les bulletins brouillon à la comptabilité ?')">📋 Envoyer à la comptabilité</button></form>
+<form method="post" action="/rh/paie/publish-period" style="display:inline-flex;gap:4px;align-items:center" onsubmit="return confirm('Publier tous les bulletins de cette période sur les accès des employés ?')">
+    <input type="hidden" name="period" value="{{ period }}">
+    <input type="date" name="publish_date" title="Date de diffusion (vide = aujourd'hui)" style="padding:5px 7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    <button type="submit" class="btn btn-sm" style="background:#6a1b9a;color:#fff" {% if not period %}disabled title="Filtrez d'abord une période (mois)"{% endif %}>📤 Publier la période aux employés</button>
+</form>
 <button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Bulletin</button>
 </div></div>
 
@@ -16,6 +21,7 @@
     <span style="padding:2px 8px;border-radius:10px;background:#e3f2fd;color:#1A7A6D">📋 En attente compta</span>
     <span style="padding:2px 8px;border-radius:10px;background:#e8f5e9;color:#2e7d32">✅ Validé compta</span>
     <span style="padding:2px 8px;border-radius:10px;background:#fff3e0;color:#e8672a">📧 Envoyé</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#f3e5f5;color:#6a1b9a">📤 Diffusé aux employés</span>
 </div>
 
 <div class="card"><div class="card-body">
@@ -41,6 +47,7 @@
 <a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm" style="font-size:9px">📥</a>
 {% if p.status=='brouillon' %}<a href="/rh/paie/{{ p.id }}/status/en_attente_compta" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px" title="Envoyer à la comptabilité">📋</a>{% endif %}
 {% if p.status=='valide_compta' %}<a href="/rh/paie/{{ p.id }}/email" class="btn btn-sm" style="background:#e8672a;color:#fff;font-size:9px" title="Envoyer par email">📧</a>{% endif %}
+{% if p.published %}<span title="Diffusé à l'employé le {{ (p.publish_date or '')[:10] }}" style="font-size:11px;color:#6a1b9a">📤</span>{% else %}<form method="post" action="/rh/paie/{{ p.id }}/publish" style="display:inline" onsubmit="return confirm('Publier ce bulletin sur l\'accès de l\'employé (diffusion aujourd\'hui) ?')"><button type="submit" class="btn btn-sm" style="background:#6a1b9a;color:#fff;font-size:9px" title="Publier à l'employé">📤</button></form>{% endif %}
 <a href="/rh/paie/{{ p.id }}/delete" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>
 </td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p style="text-align:center;color:#999;padding:30px">Aucun bulletin de paie</p>{% endif %}
