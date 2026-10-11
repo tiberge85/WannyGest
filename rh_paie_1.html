@@ -1,0 +1,106 @@
+{% extends "base.html" %}{% block title %}WannyGest - Paie{% endblock %}{% block content %}
+<div class="page-header"><h1>💵 Gestion de la paie</h1>
+<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+<form method="post" action="/rh/paie/bulk-compta" style="display:inline"><button type="submit" class="btn btn-sm" style="background:#1A7A6D;color:#fff" onclick="return confirm('Envoyer tous les bulletins brouillon à la comptabilité ?')">📋 Envoyer à la comptabilité</button></form>
+<form method="post" action="/rh/paie/publish-period" style="display:inline-flex;gap:4px;align-items:center" onsubmit="return confirm('Publier tous les bulletins de cette période sur les accès des employés ?')">
+    <input type="hidden" name="period" value="{{ period }}">
+    <input type="date" name="publish_date" title="Date de diffusion (vide = aujourd'hui)" style="padding:5px 7px;border:1.5px solid #ddd;border-radius:6px;font-size:12px">
+    <button type="submit" class="btn btn-sm" style="background:#6a1b9a;color:#fff" {% if not period %}disabled title="Filtrez d'abord une période (mois)"{% endif %}>📤 Publier la période aux employés</button>
+</form>
+<button class="btn btn-orange btn-sm" onclick="document.getElementById('addM').classList.add('active')">+ Bulletin</button>
+</div></div>
+
+<div style="margin-bottom:14px"><form method="get" style="display:flex;gap:8px;align-items:center">
+<input type="month" name="period" value="{{ period }}" style="padding:6px 10px;border:1.5px solid #ddd;border-radius:6px;font-size:13px">
+<button type="submit" class="btn btn-outline btn-sm">Filtrer</button>
+<a href="/rh/paie" class="btn btn-outline btn-sm">Tout</a>
+</form></div>
+
+<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;font-size:11px">
+    <span style="padding:2px 8px;border-radius:10px;background:#f0f4f8;color:#555">📝 Brouillon</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#e3f2fd;color:#1A7A6D">📋 En attente compta</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#e8f5e9;color:#2e7d32">✅ Validé compta</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#fff3e0;color:#e8672a">📧 Envoyé</span>
+    <span style="padding:2px 8px;border-radius:10px;background:#f3e5f5;color:#6a1b9a">📤 Diffusé aux employés</span>
+</div>
+
+<div class="card"><div class="card-body">
+{% if payslips %}<div style="margin-bottom:8px;display:flex;justify-content:flex-end"><input type="text" id="searchInput" placeholder="🔍 Rechercher..." onkeyup="filterTable('searchInput','dataTable')" style="padding:7px 12px;border:1.5px solid #ddd;border-radius:8px;font-size:12px;width:220px"></div><div class="table-wrap"><table id="dataTable">
+<thead><tr><th>Période</th><th>Employé</th><th>Mat.</th><th style="text-align:right">Brut</th><th style="text-align:right">Retenues</th><th style="text-align:right">Net</th><th>Statut</th><th>Actions</th></tr></thead>
+<tbody>{% for p in payslips %}<tr>
+<td>{{ p.period }}</td><td><strong>{{ p.first_name }} {{ p.last_name }}</strong></td><td style="font-size:11px">{{ p.matricule or '-' }}</td>
+<td style="text-align:right;color:#2e7d32">{{ '{:,.0f}'.format(p.base_salary + p.bonus + p.overtime_amount) }}</td>
+<td style="text-align:right;color:#c53030">{{ '{:,.0f}'.format(p.deductions + p.insurance_amount + p.tax_amount) }}</td>
+<td style="text-align:right;font-weight:700">{{ '{:,.0f}'.format(p.net_salary) }}</td>
+<td><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;
+{% if p.status=='brouillon' %}background:#f0f4f8;color:#555
+{% elif p.status=='en_attente_compta' %}background:#e3f2fd;color:#1A7A6D
+{% elif p.status=='valide_compta' %}background:#e8f5e9;color:#2e7d32
+{% elif p.status=='partiellement_paye' %}background:#fff3e0;color:#b8561f
+{% elif p.status=='envoye' %}background:#fff3e0;color:#e8672a
+{% else %}background:#f0f0f0;color:#888{% endif %}">
+{% if p.status=='brouillon' %}📝 Brouillon{% elif p.status=='en_attente_compta' %}📋 Compta{% elif p.status=='valide_compta' %}✅ Validé{% elif p.status=='partiellement_paye' %}📉 Partiel{% elif p.status=='envoye' %}📧 Envoyé{% else %}{{ p.status }}{% endif %}</span>
+{% if p.signed_at %}<span style="margin-left:4px;font-size:9px;color:#2e7d32">✍️</span>{% endif %}</td>
+<td style="white-space:nowrap">
+<a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm" style="font-size:9px">👁️</a>
+<a href="/rh/paie/{{ p.id }}/edit" class="btn btn-outline btn-sm" style="font-size:9px">✏️</a>
+<a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm" style="font-size:9px">📥</a>
+{% if p.status=='brouillon' %}<a href="/rh/paie/{{ p.id }}/status/en_attente_compta" class="btn btn-sm" style="background:#1A7A6D;color:#fff;font-size:9px" title="Envoyer à la comptabilité">📋</a>{% endif %}
+{% if p.status=='valide_compta' %}<a href="/rh/paie/{{ p.id }}/email" class="btn btn-sm" style="background:#e8672a;color:#fff;font-size:9px" title="Envoyer par email">📧</a>{% endif %}
+{% if p.published %}<span title="Diffusé à l'employé le {{ (p.publish_date or '')[:10] }}" style="font-size:11px;color:#6a1b9a">📤</span>{% else %}<form method="post" action="/rh/paie/{{ p.id }}/publish" style="display:inline" onsubmit="return confirm('Publier ce bulletin sur l\'accès de l\'employé (diffusion aujourd\'hui) ?')"><button type="submit" class="btn btn-sm" style="background:#6a1b9a;color:#fff;font-size:9px" title="Publier à l'employé">📤</button></form>{% endif %}
+<a href="/rh/paie/{{ p.id }}/delete" class="btn btn-sm" style="color:#c53030;font-size:9px" onclick="return confirm('Supprimer ?')">🗑️</a>
+</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p style="text-align:center;color:#999;padding:30px">Aucun bulletin de paie</p>{% endif %}
+</div></div>
+
+<!-- ADD MODAL -->
+<div class="modal-bg" id="addM"><div class="modal" style="max-width:700px;max-height:90vh;overflow-y:auto">
+<h3>💵 Nouveau bulletin de paie</h3>
+<form method="post" action="/rh/paie/add">
+    <div class="form-row">
+        <div class="form-group"><label>Employé *</label><select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.first_name }} {{ e.last_name }} ({{ e.matricule or '-' }})</option>{% endfor %}</select></div>
+        <div class="form-group"><label>Période *</label><input type="month" name="period" required></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Jours travaillés</label><input type="number" name="jours_travailles" value="26"></div>
+        <div class="form-group"><label>Heures</label><input type="number" name="heures_travaillees" value="0" step="0.5"></div>
+        <div class="form-group"><label>Mode paiement</label><select name="mode_paiement"><option>virement</option><option>cheque</option><option>especes</option><option>mobile_money</option></select></div>
+    </div>
+    <h4 style="color:#2e7d32;font-size:13px;margin:10px 0 6px;border-bottom:1px solid #2e7d32;padding-bottom:3px">💰 Gains</h4>
+    <div class="form-row">
+        <div class="form-group"><label>Salaire de base *</label><input type="number" name="base_salary" step="1" required></div>
+        <div class="form-group"><label>Heures sup.</label><input type="number" name="overtime_amount" value="0" step="1"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Prime transport</label><input type="number" name="prime_transport" value="0" step="1"></div>
+        <div class="form-group"><label>Prime ancienneté</label><input type="number" name="prime_anciennete" value="0" step="1"></div>
+            </div>
+    <div class="form-row">
+        <div class="form-group"><label>Prime d'astreinte</label><input type="number" name="prime_astreinte" value="0" step="1"></div>
+        <div class="form-group"><label>Prime d'assiduité</label><input type="number" name="prime_assiduite" value="0" step="1"></div>
+        <div class="form-group"><label>Rendement/KPI</label><input type="number" name="prime_rendement" value="0" step="1"></div>
+        </div>
+    <div class="form-group"><label>Commissions (hors brut)</label><input type="number" name="commission" value="0" step="1"></div>
+    <div class="form-group"><label>Prime de mission (hors brut)</label><input type="number" name="prime_mission" value="0" step="1"></div>
+    <h4 style="color:#c53030;font-size:13px;margin:10px 0 6px;border-bottom:1px solid #c53030;padding-bottom:3px">📉 Retenues</h4>
+    <div class="form-row">
+        <div class="form-group"><label>CNPS salarié</label><input type="number" name="cnps_employee" value="0" step="1"></div>
+        <div class="form-group"><label>Assurance</label><input type="number" name="insurance_amount" value="0" step="1"></div>
+        <div class="form-group"><label>ITS</label><input type="number" name="its" value="0" step="1"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Déductions</label><input type="number" name="deductions" value="0" step="1"></div>
+        <div class="form-group"><label>Avances/prêts</label><input type="number" name="avances" value="0" step="1"></div>
+        <div class="form-group"><label>Autres retenues</label><input type="number" name="autres_retenues" value="0" step="1"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>CNPS patronale</label><input type="number" name="cnps_employer" value="0" step="1"></div>
+        <div class="form-group"><label>Congés payés (j)</label><input type="number" name="conges_payes" value="0"></div>
+        <div class="form-group"><label>Jours absence</label><input type="number" name="jours_absence" value="0"></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+        <button type="button" class="btn btn-outline" onclick="this.closest('.modal-bg').classList.remove('active')">Annuler</button>
+        <button type="submit" class="btn btn-primary">💾 Créer le bulletin</button>
+    </div>
+</form></div></div>
+{% endblock %}

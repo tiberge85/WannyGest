@@ -1044,6 +1044,25 @@ try:
 except Exception as _e:
     print(f"[v170q] err migration montant_paye : {_e}", flush=True)
 
+# v194 : diffusion des bulletins sur l'accès de chaque employé.
+#  - published      : 1 = publié vers l'espace employé
+#  - publish_date   : date de diffusion (visible par l'employé à partir de cette date)
+#  - published_at   : horodatage de la publication
+try:
+    from models import get_db as _v194_db
+    _v194 = _v194_db()
+    for _col, _ddl in (('published', 'INTEGER DEFAULT 0'),
+                       ('publish_date', 'TEXT'),
+                       ('published_at', 'TEXT')):
+        try:
+            _v194.execute(f"ALTER TABLE payslips ADD COLUMN {_col} {_ddl}")
+        except Exception:
+            pass
+    _v194.commit(); _v194.close()
+    print("[v194] Colonnes de diffusion des bulletins OK", flush=True)
+except Exception as _e:
+    print(f"[v194] err migration diffusion bulletins : {_e}", flush=True)
+
 # v170t : MODULE ABSENCES — catégories paramétrables + fiche enrichie.
 try:
     from models import get_db as _v170t_db
@@ -5782,19 +5801,53 @@ DEFAULT_DOC_PARAMS = {
 }
 
 def get_doc_params():
-    """v154 : Retourne les paramètres documents stockés dans app_settings, avec fallback sur defaults."""
+    """v154 : Retourne les paramètres documents stockés dans app_settings, avec fallback sur defaults.
+    v193 : surcharge automatique par l'agence active (nom, adresse, téléphone, email, logo) pour que
+    chaque agence ait sa propre identité sur TOUS les documents. Le RCCM/NCC de la société reste commun.
+    Les paramètres saisis dans Admin → Paramètres documents (clés doc_*) restent prioritaires."""
     try:
         from models import get_db as _gdb_p
         conn = _gdb_p()
         params = dict(DEFAULT_DOC_PARAMS)
+        # v193 : identité de l'agence active (surcharge les defaults, mais pas les doc_* explicites)
+        try:
+            from models import get_agency as _ga, current_agency_id as _cai
+            _ag = _ga(_cai())
+            if _ag:
+                _nom = (_ag.get('nom') or '').strip()
+                _base = DEFAULT_DOC_PARAMS['company_name']
+                # Agence principale (id=1) → nom société inchangé ; autres → « Société — Agence X »
+                if _nom and int(_ag.get('id') or 1) != 1:
+                    params['company_name'] = f"{_base} — {_nom}"
+                params['agency_name'] = _nom
+                params['agency_id'] = int(_ag.get('id') or 1)
+                if (_ag.get('adresse') or '').strip():   params['company_address'] = _ag['adresse'].strip()
+                if (_ag.get('telephone') or '').strip(): params['company_phone'] = _ag['telephone'].strip()
+                if (_ag.get('email') or '').strip():     params['company_email'] = _ag['email'].strip()
+                if (_ag.get('logo') or '').strip():      params['company_logo'] = _ag['logo'].strip()
+        except Exception:
+            pass
         rows = conn.execute("SELECT key, value FROM app_settings WHERE key LIKE 'doc_%'").fetchall()
         for r in rows:
             short_key = r[0].replace('doc_', '', 1)
-            if short_key in DEFAULT_DOC_PARAMS:
+            if short_key in DEFAULT_DOC_PARAMS and (r[1] or '').strip():
                 params[short_key] = r[1]
         conn.close()
         return params
     except: return dict(DEFAULT_DOC_PARAMS)
+
+
+def _doc_company_name():
+    """v193 : nom de société/agence à afficher sur les documents (agence active)."""
+    try:
+        return get_doc_params().get('company_name') or DEFAULT_DOC_PARAMS['company_name']
+    except Exception:
+        return DEFAULT_DOC_PARAMS['company_name']
+
+
+def _doc_company_xml():
+    """v193 : idem, échappé pour les Paragraph reportlab (& → &amp;)."""
+    return _doc_company_name().replace('&', '&amp;')
 
 
 def set_doc_param(key, value):
@@ -7520,7 +7573,7 @@ def traitement_generate():
         xlsx_source = None
         filename = secure_filename(file.filename)
     
-    provider_name = request.form.get('provider_name', '').strip() or "RAMYA TECHNOLOGIE & INNOVATION"
+    provider_name = request.form.get('provider_name', '').strip() or _doc_company_name()
     provider_info = request.form.get('provider_info', '').strip() or "Tél: 2722204498 | Email: techniqueramya@gmail.com"
     client_name = request.form.get('client_name', '').strip()
     client_tel = request.form.get('client_tel', '').strip()
@@ -10962,7 +11015,7 @@ def bilan_pdf():
     conn = _gdb()
     story = []
     
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION", ParagraphStyle('co', fontSize=9, textColor=HexColor('#999'), alignment=TA_CENTER, spaceAfter=3*mm)))
+    story.append(Paragraph(_doc_company_xml(), ParagraphStyle('co', fontSize=9, textColor=HexColor('#999'), alignment=TA_CENTER, spaceAfter=3*mm)))
     story.append(Paragraph(f"<b>BILAN COMPTABLE — Exercice {exercice}</b>", ParagraphStyle('t', fontName='Helvetica-Bold', fontSize=16, textColor=BG, alignment=TA_CENTER, spaceAfter=2*mm)))
     story.append(Paragraph(f"Document conforme au SYSCOHADA révisé — Généré le {datetime.now().strftime('%d/%m/%Y')}", ParagraphStyle('sub', fontSize=7, textColor=HexColor('#999'), alignment=TA_CENTER, spaceAfter=6*mm)))
     
@@ -11661,7 +11714,7 @@ def export_stats():
                                spaceAfter=10, spaceBefore=20)
     normal = ParagraphStyle('normal', fontSize=11, spaceAfter=6)
     
-    story.append(Paragraph("RAMYA TECHNOLOGIE & INNOVATION", title_style))
+    story.append(Paragraph(_doc_company_name(), title_style))
     story.append(Paragraph("Rapport Statistique", title_style))
     story.append(Spacer(1, 10*mm))
     
@@ -13967,9 +14020,12 @@ def _generate_bulletin_pdf(pid):
             period_display = f"Période: 01 au {last_day} {mois_noms[m]} {y}"
     except: pass
     
+    _dpp = get_doc_params()
+    _addr = (_dpp.get('company_address') or "Abidjan, Côte d'Ivoire").replace('&', '&amp;')
+    _rccm = _dpp.get('company_rccm') or 'CI-ABJ-2017-A-25092'
     hdr = [[
         logo_el,
-        Paragraph(f"<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b><br/>Abidjan, Côte d'Ivoire<br/>N°RCCM : CI-ABJ-2017-A-25092", ParagraphStyle('hi',fontSize=7,textColor=white,leading=10)),
+        Paragraph(f"<b>{_doc_company_xml()}</b><br/>{_addr}<br/>N°RCCM : {_rccm}", ParagraphStyle('hi',fontSize=7,textColor=white,leading=10)),
         Paragraph(f"<b>BULLETIN DE PAIE</b><br/>{period_display}<br/>{datetime.now().strftime('%d/%m/%Y')}", ParagraphStyle('hp',fontSize=9,fontName='Helvetica-Bold',textColor=white,alignment=TA_RIGHT,leading=13))
     ]]
     ht = Table(hdr, colWidths=[35*mm, pw*0.42, pw-35*mm-pw*0.42])
@@ -14219,14 +14275,139 @@ def _generate_bulletin_pdf(pid):
     doc.build(story)
     return output
 
+def _my_employee_id(conn, user):
+    """v194 : id de la fiche employé liée à l'utilisateur (par email, sinon nom complet)."""
+    if not user:
+        return None
+    try:
+        r = conn.execute(
+            "SELECT id FROM employees WHERE (COALESCE(email,'')<>'' AND LOWER(email)=LOWER(?)) "
+            "OR LOWER(first_name||' '||last_name)=LOWER(?)",
+            (user.get('email', '') or '', user.get('full_name', '') or '')).fetchone()
+        return r['id'] if r else None
+    except Exception:
+        return None
+
+
+def _payslip_is_staff(perms):
+    return any(p in perms for p in ('fichiers', 'admin', 'comptabilite', 'comptabilite_view',
+                                    'comptabilite_edit', 'compta_pro', 'payslips', 'payslips_view'))
+
+
+def _payslip_visible_to_employee(p):
+    """v194 : un employé ne voit son bulletin qu'une fois PUBLIÉ et à partir de la date de diffusion."""
+    if not p or int(p.get('published') or 0) != 1:
+        return False
+    pd = (p.get('publish_date') or '')[:10]
+    if pd:
+        return pd <= datetime.now().strftime('%Y-%m-%d')
+    return True
+
+
+@app.route('/mes-bulletins')
+@login_required
+def mes_bulletins():
+    """v194 : espace employé — chaque utilisateur voit/télécharge SES bulletins publiés et diffusés."""
+    user = get_user_by_id(session['user_id'])
+    conn = _gdb()
+    eid = _my_employee_id(conn, user)
+    slips = []
+    if eid:
+        try:
+            rows = conn.execute(
+                """SELECT p.*, e.first_name||' '||e.last_name AS employee_name, e.matricule
+                   FROM payslips p JOIN employees e ON e.id=p.employee_id
+                   WHERE p.employee_id=? AND COALESCE(p.published,0)=1
+                     AND (p.publish_date IS NULL OR p.publish_date='' OR substr(p.publish_date,1,10) <= ?)
+                   ORDER BY p.period DESC, p.id DESC""",
+                (eid, datetime.now().strftime('%Y-%m-%d'))).fetchall()
+            slips = [dict(r) for r in rows]
+        except Exception:
+            slips = []
+    conn.close()
+    return render_template('mes_bulletins.html', page='mes_bulletins', slips=slips, has_employee=bool(eid))
+
+
+@app.route('/rh/paie/<int:pid>/publish', methods=['POST'])
+@permission_required_any('payslips_send', 'fichiers', 'admin')
+def rh_paie_publish(pid):
+    """v194 : publie un bulletin vers l'espace de l'employé, avec date de diffusion + notification."""
+    p = get_payslip_detail_v2(pid)
+    if not p:
+        flash("Bulletin introuvable", "error"); return redirect(url_for('rh_paie'))
+    pdate = (request.form.get('publish_date', '') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = _gdb()
+    conn.execute("UPDATE payslips SET published=1, publish_date=?, published_at=? WHERE id=?", (pdate, now_s, pid))
+    conn.commit()
+    try:
+        emp = conn.execute("SELECT email FROM employees WHERE id=?", (p['employee_id'],)).fetchone()
+        if emp and (emp['email'] or '').strip():
+            urow = conn.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(?)", (emp['email'],)).fetchone()
+            if urow:
+                _when = "disponible" if pdate <= datetime.now().strftime('%Y-%m-%d') else f"disponible le {pdate}"
+                notify_user(urow['id'], "🧾 Bulletin de paie",
+                            f"Votre bulletin de paie {p['period']} est {_when} dans « Mes bulletins ».",
+                            link="/mes-bulletins", type='info', module='paie', channels=('internal', 'push'))
+    except Exception:
+        pass
+    conn.close()
+    user = get_user_by_id(session['user_id'])
+    log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie',
+                 f"Bulletin {p['period']} publié à l'employé (diffusion {pdate})", request.remote_addr)
+    flash(f"Bulletin publié — visible par l'employé à partir du {pdate}.", "success")
+    return redirect(url_for('rh_paie', period=p['period']))
+
+
+@app.route('/rh/paie/publish-period', methods=['POST'])
+@permission_required_any('payslips_send', 'fichiers', 'admin')
+def rh_paie_publish_period():
+    """v194 : publie TOUS les bulletins d'une période vers les espaces employés (programmation groupée)."""
+    period = (request.form.get('period', '') or '').strip()
+    pdate = (request.form.get('publish_date', '') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+    if not period:
+        flash("Sélectionnez d'abord une période.", "error"); return redirect(url_for('rh_paie'))
+    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = _gdb()
+    rows = conn.execute(
+        "SELECT p.id, e.email FROM payslips p JOIN employees e ON e.id=p.employee_id WHERE p.period=?",
+        (period,)).fetchall()
+    n = 0
+    for r in rows:
+        conn.execute("UPDATE payslips SET published=1, publish_date=?, published_at=? WHERE id=?", (pdate, now_s, r['id'])); n += 1
+    conn.commit()
+    _today = datetime.now().strftime('%Y-%m-%d')
+    for r in rows:
+        try:
+            if (r['email'] or '').strip():
+                urow = conn.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(?)", (r['email'],)).fetchone()
+                if urow:
+                    _when = "disponible" if pdate <= _today else f"disponible le {pdate}"
+                    notify_user(urow['id'], "🧾 Bulletin de paie",
+                                f"Votre bulletin de paie {period} est {_when} dans « Mes bulletins ».",
+                                link="/mes-bulletins", type='info', module='paie', channels=('internal', 'push'))
+        except Exception:
+            pass
+    conn.close()
+    flash(f"{n} bulletin(s) de la période {period} publié(s) — diffusion le {pdate}.", "success")
+    return redirect(url_for('rh_paie', period=period))
+
+
 @app.route('/rh/paie/<int:pid>/pdf')
-@permission_required_any('fichiers', 'comptabilite', 'comptabilite_view', 'comptabilite_edit', 'compta_pro', 'admin')
+@login_required
 def rh_paie_pdf(pid):
+    p = get_payslip_detail_v2(pid)
+    if not p:
+        flash("Non trouvé", "error"); return redirect('/dashboard')
+    user = get_user_by_id(session['user_id'])
+    perms = get_role_permissions(user['role']) if user else []
+    if not _payslip_is_staff(perms):
+        conn = _gdb(); _eid = _my_employee_id(conn, user); conn.close()
+        if _eid != p.get('employee_id') or not _payslip_visible_to_employee(p):
+            flash("Accès non autorisé", "error"); return redirect('/dashboard')
     output = _generate_bulletin_pdf(pid)
     if not output:
-        flash("Non trouvé", "error")
-        return redirect(url_for('rh_paie'))
-    p = get_payslip_detail_v2(pid)
+        flash("Non trouvé", "error"); return redirect('/dashboard')
     return send_file(output, as_attachment=True, download_name=f"Bulletin_{p['period']}_{p['employee_name']}.pdf")
 
 @app.route('/rh/paie/<int:pid>/view')
@@ -14238,16 +14419,13 @@ def rh_paie_view(pid):
     user = get_user_by_id(session['user_id'])
     perms = get_role_permissions(user['role']) if user else []
     # NOUVEAU v56 : la comptable doit pouvoir consulter les bulletins envoyés par RH
-    is_authorized = ('fichiers' in perms or 'admin' in perms or
-                     'comptabilite' in perms or 'comptabilite_view' in perms or
-                     'comptabilite_edit' in perms or 'compta_pro' in perms)
+    is_authorized = _payslip_is_staff(perms)
     if not is_authorized:
-        # Check if this is the employee's own payslip
+        # v194 : l'employé ne voit SON bulletin qu'une fois publié et diffusé
         conn = _gdb()
-        emp = conn.execute("SELECT id FROM employees WHERE email=? OR LOWER(first_name||' '||last_name)=LOWER(?)",
-            (user.get('email',''), user.get('full_name',''))).fetchone()
+        emp_id = _my_employee_id(conn, user)
         conn.close()
-        if not emp or emp['id'] != p.get('employee_id'):
+        if emp_id != p.get('employee_id') or not _payslip_visible_to_employee(p):
             flash("Accès non autorisé","error"); return redirect('/dashboard')
     # v63 : forcer le navigateur à NE PAS mettre cette page en cache
     # car le contenu (libellés, retenues...) peut changer entre versions
@@ -15971,7 +16149,7 @@ def _generate_intervention_fiche_pdf(inter, conn):
             if os.path.exists(logo_path):
                 story.append(PLImage(logo_path, width=40*mm, height=20*mm))
         except: pass
-        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>",
+        story.append(Paragraph(f"<b>{_doc_company_xml()}</b>",
             ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
         story.append(Paragraph("Abidjan, Côte d'Ivoire — CCTV · Contrôle d'accès · IT",
             ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER)))
@@ -22372,7 +22550,7 @@ def rh_budget_export_pdf():
     sub = ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=2*mm)))
     story.append(Paragraph(f"<b>BUDGET PRÉVISIONNEL RH — {year}</b>", h))
     story.append(Paragraph(f"Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
@@ -23858,7 +24036,7 @@ def mg_stock_export_pdf():
     sub = ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=2*mm)))
     story.append(Paragraph("<b>INVENTAIRE DES STOCKS</b>", h))
     story.append(Paragraph(f"Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
@@ -24381,7 +24559,7 @@ def creances_export_pdf():
     sub = ParagraphStyle('sub', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=6*mm)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=2*mm)))
     story.append(Paragraph("<b>SUIVI DES CRÉANCES CLIENTS</b>", h))
     story.append(Paragraph(f"Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')} — {len(creances)} créance(s) active(s)", sub))
@@ -27133,7 +27311,7 @@ def field_report_print(rid):
     p_label = ParagraphStyle('lbl', fontSize=9, textColor=GREY, spaceAfter=1*mm)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION", h_co))
+    story.append(Paragraph(_doc_company_xml(), h_co))
     story.append(Paragraph(f"REMONTÉE D'INFORMATION TERRAIN", h_title))
     story.append(Paragraph(f"Référence : <b>{report['reference']}</b> — Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", h_sub))
     
@@ -28921,7 +29099,7 @@ def installations_export_pdf():
     tl = ParagraphStyle('tl', fontSize=8)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
     story.append(Paragraph("<b>RAPPORT DE CARTOGRAPHIE DES INSTALLATIONS</b>",
         ParagraphStyle('t', fontName='Helvetica-Bold', fontSize=16, textColor=TEAL, alignment=TA_CENTER, spaceAfter=2*mm)))
@@ -29684,7 +29862,7 @@ def project_bon_livraison_pdf(pid):
     nb = ParagraphStyle('nb', fontName='Helvetica-Bold', fontSize=10)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=10, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
     story.append(Paragraph("<b>BON DE LIVRAISON</b>", h))
     story.append(Paragraph(f"N° {p.get('reference') or '-'} — Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
@@ -29788,7 +29966,7 @@ def project_abe_pdf(pid):
     body = ParagraphStyle('body', fontSize=11, alignment=TA_JUSTIFY, spaceAfter=4*mm, leading=16)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=11, textColor=GREY, alignment=TA_CENTER, spaceAfter=4*mm)))
     story.append(Paragraph("<b>ATTESTATION DE BONNE EXÉCUTION</b>", h))
     story.append(Paragraph(f"Référence : {p.get('reference') or '-'}", sub))
@@ -29907,7 +30085,7 @@ def project_fiche_pdf(pid):
     tl = ParagraphStyle('tl', fontSize=8)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
     story.append(Paragraph("<b>FICHE DE PLANIFICATION DE PROJET</b>", h))
     story.append(Paragraph(f"Référence : {p['reference']} — Édité le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", sub))
@@ -30214,7 +30392,7 @@ def it_recharge_export_pdf():
     tr_s = ParagraphStyle('tr', fontSize=8, alignment=TA_RIGHT)
     
     story = []
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('co', fontSize=9, textColor=GREY, alignment=TA_CENTER, spaceAfter=3*mm)))
     
     titre = "RECHARGES INTERNET EFFECTUÉES" if show_done else "RECHARGES INTERNET À EFFECTUER"
@@ -33528,7 +33706,7 @@ def admin_pointage_rapport_pdf(user_id, month):
         S = rapport_core.make_styles()
         
         period = f"Période : {month}"
-        provider_name = "RAMYA TECHNOLOGIE & INNOVATION"
+        provider_name = _doc_company_name()
         provider_info = "Abidjan, Côte d'Ivoire"
         client_name = "Rapport interne"
         client_info = ""
@@ -33574,7 +33752,7 @@ def admin_pointage_rapport_entreprise(month):
     Param ?company_id= pour rapport d'une entreprise pointage spécifique (sinon = RAMYA)."""
     
     company_id = request.args.get('company_id', '').strip()
-    company_name = "RAMYA TECHNOLOGIE & INNOVATION"
+    company_name = _doc_company_name()
     company_subtitle = "Abidjan, Côte d'Ivoire"
     
     # NOUVEAU v45 : nombre de jours obligatoires saisi pour cette période (s'applique à TOUS)
@@ -34010,7 +34188,7 @@ def admin_pointage_rapport_entreprise(month):
         
         period = f"Période : {month}"
         # v168 : en-tête = RAMYA (prestataire qui génère le rapport) ; l'entreprise devient le « client »
-        provider_name = "RAMYA TECHNOLOGIE & INNOVATION"
+        provider_name = _doc_company_name()
         provider_info = "Tél: 2722204498 | Email: techniqueramya@gmail.com"
         if company_id:
             client_name = f"Rapport de pointage — {company_name}"
@@ -37575,7 +37753,7 @@ def rapports_attestation(champ_id):
     story.append(Spacer(1, 8*mm))
     
     # ===== COMPANY =====
-    story.append(Paragraph("RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(_doc_company_xml(),
         ParagraphStyle('company', fontName='Helvetica', fontSize=9, textColor=LGREY, 
                        alignment=TA_CENTER, spaceAfter=8*mm)))
     
@@ -37646,7 +37824,7 @@ def rapports_attestation(champ_id):
     
     # ===== FOOTER =====
     now_str = datetime.now().strftime("%d/%m/%Y")
-    story.append(Paragraph(f"Fait le {now_str} - RAMYA TECHNOLOGIE &amp; INNOVATION",
+    story.append(Paragraph(f"Fait le {now_str} - {_doc_company_xml()}",
         ParagraphStyle('date', fontName='Helvetica', fontSize=8, textColor=LGREY, alignment=TA_CENTER, spaceAfter=3*mm)))
     
     # ===== BOTTOM LINE =====
@@ -38471,7 +38649,7 @@ def fournisseurs_recap_pdf():
         # En-tête
         TEAL = HexColor('#1A7A6D')
         ORANGE = HexColor('#F29F2F')
-        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>",
+        story.append(Paragraph(f"<b>{_doc_company_xml()}</b>",
             ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
         story.append(Paragraph("Récapitulatif suivi paiement fournisseurs",
             ParagraphStyle('h2', fontSize=12, textColor=HexColor('#1a3a5c'), alignment=TA_CENTER)))
@@ -38713,7 +38891,7 @@ def mg_bilan_pdf():
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
         story = []
-        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>", ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
+        story.append(Paragraph(f"<b>{_doc_company_xml()}</b>", ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
         story.append(Paragraph("Bilan général — Achat et approvisionnement", ParagraphStyle('h2', fontSize=12, textColor=NAVY, alignment=TA_CENTER)))
         story.append(Paragraph(f"Période : du {date_from} au {date_to}", ParagraphStyle('p', fontSize=10, alignment=TA_CENTER, textColor=HexColor('#666666'))))
         story.append(Spacer(1, 7*mm))
@@ -45226,7 +45404,7 @@ def compta_pro_balance_pdf():
         story = []
         TEAL = HexColor('#1A7A6D')
         
-        story.append(Paragraph("<b>RAMYA TECHNOLOGIE &amp; INNOVATION</b>",
+        story.append(Paragraph(f"<b>{_doc_company_xml()}</b>",
             ParagraphStyle('h', fontSize=14, textColor=TEAL, alignment=TA_CENTER)))
         story.append(Paragraph("BALANCE COMPTABLE",
             ParagraphStyle('h2', fontSize=12, textColor=HexColor('#1a3a5c'), alignment=TA_CENTER)))

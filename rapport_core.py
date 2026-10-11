@@ -2768,8 +2768,17 @@ def generate_devis_pdf(devis_data, output_path, logo_path=None, doc_params=None)
             logo_el = RLImage(logo_path, width=logo_w, height=logo_h)
         except: pass
     
+    # v193 : nom société/agence depuis doc_params (identité propre à chaque agence)
+    _dp = doc_params or {}
+    _cn = (_dp.get('company_name') or 'RAMYA TECHNOLOGIE & INNOVATION').replace('&', '&amp;')
+    _agency = (_dp.get('agency_name') or '').strip()
+    if ' — ' in _cn:
+        _main, _ag = _cn.split(' — ', 1)
+        _cn_html = f"<b>{_main}</b><br/><font size=8>Agence : {_ag}</font>"
+    else:
+        _cn_html = f"<b>{_cn}</b>"
     company_name = Paragraph(
-        "<b>RAMYA</b><br/><b>TECHNOLOGIE &amp; INNOVATION</b>",
+        _cn_html,
         ParagraphStyle('co', fontSize=10, fontName='Helvetica-Bold',
                        textColor=RAMYA_TEAL, leading=13, alignment=TA_CENTER)
     )

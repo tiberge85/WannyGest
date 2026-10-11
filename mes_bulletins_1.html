@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Mes bulletins de paie{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🧾 Mes bulletins de paie</h1>
+</div>
+
+{% if not has_employee %}
+<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#888">
+    Aucune fiche employé n'est associée à votre compte. Rapprochez-vous de la RH pour relier votre email à votre dossier.
+</div></div>
+{% elif slips %}
+<div class="card">
+    <div class="card-body" style="padding:0">
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>Période</th>
+                    <th style="text-align:right">Net à payer</th>
+                    <th>Diffusé le</th>
+                    <th style="text-align:center">Actions</th>
+                </tr></thead>
+                <tbody>
+                {% for p in slips %}
+                <tr>
+                    <td style="font-weight:600">{{ p.period }}</td>
+                    <td style="text-align:right;font-weight:700;color:#1A7A6D">{{ '{:,.0f}'.format(p.net_salary or 0) }} F</td>
+                    <td>{{ (p.publish_date or '')[:10] }}</td>
+                    <td style="text-align:center;white-space:nowrap">
+                        <a href="/rh/paie/{{ p.id }}/view" class="btn btn-outline btn-sm" style="font-size:11px">👁️ Voir</a>
+                        <a href="/rh/paie/{{ p.id }}/pdf" class="btn btn-primary btn-sm" style="font-size:11px">📥 PDF</a>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card"><div class="card-body" style="text-align:center;padding:30px;color:#888">
+    Aucun bulletin de paie n'est encore disponible. Vous serez notifié dès qu'un bulletin sera diffusé.
+</div></div>
+{% endif %}
+{% endblock %}
