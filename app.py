@@ -49946,10 +49946,126 @@ def client_finances(cid):
     contrats = _rows("""SELECT id, reference, start_date, end_date, monthly_rate, status, created_at
         FROM contracts WHERE client_id=? ORDER BY created_at DESC""", (cid,))
 
-    # 8) Dépenses liées
+    # 8) Projets du client (budget vs consommé) — pour rattacher les sorties
+    projets = _rows("""SELECT p.id, p.name, p.status, p.budget, p.budget_consumed,
+               p.start_date, p.end_date, u.full_name AS manager_name
+        FROM projects p LEFT JOIN users u ON u.id = p.manager_id
+        WHERE p.client_id=? ORDER BY p.created_at DESC""", (cid,))
+    for p in projets:
+        p['_budget'] = float(p.get('budget') or 0)
+        p['_conso'] = float(p.get('budget_consumed') or 0)
+        p['_reste'] = p['_budget'] - p['_conso']
+        p['_pct'] = round((p['_conso'] / p['_budget'] * 100) if p['_budget'] else 0)
+    # Projets workflow (wf_projects)
+    wfprojets = _rows("""SELECT id, reference, title AS name, status, total_amount,
+               acompte_amount, solde_amount, start_date, end_date_planned AS end_date
+        FROM wf_projects WHERE client_id=? OR (COALESCE(client_id,0)=0 AND LOWER(TRIM(client_name))=LOWER(TRIM(?)))
+        ORDER BY created_at DESC""", (cid, name))
+    proj_ids = [p['id'] for p in projets if p.get('id')]
+    proj_names = [p['name'] for p in projets if p.get('name')] + [w['name'] for w in wfprojets if w.get('name')]
+
+    def _proj_of(text):
+        """Devine le projet mentionné dans un libellé."""
+        t = (text or '').lower()
+        for pn in proj_names:
+            if pn and pn.lower() in t:
+                return pn
+        return ''
+
+    # ------------------------------------------------------------------
+    # 9) FLUX FINANCIERS — ENTRÉES (argent reçu) — traçabilité complète
+    # ------------------------------------------------------------------
+    entrees = []
+    seen_e = set()
+    def _add_e(date, montant, libelle, mode, ref, qui, projet, src):
+        m = float(montant or 0)
+        rk = (str(ref).lower() if ref else '')
+        dup = bool(rk) and rk in seen_e
+        if rk: seen_e.add(rk)
+        entrees.append({'date': (date or '')[:16], 'montant': m, 'libelle': libelle or '-',
+            'mode': mode or '-', 'reference': ref or '-', 'qui': qui or '—',
+            'projet': projet or '', 'source': src, '_dup': dup})
+    # a) Encaissements de caisse (preuves)
+    for e in encaissements:
+        _add_e(e.get('date'), e.get('montant'), e.get('description') or e.get('source'),
+               e.get('payment_method'), e.get('reference'), e.get('created_by_name'),
+               _proj_of(e.get('description')), 'Encaissement caisse')
+    # b) Ventes (POS / caisse enregistreuse)
+    for v in _rows("""SELECT ve.*, u.full_name AS qui FROM ventes ve LEFT JOIN users u ON u.id=ve.created_by
+        WHERE ve.client_id=? ORDER BY ve.created_at DESC""", (cid,)):
+        _add_e(v.get('created_at'), v.get('amount_paid') or v.get('total_amount'),
+               'Vente ' + (v.get('reference') or ''), v.get('payment_method'), v.get('reference'),
+               v.get('qui') or v.get('created_by_name'), '', 'Vente (POS)')
+    # c) Versements de recouvrement
+    for v in versements:
+        _add_e(v.get('date_versement'), v.get('montant'), 'Versement ' + (v.get('bordereau_number') or ''),
+               v.get('mode'), v.get('bordereau_number'), v.get('agent'), '', 'Versement recouvrement')
+    # d) Mouvements de trésorerie (entrées) liés au client
+    for m in _rows("""SELECT tm.*, u.full_name AS qui FROM tresorerie_mouvements tm LEFT JOIN users u ON u.id=tm.created_by
+        WHERE tm.sens='entree' AND ((tm.tiers_type='client' AND tm.tiers_id=?) OR tm.tiers_nom LIKE ?
+             OR tm.libelle LIKE ? OR tm.reference LIKE ?) ORDER BY tm.date DESC""", (cid, like, like, like)):
+        _add_e(m.get('date'), m.get('montant'), m.get('libelle'), m.get('mode_paiement'), m.get('reference'),
+               m.get('qui'), m.get('tiers_nom') if m.get('tiers_type') == 'projet' else _proj_of(m.get('libelle')),
+               'Trésorerie (entrée)')
+    entrees.sort(key=lambda x: x['date'], reverse=True)
+
+    # ------------------------------------------------------------------
+    # 10) FLUX FINANCIERS — SORTIES (argent dépensé) — traçabilité complète
+    # ------------------------------------------------------------------
+    sorties = []
+    seen_s = set()
+    def _add_s(date, montant, benef, motif, ref, demandeur, valideur, statut, projet, src):
+        m = float(montant or 0)
+        rk = (str(ref).lower() if ref else '')
+        dup = bool(rk) and rk in seen_s
+        if rk: seen_s.add(rk)
+        sorties.append({'date': (date or '')[:16], 'montant': m, 'beneficiaire': benef or '-',
+            'motif': motif or '-', 'reference': ref or '-', 'demandeur': demandeur or '—',
+            'valideur': valideur or '—', 'statut': statut or '', 'projet': projet or '',
+            'source': src, '_dup': dup})
+    # a) Décaissements de caisse (bénéficiaire / motif liés au client)
+    for s in _rows("""SELECT * FROM caisse_sorties
+        WHERE beneficiaire LIKE ? OR motif LIKE ? OR notes LIKE ? ORDER BY date DESC""", (like, like, like)):
+        _add_s(s.get('date'), s.get('montant_paye') or s.get('montant'), s.get('beneficiaire'),
+               s.get('motif') or s.get('nature'), s.get('reference'), s.get('demandeur_name'),
+               s.get('valideur_name'), s.get('status'), _proj_of((s.get('motif') or '') + ' ' + (s.get('notes') or '')),
+               'Décaissement caisse')
+    # b) Dépenses
+    for d in _rows("""SELECT de.*, u.full_name AS qui FROM depenses de LEFT JOIN users u ON u.id=de.created_by
+        WHERE de.beneficiaire LIKE ? OR de.description LIKE ? OR de.source_reference LIKE ?
+        ORDER BY de.date DESC""", (like, like, like)):
+        _add_s(d.get('date'), d.get('amount'), d.get('beneficiaire'), d.get('description') or d.get('category'),
+               d.get('reference'), d.get('created_by_name') or d.get('qui'), '', d.get('status'),
+               _proj_of(d.get('description')), 'Dépense')
+    # c) Pièces de caisse (justificatifs de dépense) rattachées par fournisseur
+    for p in _rows("""SELECT pc.*, u.full_name AS qui FROM pieces_caisse pc LEFT JOIN users u ON u.id=pc.created_by
+        WHERE pc.supplier LIKE ? OR pc.description LIKE ? ORDER BY pc.date DESC""", (like, like)):
+        _add_s(p.get('date'), p.get('amount'), p.get('supplier'), p.get('description') or p.get('category'),
+               p.get('reference'), p.get('qui'), '', ('Comptabilisé' if p.get('comptabilise') else ''),
+               _proj_of(p.get('description')), 'Pièce de caisse')
+    # d) Opérations de caisse (sorties) rattachées aux projets du client
+    if proj_ids:
+        ph = ','.join('?' * len(proj_ids))
+        for o in _rows("""SELECT co.*, u.full_name AS qui FROM caisse_operations co LEFT JOIN users u ON u.id=co.created_by
+            WHERE co.type='sortie' AND co.project_id IN (%s) ORDER BY co.created_at DESC""" % ph, tuple(proj_ids)):
+            pn = next((p['name'] for p in projets if p.get('id') == o.get('project_id')), '')
+            _add_s(o.get('created_at'), o.get('amount'), o.get('description') or '-',
+                   o.get('description') or o.get('category'), o.get('reference'), o.get('qui'), '', '',
+                   pn, 'Opération caisse (projet)')
+    # e) Mouvements de trésorerie (sorties) liés au client / projet
+    for m in _rows("""SELECT tm.*, u.full_name AS qui FROM tresorerie_mouvements tm LEFT JOIN users u ON u.id=tm.created_by
+        WHERE tm.sens='sortie' AND ((tm.tiers_type='client' AND tm.tiers_id=?) OR tm.tiers_nom LIKE ?
+             OR tm.libelle LIKE ? OR tm.reference LIKE ?) ORDER BY tm.date DESC""", (cid, like, like, like)):
+        _add_s(m.get('date'), m.get('montant'), m.get('tiers_nom') or '-', m.get('libelle'), m.get('reference'),
+               m.get('qui'), '', m.get('statut'),
+               m.get('tiers_nom') if m.get('tiers_type') == 'projet' else _proj_of(m.get('libelle')),
+               'Trésorerie (sortie)')
+    sorties.sort(key=lambda x: x['date'], reverse=True)
+
+    # conserve l'ancienne variable (compat template)
     depenses = _rows("SELECT * FROM pieces_caisse WHERE supplier LIKE ? ORDER BY date DESC", (like,))
 
-    # 9) Traçabilité — modifications enregistrées (audit) sur les créances/factures/caisse du client
+    # 11) Traçabilité — modifications enregistrées (audit) sur les créances/factures/caisse du client
     cre_ids = [c['id'] for c in creances if c.get('id')]
     inv_ids = [f['id'] for f in factures if f.get('id')]
     enc_ids = [e['id'] for e in encaissements if e.get('id')]
@@ -49979,6 +50095,11 @@ def client_finances(cid):
     tot_fact_invoices = sum(float(f.get('amount') or 0) for f in factures) + sum(float(t.get('amount') or 0) for t in terrain)
     tot_enc_caisse = sum(float(e.get('montant') or 0) for e in encaissements)
     tot_versements = sum(float(v.get('montant') or 0) for v in versements)
+    # Flux dédupliqués par référence (évite de compter 2x une même opération présente dans plusieurs journaux)
+    tot_entrees = sum(e['montant'] for e in entrees if not e['_dup'])
+    tot_sorties = sum(s['montant'] for s in sorties if not s['_dup'])
+    tot_budget_proj = sum(p['_budget'] for p in projets)
+    tot_conso_proj = sum(p['_conso'] for p in projets)
     totals = {
         'facture': tot_fact_creances + tot_fact_invoices,
         'encaisse_creances': tot_paye_creances,
@@ -49986,9 +50107,13 @@ def client_finances(cid):
         'versements': tot_versements,
         'encaisse_total': tot_paye_creances + tot_enc_caisse,
         'solde': (tot_fact_creances + tot_fact_invoices) - (tot_paye_creances + tot_enc_caisse),
+        'entrees': tot_entrees, 'sorties': tot_sorties, 'solde_net': tot_entrees - tot_sorties,
+        'budget_proj': tot_budget_proj, 'conso_proj': tot_conso_proj,
         'nb_devis': len(devis), 'nb_factures': len(factures) + len(terrain), 'nb_creances': len(creances),
+        'nb_entrees': len(entrees), 'nb_sorties': len(sorties),
     }
     return render_template('client_finances.html', page='clients', client=client, totals=totals,
                            creances=creances, factures=factures, terrain=terrain, devis=devis,
                            encaissements=encaissements, versements=versements, contrats=contrats,
-                           depenses=depenses, audit=audit, logs=logs)
+                           depenses=depenses, audit=audit, logs=logs,
+                           entrees=entrees, sorties=sorties, projets=projets, wfprojets=wfprojets)

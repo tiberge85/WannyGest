@@ -21,9 +21,116 @@
         <div style="font-size:20px;font-weight:800;color:{% if totals.solde > 0 %}#c53030{% else %}#2e7d32{% endif %}">{{ money(totals.solde) }}</div></div></div>
 </div>
 
-<div style="background:#fff8e1;border:1px solid #ffecb3;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#8a6d3b">
-    ℹ️ Vue consolidée de toutes les traces financières du client. Les encaissements de caisse et la traçabilité ci-dessous constituent les <b>preuves d'enregistrement</b> (qui a saisi quoi, quand, quel mode, quelle pièce). Un écart entre « encaissé en caisse » et « payé sur la grille des créances » révèle une transaction non reportée.
+<!-- Flux financiers : entrées / sorties / solde net -->
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+    <div class="card" style="flex:1;min-width:150px;border-top:3px solid #2e7d32"><div class="card-body" style="text-align:center;padding:14px">
+        <div style="font-size:11px;color:#888">💵 ENTRÉES D'ARGENT</div>
+        <div style="font-size:20px;font-weight:800;color:#2e7d32">{{ money(totals.entrees) }}</div>
+        <div style="font-size:10px;color:#999">{{ totals.nb_entrees }} mouvement(s)</div></div></div>
+    <div class="card" style="flex:1;min-width:150px;border-top:3px solid #c53030"><div class="card-body" style="text-align:center;padding:14px">
+        <div style="font-size:11px;color:#888">💸 SORTIES D'ARGENT</div>
+        <div style="font-size:20px;font-weight:800;color:#c53030">{{ money(totals.sorties) }}</div>
+        <div style="font-size:10px;color:#999">{{ totals.nb_sorties }} mouvement(s)</div></div></div>
+    <div class="card" style="flex:1;min-width:150px;border-top:3px solid #1a3a5c"><div class="card-body" style="text-align:center;padding:14px">
+        <div style="font-size:11px;color:#888">⚖️ SOLDE NET (entrées − sorties)</div>
+        <div style="font-size:20px;font-weight:800;color:{% if totals.solde_net < 0 %}#c53030{% else %}#2e7d32{% endif %}">{{ money(totals.solde_net) }}</div></div></div>
 </div>
+
+<div style="background:#fff8e1;border:1px solid #ffecb3;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#8a6d3b">
+    ℹ️ Vue consolidée de toutes les traces financières du client. Les encaissements de caisse et la traçabilité ci-dessous constituent les <b>preuves d'enregistrement</b> (qui a saisi quoi, quand, quel mode, quelle pièce). Un écart entre « encaissé en caisse » et « payé sur la grille des créances » révèle une transaction non reportée. Les totaux Entrées/Sorties sont dédupliqués par référence.
+</div>
+
+<!-- ENTRÉES D'ARGENT (traçabilité complète) -->
+<div class="card" style="margin-bottom:14px;border-left:5px solid #2e7d32"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>💵 Entrées d'argent — qui a encaissé, quand, pour quel projet — {{ money(totals.entrees) }}</h3></div>
+    {% if entrees %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Source</th><th>Libellé</th><th>Projet</th><th>Mode</th><th>Référence</th><th>Enregistré par</th><th style="text-align:right">Montant</th></tr></thead>
+        <tbody>
+        {% for e in entrees %}
+        <tr{% if e._dup %} style="opacity:.55" title="Doublon probable (même référence déjà comptée)"{% endif %}>
+            <td style="white-space:nowrap;font-size:12px">{{ e.date }}</td>
+            <td style="font-size:11px"><span style="padding:1px 6px;border-radius:8px;background:#e8f5e9;color:#2e7d32;font-weight:600">{{ e.source }}</span></td>
+            <td style="font-size:12px">{{ e.libelle }}</td>
+            <td style="font-size:11px;color:#1565c0">{{ e.projet or '—' }}</td>
+            <td style="font-size:11px">{{ e.mode }}</td>
+            <td style="font-size:11px;color:#888">{{ e.reference }}{% if e._dup %} ⚠️{% endif %}</td>
+            <td style="font-size:12px">{{ e.qui }}</td>
+            <td style="text-align:right;font-weight:700;color:#2e7d32">{{ money(e.montant) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune entrée d'argent rattachée à ce client.</p>{% endif %}
+</div></div>
+
+<!-- SORTIES D'ARGENT (traçabilité complète) -->
+<div class="card" style="margin-bottom:14px;border-left:5px solid #c53030"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>💸 Sorties d'argent — qui a décaissé, pour qui, pour quoi — {{ money(totals.sorties) }}</h3></div>
+    {% if sorties %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Source</th><th>Bénéficiaire</th><th>Motif / objet</th><th>Projet</th><th>Demandé par</th><th>Validé par</th><th>Statut</th><th>Réf.</th><th style="text-align:right">Montant</th></tr></thead>
+        <tbody>
+        {% for s in sorties %}
+        <tr{% if s._dup %} style="opacity:.55" title="Doublon probable (même référence déjà comptée)"{% endif %}>
+            <td style="white-space:nowrap;font-size:12px">{{ s.date }}</td>
+            <td style="font-size:11px"><span style="padding:1px 6px;border-radius:8px;background:#ffebee;color:#c53030;font-weight:600">{{ s.source }}</span></td>
+            <td style="font-size:12px">{{ s.beneficiaire }}</td>
+            <td style="font-size:12px">{{ s.motif }}</td>
+            <td style="font-size:11px;color:#1565c0">{{ s.projet or '—' }}</td>
+            <td style="font-size:12px">{{ s.demandeur }}</td>
+            <td style="font-size:12px">{{ s.valideur }}</td>
+            <td style="font-size:11px">{{ s.statut or '-' }}</td>
+            <td style="font-size:11px;color:#888">{{ s.reference }}{% if s._dup %} ⚠️{% endif %}</td>
+            <td style="text-align:right;font-weight:700;color:#c53030">{{ money(s.montant) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune sortie d'argent rattachée à ce client ou à ses projets.</p>{% endif %}
+</div></div>
+
+<!-- PROJETS (budget vs consommé) -->
+{% if projets or wfprojets %}
+<div class="card" style="margin-bottom:14px;border-left:5px solid #1565c0"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>📁 Projets du client — budget vs consommé</h3></div>
+    {% if projets %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Projet</th><th>Responsable</th><th>Statut</th><th style="text-align:right">Budget</th><th style="text-align:right">Consommé</th><th style="text-align:right">Reste</th><th style="width:140px">Avancement budget</th></tr></thead>
+        <tbody>
+        {% for p in projets %}
+        <tr>
+            <td style="font-size:12px;font-weight:600">{{ p.name }}</td>
+            <td style="font-size:12px">{{ p.manager_name or '—' }}</td>
+            <td style="font-size:11px">{{ p.status or '-' }}</td>
+            <td style="text-align:right">{{ money(p._budget) }}</td>
+            <td style="text-align:right;color:#c53030">{{ money(p._conso) }}</td>
+            <td style="text-align:right;color:{% if p._reste < 0 %}#c53030{% else %}#2e7d32{% endif %}">{{ money(p._reste) }}</td>
+            <td><div style="background:#eee;border-radius:6px;height:14px;overflow:hidden"><div style="height:14px;width:{% if p._pct > 100 %}100{% else %}{{ p._pct }}{% endif %}%;background:{% if p._pct > 100 %}#c53030{% elif p._pct > 80 %}#e8672a{% else %}#2e7d32{% endif %}"></div></div><div style="font-size:10px;color:#888;text-align:center">{{ p._pct }}%</div></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% endif %}
+    {% if wfprojets %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Projet (workflow)</th><th>Réf.</th><th>Statut</th><th style="text-align:right">Montant total</th><th style="text-align:right">Acompte</th><th style="text-align:right">Solde</th></tr></thead>
+        <tbody>
+        {% for w in wfprojets %}
+        <tr>
+            <td style="font-size:12px;font-weight:600">{{ w.name }}</td>
+            <td style="font-size:11px;color:#888">{{ w.reference or '-' }}</td>
+            <td style="font-size:11px">{{ w.status or '-' }}</td>
+            <td style="text-align:right">{{ money(w.total_amount) }}</td>
+            <td style="text-align:right;color:#2e7d32">{{ money(w.acompte_amount) }}</td>
+            <td style="text-align:right;color:{% if (w.solde_amount or 0) > 0 %}#c53030{% else %}#2e7d32{% endif %}">{{ money(w.solde_amount) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% endif %}
+</div></div>
+{% endif %}
 
 <!-- Encaissements de caisse (PREUVES) -->
 <div class="card" style="margin-bottom:14px;border-left:5px solid #2e7d32"><div class="card-body" style="padding:0">
