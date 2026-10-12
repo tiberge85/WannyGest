@@ -90,6 +90,44 @@
     {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune sortie d'argent rattachée à ce client ou à ses projets.</p>{% endif %}
 </div></div>
 
+<!-- SUIVI DE L'ARGENT REÇU DU CLIENT (FIFO) -->
+<div class="card" style="margin-bottom:14px;border-left:5px solid #6a1b9a"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>🔗 Où est parti l'argent reçu du client ? — suivi de caisse (FIFO)</h3></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 14px 0">
+        <div style="flex:1;min-width:140px;text-align:center;background:#f3e5f5;border-radius:8px;padding:10px">
+            <div style="font-size:10px;color:#6a1b9a">ARGENT REÇU DU CLIENT</div>
+            <div style="font-size:18px;font-weight:800;color:#6a1b9a">{{ money(totals.recu_fifo) }}</div></div>
+        <div style="flex:1;min-width:140px;text-align:center;background:#ffebee;border-radius:8px;padding:10px">
+            <div style="font-size:10px;color:#c53030">UTILISÉ (sorties de caisse)</div>
+            <div style="font-size:18px;font-weight:800;color:#c53030">{{ money(totals.utilise_fifo) }}</div></div>
+        <div style="flex:1;min-width:140px;text-align:center;background:#e8f5e9;border-radius:8px;padding:10px">
+            <div style="font-size:10px;color:#2e7d32">RESTE DISPONIBLE EN CAISSE</div>
+            <div style="font-size:18px;font-weight:800;color:#2e7d32">{{ money(totals.reste_fifo) }}</div></div>
+    </div>
+    <p style="font-size:11px;color:#888;margin:8px 14px">L'argent reçu du client est consommé chronologiquement par les sorties des caisses où il a été déposé — même si ces sorties ont servi à autre chose. La colonne « imputé au client » est la part de chaque sortie financée par son argent (plafonnée au montant reçu).</p>
+    {% if fifo %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Caisse</th><th>Source</th><th>Bénéficiaire</th><th>Motif / objet</th><th>Décaissé par</th><th>Réf.</th><th style="text-align:right">Montant sortie</th><th style="text-align:right">Imputé au client</th><th style="text-align:right">Cumul imputé</th></tr></thead>
+        <tbody>
+        {% for f in fifo %}
+        <tr>
+            <td style="white-space:nowrap;font-size:12px">{{ f.date }}</td>
+            <td style="font-size:11px">{{ f.caisse }}</td>
+            <td style="font-size:11px"><span style="padding:1px 6px;border-radius:8px;background:#f3e5f5;color:#6a1b9a;font-weight:600">{{ f.source }}</span></td>
+            <td style="font-size:12px">{{ f.beneficiaire }}</td>
+            <td style="font-size:12px">{{ f.motif }}</td>
+            <td style="font-size:12px">{{ f.demandeur }}</td>
+            <td style="font-size:11px;color:#888">{{ f.reference }}</td>
+            <td style="text-align:right;font-size:12px;color:#777">{{ money(f.montant) }}</td>
+            <td style="text-align:right;font-weight:700;color:#6a1b9a">{{ money(f.impute) }}{% if f.partiel %} <span style="font-size:9px;color:#e8672a" title="Sortie partiellement financée par l'argent du client">part.</span>{% endif %}</td>
+            <td style="text-align:right;font-size:11px;color:#888">{{ money(f.cumul) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune sortie de caisse imputable à l'argent reçu de ce client (soit aucun paiement rattaché à une caisse, soit aucune sortie depuis).</p>{% endif %}
+</div></div>
+
 <!-- PROJETS (budget vs consommé) -->
 {% if projets or wfprojets %}
 <div class="card" style="margin-bottom:14px;border-left:5px solid #1565c0"><div class="card-body" style="padding:0">

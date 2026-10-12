@@ -50062,6 +50062,63 @@ def client_finances(cid):
                'Trésorerie (sortie)')
     sorties.sort(key=lambda x: x['date'], reverse=True)
 
+    # ------------------------------------------------------------------
+    # 10bis) SUIVI DE L'ARGENT REÇU DU CLIENT (FIFO) — où est parti son argent,
+    #        même s'il a servi à autre chose. Base : caisses ayant reçu ses paiements.
+    # ------------------------------------------------------------------
+    caisses_map = {r['id']: r['name'] for r in _rows("SELECT id, name FROM caisses")}
+    # a) Dépôts (argent reçu du client), avec la caisse d'arrivée
+    depots = _rows("""SELECT ce.date AS d, ce.montant AS m, ce.caisse_id AS cid, ce.reference AS ref
+        FROM caisse_entrees ce WHERE ce.description LIKE ? OR ce.reference LIKE ? OR ce.source LIKE ?""",
+        (like, like, like))
+    depots += _rows("""SELECT ve.created_at AS d, COALESCE(ve.amount_paid, ve.total_amount) AS m,
+               ve.caisse_id AS cid, ve.reference AS ref FROM ventes ve WHERE ve.client_id=?""", (cid,))
+    client_caisses = sorted({d['cid'] for d in depots if d.get('cid')})
+    fifo = []
+    recu_fifo = utilise_fifo = reste_fifo = 0.0
+    if depots and client_caisses:
+        ph = ','.join('?' * len(client_caisses))
+        exits = []
+        exits += _rows("""SELECT date AS d, COALESCE(montant_paye, montant) AS m, caisse_id AS cid,
+                   reference AS ref, beneficiaire AS who, COALESCE(motif, nature) AS motif,
+                   demandeur_name AS dem, 'Décaissement caisse' AS src
+            FROM caisse_sorties WHERE caisse_id IN (%s)""" % ph, tuple(client_caisses))
+        exits += _rows("""SELECT de.date AS d, de.amount AS m, de.caisse_id AS cid, de.reference AS ref,
+                   de.beneficiaire AS who, COALESCE(de.description, de.category) AS motif,
+                   de.created_by_name AS dem, 'Dépense' AS src
+            FROM depenses de WHERE de.caisse_id IN (%s)""" % ph, tuple(client_caisses))
+        exits += _rows("""SELECT co.created_at AS d, co.amount AS m, co.caisse_id AS cid, co.reference AS ref,
+                   co.description AS who, COALESCE(co.description, co.category) AS motif,
+                   u.full_name AS dem, 'Opération caisse' AS src
+            FROM caisse_operations co LEFT JOIN users u ON u.id=co.created_by
+            WHERE co.type='sortie' AND co.caisse_id IN (%s)""" % ph, tuple(client_caisses))
+        exits += _rows("""SELECT tm.date AS d, tm.montant AS m, tm.caisse_id AS cid, tm.reference AS ref,
+                   tm.tiers_nom AS who, tm.libelle AS motif, u.full_name AS dem, 'Trésorerie' AS src
+            FROM tresorerie_mouvements tm LEFT JOIN users u ON u.id=tm.created_by
+            WHERE tm.sens='sortie' AND tm.type='caisse' AND tm.caisse_id IN (%s)""" % ph, tuple(client_caisses))
+        # Chronologie : dépôts (+) et sorties (−) ; l'argent du client est consommé tant qu'il en reste
+        evs = []
+        for d in depots:
+            evs.append(((d.get('d') or '')[:19], 0, float(d.get('m') or 0), None))
+        for e in exits:
+            evs.append(((e.get('d') or '')[:19], 1, float(e.get('m') or 0), e))
+        evs.sort(key=lambda x: (x[0], x[1]))
+        fund = 0.0
+        for dt, kind, mnt, meta in evs:
+            if kind == 0:
+                fund += mnt; recu_fifo += mnt
+            else:
+                imp = min(mnt, fund)
+                if imp > 0:
+                    fund -= imp; utilise_fifo += imp
+                    fifo.append({'date': dt, 'caisse': caisses_map.get(meta.get('cid'), '—'),
+                        'beneficiaire': meta.get('who') or '-', 'motif': meta.get('motif') or '-',
+                        'demandeur': meta.get('dem') or '—', 'reference': meta.get('ref') or '-',
+                        'source': meta.get('src'), 'montant': mnt, 'impute': imp,
+                        'partiel': imp < mnt, 'cumul': utilise_fifo})
+        reste_fifo = fund
+    fifo.reverse()  # plus récent en haut
+
     # conserve l'ancienne variable (compat template)
     depenses = _rows("SELECT * FROM pieces_caisse WHERE supplier LIKE ? ORDER BY date DESC", (like,))
 
@@ -50109,11 +50166,13 @@ def client_finances(cid):
         'solde': (tot_fact_creances + tot_fact_invoices) - (tot_paye_creances + tot_enc_caisse),
         'entrees': tot_entrees, 'sorties': tot_sorties, 'solde_net': tot_entrees - tot_sorties,
         'budget_proj': tot_budget_proj, 'conso_proj': tot_conso_proj,
+        'recu_fifo': recu_fifo, 'utilise_fifo': utilise_fifo, 'reste_fifo': reste_fifo,
         'nb_devis': len(devis), 'nb_factures': len(factures) + len(terrain), 'nb_creances': len(creances),
-        'nb_entrees': len(entrees), 'nb_sorties': len(sorties),
+        'nb_entrees': len(entrees), 'nb_sorties': len(sorties), 'nb_fifo': len(fifo),
     }
     return render_template('client_finances.html', page='clients', client=client, totals=totals,
                            creances=creances, factures=factures, terrain=terrain, devis=devis,
                            encaissements=encaissements, versements=versements, contrats=contrats,
                            depenses=depenses, audit=audit, logs=logs,
-                           entrees=entrees, sorties=sorties, projets=projets, wfprojets=wfprojets)
+                           entrees=entrees, sorties=sorties, projets=projets, wfprojets=wfprojets,
+                           fifo=fifo)
