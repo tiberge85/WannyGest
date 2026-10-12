@@ -92,6 +92,7 @@
                 {% endif %}</td>
                 <td style="white-space:nowrap">
                     <a href="/clients/{{ c.id }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Voir">👁️</a>
+                    <a href="/clients/{{ c.id }}/finances" class="btn btn-sm btn-outline" style="font-size:9px;background:#e8f5e9;color:#2e7d32;border-color:#2e7d32" title="Dossier financier">💰</a>
                     {% if can_edit %}
                     <a href="/clients/edit/{{ c.id }}?return_to={{ (request.url | urlencode) if request.url else '' }}" class="btn btn-sm btn-outline" style="font-size:9px" title="Modifier">✏️</a>
                     <a href="/clients/{{ c.id }}/toggle-type" class="btn btn-sm btn-outline" style="font-size:9px" title="{% if (c.type or 'client') == 'client' %}Convertir en prospect{% else %}Convertir en client{% endif %}" onclick="return confirm('Basculer entre client et prospect ?')">🔄</a>

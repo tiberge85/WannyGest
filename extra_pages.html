@@ -400,7 +400,8 @@ new Chart(document.getElementById('cTres'),{type:'doughnut',data:{labels:['Recet
 
 {% elif page == 'client_profile' %}
 <div class="page-header"><h1>🏢 {{ client.name }}</h1>
-<div style="display:flex;gap:6px"><a href="/clients/{{ client.id }}/equipements" class="btn btn-outline btn-sm" style="background:#e3f2fd;color:#1565c0;border-color:#1565c0">🛠️ Équipements</a>
+<div style="display:flex;gap:6px"><a href="/clients/{{ client.id }}/finances" class="btn btn-outline btn-sm" style="background:#e8f5e9;color:#2e7d32;border-color:#2e7d32">💰 Dossier financier</a>
+<a href="/clients/{{ client.id }}/equipements" class="btn btn-outline btn-sm" style="background:#e3f2fd;color:#1565c0;border-color:#1565c0">🛠️ Équipements</a>
 <a href="/clients" class="btn btn-outline btn-sm">← Retour</a></div></div>
 
 <div style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;overflow-x:auto">

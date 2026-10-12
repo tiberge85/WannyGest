@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Dossier financier — {{ client.name }}{% endblock %}
+{% block content %}
+{% macro money(v) %}{{ '{:,.0f}'.format(v or 0)|replace(',', ' ') }} F{% endmacro %}
+
+<div class="page-header">
+    <h1>💰 Dossier financier — {{ client.name }}</h1>
+    <a href="/clients/{{ client.id }}" class="btn btn-outline btn-sm">← Fiche client</a>
+</div>
+
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+    <div class="card" style="flex:1;min-width:150px"><div class="card-body" style="text-align:center;padding:14px">
+        <div style="font-size:11px;color:#888">TOTAL FACTURÉ</div>
+        <div style="font-size:20px;font-weight:800;color:#1a3a5c">{{ money(totals.facture) }}</div></div></div>
+    <div class="card" style="flex:1;min-width:150px"><div class="card-body" style="text-align:center;padding:14px">
+        <div style="font-size:11px;color:#888">TOTAL ENCAISSÉ</div>
+        <div style="font-size:20px;font-weight:800;color:#2e7d32">{{ money(totals.encaisse_total) }}</div>
+        <div style="font-size:10px;color:#999">créances {{ money(totals.encaisse_creances) }} · caisse {{ money(totals.encaisse_caisse) }}</div></div></div>
+    <div class="card" style="flex:1;min-width:150px"><div class="card-body" style="text-align:center;padding:14px">
+        <div style="font-size:11px;color:#888">SOLDE DÛ</div>
+        <div style="font-size:20px;font-weight:800;color:{% if totals.solde > 0 %}#c53030{% else %}#2e7d32{% endif %}">{{ money(totals.solde) }}</div></div></div>
+</div>
+
+<div style="background:#fff8e1;border:1px solid #ffecb3;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#8a6d3b">
+    ℹ️ Vue consolidée de toutes les traces financières du client. Les encaissements de caisse et la traçabilité ci-dessous constituent les <b>preuves d'enregistrement</b> (qui a saisi quoi, quand, quel mode, quelle pièce). Un écart entre « encaissé en caisse » et « payé sur la grille des créances » révèle une transaction non reportée.
+</div>
+
+<!-- Encaissements de caisse (PREUVES) -->
+<div class="card" style="margin-bottom:14px;border-left:5px solid #2e7d32"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>🧾 Encaissements enregistrés en caisse (preuves) — {{ money(totals.encaisse_caisse) }}</h3></div>
+    {% if encaissements %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Référence</th><th>Libellé</th><th>Mode</th><th style="text-align:right">Montant</th><th>Enregistré par</th><th>Saisi le</th></tr></thead>
+        <tbody>
+        {% for e in encaissements %}
+        <tr>
+            <td style="white-space:nowrap">{{ (e.date or '')[:10] }}</td>
+            <td>{{ e.reference or '-' }}</td>
+            <td style="font-size:12px">{{ e.description or e.source or '-' }}</td>
+            <td>{{ e.payment_method or '-' }}</td>
+            <td style="text-align:right;font-weight:700">{{ money(e.montant) }}</td>
+            <td>{{ e.created_by_name or '—' }}</td>
+            <td style="font-size:11px;color:#888">{{ (e.created_at or '')[:16] }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucun encaissement de caisse rattaché à ce client.</p>{% endif %}
+</div></div>
+
+<!-- Créances / grille de paiement -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>📊 Créances — grille de paiement</h3></div>
+    {% if creances %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>N° facture</th><th>Date</th><th>Échéance</th><th style="text-align:right">Montant TTC</th><th style="text-align:right">Payé</th><th style="text-align:right">Solde</th><th>Mode</th><th>Statut</th><th>Enregistré par</th></tr></thead>
+        <tbody>
+        {% for c in creances %}
+        <tr>
+            <td>{{ c.num_facture }}</td>
+            <td style="white-space:nowrap">{{ (c.date_facture or '')[:10] }}</td>
+            <td style="white-space:nowrap">{{ (c.date_echeance or '')[:10] }}</td>
+            <td style="text-align:right">{{ money(c._ttc) }}</td>
+            <td style="text-align:right;color:#2e7d32;font-weight:600">{{ money(c._paye) }}</td>
+            <td style="text-align:right;color:{% if c._solde > 0 %}#c53030{% else %}#2e7d32{% endif %}">{{ money(c._solde) }}</td>
+            <td>{{ c.mode_paiement or '-' }}</td>
+            <td style="font-size:11px">{{ c.statut or '-' }}</td>
+            <td>{{ c.created_by_name or '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune créance enregistrée.</p>{% endif %}
+</div></div>
+
+<!-- Factures -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>💰 Factures</h3></div>
+    {% if factures or terrain %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Référence</th><th>Date</th><th style="text-align:right">Montant</th><th>Statut</th><th>Type</th></tr></thead>
+        <tbody>
+        {% for f in factures %}
+        <tr><td>{{ f.reference or f.id }}</td><td>{{ (f.created_at or '')[:10] }}</td><td style="text-align:right">{{ money(f.amount or f.total_ttc) }}</td><td>{{ f.status or '-' }}</td><td>Comptabilité</td></tr>
+        {% endfor %}
+        {% for t in terrain %}
+        <tr><td>{{ t.invoice_number or ('Terrain #' ~ t.id) }}</td><td>{{ (t.emitted_at or t.created_at or '')[:10] }}</td><td style="text-align:right">{{ money(t.amount) }}</td><td>{{ t.status or '-' }}</td><td>Terrain</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune facture.</p>{% endif %}
+</div></div>
+
+<!-- Devis -->
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>📄 Devis / Proformas</h3></div>
+    {% if devis %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Référence</th><th>Date</th><th style="text-align:right">Montant TTC</th><th>Statut</th><th>Créé par</th></tr></thead>
+        <tbody>
+        {% for d in devis %}
+        <tr><td>{{ d.reference }}</td><td>{{ (d.created_at or '')[:10] }}</td><td style="text-align:right">{{ money(d.total_ttc) }}</td><td>{{ d.status or '-' }}</td><td>{{ d.created_by_name or '—' }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucun devis.</p>{% endif %}
+</div></div>
+
+{% if versements %}
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>📥 Versements / bordereaux</h3></div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Bordereau</th><th>Mode</th><th style="text-align:right">Montant</th><th>Agent</th><th>Statut</th></tr></thead>
+        <tbody>
+        {% for v in versements %}
+        <tr><td>{{ (v.date_versement or '')[:10] }}</td><td>{{ v.bordereau_number or '-' }}</td><td>{{ v.mode or '-' }}</td><td style="text-align:right">{{ money(v.montant) }}</td><td>{{ v.agent or '-' }}</td><td>{{ v.statut or '-' }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div></div>
+{% endif %}
+
+{% if contrats %}
+<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>📑 Contrats</h3></div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Référence</th><th>Début</th><th>Fin</th><th style="text-align:right">Mensualité</th><th>Statut</th></tr></thead>
+        <tbody>
+        {% for c in contrats %}
+        <tr><td>{{ c.reference }}</td><td>{{ (c.start_date or '')[:10] }}</td><td>{{ (c.end_date or '')[:10] }}</td><td style="text-align:right">{{ money(c.monthly_rate) }}</td><td>{{ c.status or '-' }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div></div>
+{% endif %}
+
+<!-- Traçabilité / preuves -->
+<div class="card" style="margin-bottom:14px;border-left:5px solid #6a1b9a"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>🔎 Traçabilité — modifications enregistrées (audit)</h3></div>
+    {% if audit %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Quand</th><th>Qui</th><th>Table</th><th>Enreg.</th><th>Action</th><th>Champ</th><th>Ancienne valeur</th><th>Nouvelle valeur</th></tr></thead>
+        <tbody>
+        {% for a in audit %}
+        <tr>
+            <td style="white-space:nowrap;font-size:11px">{{ (a.created_at or '')[:16] }}</td>
+            <td>{{ a.who or a.user_name or '—' }}</td>
+            <td style="font-size:11px">{{ a.table_name }}</td>
+            <td>{{ a.record_id }}</td>
+            <td style="font-size:11px">{{ a.action }}</td>
+            <td style="font-size:11px">{{ a.field_name or '-' }}</td>
+            <td style="font-size:11px;color:#c53030">{{ a.old_value or '-' }}</td>
+            <td style="font-size:11px;color:#2e7d32">{{ a.new_value or '-' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune modification tracée pour les enregistrements financiers de ce client.</p>{% endif %}
+</div></div>
+
+{% if logs %}
+<div class="card" style="margin-bottom:30px"><div class="card-body" style="padding:0">
+    <div class="card-header"><h3>📜 Journal d'activité mentionnant « {{ client.name }} »</h3></div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Quand</th><th>Action</th><th>Détail</th></tr></thead>
+        <tbody>
+        {% for l in logs %}
+        <tr><td style="white-space:nowrap;font-size:11px">{{ (l.created_at or '')[:16] }}</td><td style="font-size:12px">{{ l.action or l.user_name or '' }}</td><td style="font-size:12px">{{ l.details or '' }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div></div>
+{% endif %}
+{% endblock %}

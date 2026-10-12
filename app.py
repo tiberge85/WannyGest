@@ -49116,11 +49116,8 @@ def rapports_heures_envoyer():
 # notifie la direction, envoie par mail (direction@ + admin@) et garde une copie.
 # ============================================================================
 
-# --- Migration : table de stockage des rapports ---
-try:
-    from models import get_db as _v195_db
-    _v195 = _v195_db()
-    _v195.execute("""CREATE TABLE IF NOT EXISTS agency_reports (
+# --- Migration : table de stockage des rapports (DANS CHAQUE base d'agence) ---
+_AGENCY_REPORTS_DDL = """CREATE TABLE IF NOT EXISTS agency_reports (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         agency_id INTEGER,
         agency_name TEXT,
@@ -49140,9 +49137,35 @@ try:
         emailed_at TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         created_by INTEGER
-    )""")
-    _v195.commit(); _v195.close()
-    print("[v195] Table agency_reports OK", flush=True)
+    )"""
+
+def _ensure_agency_reports_table(conn):
+    """v195c : garantit la présence de la table dans la base de l'agence active."""
+    try:
+        conn.execute(_AGENCY_REPORTS_DDL)
+        conn.commit()
+    except Exception:
+        pass
+
+try:
+    from models import (get_db as _v195_db, list_agencies as _v195_list,
+                        set_forced_agency as _v195_set, clear_forced_agency as _v195_clear)
+    try:
+        _ags_v195 = _v195_list() or [{'id': 1}]
+    except Exception:
+        _ags_v195 = [{'id': 1}]
+    for _ag in _ags_v195:
+        try:
+            _v195_set(_ag['id'])
+            _v195 = _v195_db()
+            _v195.execute(_AGENCY_REPORTS_DDL)
+            _v195.commit(); _v195.close()
+        except Exception:
+            pass
+        finally:
+            try: _v195_clear()
+            except Exception: pass
+    print("[v195] Table agency_reports OK (toutes agences)", flush=True)
 except Exception as _e:
     print(f"[v195] err migration agency_reports : {_e}", flush=True)
 
@@ -49570,6 +49593,7 @@ def chef_rapport():
             _mon = datetime.now() - timedelta(days=datetime.now().weekday())
             wk_start = _mon.strftime('%Y-%m-%d'); wk_end = (_mon + timedelta(days=4)).strftime('%Y-%m-%d')
         conn = _gdb()
+        _ensure_agency_reports_table(conn)
         conn.execute("""INSERT INTO agency_reports
             (agency_id, agency_name, chef_user_id, chef_name, report_type, report_date, week_start, week_end,
              payload, verdict, score, summary, followups, recommendations, created_by)
@@ -49614,12 +49638,29 @@ def chef_rapport():
                            today=datetime.now().strftime('%Y-%m-%d'), jour=_jours[datetime.now().weekday()])
 
 
-def _rap_email_report(rid):
-    """Construit et envoie le rapport par mail aux destinataires. Retourne True si au moins un envoi OK."""
+def _rap_email_report(rid, ag=None):
+    """Construit et envoie le rapport par mail aux destinataires. Retourne True si au moins un envoi OK.
+    ag : id d'agence (base) à forcer si le rapport n'est pas dans l'agence active."""
     try:
-        conn = _gdb()
-        r = conn.execute("SELECT * FROM agency_reports WHERE id=?", (rid,)).fetchone()
-        conn.close()
+        _sfe = _cfe = None
+        if ag:
+            try:
+                from models import set_forced_agency as _sfe, clear_forced_agency as _cfe
+            except Exception:
+                _sfe = _cfe = None
+        if ag and _sfe:
+            _sfe(ag)
+        try:
+            conn = _gdb()
+            _ensure_agency_reports_table(conn)
+            r = conn.execute("SELECT * FROM agency_reports WHERE id=?", (rid,)).fetchone()
+            conn.close()
+        finally:
+            try:
+                if ag and _cfe:
+                    _cfe()
+            except Exception:
+                pass
         if not r:
             return False
         r = dict(r)
@@ -49666,10 +49707,19 @@ def _rap_email_report(rid):
             ok, _err = _send_email_smtp(to, subject, body, html)
             ok_any = ok_any or ok
         if ok_any:
-            conn = _gdb()
-            conn.execute("UPDATE agency_reports SET emailed=1, emailed_at=? WHERE id=?",
-                         (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), rid))
-            conn.commit(); conn.close()
+            try:
+                if ag and _sfe:
+                    _sfe(ag)
+                conn = _gdb()
+                conn.execute("UPDATE agency_reports SET emailed=1, emailed_at=? WHERE id=?",
+                             (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), rid))
+                conn.commit(); conn.close()
+            finally:
+                try:
+                    if ag and _cfe:
+                        _cfe()
+                except Exception:
+                    pass
         return ok_any
     except Exception:
         return False
@@ -49681,11 +49731,38 @@ def direction_rapports_agences():
     f_verdict = (request.args.get('verdict', '') or '').strip()
     f_type = (request.args.get('type', '') or '').strip()
     q = (request.args.get('q', '') or '').strip().lower()
-    conn = _gdb()
-    rows = [dict(r) for r in conn.execute(
-        "SELECT id, agency_name, chef_name, report_type, report_date, verdict, score, emailed, created_at "
-        "FROM agency_reports ORDER BY id DESC LIMIT 500").fetchall()]
-    conn.close()
+    # v195c : chaque agence a sa propre base → on agrège les rapports de TOUTES les agences.
+    try:
+        from models import list_agencies as _la195, set_forced_agency as _sf195, clear_forced_agency as _cf195
+        _ags = _la195() or [{'id': 1}]
+    except Exception:
+        _ags = [{'id': 1}]
+        _sf195 = _cf195 = None
+    rows = []
+    for _ag in _ags:
+        try:
+            if _sf195:
+                _sf195(_ag['id'])
+            conn = _gdb()
+            _ensure_agency_reports_table(conn)
+            for r in conn.execute(
+                "SELECT id, agency_name, chef_name, report_type, report_date, verdict, score, emailed, created_at "
+                "FROM agency_reports ORDER BY id DESC LIMIT 500").fetchall():
+                d = dict(r)
+                d['ag_db'] = _ag['id']
+                if not (d.get('agency_name') or '').strip():
+                    d['agency_name'] = _ag.get('nom', '') or ''
+                rows.append(d)
+            conn.close()
+        except Exception:
+            pass
+        finally:
+            try:
+                if _cf195:
+                    _cf195()
+            except Exception:
+                pass
+    rows.sort(key=lambda r: (r.get('created_at') or '', r.get('id') or 0), reverse=True)
     if f_verdict:
         rows = [r for r in rows if r.get('verdict') == f_verdict]
     if f_type:
@@ -49707,13 +49784,30 @@ def direction_rapports_agences():
 @app.route('/direction/rapports-agences/<int:rid>')
 @permission_required_any('rapport_agence_view', 'admin', 'dg')
 def direction_rapport_detail(rid):
-    conn = _gdb()
-    r = conn.execute("SELECT * FROM agency_reports WHERE id=?", (rid,)).fetchone()
-    conn.close()
+    ag = request.args.get('ag', type=int)
+    try:
+        from models import set_forced_agency as _sfd, clear_forced_agency as _cfd
+    except Exception:
+        _sfd = _cfd = None
+    r = None
+    try:
+        if ag and _sfd:
+            _sfd(ag)
+        conn = _gdb()
+        _ensure_agency_reports_table(conn)
+        r = conn.execute("SELECT * FROM agency_reports WHERE id=?", (rid,)).fetchone()
+        conn.close()
+    finally:
+        try:
+            if ag and _cfd:
+                _cfd()
+        except Exception:
+            pass
     if not r:
         flash("Rapport introuvable", "error")
         return redirect(url_for('direction_rapports_agences'))
     r = dict(r)
+    r['ag_db'] = ag or r.get('agency_id') or 1
     payload = _json_lib.loads(r.get('payload') or '{}')
     r['followups'] = _json_lib.loads(r.get('followups') or '[]')
     r['recommendations'] = _json_lib.loads(r.get('recommendations') or '[]')
@@ -49739,9 +49833,10 @@ def direction_rapport_detail(rid):
 @app.route('/direction/rapports-agences/<int:rid>/renvoyer-mail', methods=['POST'])
 @permission_required_any('rapport_agence_view', 'admin', 'dg')
 def direction_rapport_renvoyer(rid):
-    ok = _rap_email_report(rid)
+    ag = request.args.get('ag', type=int) or request.form.get('ag', type=int)
+    ok = _rap_email_report(rid, ag)
     flash("📧 Rapport renvoyé par email." if ok else "⚠️ Envoi impossible (SMTP non configuré ?).", "success" if ok else "error")
-    return redirect(url_for('direction_rapport_detail', rid=rid))
+    return redirect(url_for('direction_rapport_detail', rid=rid, ag=ag))
 
 
 # v195b : attribution des nouvelles permissions rapports agence (une fois par agence)
@@ -49784,3 +49879,116 @@ try:
     print("[v195b] Permissions rapports agence initialisées", flush=True)
 except Exception as _e:
     print(f"[v195b] Erreur : {_e}", flush=True)
+
+
+# ============================================================================
+# v196 — DOSSIER FINANCIER CLIENT (vue CRM : toutes les infos financières + preuves)
+# ============================================================================
+@app.route('/clients/<int:cid>/finances')
+@permission_required_any('clients', 'proforma', 'comptabilite', 'comptabilite_view',
+                         'creances_view', 'recouvrement_view', 'admin', 'dg')
+def client_finances(cid):
+    conn = _gdb()
+    client = conn.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
+    if not client:
+        conn.close(); flash("Client non trouvé", "error"); return redirect('/clients')
+    client = dict(client)
+    name = (client.get('name') or '').strip()
+    like = f"%{name}%"
+
+    def _rows(sql, params=()):
+        try:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        except Exception:
+            return []
+
+    # 1) Créances / grille de paiement (facture, TTC, payé, solde, mode, statut, enregistré par)
+    creances = _rows("""SELECT ci.*, u.full_name AS created_by_name
+        FROM creances_invoices ci LEFT JOIN users u ON u.id = ci.created_by
+        WHERE ci.client_id=? OR (COALESCE(ci.client_id,0)=0 AND LOWER(TRIM(ci.client_name))=LOWER(TRIM(?)))
+        ORDER BY ci.date_facture DESC""", (cid, name))
+    for c in creances:
+        c['_ttc'] = float(c.get('montant_ttc') or 0)
+        c['_paye'] = float(c.get('montant_paye') or 0)
+        c['_solde'] = c['_ttc'] - c['_paye']
+
+    # 2) Factures classiques (comptabilité)
+    factures = _rows("""SELECT i.*, u.full_name AS sent_by_name
+        FROM invoices i LEFT JOIN users u ON u.id = i.sent_by
+        WHERE i.client_id=? OR (COALESCE(i.client_id,0)=0 AND LOWER(TRIM(i.client_name))=LOWER(TRIM(?)))
+        ORDER BY i.created_at DESC""", (cid, name))
+
+    # 3) Factures terrain
+    terrain = _rows("""SELECT fri.id, fri.invoice_number, fri.amount, fri.status, fri.created_at, fri.emitted_at
+        FROM field_report_invoices fri JOIN field_reports fr ON fri.field_report_id=fr.id
+        WHERE fr.client_id=? OR (COALESCE(fr.client_id,0)=0 AND LOWER(TRIM(fr.client_name))=LOWER(TRIM(?)))
+        ORDER BY fri.created_at DESC""", (cid, name))
+
+    # 4) Devis / proformas
+    devis = _rows("""SELECT d.id, d.reference, d.doc_type, d.total_ttc, d.status, d.created_at, u.full_name AS created_by_name
+        FROM devis d LEFT JOIN users u ON u.id = d.created_by
+        WHERE d.client_id=? OR (COALESCE(d.client_id,0)=0 AND LOWER(TRIM(d.client_name))=LOWER(TRIM(?)))
+        ORDER BY d.created_at DESC""", (cid, name))
+
+    # 5) Encaissements de caisse (PREUVES) — rattachés au client par le libellé/référence
+    encaissements = _rows("""SELECT ce.id, ce.reference, ce.date, ce.source, ce.montant, ce.description,
+               ce.payment_method, ce.created_at, u.full_name AS created_by_name
+        FROM caisse_entrees ce LEFT JOIN users u ON u.id = ce.created_by
+        WHERE ce.description LIKE ? OR ce.reference LIKE ? OR ce.source LIKE ?
+        ORDER BY ce.date DESC, ce.id DESC""", (like, like, like))
+
+    # 6) Versements recouvrement liés au client (par notes/bordereau)
+    versements = _rows("""SELECT rv.*, u.full_name AS agent
+        FROM recouvrement_versements rv LEFT JOIN users u ON u.id = rv.agent_id
+        WHERE rv.notes LIKE ? ORDER BY rv.date_versement DESC""", (like,))
+
+    # 7) Contrats
+    contrats = _rows("""SELECT id, reference, start_date, end_date, monthly_rate, status, created_at
+        FROM contracts WHERE client_id=? ORDER BY created_at DESC""", (cid,))
+
+    # 8) Dépenses liées
+    depenses = _rows("SELECT * FROM pieces_caisse WHERE supplier LIKE ? ORDER BY date DESC", (like,))
+
+    # 9) Traçabilité — modifications enregistrées (audit) sur les créances/factures/caisse du client
+    cre_ids = [c['id'] for c in creances if c.get('id')]
+    inv_ids = [f['id'] for f in factures if f.get('id')]
+    enc_ids = [e['id'] for e in encaissements if e.get('id')]
+    audit = []
+    try:
+        clauses = ["(table_name='clients' AND record_id=?)"]
+        aparams = [cid]
+        if cre_ids:
+            clauses.append("(table_name='creances_invoices' AND record_id IN (%s))" % ",".join("?" * len(cre_ids))); aparams += cre_ids
+        if inv_ids:
+            clauses.append("(table_name='invoices' AND record_id IN (%s))" % ",".join("?" * len(inv_ids))); aparams += inv_ids
+        if enc_ids:
+            clauses.append("(table_name='caisse_entrees' AND record_id IN (%s))" % ",".join("?" * len(enc_ids))); aparams += enc_ids
+        audit = _rows("""SELECT at.*, u.full_name AS who FROM audit_trail at LEFT JOIN users u ON u.id=at.user_id
+            WHERE %s ORDER BY at.created_at DESC LIMIT 200""" % " OR ".join(clauses), tuple(aparams))
+    except Exception:
+        audit = []
+    # Journal d'activité mentionnant le client (preuves complémentaires)
+    logs = _rows("""SELECT * FROM activity_logs WHERE details LIKE ? OR action LIKE ?
+        ORDER BY created_at DESC LIMIT 100""", (like, like))
+
+    conn.close()
+
+    # Totaux
+    tot_fact_creances = sum(c['_ttc'] for c in creances)
+    tot_paye_creances = sum(c['_paye'] for c in creances)
+    tot_fact_invoices = sum(float(f.get('amount') or 0) for f in factures) + sum(float(t.get('amount') or 0) for t in terrain)
+    tot_enc_caisse = sum(float(e.get('montant') or 0) for e in encaissements)
+    tot_versements = sum(float(v.get('montant') or 0) for v in versements)
+    totals = {
+        'facture': tot_fact_creances + tot_fact_invoices,
+        'encaisse_creances': tot_paye_creances,
+        'encaisse_caisse': tot_enc_caisse,
+        'versements': tot_versements,
+        'encaisse_total': tot_paye_creances + tot_enc_caisse,
+        'solde': (tot_fact_creances + tot_fact_invoices) - (tot_paye_creances + tot_enc_caisse),
+        'nb_devis': len(devis), 'nb_factures': len(factures) + len(terrain), 'nb_creances': len(creances),
+    }
+    return render_template('client_finances.html', page='clients', client=client, totals=totals,
+                           creances=creances, factures=factures, terrain=terrain, devis=devis,
+                           encaissements=encaissements, versements=versements, contrats=contrats,
+                           depenses=depenses, audit=audit, logs=logs)
