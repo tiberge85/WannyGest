@@ -16,7 +16,7 @@
                     <span style="font-size:15px;color:#555">— {{ r.score }}/100</span>
                 </div>
             </div>
-            <form method="post" action="/direction/rapports-agences/{{ r.id }}/renvoyer-mail">
+            <form method="post" action="/direction/rapports-agences/{{ r.id }}/renvoyer-mail?ag={{ r.ag_db }}">
                 <button type="submit" class="btn btn-outline btn-sm">📧 Renvoyer par email</button>
             </form>
         </div>

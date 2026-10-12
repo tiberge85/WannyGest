@@ -49,7 +49,7 @@
             {% else %}<span style="padding:2px 8px;border-radius:10px;background:#ffebee;color:#c53030;font-weight:600;font-size:11px">Non bénéfique</span>{% endif %}</td>
         <td style="font-weight:700">{{ r.score }}/100</td>
         <td>{% if r.emailed %}✅{% else %}—{% endif %}</td>
-        <td><a href="/direction/rapports-agences/{{ r.id }}" class="btn btn-outline btn-sm" style="font-size:11px">👁️ Examiner</a></td>
+        <td><a href="/direction/rapports-agences/{{ r.id }}?ag={{ r.ag_db }}" class="btn btn-outline btn-sm" style="font-size:11px">👁️ Examiner</a></td>
     </tr>
     {% endfor %}
     </tbody>
