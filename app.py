@@ -4764,7 +4764,12 @@ PERM_CATEGORIES = {
         ('rh_budget_real', 'Saisir le réel mensuel (consommation)'),
         ('rapports_j', 'Rapports journaliers — voir tous'),
     ],
-    
+
+    '📝 RAPPORTS CHEFS D\'AGENCE (Section sidebar)': [
+        ('rapport_agence_fill', 'Remplir le rapport journalier / hebdomadaire de son agence (chef d\'agence)'),
+        ('rapport_agence_view', 'Consulter les rapports des chefs d\'agence (direction)'),
+    ],
+
     '💰 COMPTABILITÉ (Section sidebar)': [
         ('section_compta', 'Voir la section COMPTABILITÉ dans la sidebar'),
         ('comptabilite', 'Comptabilité lecture'),
@@ -49103,3 +49108,679 @@ def rapports_heures_envoyer():
     except Exception: pass
     flash(f"✅ Rapport d'heures {ref} envoyé en « Facturation à décider » ({int(montant)} XOF). Le DG n'a plus qu'à valider.", "success")
     return redirect('/rapports-heures')
+
+
+# ============================================================================
+# v195 — RAPPORTS D'ÉVALUATION DES CHEFS D'AGENCE (journalier lun→jeu, hebdo vendredi)
+# Le chef remplit avant la clôture ; le système évalue (verdict + relances + reco),
+# notifie la direction, envoie par mail (direction@ + admin@) et garde une copie.
+# ============================================================================
+
+# --- Migration : table de stockage des rapports ---
+try:
+    from models import get_db as _v195_db
+    _v195 = _v195_db()
+    _v195.execute("""CREATE TABLE IF NOT EXISTS agency_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agency_id INTEGER,
+        agency_name TEXT,
+        chef_user_id INTEGER,
+        chef_name TEXT,
+        report_type TEXT DEFAULT 'daily',
+        report_date TEXT,
+        week_start TEXT,
+        week_end TEXT,
+        payload TEXT,
+        verdict TEXT,
+        score INTEGER DEFAULT 0,
+        summary TEXT,
+        followups TEXT,
+        recommendations TEXT,
+        emailed INTEGER DEFAULT 0,
+        emailed_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        created_by INTEGER
+    )""")
+    _v195.commit(); _v195.close()
+    print("[v195] Table agency_reports OK", flush=True)
+except Exception as _e:
+    print(f"[v195] err migration agency_reports : {_e}", flush=True)
+
+# Destinataires des rapports (modifiable via app_settings clé 'rapport_agence_emails')
+RAPPORT_AGENCE_EMAILS_DEFAULT = "direction@ramyaci.tech, admin@ramyaci.tech"
+
+# Objectifs quotidiens par défaut (paramétrables via app_settings 'rapt_<key>')
+RAPT_TARGETS_DEFAULT = {
+    'prospects_contactes': 5, 'rdv': 2, 'visites': 2, 'devis': 2,
+    'relances': 3, 'commandes': 1, 'encaisse_jour': 150000,
+}
+
+def _rapt_target(key):
+    try:
+        conn = _gdb()
+        r = conn.execute("SELECT value FROM app_settings WHERE key=?", (f'rapt_{key}',)).fetchone()
+        conn.close()
+        if r and str(r[0]).strip():
+            return float(str(r[0]).replace(',', '.'))
+    except Exception:
+        pass
+    return float(RAPT_TARGETS_DEFAULT.get(key, 0))
+
+def _rap_emails():
+    try:
+        conn = _gdb()
+        r = conn.execute("SELECT value FROM app_settings WHERE key='rapport_agence_emails'").fetchone()
+        conn.close()
+        if r and str(r[0]).strip():
+            raw = str(r[0])
+        else:
+            raw = RAPPORT_AGENCE_EMAILS_DEFAULT
+    except Exception:
+        raw = RAPPORT_AGENCE_EMAILS_DEFAULT
+    out = []
+    for part in raw.replace(';', ',').split(','):
+        e = part.strip()
+        if e and '@' in e:
+            out.append(e)
+    return out
+
+# --- Définition des questionnaires (rendus génériquement par le template) ---
+# type : 'num' | 'radio' | 'text' | 'short' ; radio choices = [(value,label),...]
+_OUI_NON = [('oui', 'Oui'), ('non', 'Non')]
+_OUI_NON_PART = [('oui', 'Oui'), ('non', 'Non'), ('partiel', 'Partiellement / N/A')]
+_OUI_NON_VERIF = [('oui', 'Oui'), ('non', 'Non'), ('verifier', 'À vérifier')]
+_OUI_NON_NA = [('oui', 'Oui'), ('non', 'Non'), ('na', 'Non applicable')]
+_NON_OUI_NA = [('non', 'Non'), ('oui', 'Oui'), ('na', 'Non applicable')]
+
+DAILY_SECTIONS = [
+    {'title': 'En-tête', 'intro': '', 'fields': [
+        ('d_effectif', "Effectif présent aujourd'hui", 'num', None),
+        ('d_ouverture', "L'agence a-t-elle ouvert et fonctionné normalement ?", 'radio',
+            [('normal', 'Oui, fonctionnement normal'), ('partiel', 'Fonctionnement partiel'), ('non', 'Non')]),
+        ('d_etat', "État général de l'activité", 'radio',
+            [('tres_bonne', 'Très bonne journée'), ('normale', 'Journée normale'),
+             ('faible', 'Activité faible'), ('difficile', 'Journée difficile / incident')]),
+        ('d_resume', "Résumé de la journée et événements particuliers", 'text', None),
+    ]},
+    {'title': "1. Gestion quotidienne de l'agence", 'intro': '', 'fields': [
+        ('g_ouvert_heure', "L'agence a-t-elle ouvert à l'heure prévue ?", 'radio', _OUI_NON),
+        ('g_locaux', "Locaux, showroom et produits exposés propres et bien présentés ?", 'radio',
+            [('oui', 'Oui'), ('non', 'Non'), ('ameliorer', 'À améliorer')]),
+        ('g_equipements', "Équipements, matériel et outils disponibles et fonctionnels ?", 'radio', _OUI_NON_PART),
+        ('g_taches', "Tâches prioritaires de la journée définies avec l'équipe ?", 'radio', _OUI_NON),
+        ('g_probleme', "Un problème administratif, matériel ou organisationnel a-t-il perturbé l'activité ?", 'radio',
+            [('non', 'Non'), ('oui', 'Oui')]),
+        ('g_probleme_detail', "Si un problème est survenu, lequel et quelle solution ?", 'text', None),
+    ]},
+    {'title': '2. Activité commerciale de la journée', 'intro': '', 'fields': [
+        ('c_prospects_id', 'Nombre de nouveaux prospects identifiés', 'num', None),
+        ('c_prospects_contactes', 'Nombre de prospects effectivement contactés', 'num', None),
+        ('c_rdv', 'Nombre de rendez-vous obtenus', 'num', None),
+        ('c_visites', 'Nombre de visites commerciales ou techniques réalisées', 'num', None),
+        ('c_devis', 'Nombre de devis préparés ou transmis', 'num', None),
+        ('c_relances', 'Nombre de clients ou prospects relancés', 'num', None),
+        ('c_commandes', 'Nombre de commandes obtenues', 'num', None),
+        ('c_nouveaux_clients', 'Nombre de nouveaux clients acquis', 'num', None),
+        ('c_opportunites', 'Les trois meilleures opportunités commerciales identifiées aujourd\'hui', 'text', None),
+        ('c_clients_recus', 'Clients reçus à l\'agence et besoins exprimés', 'text', None),
+        ('c_ventes_perdues', 'Ventes perdues / opportunités bloquées, et pourquoi ?', 'text', None),
+    ]},
+    {'title': '3. Chiffre d\'affaires, commandes et encaissements', 'intro': 'Montants en FCFA', 'fields': [
+        ('f_ventes_conclues', 'Montant des ventes conclues aujourd\'hui', 'num', None),
+        ('f_factures_emises', 'Montant total des factures émises', 'num', None),
+        ('f_encaisse', 'Montant total encaissé aujourd\'hui', 'num', None),
+        ('f_creances_relancees', 'Montant des créances échues relancées', 'num', None),
+        ('f_depenses', 'Dépenses engagées par l\'agence aujourd\'hui', 'num', None),
+        ('f_factures_relancees', 'Quelles factures impayées ont fait l\'objet d\'une relance ?', 'text', None),
+        ('f_marges', 'Les ventes réalisées respectent-elles les prix et marges autorisés ?', 'radio',
+            [('oui', 'Oui'), ('non_exception', 'Non, une exception doit être signalée'),
+             ('verifier', 'À vérifier avec la direction')]),
+    ]},
+    {'title': '4. Gestion de l\'équipe', 'intro': '', 'fields': [
+        ('e_missions', 'Chaque collaborateur a-t-il exécuté ses missions ?', 'radio', _OUI_NON_PART),
+        ('e_prospection', 'Les commerciaux ont-ils réalisé des actions concrètes de prospection ?', 'radio', _OUI_NON_PART),
+        ('e_controle', 'Avez-vous contrôlé les résultats individuels de chaque commercial ?', 'radio', _OUI_NON_PART),
+        ('e_formation', 'Avez-vous accompagné ou formé un collaborateur aujourd\'hui ?', 'radio', _OUI_NON_PART),
+        ('e_incident_rh', 'Un retard, une absence, un conflit ou un problème de comportement ?', 'radio', _OUI_NON_PART),
+        ('e_priorites_demain', 'Avez-vous préparé et communiqué les priorités de l\'équipe pour demain ?', 'radio', _OUI_NON_PART),
+        ('e_observations', 'Observations sur les performances individuelles', 'text', None),
+    ]},
+    {'title': '5. Stock, matériel et disponibilité des produits', 'intro': '', 'fields': [
+        ('s_entrees_sorties', 'Entrées et sorties de marchandises enregistrées ?', 'radio', _OUI_NON_VERIF),
+        ('s_correspond', 'Ventes du jour correspondent aux mouvements de stock ?', 'radio', _OUI_NON_VERIF),
+        ('s_rupture', 'Des produits importants en rupture ou quantité insuffisante ?', 'radio', _OUI_NON_VERIF),
+        ('s_reappro', 'Avez-vous identifié des besoins de réapprovisionnement ?', 'radio', _OUI_NON_VERIF),
+        ('s_anomalie', 'Une perte, casse, écart de stock ou anomalie ?', 'radio', _OUI_NON_VERIF),
+        ('s_detail', 'Produits à réapprovisionner et anomalies à signaler', 'text', None),
+    ]},
+    {'title': '6. Suivi technique et satisfaction client', 'intro': '', 'fields': [
+        ('t_interventions_prevues', 'Des interventions techniques ou visites de site étaient-elles prévues ?', 'radio', _OUI_NON_NA),
+        ('t_interventions_executees', 'Les interventions programmées ont-elles été exécutées ?', 'radio', _OUI_NON_NA),
+        ('t_retards', 'Des installations, livraisons ou prestations en retard ?', 'radio', _OUI_NON_NA),
+        ('t_reclamations', 'Des réclamations clients ont-elles été reçues ?', 'radio', _OUI_NON_NA),
+        ('t_reponses', 'Les clients concernés ont-ils reçu une réponse ou un délai ?', 'radio', _OUI_NON_NA),
+        ('t_contrats', 'Contrats de maintenance ou de location de pointage proposés / renouvelés ?', 'radio', _OUI_NON_NA),
+        ('t_detail', 'Réclamations, interventions non terminées et engagements pris', 'text', None),
+    ]},
+    {'title': '7. Partenariats et développement commercial local', 'intro': '', 'fields': [
+        ('p_nouveau_partenaire', 'Avez-vous contacté un nouveau partenaire potentiel ?', 'radio', _OUI_NON_NA),
+        ('p_visite', 'Visite auprès d\'une entreprise, administration ou prescripteur ?', 'radio', _OUI_NON_NA),
+        ('p_suivi', 'Avez-vous suivi un partenariat ou une opportunité en cours ?', 'radio', _OUI_NON_NA),
+        ('p_marche', 'Avez-vous identifié un marché ou un besoin particulier dans la région ?', 'radio', _OUI_NON_NA),
+        ('p_detail', 'Nouveaux contacts, partenaires ou opportunités régionales', 'text', None),
+    ]},
+    {'title': '8. Bilan et préparation du lendemain', 'intro': '', 'fields': [
+        ('b_reussite', 'Quelle est votre principale réussite de la journée ?', 'text', None),
+        ('b_objectif_manque', 'Quel objectif n\'avez-vous pas atteint et pourquoi ?', 'text', None),
+        ('b_mesure', 'Quelle mesure corrective avez-vous prise ou allez-vous prendre ?', 'text', None),
+        ('b_priorites', 'Quelles sont les trois priorités de demain ?', 'text', None),
+        ('b_besoin_direction', 'De quelle décision ou assistance de la direction avez-vous besoin ?', 'text', None),
+        ('b_autoeval', 'Comment évaluez-vous votre journée ?', 'radio',
+            [('tres_satisfaisante', 'Très satisfaisante : objectifs atteints ou dépassés'),
+             ('satisfaisante', 'Satisfaisante : résultats corrects, quelques écarts'),
+             ('insuffisante', 'Insuffisante : objectifs importants non atteints')]),
+        ('b_engagement', 'Engagement du chef d\'agence pour le lendemain', 'text', None),
+    ]},
+]
+
+_WEEK_INDICATORS = [
+    ('prospects', 'Nouveaux prospects identifiés'),
+    ('rdv', 'Rendez-vous commerciaux réalisés'),
+    ('visites', 'Visites commerciales et techniques'),
+    ('devis', 'Devis transmis'),
+    ('commandes', 'Commandes obtenues'),
+    ('nouveaux_clients', 'Nouveaux clients acquis'),
+    ('relances', 'Clients ou prospects relancés'),
+]
+
+WEEKLY_SECTIONS = [
+    {'title': '1. Bilan commercial de la semaine', 'intro': 'Comparez l\'objectif au réalisé.', 'fields': [
+        ('wc_meilleure_opp', 'Meilleure opportunité commerciale obtenue cette semaine ?', 'text', None),
+        ('wc_prospects_prometteurs', 'Trois prospects les plus prometteurs et prochaine action pour chacun ?', 'text', None),
+        ('wc_ventes_perdues', 'Ventes perdues cette semaine et raisons ?', 'text', None),
+        ('wc_devis_relancer', 'Devis important à relancer la semaine prochaine ?', 'text', None),
+    ]},
+    {'title': '2. Bilan financier et rentabilité', 'intro': 'Montants en FCFA', 'fields': [
+        ('wf_commandes', 'Montant des commandes confirmées', 'num', None),
+        ('wf_facture', 'Montant total facturé', 'num', None),
+        ('wf_encaisse', 'Montant total encaissé', 'num', None),
+        ('wf_marge_brute', 'Marge brute estimée ou validée', 'num', None),
+        ('wf_depenses', 'Dépenses de l\'agence', 'num', None),
+        ('wf_creances', 'Créances échues restant à recouvrer', 'num', None),
+        ('wf_recurrents', 'Nouveaux revenus récurrents signés ou renouvelés (FCFA/mois)', 'num', None),
+        ('wf_recouvrees', 'Factures recouvrées et créances problématiques', 'text', None),
+        ('wf_marges', 'Les ventes réalisées respectent-elles les marges autorisées ?', 'radio',
+            [('oui', 'Oui'), ('non', 'Non, des écarts sont à expliquer'), ('validation', 'Validation nécessaire par la direction')]),
+    ]},
+    {'title': '3. Évaluation de l\'équipe', 'intro': '', 'fields': [
+        ('we_objectifs', 'Les objectifs hebdomadaires de chaque collaborateur ont-ils été fixés et suivis ?', 'text', None),
+        ('we_meilleur', 'Quel collaborateur a obtenu les meilleurs résultats commerciaux ?', 'text', None),
+        ('we_accompagnement', 'Quel collaborateur a besoin d\'un accompagnement ou d\'une formation ?', 'text', None),
+        ('we_difficultes', 'Difficultés de discipline, d\'organisation ou de collaboration ?', 'text', None),
+        ('we_engagements_prec', 'Les engagements de la précédente revue ont-ils été exécutés ?', 'text', None),
+    ]},
+    {'title': '4. Gestion opérationnelle et satisfaction client', 'intro': '', 'fields': [
+        ('wo_rupture', 'Des ruptures de stock ont-elles fait perdre des ventes ?', 'radio', _NON_OUI_NA),
+        ('wo_retards', 'Des installations, livraisons ou interventions en retard ?', 'radio', _NON_OUI_NA),
+        ('wo_reclamations', 'Des réclamations clients restent-elles sans solution ?', 'radio', _NON_OUI_NA),
+        ('wo_anomalies', 'Des anomalies de stock, de caisse ou de matériel ?', 'radio', _NON_OUI_NA),
+        ('wo_partenaires', 'Des partenaires ou prescripteurs ont-ils été activés cette semaine ?', 'radio', _NON_OUI_NA),
+        ('wo_detail', 'Incidents et actions correctives', 'text', None),
+    ]},
+    {'title': '5. Autoévaluation et plan de la semaine suivante', 'intro': '', 'fields': [
+        ('wa_resultat', 'Principal résultat positif de la semaine ?', 'text', None),
+        ('wa_objectif_manque', 'Objectif non atteint et pourquoi ?', 'text', None),
+        ('wa_mesures', 'Mesures correctives à appliquer ?', 'text', None),
+        ('wa_priorites', 'Trois priorités pour la semaine prochaine ?', 'text', None),
+        ('wa_engagement_chiffre', 'Résultats chiffrés que vous vous engagez à atteindre ?', 'text', None),
+        ('wa_besoin_direction', 'Décision ou assistance de la Direction générale nécessaire ?', 'text', None),
+    ]},
+]
+
+
+def _rap_num(p, key):
+    try:
+        return float(str(p.get(key, '') or '0').replace(',', '.').replace(' ', ''))
+    except Exception:
+        return 0.0
+
+
+def _eval_daily_report(p):
+    """Évalue un rapport journalier → (score, verdict, summary, followups[], recommendations[])."""
+    followups, recos = [], []
+    # --- Dimension 1 : activité commerciale /35 ---
+    com = 0.0
+    pairs = [('c_prospects_contactes', 'prospects_contactes', 5),
+             ('c_rdv', 'rdv', 5), ('c_visites', 'visites', 5),
+             ('c_devis', 'devis', 5), ('c_relances', 'relances', 5)]
+    weak_prosp = []
+    for key, tkey, pts in pairs:
+        val = _rap_num(p, key); tgt = _rapt_target(tkey)
+        if tgt <= 0:
+            com += pts
+        else:
+            ratio = min(1.0, val / tgt)
+            com += pts * ratio
+            if ratio < 0.5:
+                weak_prosp.append((tkey, int(val), int(tgt)))
+    commandes = _rap_num(p, 'c_commandes'); devis = _rap_num(p, 'c_devis')
+    if commandes >= 1:
+        com += 7
+    if _rap_num(p, 'c_nouveaux_clients') >= 1:
+        com += 3
+    com = min(35.0, com)
+    # --- Dimension 2 : résultats / rentabilité /35 ---
+    res = 0.0
+    encaisse = _rap_num(p, 'f_encaisse'); ventes = _rap_num(p, 'f_ventes_conclues')
+    t_enc = _rapt_target('encaisse_jour')
+    if t_enc > 0:
+        res += 12 * min(1.0, encaisse / t_enc)
+    elif encaisse > 0:
+        res += 12
+    if ventes > 0 or commandes >= 1:
+        res += 8
+    marges = (p.get('f_marges') or '').strip()
+    if marges == 'oui':
+        res += 12
+    elif marges == 'verifier':
+        res += 6
+    if _rap_num(p, 'f_creances_relancees') > 0:
+        res += 3
+    res = min(35.0, res)
+    # --- Dimension 3 : gestion / opérationnel /30 ---
+    ges = 0.0
+    def _is(k, v): return (p.get(k) or '') == v
+    ges += 4 if _is('g_ouvert_heure', 'oui') else 0
+    ges += 3 if _is('g_locaux', 'oui') else (1 if _is('g_locaux', 'ameliorer') else 0)
+    ges += 3 if _is('g_equipements', 'oui') else (1 if _is('g_equipements', 'partiel') else 0)
+    ges += 3 if _is('g_taches', 'oui') else 0
+    ges += 3 if _is('g_probleme', 'non') else 0
+    ges += 3 if _is('e_missions', 'oui') else (1 if _is('e_missions', 'partiel') else 0)
+    ges += 3 if _is('s_entrees_sorties', 'oui') else 0
+    ges += 3 if _is('s_anomalie', 'non') else 0
+    if _is('t_reclamations', 'non') or _is('t_reclamations', 'na'):
+        ges += 4
+    elif _is('t_reclamations', 'oui') and _is('t_reponses', 'oui'):
+        ges += 2
+    ges += 1 if _is('e_priorites_demain', 'oui') else 0
+    ges = min(30.0, ges)
+
+    score = int(round(com + res + ges))
+
+    # --- Règles dures & relances/reco ---
+    if marges == 'non_exception':
+        followups.append("Une exception de marge/remise a été signalée aujourd'hui : quel client, quel montant, quelle remise exacte, et pourquoi ? Une validation de la direction est-elle requise ?")
+        recos.append("Rappeler la grille de marges minimales et soumettre toute remise exceptionnelle à validation écrite de la direction.")
+    if encaisse <= 0 and ventes <= 0 and commandes < 1:
+        followups.append("Aucune vente conclue ni encaissement aujourd'hui : quelles actions commerciales concrètes sont engagées pour demain (prospects nommés, RDV, relances) ?")
+        recos.append("Fixer pour demain un objectif minimal de contacts et de relances, avec des prospects nommés et une prochaine action datée.")
+    if devis > 0 and commandes <= 0:
+        followups.append(f"{int(devis)} devis transmis mais aucune commande : quels sont les blocages précis par client et la prochaine action de relance ?")
+        recos.append("Mettre en place une relance systématique des devis à J+2 et un suivi écrit de chaque devis jusqu'à décision du client.")
+    if encaisse <= 0 and _rap_num(p, 'f_factures_emises') > 0:
+        followups.append("Des factures émises mais aucun encaissement : quelles relances de recouvrement sont engagées, pour quels montants et quelles échéances ?")
+        recos.append("Instaurer un point de recouvrement quotidien, en priorisant les créances échues les plus élevées.")
+    for tkey, val, tgt in weak_prosp:
+        _lbl = {'prospects_contactes': 'prospects contactés', 'rdv': 'rendez-vous', 'visites': 'visites', 'devis': 'devis', 'relances': 'relances'}.get(tkey, tkey)
+        followups.append(f"Prospection en dessous de l'objectif — {_lbl} : {val} réalisés pour {tgt} attendus. Quel plan concret pour rattraper demain ?")
+    if weak_prosp:
+        recos.append("Bloquer chaque jour une plage dédiée à la prospection et fixer un minimum quotidien de prospects contactés et de RDV.")
+    if _is('t_reclamations', 'oui') and not _is('t_reponses', 'oui'):
+        followups.append("Des réclamations clients sans réponse apportée : lesquelles, et quel délai de résolution proposez-vous ?")
+        recos.append("Traiter toute réclamation sous 24–48 h avec un délai de résolution communiqué au client.")
+    if _is('s_anomalie', 'oui'):
+        followups.append("Une anomalie/perte/écart de stock a été constaté : nature exacte, montant estimé, et action corrective ?")
+        recos.append("Rapprocher quotidiennement les ventes et les mouvements de stock ; signaler immédiatement tout écart.")
+    if _is('g_probleme', 'oui'):
+        followups.append("Un problème a perturbé l'activité : est-il résolu durablement ou nécessite-t-il une décision de la direction ?")
+    if (p.get('b_autoeval') or '') == 'insuffisante':
+        followups.append("Vous jugez la journée insuffisante : quelle est la cause principale et votre mesure corrective immédiate ?")
+
+    # --- Verdict (avec plafond si exception de marge) ---
+    if score >= 70:
+        verdict = 'benefique'
+    elif score >= 45:
+        verdict = 'mitigee'
+    else:
+        verdict = 'non_benefique'
+    if marges == 'non_exception' and verdict == 'benefique':
+        verdict = 'mitigee'
+
+    vlabel = {'benefique': 'bénéfique', 'mitigee': 'mitigée', 'non_benefique': 'non bénéfique'}[verdict]
+    summary = (f"Journée jugée {vlabel} (score {score}/100). "
+               f"Activité commerciale {int(com)}/35, rentabilité {int(res)}/35, gestion {int(ges)}/30. "
+               f"Encaissé : {int(encaisse):,} F · Ventes conclues : {int(ventes):,} F · Commandes : {int(commandes)} · Devis : {int(devis)}.").replace(',', ' ')
+    if not followups:
+        followups.append("Aucun écart majeur détecté : maintenir le rythme et sécuriser les encaissements.")
+    return score, verdict, summary, followups, recos
+
+
+def _eval_weekly_report(p):
+    followups, recos = [], []
+    # Performance commerciale /30 (attainment moyen objectif/réalisé)
+    ratios = []
+    for key, _lbl in _WEEK_INDICATORS:
+        obj = _rap_num(p, f'wc_{key}_obj'); real = _rap_num(p, f'wc_{key}_real')
+        if obj > 0:
+            r = min(1.0, real / obj); ratios.append(r)
+            if r < 0.6:
+                followups.append(f"Objectif hebdo non atteint — {_lbl} : {int(real)} réalisés pour {int(obj)} visés. Causes et plan de rattrapage ?")
+    perf = (sum(ratios) / len(ratios) * 30) if ratios else 15.0
+    # Rentabilité et encaissements /25
+    fac = _rap_num(p, 'wf_facture'); enc = _rap_num(p, 'wf_encaisse')
+    rent = 0.0
+    if fac > 0:
+        rent += 12 * min(1.0, enc / fac)
+    elif enc > 0:
+        rent += 12
+    marg = (p.get('wf_marges') or '')
+    rent += 8 if marg == 'oui' else (4 if marg == 'validation' else 0)
+    if _rap_num(p, 'wf_recurrents') > 0:
+        rent += 5
+    rent = min(25.0, rent)
+    if fac > 0 and enc / max(fac, 1) < 0.5:
+        followups.append("Le taux d'encaissement de la semaine est faible : quelles créances restent à recouvrer et quel plan de recouvrement ?")
+        recos.append("Renforcer le recouvrement : relances écrites, échéancier par client et point hebdomadaire dédié.")
+    if marg == 'non':
+        followups.append("Des écarts de marge sont signalés cette semaine : lesquels et comment seront-ils corrigés ?")
+        recos.append("Faire respecter la grille de marges minimales et encadrer les remises par une validation.")
+    # Management /15
+    man = 0.0
+    for k in ('we_objectifs', 'we_meilleur', 'we_accompagnement'):
+        if (p.get(k) or '').strip():
+            man += 5
+    man = min(15.0, man)
+    # Opérationnel /15 (non = bon)
+    ope = 0.0
+    for k in ('wo_rupture', 'wo_retards', 'wo_reclamations', 'wo_anomalies'):
+        v = p.get(k) or ''
+        if v == 'non' or v == 'na':
+            ope += 3
+    if (p.get('wo_partenaires') or '') == 'oui':
+        ope += 3
+    ope = min(15.0, ope)
+    if (p.get('wo_reclamations') or '') == 'oui':
+        followups.append("Des réclamations clients restent sans solution : plan et délais de résolution ?")
+    if (p.get('wo_rupture') or '') == 'oui':
+        recos.append("Anticiper les réapprovisionnements pour éviter les pertes de ventes dues aux ruptures.")
+    # Reporting / anticipation /15 (complétude)
+    rep_fields = ['wc_meilleure_opp', 'wc_prospects_prometteurs', 'wa_resultat', 'wa_priorites', 'wa_engagement_chiffre']
+    filled = sum(1 for k in rep_fields if (p.get(k) or '').strip())
+    rep = 15.0 * (filled / len(rep_fields))
+    if filled < len(rep_fields):
+        recos.append("Compléter systématiquement le reporting : prospects nommés, priorités et résultats chiffrés engagés.")
+
+    score = int(round(perf + rent + man + ope + rep))
+    if score >= 70:
+        verdict = 'benefique'
+    elif score >= 50:
+        verdict = 'mitigee'
+    else:
+        verdict = 'non_benefique'
+    vlabel = {'benefique': 'bénéfique', 'mitigee': 'mitigée', 'non_benefique': 'non bénéfique'}[verdict]
+    summary = (f"Semaine jugée {vlabel} (score {score}/100). "
+               f"Performance commerciale {int(perf)}/30, rentabilité {int(rent)}/25, management {int(man)}/15, "
+               f"opérationnel {int(ope)}/15, reporting {int(rep)}/15. "
+               f"Facturé : {int(fac):,} F · Encaissé : {int(enc):,} F · Récurrents : {int(_rap_num(p,'wf_recurrents')):,} F/mois.").replace(',', ' ')
+    if not followups:
+        followups.append("Semaine conforme aux objectifs : consolider et viser la progression sur 4 semaines.")
+    return score, verdict, summary, followups, recos
+
+
+def _rap_report_kind(d=None):
+    """lun→jeu = journalier ; vendredi = hebdomadaire ; week-end = journalier (rattrapage)."""
+    d = d or datetime.now()
+    return 'weekly' if d.weekday() == 4 else 'daily'
+
+
+@app.route('/chef/rapport', methods=['GET', 'POST'])
+@permission_required_any('rapport_agence_fill', 'admin')
+def chef_rapport():
+    user = get_user_by_id(session['user_id'])
+    try:
+        from models import get_agency as _ga2, current_agency_id as _cai2
+        ag = _ga2(_cai2()) or {}
+    except Exception:
+        ag = {}
+    forced = (request.values.get('type', '') or '').strip()
+    kind = forced if forced in ('daily', 'weekly') else _rap_report_kind()
+    sections = WEEKLY_SECTIONS if kind == 'weekly' else DAILY_SECTIONS
+
+    if request.method == 'POST':
+        payload = {}
+        for sec in sections:
+            for key, _lbl, _typ, _ch in sec['fields']:
+                payload[key] = (request.form.get(key, '') or '').strip()
+        if kind == 'weekly':
+            for ik, _l in _WEEK_INDICATORS:
+                payload[f'wc_{ik}_obj'] = (request.form.get(f'wc_{ik}_obj', '') or '').strip()
+                payload[f'wc_{ik}_real'] = (request.form.get(f'wc_{ik}_real', '') or '').strip()
+            payload['w_periode_du'] = (request.form.get('w_periode_du', '') or '').strip()
+            payload['w_periode_au'] = (request.form.get('w_periode_au', '') or '').strip()
+        payload['d_effectif'] = (request.form.get('d_effectif', '') or '').strip()
+
+        if kind == 'weekly':
+            score, verdict, summary, fups, recos = _eval_weekly_report(payload)
+        else:
+            score, verdict, summary, fups, recos = _eval_daily_report(payload)
+
+        today = datetime.now().strftime('%Y-%m-%d')
+        wk_start = wk_end = ''
+        if kind == 'weekly':
+            _mon = datetime.now() - timedelta(days=datetime.now().weekday())
+            wk_start = _mon.strftime('%Y-%m-%d'); wk_end = (_mon + timedelta(days=4)).strftime('%Y-%m-%d')
+        conn = _gdb()
+        conn.execute("""INSERT INTO agency_reports
+            (agency_id, agency_name, chef_user_id, chef_name, report_type, report_date, week_start, week_end,
+             payload, verdict, score, summary, followups, recommendations, created_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (int(ag.get('id') or 1), ag.get('nom') or 'Agence', session['user_id'],
+             user['full_name'] if user else '?', kind, today, wk_start, wk_end,
+             _json_lib.dumps(payload, ensure_ascii=False), verdict, score, summary,
+             _json_lib.dumps(fups, ensure_ascii=False), _json_lib.dumps(recos, ensure_ascii=False),
+             session['user_id']))
+        rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit(); conn.close()
+
+        # Notifier la direction (clôture + rapport reçu)
+        try:
+            _vl = {'benefique': 'bénéfique', 'mitigee': 'mitigée', 'non_benefique': 'NON bénéfique'}[verdict]
+            notify_roles(['admin', 'dg', 'directeur', 'direction'],
+                f"🏢 Clôture {ag.get('nom') or 'agence'} — rapport {'hebdomadaire' if kind=='weekly' else 'journalier'} reçu",
+                f"{user['full_name'] if user else 'Le chef'} a clôturé la journée. Verdict : {_vl} ({score}/100). "
+                f"Consulter : /direction/rapports-agences/{rid}",
+                link=f"/direction/rapports-agences/{rid}", type=('success' if verdict=='benefique' else 'warning'),
+                module='rapports_agence', icon='🏢', priority='high', force=True)
+        except Exception:
+            pass
+        # Email direction + admin (copie reste dans le logiciel)
+        _emailed = _rap_email_report(rid)
+        flash("✅ Rapport transmis à la direction." + (" Email envoyé." if _emailed else " (Email non configuré : la copie reste dans le logiciel.)"), "success")
+        return redirect(url_for('chef_rapport'))
+
+    # GET — historique récent du chef + formulaire
+    conn = _gdb()
+    mine = []
+    try:
+        mine = [dict(r) for r in conn.execute(
+            "SELECT id, report_type, report_date, verdict, score FROM agency_reports WHERE chef_user_id=? ORDER BY id DESC LIMIT 15",
+            (session['user_id'],)).fetchall()]
+    except Exception:
+        mine = []
+    conn.close()
+    _jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
+    return render_template('chef_rapport.html', page='chef_rapport', sections=sections, kind=kind,
+                           week_indicators=_WEEK_INDICATORS, agency=ag, mine=mine,
+                           today=datetime.now().strftime('%Y-%m-%d'), jour=_jours[datetime.now().weekday()])
+
+
+def _rap_email_report(rid):
+    """Construit et envoie le rapport par mail aux destinataires. Retourne True si au moins un envoi OK."""
+    try:
+        conn = _gdb()
+        r = conn.execute("SELECT * FROM agency_reports WHERE id=?", (rid,)).fetchone()
+        conn.close()
+        if not r:
+            return False
+        r = dict(r)
+        payload = _json_lib.loads(r.get('payload') or '{}')
+        fups = _json_lib.loads(r.get('followups') or '[]')
+        recos = _json_lib.loads(r.get('recommendations') or '[]')
+        sections = WEEKLY_SECTIONS if r['report_type'] == 'weekly' else DAILY_SECTIONS
+        _vl = {'benefique': 'BÉNÉFIQUE', 'mitigee': 'MITIGÉE', 'non_benefique': 'NON BÉNÉFIQUE'}.get(r['verdict'], r['verdict'])
+        kindlbl = 'Revue hebdomadaire' if r['report_type'] == 'weekly' else 'Rapport journalier'
+        subject = f"[{r['agency_name']}] {kindlbl} — {r['report_date']} — {_vl} ({r['score']}/100)"
+        lines = [f"{kindlbl} — {r['agency_name']}", f"Chef d'agence : {r['chef_name']}",
+                 f"Date : {r['report_date']}", f"VERDICT : {_vl}  —  Score : {r['score']}/100", "",
+                 "ANALYSE : " + (r.get('summary') or ''), ""]
+        if fups:
+            lines.append("QUESTIONS À POSER AU CHEF D'AGENCE :")
+            for q in fups:
+                lines.append(f"  • {q}")
+            lines.append("")
+        if recos:
+            lines.append("RECOMMANDATIONS POUR AMÉLIORER LES PERFORMANCES :")
+            for q in recos:
+                lines.append(f"  • {q}")
+            lines.append("")
+        lines.append("DÉTAIL DES RÉPONSES :")
+        if r['report_type'] == 'weekly':
+            for ik, lbl in _WEEK_INDICATORS:
+                o = payload.get(f'wc_{ik}_obj', ''); rl = payload.get(f'wc_{ik}_real', '')
+                if o or rl:
+                    lines.append(f"  - {lbl} : objectif {o or '-'} / réalisé {rl or '-'}")
+        for sec in sections:
+            lines.append(f"\n[{sec['title']}]")
+            for key, lbl, typ, ch in sec['fields']:
+                val = payload.get(key, '')
+                if val == '' or val is None:
+                    continue
+                if ch:
+                    val = dict(ch).get(val, val)
+                lines.append(f"  - {lbl} : {val}")
+        body = "\n".join(lines)
+        html = "<pre style='font-family:Arial,sans-serif;font-size:13px;white-space:pre-wrap'>" + \
+               (body.replace('&', '&amp;').replace('<', '&lt;')) + "</pre>"
+        ok_any = False
+        for to in _rap_emails():
+            ok, _err = _send_email_smtp(to, subject, body, html)
+            ok_any = ok_any or ok
+        if ok_any:
+            conn = _gdb()
+            conn.execute("UPDATE agency_reports SET emailed=1, emailed_at=? WHERE id=?",
+                         (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), rid))
+            conn.commit(); conn.close()
+        return ok_any
+    except Exception:
+        return False
+
+
+@app.route('/direction/rapports-agences')
+@permission_required_any('rapport_agence_view', 'admin', 'dg')
+def direction_rapports_agences():
+    f_verdict = (request.args.get('verdict', '') or '').strip()
+    f_type = (request.args.get('type', '') or '').strip()
+    q = (request.args.get('q', '') or '').strip().lower()
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, agency_name, chef_name, report_type, report_date, verdict, score, emailed, created_at "
+        "FROM agency_reports ORDER BY id DESC LIMIT 500").fetchall()]
+    conn.close()
+    if f_verdict:
+        rows = [r for r in rows if r.get('verdict') == f_verdict]
+    if f_type:
+        rows = [r for r in rows if r.get('report_type') == f_type]
+    if q:
+        rows = [r for r in rows if q in (r.get('agency_name', '') or '').lower() or q in (r.get('chef_name', '') or '').lower()]
+    _pf_from, _pf_to = _period_bounds()
+    rows = _apply_period(rows, _pf_from, _pf_to, field='report_date')
+    stats = {
+        'total': len(rows),
+        'benefique': sum(1 for r in rows if r.get('verdict') == 'benefique'),
+        'mitigee': sum(1 for r in rows if r.get('verdict') == 'mitigee'),
+        'non_benefique': sum(1 for r in rows if r.get('verdict') == 'non_benefique'),
+    }
+    return render_template('rapports_agences.html', page='rapports_agences', rows=rows, stats=stats,
+                           f_verdict=f_verdict, f_type=f_type, q=q, date_from=_pf_from, date_to=_pf_to)
+
+
+@app.route('/direction/rapports-agences/<int:rid>')
+@permission_required_any('rapport_agence_view', 'admin', 'dg')
+def direction_rapport_detail(rid):
+    conn = _gdb()
+    r = conn.execute("SELECT * FROM agency_reports WHERE id=?", (rid,)).fetchone()
+    conn.close()
+    if not r:
+        flash("Rapport introuvable", "error")
+        return redirect(url_for('direction_rapports_agences'))
+    r = dict(r)
+    payload = _json_lib.loads(r.get('payload') or '{}')
+    r['followups'] = _json_lib.loads(r.get('followups') or '[]')
+    r['recommendations'] = _json_lib.loads(r.get('recommendations') or '[]')
+    sections = WEEKLY_SECTIONS if r['report_type'] == 'weekly' else DAILY_SECTIONS
+    # Préparer un rendu lisible (libellés + valeurs)
+    rendered = []
+    if r['report_type'] == 'weekly':
+        wk = []
+        for ik, lbl in _WEEK_INDICATORS:
+            wk.append((lbl, payload.get(f'wc_{ik}_obj', '') or '-', payload.get(f'wc_{ik}_real', '') or '-'))
+        rendered.append({'title': 'Bilan commercial (objectif / réalisé)', 'kind': 'week_kpi', 'rows': wk})
+    for sec in sections:
+        items = []
+        for key, lbl, typ, ch in sec['fields']:
+            val = payload.get(key, '')
+            if ch and val:
+                val = dict(ch).get(val, val)
+            items.append((lbl, val))
+        rendered.append({'title': sec['title'], 'kind': 'fields', 'entries': items})
+    return render_template('rapport_agence_detail.html', page='rapports_agences', r=r, rendered=rendered)
+
+
+@app.route('/direction/rapports-agences/<int:rid>/renvoyer-mail', methods=['POST'])
+@permission_required_any('rapport_agence_view', 'admin', 'dg')
+def direction_rapport_renvoyer(rid):
+    ok = _rap_email_report(rid)
+    flash("📧 Rapport renvoyé par email." if ok else "⚠️ Envoi impossible (SMTP non configuré ?).", "success" if ok else "error")
+    return redirect(url_for('direction_rapport_detail', rid=rid))
+
+
+# v195b : attribution des nouvelles permissions rapports agence (une fois par agence)
+try:
+    from models import (get_db as _v195b_db, list_agencies as _v195b_list,
+                        set_forced_agency as _v195b_set, clear_forced_agency as _v195b_clear)
+    _grants195 = {
+        'chef_agence': ['rapport_agence_fill'],
+        'dg': ['rapport_agence_view'],
+        'directeur': ['rapport_agence_view'],
+    }
+    try:
+        _ags195 = _v195b_list() or [{'id': 1}]
+    except Exception:
+        _ags195 = [{'id': 1}]
+    for _ag in _ags195:
+        try:
+            _v195b_set(_ag['id'])
+            _c = _v195b_db()
+            _f = _c.execute("SELECT value FROM app_settings WHERE key='v195_rapports_seeded'").fetchone()
+            if not _f:
+                for _role, _perms in _grants195.items():
+                    for _p in _perms:
+                        try:
+                            if not _c.execute("SELECT 1 FROM permissions WHERE role=? AND permission=?", (_role, _p)).fetchone():
+                                _c.execute("INSERT INTO permissions (role, permission) VALUES (?, ?)", (_role, _p))
+                        except Exception:
+                            pass
+                try:
+                    _c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v195_rapports_seeded','1',datetime('now'))")
+                except Exception:
+                    pass
+                _c.commit()
+            _c.close()
+        except Exception:
+            pass
+        finally:
+            try: _v195b_clear()
+            except Exception: pass
+    print("[v195b] Permissions rapports agence initialisées", flush=True)
+except Exception as _e:
+    print(f"[v195b] Erreur : {_e}", flush=True)

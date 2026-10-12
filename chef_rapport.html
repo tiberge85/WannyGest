@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Rapport chef d'agence{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🏢 {% if kind=='weekly' %}Revue hebdomadaire de performance{% else %}Rapport journalier du chef d'agence{% endif %}</h1>
+</div>
+
+<div class="card" style="margin-bottom:14px;background:{% if kind=='weekly' %}#f3e5f5{% else %}#e3f2fd{% endif %}">
+    <div class="card-body" style="padding:12px">
+        <div style="font-size:13px">
+            <b>Agence :</b> {{ agency.nom or '—' }} &nbsp;·&nbsp; <b>Jour :</b> {{ jour }} {{ today }} &nbsp;·&nbsp;
+            {% if kind=='weekly' %}<span style="color:#6a1b9a;font-weight:700">Vendredi → revue hebdomadaire</span>
+            {% else %}<span style="color:#1565c0;font-weight:700">Rapport journalier (à remplir avant la clôture)</span>{% endif %}
+        </div>
+        <div style="font-size:12px;color:#666;margin-top:6px">À renseigner avant la fermeture de l'agence. À la validation, la direction est notifiée, le rapport est évalué automatiquement et envoyé par email ; une copie reste dans le logiciel.</div>
+        {% if kind!='weekly' %}<div style="margin-top:6px;font-size:12px"><a href="/chef/rapport?type=weekly" style="color:#6a1b9a">→ Remplir plutôt la revue hebdomadaire</a></div>
+        {% else %}<div style="margin-top:6px;font-size:12px"><a href="/chef/rapport?type=daily" style="color:#1565c0">→ Remplir plutôt le rapport journalier</a></div>{% endif %}
+    </div>
+</div>
+
+<form method="post" action="/chef/rapport{% if kind=='weekly' %}?type=weekly{% else %}?type=daily{% endif %}">
+
+{% if kind=='weekly' %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 8px;font-size:15px">Période évaluée</h3>
+    <div class="form-row">
+        <div class="form-group"><label>Du</label><input type="date" name="w_periode_du"></div>
+        <div class="form-group"><label>Au</label><input type="date" name="w_periode_au"></div>
+    </div>
+    <h4 style="margin:12px 0 6px;font-size:13px;color:#6a1b9a">Bilan commercial — objectif / réalisé</h4>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Indicateur</th><th style="width:130px">Objectif</th><th style="width:130px">Réalisé</th></tr></thead>
+        <tbody>
+        {% for ik, lbl in week_indicators %}
+        <tr><td>{{ lbl }}</td>
+            <td><input type="number" name="wc_{{ ik }}_obj" step="1" style="width:110px;padding:6px;border:1.5px solid #ddd;border-radius:6px"></td>
+            <td><input type="number" name="wc_{{ ik }}_real" step="1" style="width:110px;padding:6px;border:1.5px solid #ddd;border-radius:6px"></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div></div>
+{% else %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <div class="form-group"><label>Nom du chef d'agence</label><input type="text" value="{{ current_user.full_name }}" readonly style="background:#f5f5f5"></div>
+</div></div>
+{% endif %}
+
+{% for sec in sections %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="margin:0 0 4px;font-size:15px;color:#1a3a5c">{{ sec.title }}</h3>
+    {% if sec.intro %}<div style="font-size:12px;color:#888;margin-bottom:10px">{{ sec.intro }}</div>{% endif %}
+    {% for key, lbl, typ, choices in sec.fields %}
+    <div class="form-group" style="margin-bottom:12px">
+        <label style="display:block;font-weight:600;font-size:13px;margin-bottom:4px">{{ lbl }}</label>
+        {% if typ == 'num' %}
+            <input type="number" name="{{ key }}" step="1" style="width:200px;padding:8px;border:1.5px solid #ddd;border-radius:7px">
+        {% elif typ == 'text' %}
+            <textarea name="{{ key }}" rows="2" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px"></textarea>
+        {% elif typ == 'short' %}
+            <input type="text" name="{{ key }}" style="width:100%;padding:8px;border:1.5px solid #ddd;border-radius:7px">
+        {% elif typ == 'radio' %}
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:2px">
+            {% for val, clbl in choices %}
+                <label style="font-weight:400;font-size:13px;display:inline-flex;align-items:center;gap:4px;cursor:pointer">
+                    <input type="radio" name="{{ key }}" value="{{ val }}"> {{ clbl }}
+                </label>
+            {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div></div>
+{% endfor %}
+
+<div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:30px">
+    <button type="submit" class="btn btn-primary" style="padding:12px 24px;font-size:15px" onclick="return confirm('Transmettre le rapport à la direction et clôturer la journée ?')">✅ Transmettre et clôturer</button>
+</div>
+</form>
+
+{% if mine %}
+<div class="card"><div class="card-body">
+    <h3 style="font-size:14px;margin:0 0 8px">Mes derniers rapports</h3>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Type</th><th>Verdict</th><th>Score</th></tr></thead>
+        <tbody>
+        {% for m in mine %}
+        <tr>
+            <td>{{ m.report_date }}</td>
+            <td>{% if m.report_type=='weekly' %}Hebdomadaire{% else %}Journalier{% endif %}</td>
+            <td>{% if m.verdict=='benefique' %}<span style="color:#2e7d32;font-weight:600">Bénéfique</span>{% elif m.verdict=='mitigee' %}<span style="color:#e8672a;font-weight:600">Mitigée</span>{% else %}<span style="color:#c53030;font-weight:600">Non bénéfique</span>{% endif %}</td>
+            <td>{{ m.score }}/100</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</div></div>
+{% endif %}
+{% endblock %}

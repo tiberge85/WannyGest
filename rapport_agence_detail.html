@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Rapport — {{ r.agency_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🏢 {{ r.agency_name }} — {% if r.report_type=='weekly' %}Revue hebdomadaire{% else %}Rapport journalier{% endif %}</h1>
+    <a href="/direction/rapports-agences" class="btn btn-outline btn-sm">← Retour</a>
+</div>
+
+<div class="card" style="margin-bottom:14px;border-left:6px solid {% if r.verdict=='benefique' %}#2e7d32{% elif r.verdict=='mitigee' %}#e8672a{% else %}#c53030{% endif %}">
+    <div class="card-body">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center">
+            <div>
+                <div style="font-size:13px;color:#666">{{ r.chef_name }} · {{ r.report_date }}{% if r.report_type=='weekly' and r.week_start %} (semaine {{ r.week_start }} → {{ r.week_end }}){% endif %}</div>
+                <div style="font-size:20px;font-weight:800;margin-top:4px;color:{% if r.verdict=='benefique' %}#2e7d32{% elif r.verdict=='mitigee' %}#e8672a{% else %}#c53030{% endif %}">
+                    {% if r.verdict=='benefique' %}Journée/semaine BÉNÉFIQUE{% elif r.verdict=='mitigee' %}Performance MITIGÉE{% else %}NON BÉNÉFIQUE{% endif %}
+                    <span style="font-size:15px;color:#555">— {{ r.score }}/100</span>
+                </div>
+            </div>
+            <form method="post" action="/direction/rapports-agences/{{ r.id }}/renvoyer-mail">
+                <button type="submit" class="btn btn-outline btn-sm">📧 Renvoyer par email</button>
+            </form>
+        </div>
+        <div style="margin-top:10px;font-size:14px">{{ r.summary }}</div>
+    </div>
+</div>
+
+{% if r.followups %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="font-size:15px;margin:0 0 8px;color:#c0392b">❓ Questions à poser au chef d'agence (objectifs non atteints)</h3>
+    <ul style="margin:0;padding-left:20px;line-height:1.7">
+        {% for q in r.followups %}<li>{{ q }}</li>{% endfor %}
+    </ul>
+</div></div>
+{% endif %}
+
+{% if r.recommendations %}
+<div class="card" style="margin-bottom:14px"><div class="card-body">
+    <h3 style="font-size:15px;margin:0 0 8px;color:#1A7A6D">💡 Recommandations à lui adresser</h3>
+    <ul style="margin:0;padding-left:20px;line-height:1.7">
+        {% for q in r.recommendations %}<li>{{ q }}</li>{% endfor %}
+    </ul>
+</div></div>
+{% endif %}
+
+{% for sec in rendered %}
+<div class="card" style="margin-bottom:12px"><div class="card-body">
+    <h3 style="font-size:14px;margin:0 0 8px;color:#1a3a5c">{{ sec.title }}</h3>
+    {% if sec.kind == 'week_kpi' %}
+    <div class="table-wrap"><table>
+        <thead><tr><th>Indicateur</th><th>Objectif</th><th>Réalisé</th></tr></thead>
+        <tbody>{% for lbl, o, rl in sec.rows %}<tr><td>{{ lbl }}</td><td>{{ o }}</td><td style="font-weight:600">{{ rl }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}
+    <table style="width:100%;font-size:13px">
+        {% for lbl, val in sec.entries %}
+        {% if val %}<tr><td style="padding:4px 10px 4px 0;color:#666;vertical-align:top;width:55%">{{ lbl }}</td><td style="padding:4px 0;font-weight:500">{{ val }}</td></tr>{% endif %}
+        {% endfor %}
+    </table>
+    {% endif %}
+</div></div>
+{% endfor %}
+{% endblock %}
