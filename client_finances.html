@@ -138,25 +138,70 @@
 <div class="card" style="margin-bottom:14px;border-left:5px solid #6a1b9a"><div class="card-body" style="padding:0">
     <div class="card-header"><h3>🔎 Traçabilité — modifications enregistrées (audit)</h3></div>
     {% if audit %}
+    <p style="font-size:11px;color:#888;margin:8px 14px 0">Cliquez sur une ligne pour voir le détail complet (valeurs avant / après).</p>
     <div class="table-wrap"><table>
-        <thead><tr><th>Quand</th><th>Qui</th><th>Table</th><th>Enreg.</th><th>Action</th><th>Champ</th><th>Ancienne valeur</th><th>Nouvelle valeur</th></tr></thead>
+        <thead><tr><th style="width:24px"></th><th>Quand</th><th>Qui</th><th>Table</th><th>Enreg.</th><th>Action</th><th>Champ</th><th>Ancienne valeur</th><th>Nouvelle valeur</th></tr></thead>
         <tbody>
         {% for a in audit %}
-        <tr>
+        <tr class="audit-row" onclick="toggleAudit(this)" style="cursor:pointer">
+            <td style="text-align:center;color:#6a1b9a;font-weight:700" class="audit-caret">▸</td>
             <td style="white-space:nowrap;font-size:11px">{{ (a.created_at or '')[:16] }}</td>
             <td>{{ a.who or a.user_name or '—' }}</td>
             <td style="font-size:11px">{{ a.table_name }}</td>
             <td>{{ a.record_id }}</td>
             <td style="font-size:11px">{{ a.action }}</td>
             <td style="font-size:11px">{{ a.field_name or '-' }}</td>
-            <td style="font-size:11px;color:#c53030">{{ a.old_value or '-' }}</td>
-            <td style="font-size:11px;color:#2e7d32">{{ a.new_value or '-' }}</td>
+            <td style="font-size:11px;color:#c53030;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.old_value or '-' }}</td>
+            <td style="font-size:11px;color:#2e7d32;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.new_value or '-' }}</td>
+        </tr>
+        <tr class="audit-detail" style="display:none;background:#faf5ff">
+            <td></td>
+            <td colspan="8" style="padding:12px 16px">
+                <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;margin-bottom:10px">
+                    <div><span style="color:#888">Quand :</span> <b>{{ a.created_at or '—' }}</b></div>
+                    <div><span style="color:#888">Qui :</span> <b>{{ a.who or a.user_name or '—' }}</b></div>
+                    <div><span style="color:#888">Enregistrement :</span> <b>{{ a.table_name }} #{{ a.record_id }}</b></div>
+                    <div><span style="color:#888">Action :</span> <b>{{ a.action }}</b></div>
+                    <div><span style="color:#888">Champ :</span> <b>{{ a.field_name or '—' }}</b></div>
+                </div>
+                <div style="display:flex;gap:14px;flex-wrap:wrap">
+                    <div style="flex:1;min-width:260px">
+                        <div style="font-size:11px;font-weight:700;color:#c53030;margin-bottom:4px">⬅ Ancienne valeur</div>
+                        <pre class="audit-val" style="margin:0;white-space:pre-wrap;word-break:break-word;background:#fff;border:1px solid #f0d0d0;border-radius:6px;padding:8px;font-size:12px;max-height:280px;overflow:auto">{{ a.old_value if (a.old_value is not none and a.old_value != '') else '(vide)' }}</pre>
+                    </div>
+                    <div style="flex:1;min-width:260px">
+                        <div style="font-size:11px;font-weight:700;color:#2e7d32;margin-bottom:4px">➡ Nouvelle valeur</div>
+                        <pre class="audit-val" style="margin:0;white-space:pre-wrap;word-break:break-word;background:#fff;border:1px solid #cfe8d0;border-radius:6px;padding:8px;font-size:12px;max-height:280px;overflow:auto">{{ a.new_value if (a.new_value is not none and a.new_value != '') else '(vide)' }}</pre>
+                    </div>
+                </div>
+            </td>
         </tr>
         {% endfor %}
         </tbody>
     </table></div>
     {% else %}<p style="text-align:center;color:#999;padding:20px">Aucune modification tracée pour les enregistrements financiers de ce client.</p>{% endif %}
 </div></div>
+
+<script>
+function toggleAudit(row){
+    var detail = row.nextElementSibling;
+    if(!detail || !detail.classList.contains('audit-detail')) return;
+    var open = detail.style.display !== 'none';
+    detail.style.display = open ? 'none' : '';
+    var caret = row.querySelector('.audit-caret');
+    if(caret) caret.textContent = open ? '▸' : '▾';
+    if(!open){
+        detail.querySelectorAll('.audit-val').forEach(function(pre){
+            if(pre.dataset.done) return;
+            var t = pre.textContent.trim();
+            if((t.charAt(0)==='{'&&t.charAt(t.length-1)==='}')||(t.charAt(0)==='['&&t.charAt(t.length-1)===']')){
+                try{ pre.textContent = JSON.stringify(JSON.parse(t), null, 2); }catch(e){}
+            }
+            pre.dataset.done = '1';
+        });
+    }
+}
+</script>
 
 {% if logs %}
 <div class="card" style="margin-bottom:30px"><div class="card-body" style="padding:0">
