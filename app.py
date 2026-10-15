@@ -14280,18 +14280,88 @@ def _generate_bulletin_pdf(pid):
     doc.build(story)
     return output
 
+def _norm_txt(s):
+    """Normalise un texte pour comparaison : minuscules, sans accents, espaces compactés."""
+    import unicodedata
+    s = (s or '').strip().lower()
+    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    return ' '.join(s.replace('-', ' ').replace('_', ' ').split())
+
+
+def _name_tokens(s):
+    """Ensemble des mots d'un nom, normalisés (ordre indifférent)."""
+    return set(_norm_txt(s).split())
+
+
 def _my_employee_id(conn, user):
-    """v194 : id de la fiche employé liée à l'utilisateur (par email, sinon nom complet)."""
+    """v194c : id de la fiche employé liée à l'utilisateur.
+    Rattachement robuste et SANS ambiguïté : email, puis matricule/code RH = identifiant,
+    puis nom complet (insensible aux accents, à la casse et à l'ORDRE des mots).
+    Un rapprochement par nom n'est retenu que s'il désigne UN SEUL employé (jamais de doute)."""
     if not user:
         return None
+    email = _norm_txt(user.get('email', ''))
+    uname = _norm_txt(user.get('username', ''))
+    full = _norm_txt(user.get('full_name', ''))
+    full_set = _name_tokens(user.get('full_name', ''))
     try:
-        r = conn.execute(
-            "SELECT id FROM employees WHERE (COALESCE(email,'')<>'' AND LOWER(email)=LOWER(?)) "
-            "OR LOWER(first_name||' '||last_name)=LOWER(?)",
-            (user.get('email', '') or '', user.get('full_name', '') or '')).fetchone()
-        return r['id'] if r else None
+        rows = [dict(r) for r in conn.execute(
+            "SELECT id, first_name, last_name, email, matricule, code_rh FROM employees").fetchall()]
     except Exception:
         return None
+    # 1) Email exact (normalisé)
+    if email:
+        for r in rows:
+            if _norm_txt(r.get('email')) == email:
+                return r['id']
+    # 2) Matricule ou code RH = identifiant de connexion
+    if uname:
+        for r in rows:
+            if _norm_txt(r.get('matricule')) == uname or _norm_txt(r.get('code_rh')) == uname:
+                return r['id']
+    # 3) Nom complet : égalité stricte (ordre prénom/nom quelconque), sans ambiguïté
+    if full:
+        exact = [r for r in rows
+                 if _norm_txt((r.get('first_name') or '') + ' ' + (r.get('last_name') or '')) == full
+                 or _norm_txt((r.get('last_name') or '') + ' ' + (r.get('first_name') or '')) == full]
+        if len(exact) == 1:
+            return exact[0]['id']
+    # 4) Mêmes mots (ordre indifférent, prénoms multiples), sans ambiguïté
+    if full_set:
+        tok = [r for r in rows
+               if _name_tokens((r.get('first_name') or '') + ' ' + (r.get('last_name') or '')) == full_set]
+        if len(tok) == 1:
+            return tok[0]['id']
+    return None
+
+
+def _user_id_for_employee(conn, emp):
+    """v194c : compte utilisateur correspondant à une fiche employé (pour notifier l'employé).
+    Même logique robuste et sans ambiguïté que _my_employee_id, dans l'autre sens."""
+    if not emp:
+        return None
+    email = _norm_txt(emp.get('email'))
+    matric = _norm_txt(emp.get('matricule'))
+    coderh = _norm_txt(emp.get('code_rh'))
+    name_set = _name_tokens((emp.get('first_name') or '') + ' ' + (emp.get('last_name') or ''))
+    try:
+        users = [dict(r) for r in conn.execute(
+            "SELECT id, username, email, full_name FROM users WHERE COALESCE(is_active,1)=1").fetchall()]
+    except Exception:
+        return None
+    if email:
+        for u in users:
+            if _norm_txt(u.get('email')) == email:
+                return u['id']
+    for u in users:
+        un = _norm_txt(u.get('username'))
+        if un and (un == matric or un == coderh):
+            return u['id']
+    if name_set:
+        cand = [u for u in users if _name_tokens(u.get('full_name')) == name_set]
+        if len(cand) == 1:
+            return cand[0]['id']
+    return None
 
 
 def _payslip_is_staff(perms):
@@ -14345,18 +14415,22 @@ def rh_paie_publish(pid):
     conn = _gdb()
     conn.execute("UPDATE payslips SET published=1, publish_date=?, published_at=? WHERE id=?", (pdate, now_s, pid))
     conn.commit()
+    _linked = False
     try:
-        emp = conn.execute("SELECT email FROM employees WHERE id=?", (p['employee_id'],)).fetchone()
-        if emp and (emp['email'] or '').strip():
-            urow = conn.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(?)", (emp['email'],)).fetchone()
-            if urow:
-                _when = "disponible" if pdate <= datetime.now().strftime('%Y-%m-%d') else f"disponible le {pdate}"
-                notify_user(urow['id'], "🧾 Bulletin de paie",
-                            f"Votre bulletin de paie {p['period']} est {_when} dans « Mes bulletins ».",
-                            link="/mes-bulletins", type='info', module='paie', channels=('internal', 'push'))
+        emp = conn.execute("SELECT * FROM employees WHERE id=?", (p['employee_id'],)).fetchone()
+        uid = _user_id_for_employee(conn, dict(emp)) if emp else None
+        if uid:
+            _linked = True
+            _when = "disponible" if pdate <= datetime.now().strftime('%Y-%m-%d') else f"disponible le {pdate}"
+            notify_user(uid, "🧾 Bulletin de paie",
+                        f"Votre bulletin de paie {p['period']} est {_when} dans « Mes bulletins ».",
+                        link="/mes-bulletins", type='info', module='paie', channels=('internal', 'push'))
     except Exception:
         pass
     conn.close()
+    if not _linked:
+        flash("⚠️ Aucun compte employé n'a pu être relié à ce bulletin (email/matricule/nom). "
+              "L'employé ne le verra pas tant que son compte n'est pas créé avec le bon email.", "warning")
     user = get_user_by_id(session['user_id'])
     log_activity(session['user_id'], user['full_name'] if user else '?', 'Paie',
                  f"Bulletin {p['period']} publié à l'employé (diffusion {pdate})", request.remote_addr)
@@ -14375,26 +14449,33 @@ def rh_paie_publish_period():
     now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     conn = _gdb()
     rows = conn.execute(
-        "SELECT p.id, e.email FROM payslips p JOIN employees e ON e.id=p.employee_id WHERE p.period=?",
+        "SELECT p.id, p.employee_id, e.email FROM payslips p JOIN employees e ON e.id=p.employee_id WHERE p.period=?",
         (period,)).fetchall()
     n = 0
     for r in rows:
         conn.execute("UPDATE payslips SET published=1, publish_date=?, published_at=? WHERE id=?", (pdate, now_s, r['id'])); n += 1
     conn.commit()
     _today = datetime.now().strftime('%Y-%m-%d')
+    _unlinked = 0
     for r in rows:
         try:
-            if (r['email'] or '').strip():
-                urow = conn.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(?)", (r['email'],)).fetchone()
-                if urow:
-                    _when = "disponible" if pdate <= _today else f"disponible le {pdate}"
-                    notify_user(urow['id'], "🧾 Bulletin de paie",
-                                f"Votre bulletin de paie {period} est {_when} dans « Mes bulletins ».",
-                                link="/mes-bulletins", type='info', module='paie', channels=('internal', 'push'))
+            emp = conn.execute("SELECT * FROM employees WHERE id=?", (r['employee_id'],)).fetchone()
+            uid = _user_id_for_employee(conn, dict(emp)) if emp else None
+            if uid:
+                _when = "disponible" if pdate <= _today else f"disponible le {pdate}"
+                notify_user(uid, "🧾 Bulletin de paie",
+                            f"Votre bulletin de paie {period} est {_when} dans « Mes bulletins ».",
+                            link="/mes-bulletins", type='info', module='paie', channels=('internal', 'push'))
+            else:
+                _unlinked += 1
         except Exception:
             pass
     conn.close()
     flash(f"{n} bulletin(s) de la période {period} publié(s) — diffusion le {pdate}.", "success")
+    if _unlinked:
+        flash(f"⚠️ {_unlinked} bulletin(s) n'ont pas pu être reliés à un compte employé "
+              "(email/matricule/nom). Ces employés ne les verront pas tant que leur compte "
+              "n'est pas créé/corrigé avec le bon email.", "warning")
     return redirect(url_for('rh_paie', period=period))
 
 
@@ -14455,8 +14536,30 @@ def rh_paie_status(pid, status):
     
     update_payslip(pid, status=status)
     if status == 'envoye':
-        update_payslip(pid, sent_at=datetime.now().isoformat())
-    
+        # v194c : passer un bulletin en « Envoyé » le publie aussi dans l'espace « Mes bulletins »
+        _today = datetime.now().strftime('%Y-%m-%d')
+        _now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        if int(p.get('published') or 0) != 1:
+            update_payslip(pid, sent_at=datetime.now().isoformat(),
+                           published=1, publish_date=_today, published_at=_now_s)
+        else:
+            update_payslip(pid, sent_at=datetime.now().isoformat())
+        # Notifier l'employé vers « Mes bulletins » (rattachement robuste)
+        try:
+            _cn = _gdb()
+            _emp = _cn.execute("SELECT * FROM employees WHERE id=?", (p.get('employee_id'),)).fetchone()
+            _uid = _user_id_for_employee(_cn, dict(_emp)) if _emp else None
+            _cn.execute("""INSERT INTO notifications (user_id, employee_id, type, title, message, link)
+                VALUES (?,?,?,?,?,?)""",
+                (_uid, p.get('employee_id'), 'bulletin', f"🧾 Bulletin de paie — {p['period']}",
+                 f"Votre bulletin de paie {p['period']} est disponible dans « Mes bulletins ».", "/mes-bulletins"))
+            _cn.commit(); _cn.close()
+            if not _uid:
+                flash("⚠️ Bulletin publié, mais aucun compte employé n'a pu être relié (email/matricule/nom). "
+                      "Vérifiez le compte de l'employé pour qu'il le voie dans « Mes bulletins ».", "warning")
+        except Exception:
+            pass
+
     conn = _gdb()
     
     # Notifications based on workflow
@@ -14828,29 +14931,39 @@ Service des Ressources Humaines"""
             server.send_message(msg)
             server.quit()
             
-            # Mark as sent
-            update_payslip(pid, status='envoye', sent_at=datetime.now().isoformat())
+            # Mark as sent + v194c : PUBLIER automatiquement dans l'espace « Mes bulletins »
+            # (envoyer un bulletin = le rendre disponible à l'employé, diffusion aujourd'hui).
+            _today = datetime.now().strftime('%Y-%m-%d')
+            _now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            if int(p.get('published') or 0) != 1:
+                update_payslip(pid, status='envoye', sent_at=datetime.now().isoformat(),
+                               published=1, publish_date=_today, published_at=_now_s)
+            else:
+                update_payslip(pid, status='envoye', sent_at=datetime.now().isoformat())
             user = get_user_by_id(session['user_id'])
             log_activity(session['user_id'], user['full_name'] if user else '?',
-                        'Email Paie', f"Bulletin {p['period']} envoyé à {to_email}", request.remote_addr)
-            
-            # Create notification for employee
+                        'Email Paie', f"Bulletin {p['period']} envoyé à {to_email} + publié dans l'espace employé", request.remote_addr)
+
+            # Notification employée vers « Mes bulletins » (rattachement robuste)
             try:
                 conn_n = _gdb()
-                # Find user account linked to employee
-                emp_user = conn_n.execute("SELECT id FROM users WHERE email=? OR LOWER(full_name)=LOWER(?)",
-                    (to_email, p['employee_name'])).fetchone()
-                user_id_notif = emp_user['id'] if emp_user else None
+                emp_row = conn_n.execute("SELECT * FROM employees WHERE id=?", (p.get('employee_id'),)).fetchone()
+                user_id_notif = _user_id_for_employee(conn_n, dict(emp_row)) if emp_row else None
                 conn_n.execute("""INSERT INTO notifications (user_id, employee_id, type, title, message, link)
                     VALUES (?,?,?,?,?,?)""",
                     (user_id_notif, p.get('employee_id'), 'bulletin',
-                     f"Bulletin de paie — {p['period']}",
-                     f"Votre bulletin de paie pour la période {p['period']} est disponible. Net à payer : {p.get('net_salary',0):,.0f} FCFA",
-                     f"/rh/paie/{pid}/view"))
+                     f"🧾 Bulletin de paie — {p['period']}",
+                     f"Votre bulletin de paie {p['period']} est disponible dans « Mes bulletins ». Net à payer : {p.get('net_salary',0):,.0f} FCFA",
+                     "/mes-bulletins"))
                 conn_n.commit(); conn_n.close()
-            except: pass
-            
-            flash(f"Bulletin envoyé par email à {to_email}", "success")
+                if not user_id_notif:
+                    flash("⚠️ Bulletin envoyé et publié, mais aucun compte employé n'a pu être relié "
+                          "(email/matricule/nom). Vérifiez que l'employé a un compte avec le bon email "
+                          "pour qu'il le voie dans « Mes bulletins ».", "warning")
+            except Exception:
+                pass
+
+            flash(f"Bulletin envoyé par email à {to_email} et publié dans l'espace de l'employé.", "success")
             return redirect(url_for('rh_paie'))
         except Exception as e:
             flash(f"Erreur d'envoi : {str(e)}", "error")
