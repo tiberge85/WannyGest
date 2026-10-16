@@ -41413,11 +41413,56 @@ def mg_demande_preview(did):
             u = conn.execute("SELECT full_name, role FROM users WHERE id=?", (demande['approved_by'],)).fetchone()
             validateur = dict(u) if u else None
         except: pass
+    # v196e : Traçabilité du règlement — qui a validé côté compta + quelle caisse/banque débitée + montants
+    reglement = None
+    try:
+        _ttype = (demande.get('tresorerie_type') or '').strip()
+        _wallet = None
+        if _ttype == 'caisse' and demande.get('tresorerie_caisse_id'):
+            _w = conn.execute("SELECT name FROM caisses WHERE id=?", (demande['tresorerie_caisse_id'],)).fetchone()
+            _wallet = _w['name'] if _w else f"Caisse #{demande['tresorerie_caisse_id']}"
+        elif _ttype == 'banque' and demande.get('tresorerie_banque_id'):
+            _w = conn.execute("SELECT nom FROM tresorerie_comptes_bancaires WHERE id=?", (demande['tresorerie_banque_id'],)).fetchone()
+            _wallet = _w['nom'] if _w else f"Compte #{demande['tresorerie_banque_id']}"
+        _montant = float(demande.get('compta_montant_estime') or demande.get('tresorerie_montant') or 0)
+        _paye = float(demande.get('tresorerie_paye') or 0)
+        if demande.get('compta_user_name') or demande.get('tresorerie_debited') or _paye:
+            reglement = {
+                'compta_user': demande.get('compta_user_name') or '—',
+                'decision_at': (demande.get('compta_decision_at') or '')[:16],
+                'type': _ttype or '—',
+                'wallet': _wallet or '—',
+                'montant': _montant,
+                'paye': _paye,
+                'reste': max(0.0, _montant - _paye),
+                'debited_at': (demande.get('tresorerie_debited_at') or '')[:16],
+                'solde': bool(demande.get('tresorerie_debited')),
+            }
+    except Exception:
+        reglement = None
+    # Preuves de décaissement (opérations de caisse / mouvements trésorerie liés à la référence)
+    preuves = []
+    try:
+        for r in conn.execute("""SELECT co.created_at AS dt, co.amount AS montant, c.name AS wallet,
+                   u.full_name AS par, 'Caisse' AS canal, co.reference AS ref
+            FROM caisse_operations co LEFT JOIN caisses c ON c.id=co.caisse_id
+            LEFT JOIN users u ON u.id=co.created_by
+            WHERE co.type='sortie' AND co.reference=? ORDER BY co.created_at""", (demande.get('reference'),)).fetchall():
+            preuves.append(dict(r))
+        for r in conn.execute("""SELECT tm.created_at AS dt, tm.montant, b.nom AS wallet,
+                   u.full_name AS par, 'Banque' AS canal, tm.reference AS ref
+            FROM tresorerie_mouvements tm LEFT JOIN tresorerie_comptes_bancaires b ON b.id=tm.banque_id
+            LEFT JOIN users u ON u.id=tm.created_by
+            WHERE tm.sens='sortie' AND tm.reference=? ORDER BY tm.created_at""", (demande.get('reference'),)).fetchall():
+            preuves.append(dict(r))
+    except Exception:
+        pass
     # Total estimé
     total = sum((it.get('quantity', 0) or 0) * (it.get('estimated_price', 0) or 0) for it in items)
     conn.close()
     return render_template('mg_demande_preview.html', page='mg_demandes',
-        demande=demande, items=items, auteur=auteur, validateur=validateur, total=total)
+        demande=demande, items=items, auteur=auteur, validateur=validateur, total=total,
+        reglement=reglement, preuves=preuves)
 
 
 @app.route('/mg/demandes/<int:did>/edit', methods=['GET', 'POST'])

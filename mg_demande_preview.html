@@ -57,8 +57,10 @@
         💰 Comptabilité :
         {% if demande.compta_status == 'a_valider' %}⏳ En attente de validation budgétaire
         {% elif demande.compta_status == 'validee' %}✅ Validée par la comptabilité
+        {% elif demande.compta_status == 'partiel' %}🟠 Réglée partiellement par la comptabilité
         {% elif demande.compta_status == 'refusee' %}❌ Refusée par la comptabilité
         {% endif %}
+        {% if demande.compta_user_name %}<span style="font-weight:600;font-size:12px"> — par {{ demande.compta_user_name }}{% if demande.compta_decision_at %} le {{ demande.compta_decision_at[:16] }}{% endif %}</span>{% endif %}
     </div>
     {% if demande.compta_montant_estime %}
     <div style="font-size:12px;color:#555;margin-top:4px">Montant estimé : <strong>{{ '{:,.0f}'.format(demande.compta_montant_estime|float).replace(',', ' ') }} F CFA</strong></div>
@@ -70,6 +72,54 @@
     <div style="font-size:12px;color:#555;margin-top:4px;font-style:italic">{{ demande.compta_notes }}</div>
     {% endif %}
 </div>
+{% endif %}
+
+{# v196e : TRAÇABILITÉ DU RÈGLEMENT — qui a validé + quelle caisse/banque débitée + montants #}
+{% if reglement %}
+{% macro mnt(v) %}{{ '{:,.0f}'.format((v or 0)|float).replace(',', ' ') }} F{% endmacro %}
+<div class="card" style="margin-bottom:16px;border-left:5px solid #6a1b9a"><div class="card-body">
+    <h3 style="margin-top:0;color:#6a1b9a;font-size:15px">🔎 Traçabilité du règlement</h3>
+    <table style="width:100%;font-size:13px">
+        <tr style="border-bottom:1px solid #eee"><td style="padding:7px;width:38%;color:#666">Validé / réglé par (Comptabilité)</td>
+            <td style="padding:7px;font-weight:700">{{ reglement.compta_user }}{% if reglement.decision_at %} <span style="color:#888;font-weight:400">le {{ reglement.decision_at }}</span>{% endif %}</td></tr>
+        <tr style="border-bottom:1px solid #eee"><td style="padding:7px;color:#666">Moyen de règlement</td>
+            <td style="padding:7px;font-weight:700">
+                {% if reglement.type == 'caisse' %}💵 Caisse — <strong>{{ reglement.wallet }}</strong>
+                {% elif reglement.type == 'banque' %}🏦 Banque — <strong>{{ reglement.wallet }}</strong>
+                {% elif reglement.type == 'credit' %}🧾 Achat à crédit (aucun décaissement)
+                {% else %}{{ reglement.wallet }}{% endif %}</td></tr>
+        <tr style="border-bottom:1px solid #eee"><td style="padding:7px;color:#666">Montant total</td>
+            <td style="padding:7px;font-weight:700">{{ mnt(reglement.montant) }}</td></tr>
+        <tr style="border-bottom:1px solid #eee"><td style="padding:7px;color:#666">Déjà payé</td>
+            <td style="padding:7px;font-weight:700;color:#2e7d32">{{ mnt(reglement.paye) }}</td></tr>
+        <tr style="border-bottom:1px solid #eee"><td style="padding:7px;color:#666">Reste à payer</td>
+            <td style="padding:7px;font-weight:700;color:{% if reglement.reste > 0 %}#c53030{% else %}#2e7d32{% endif %}">
+                {{ mnt(reglement.reste) }}{% if reglement.reste <= 0 %} ✅ soldé{% else %} 🟠 paiement partiel{% endif %}</td></tr>
+        {% if reglement.debited_at %}
+        <tr><td style="padding:7px;color:#666">Date du débit</td><td style="padding:7px">{{ reglement.debited_at }}</td></tr>
+        {% endif %}
+    </table>
+
+    {% if preuves %}
+    <div style="margin-top:12px">
+        <div style="font-size:12px;font-weight:700;color:#444;margin-bottom:6px">Preuves de décaissement</div>
+        <div class="table-wrap"><table style="width:100%;font-size:12px">
+            <thead><tr style="background:#f5f0fa"><th style="padding:6px;text-align:left">Date</th><th style="padding:6px;text-align:left">Canal</th><th style="padding:6px;text-align:left">Caisse / Compte</th><th style="padding:6px;text-align:left">Décaissé par</th><th style="padding:6px;text-align:right">Montant</th></tr></thead>
+            <tbody>
+            {% for p in preuves %}
+            <tr style="border-bottom:1px solid #eee">
+                <td style="padding:6px;white-space:nowrap">{{ (p.dt or '')[:16] }}</td>
+                <td style="padding:6px">{{ p.canal }}</td>
+                <td style="padding:6px">{{ p.wallet or '—' }}</td>
+                <td style="padding:6px">{{ p.par or '—' }}</td>
+                <td style="padding:6px;text-align:right;font-weight:700">{{ mnt(p.montant) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table></div>
+    </div>
+    {% endif %}
+</div></div>
 {% endif %}
 
 <!-- v151 : Bloc Montant Total (toujours visible) -->
