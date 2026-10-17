@@ -1724,9 +1724,9 @@ try:
             'mg_view', 'mg_demande',
         ]
         # Permissions Comptable (similaire à RH côté caisse mais sans purge)
+        # v197c : plus de 'caisse_sortie_comptabiliser' — la comptabilité ne décaisse plus.
         compta_new_perms = [
             'caisse_view', 'caisse_create', 'caisse_reset_zero', 'caisse_delete',
-            'caisse_sortie_comptabiliser',
             'corbeille_view', 'corbeille_restore',
             'mg_view', 'mg_demande',
         ]
@@ -5042,6 +5042,47 @@ try:
         print(f"[v192-Perms] Rôle 'chef_agence' initialisé sur {_seeded192} agence(s)", flush=True)
 except Exception as _e:
     print(f"[v192-Perms] Erreur : {_e}", flush=True)
+
+
+# v197c : RETRAIT du décaissement à la COMPTABILITÉ (demande direction).
+# On enlève les permissions de décaissement du profil des rôles comptable/comptabilite,
+# sur TOUTES les agences, une seule fois. Le décaissement reste à trésorerie/DG/RH/admin.
+try:
+    from models import (get_db as _v197db, list_agencies as _v197_list,
+                        set_forced_agency as _v197_set, clear_forced_agency as _v197_clear)
+    _perms197 = ('caisse_sortie_comptabiliser', 'caisse_sortie_refus_compta')
+    try:
+        _ags197 = _v197_list() or [{'id': 1}]
+    except Exception:
+        _ags197 = [{'id': 1}]
+    _done197 = 0
+    for _ag in _ags197:
+        try:
+            _v197_set(_ag['id'])
+            _c = _v197db()
+            _f = _c.execute("SELECT value FROM app_settings WHERE key='v197c_compta_no_decaissement'").fetchone()
+            if not _f:
+                for _role in ('comptable', 'comptabilite'):
+                    for _p in _perms197:
+                        try:
+                            _c.execute("DELETE FROM permissions WHERE role=? AND permission=?", (_role, _p))
+                        except Exception:
+                            pass
+                try:
+                    _c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v197c_compta_no_decaissement','1',datetime('now'))")
+                except Exception:
+                    pass
+                _c.commit(); _done197 += 1
+            _c.close()
+        except Exception:
+            pass
+        finally:
+            try: _v197_clear()
+            except Exception: pass
+    if _done197:
+        print(f"[v197c-Perms] Décaissement retiré à la comptabilité sur {_done197} agence(s)", flush=True)
+except Exception as _e:
+    print(f"[v197c-Perms] Erreur : {_e}", flush=True)
 
 
 def allowed_file(fn):
@@ -37075,8 +37116,10 @@ def caisse_comptabiliser(sid):
     v116 : DG/RH peut décaisser à la place du comptable si celui-ci est absent.
     v174 : Paiement TOTAL ou PARTIEL — trace montant versé / reste à payer."""
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur', 'rh'):
-        flash("⚠️ Seuls le comptable, le DG, le directeur, la RH ou l'admin peuvent décaisser une sortie", "error")
+    # v197c : la COMPTABILITÉ ne décaisse plus (retirée à la demande de la direction).
+    # Le décaissement est réservé à : trésorerie, DG, directeur, RH, admin.
+    if not user or user['role'] not in ('admin', 'tresorerie', 'dg', 'directeur', 'rh'):
+        flash("⚠️ Seuls la trésorerie, le DG, le directeur, la RH ou l'admin peuvent décaisser une sortie", "error")
         return redirect(url_for('caisse_sortie'))
 
     conn = get_db()
@@ -37204,11 +37247,11 @@ def caisse_refuser_compta(sid):
     """v116 + v118 : Refus de la sortie par la comptabilité.
     v118 : peut être refusé à n'importe quel stade — avant ou après la signature DG/RH,
     tant que la sortie n'a pas encore été décaissée (status != 'comptabilise').
-    Réservé à : comptable, comptabilite, tresorerie, admin, DG, directeur, RH."""
+    v197c : réservé à : tresorerie, admin, DG, directeur, RH (la comptabilité n'intervient plus au décaissement)."""
     from models import get_db, recompute_budget_spent
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'comptable', 'comptabilite', 'tresorerie', 'dg', 'directeur', 'rh'):
-        flash("⚠️ Seul le comptable, le DG, le directeur, la RH ou l'admin peut refuser une sortie", "error")
+    if not user or user['role'] not in ('admin', 'tresorerie', 'dg', 'directeur', 'rh'):
+        flash("⚠️ Seul la trésorerie, le DG, le directeur, la RH ou l'admin peut refuser une sortie", "error")
         return redirect(url_for('caisse_sortie'))
     motif = (request.form.get('motif', '') or '').strip()
     if not motif or len(motif) < 5:

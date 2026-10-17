@@ -157,12 +157,12 @@
         
         {% if not s.comptabilise %}
             {# v116 : Décaissement accessible à comptable, comptabilité, trésorerie, DG, directeur, RH, admin #}
-            {% if current_user.role in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh') %}
+            {% if current_user.role in ('admin','tresorerie','dg','directeur','rh') %}
             <div style="margin-top:12px;padding-top:12px;border-top:1px dashed #2e7d32">
                 <div style="font-size:13px;color:#1a3a5c;margin-bottom:8px"><strong>💰 Décaissement</strong>
                     {% if current_user.role in ('dg','directeur','rh') %}
-                    — <span style="background:#fff3e0;color:#7a4a00;padding:2px 6px;border-radius:4px;font-size:11px">Action de secours en l'absence de la comptabilité</span>
-                    {% else %}— Action de la Comptabilité
+                    — <span style="background:#fff3e0;color:#7a4a00;padding:2px 6px;border-radius:4px;font-size:11px">Action de secours en l'absence de la trésorerie</span>
+                    {% else %}— Action de la Trésorerie
                     {% endif %}
                 </div>
                 {% set _paye = s.montant_paye or 0 %}

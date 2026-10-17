@@ -170,12 +170,12 @@
         {% if s.montant_paye and s.montant_paye > 0 %}
         <span style="background:#fff3e0;color:#7a4a00;font-size:9px;padding:2px 6px;border-radius:8px;font-weight:700" title="Reste à payer">🟠 Reste {{ '{:,.0f}'.format((s.montant or 0) - s.montant_paye) }} F</span>
         {% endif %}
-        {% if current_user.role in ('admin','comptable','comptabilite','tresorerie','dg','directeur','rh') %}
+        {% if current_user.role in ('admin','tresorerie','dg','directeur','rh') %}
         <a href="/caisse-sortie/{{ s.id }}/preview" class="btn btn-sm"
             style="background:#1A7A6D;color:#fff;font-size:10px;padding:3px 10px;font-weight:700"
-            title="Décaissement total ou partiel (Comptabilité)">💰 Décaisser</a>
+            title="Décaissement total ou partiel (Trésorerie)">💰 Décaisser</a>
         {% else %}
-        <span style="font-size:9px;color:#888;font-style:italic">En attente Comptabilité</span>
+        <span style="font-size:9px;color:#888;font-style:italic">En attente Trésorerie</span>
         {% endif %}
     {% endif %}
 </td>
