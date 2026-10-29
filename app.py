@@ -50377,3 +50377,240 @@ def client_finances(cid):
                            depenses=depenses, audit=audit, logs=logs,
                            entrees=entrees, sorties=sorties, projets=projets, wfprojets=wfprojets,
                            fifo=fifo)
+
+
+# ============================================================================
+# v198 — RAPPORT QUOTIDIEN DES ALERTES EN RETARD DE TRAITEMENT (> 1 jour)
+#   Sources : pointage (presence_anomalies), recharge internet (it_internet_recharge),
+#             balises tracking (tracking_alerts). Rappel CHAQUE JOUR tant que non traité.
+#   Envoi automatique par email à la direction (direction@ramyaci.tech par défaut).
+# ============================================================================
+ALERTES_RETARD_DEFAULT_EMAIL = 'direction@ramyaci.tech'
+_alertes_retard_last_check = {'date': None}
+
+
+def _ar_days_since(datestr, today):
+    try:
+        d = datetime.strptime((datestr or '')[:10], '%Y-%m-%d').date()
+        return max(0, (today - d).days)
+    except Exception:
+        return 0
+
+
+def _alertes_retard_scan_one(conn, agence):
+    """Scanne UNE base agence : alertes non traitées en retard d'au moins 1 jour."""
+    today = datetime.now().date()
+    cutoff = (today - timedelta(days=1)).strftime('%Y-%m-%d')  # échéance/date <= cutoff => ≥ 1 jour de retard
+    out = {'pointage': [], 'recharge': [], 'tracking': []}
+    # 1) POINTAGE — anomalies de présence non corrigées
+    try:
+        for r in conn.execute("""SELECT employee_name, date, anomaly_type, status,
+                   COALESCE(created_at, date) AS d FROM presence_anomalies
+            WHERE COALESCE(status,'') NOT IN ('corrigee','ignoree','resolue','traitee')
+              AND substr(COALESCE(created_at, date),1,10) <= ?
+            ORDER BY d""", (cutoff,)).fetchall():
+            r = dict(r)
+            out['pointage'].append({'agence': agence, 'employe': r.get('employee_name') or '—',
+                'date': (r.get('date') or '')[:10], 'type': r.get('anomaly_type') or 'Anomalie',
+                'retard': _ar_days_since(r.get('d'), today)})
+    except Exception:
+        pass
+    # 2) RECHARGE INTERNET — recharges actives dont l'échéance est dépassée
+    try:
+        for r in conn.execute("""SELECT equipment_name, operator, amount, next_due, location, sim_number
+            FROM it_internet_recharge WHERE status='actif'
+              AND next_due IS NOT NULL AND TRIM(next_due)<>'' AND substr(next_due,1,10) <= ?
+            ORDER BY next_due""", (cutoff,)).fetchall():
+            r = dict(r)
+            out['recharge'].append({'agence': agence, 'equipement': r.get('equipment_name') or '—',
+                'operateur': r.get('operator') or '', 'montant': float(r.get('amount') or 0),
+                'echeance': (r.get('next_due') or '')[:10], 'lieu': r.get('location') or '',
+                'sim': r.get('sim_number') or '', 'retard': _ar_days_since(r.get('next_due'), today)})
+    except Exception:
+        pass
+    # 3) BALISES TRACKING — alertes non acquittées
+    try:
+        for r in conn.execute("""SELECT a.alert_type, a.message, a.created_at,
+                   v.immatriculation, v.proprietaire
+            FROM tracking_alerts a LEFT JOIN tracking_vehicles v ON v.id=a.vehicle_id
+            WHERE COALESCE(a.acknowledged,0)=0 AND a.created_at IS NOT NULL
+              AND substr(a.created_at,1,10) <= ?
+            ORDER BY a.created_at""", (cutoff,)).fetchall():
+            r = dict(r)
+            out['tracking'].append({'agence': agence, 'vehicule': r.get('immatriculation') or '—',
+                'proprietaire': r.get('proprietaire') or '', 'type': r.get('alert_type') or 'Alerte',
+                'message': r.get('message') or '', 'date': (r.get('created_at') or '')[:16],
+                'retard': _ar_days_since(r.get('created_at'), today)})
+    except Exception:
+        pass
+    return out
+
+
+def _alertes_retard_scan_all():
+    """Scanne TOUTES les agences et consolide."""
+    agg = {'pointage': [], 'recharge': [], 'tracking': []}
+    try:
+        from models import list_agencies as _la, set_forced_agency as _sf, clear_forced_agency as _cf
+        try:
+            ags = _la() or [{'id': 1, 'nom': 'Siège'}]
+        except Exception:
+            ags = [{'id': 1, 'nom': 'Siège'}]
+        for ag in ags:
+            try:
+                _sf(ag.get('id', 1))
+                c = _gdb()
+                part = _alertes_retard_scan_one(c, ag.get('nom') or ag.get('code') or f"Agence {ag.get('id')}")
+                c.close()
+                for k in agg:
+                    agg[k].extend(part[k])
+            except Exception:
+                pass
+            finally:
+                try: _cf()
+                except Exception: pass
+    except Exception:
+        # Mono-agence / fallback
+        try:
+            c = _gdb()
+            part = _alertes_retard_scan_one(c, 'Siège')
+            c.close()
+            for k in agg:
+                agg[k].extend(part[k])
+        except Exception:
+            pass
+    return agg
+
+
+def _alertes_retard_render(agg):
+    """Construit (html, texte, total) du rapport."""
+    def _m(v): return '{:,.0f}'.format(v or 0).replace(',', ' ')
+    np, nr, nt = len(agg['pointage']), len(agg['recharge']), len(agg['tracking'])
+    total = np + nr + nt
+    d = datetime.now().strftime('%d/%m/%Y')
+    # --- HTML ---
+    h = [f"""<div style="font-family:Arial,sans-serif;color:#222;max-width:760px">
+      <h2 style="color:#1A7A6D">⚠️ Alertes en retard de traitement — {d}</h2>
+      <p style="font-size:13px;color:#555">{total} alerte(s) non traitée(s) depuis plus d'un jour :
+      <b>{np}</b> pointage · <b>{nr}</b> recharge internet · <b>{nt}</b> balise tracking.</p>"""]
+    t = [f"ALERTES EN RETARD DE TRAITEMENT — {d}",
+         f"{total} alerte(s) : {np} pointage, {nr} recharge internet, {nt} balise tracking.", ""]
+    if agg['pointage']:
+        h.append('<h3 style="color:#c0392b">🕒 Pointage — anomalies non corrigées</h3>'
+                 '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:12px;width:100%">'
+                 '<tr style="background:#f3f0fa"><th>Agence</th><th>Employé</th><th>Date</th><th>Type</th><th>Retard</th></tr>')
+        t.append("== POINTAGE ==")
+        for a in agg['pointage']:
+            h.append(f"<tr><td>{a['agence']}</td><td>{a['employe']}</td><td>{a['date']}</td><td>{a['type']}</td><td>{a['retard']} j</td></tr>")
+            t.append(f"- [{a['agence']}] {a['employe']} — {a['type']} du {a['date']} — retard {a['retard']} j")
+        h.append('</table><br>')
+    if agg['recharge']:
+        h.append('<h3 style="color:#c0392b">🌐 Recharge internet — échéances dépassées</h3>'
+                 '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:12px;width:100%">'
+                 '<tr style="background:#f3f0fa"><th>Agence</th><th>Équipement</th><th>Opérateur</th><th>Échéance</th><th>Montant</th><th>Retard</th></tr>')
+        t.append("== RECHARGE INTERNET ==")
+        for a in agg['recharge']:
+            h.append(f"<tr><td>{a['agence']}</td><td>{a['equipement']}</td><td>{a['operateur']}</td><td>{a['echeance']}</td><td>{_m(a['montant'])} F</td><td>{a['retard']} j</td></tr>")
+            t.append(f"- [{a['agence']}] {a['equipement']} ({a['operateur']}) — échéance {a['echeance']} — {_m(a['montant'])} F — retard {a['retard']} j")
+        h.append('</table><br>')
+    if agg['tracking']:
+        h.append('<h3 style="color:#c0392b">📡 Balises tracking — alertes non acquittées</h3>'
+                 '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:12px;width:100%">'
+                 '<tr style="background:#f3f0fa"><th>Agence</th><th>Véhicule</th><th>Type</th><th>Message</th><th>Depuis</th><th>Retard</th></tr>')
+        t.append("== BALISES TRACKING ==")
+        for a in agg['tracking']:
+            h.append(f"<tr><td>{a['agence']}</td><td>{a['vehicule']}</td><td>{a['type']}</td><td>{a['message']}</td><td>{a['date']}</td><td>{a['retard']} j</td></tr>")
+            t.append(f"- [{a['agence']}] {a['vehicule']} — {a['type']} : {a['message']} (depuis {a['date']}) — retard {a['retard']} j")
+        h.append('</table><br>')
+    h.append('<p style="font-size:11px;color:#888">Rapport automatique WannyGest — RAMYA Technologie & Innovation. '
+             'Vous recevez ce message chaque jour tant que ces alertes ne sont pas traitées.</p></div>')
+    return '\n'.join(h), '\n'.join(t), total
+
+
+def _alertes_retard_send(force=False):
+    """Construit et envoie le rapport à la direction. Retourne (envoye, total, erreur)."""
+    agg = _alertes_retard_scan_all()
+    html, text, total = _alertes_retard_render(agg)
+    if total == 0 and not force:
+        return False, 0, None  # rien à signaler
+    to_email = get_notif_config('alertes_retard_email', '') or ALERTES_RETARD_DEFAULT_EMAIL
+    subject = f"⚠️ {total} alerte(s) en retard de traitement — {datetime.now().strftime('%d/%m/%Y')}"
+    ok, err = _send_email_smtp(to_email, subject, text, html=html)
+    try:
+        from flask import has_request_context as _hrc
+        user_id = session.get('user_id') if _hrc() else None
+    except Exception:
+        user_id = None
+    try:
+        log_activity(user_id or 0, 'Système', 'Alertes',
+                     f"Rapport alertes retard envoyé à {to_email} ({total}) — {'OK' if ok else 'ÉCHEC: '+str(err)}", '')
+    except Exception:
+        pass
+    return ok, total, err
+
+
+def _alertes_retard_daily_tick():
+    """Déclenche l'envoi une fois par jour (appelé en before_request, non bloquant)."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    if _alertes_retard_last_check['date'] == today:
+        return
+    _alertes_retard_last_check['date'] = today  # évite les tentatives répétées dans ce process
+    # Drapeau en base (agence principale) pour éviter les doublons entre workers
+    claimed = False
+    try:
+        from models import set_forced_agency as _sf, clear_forced_agency as _cf
+        _sf(1)
+        c = _gdb()
+        row = c.execute("SELECT value FROM app_settings WHERE key='alertes_retard_report_date'").fetchone()
+        if not row or row[0] != today:
+            c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('alertes_retard_report_date', ?, datetime('now'))", (today,))
+            c.commit()
+            claimed = True
+        c.close()
+        _cf()
+    except Exception:
+        try: _cf()
+        except Exception: pass
+    if not claimed:
+        return
+    # Envoi en arrière-plan pour ne pas bloquer la requête utilisateur
+    def _bg():
+        try:
+            sent, total, err = _alertes_retard_send()
+            print(f"[v198] Rapport alertes retard : {total} alerte(s), envoyé={sent}" + (f", err={err}" if err else ""), flush=True)
+        except Exception as _e:
+            print(f"[v198] err rapport alertes : {_e}", flush=True)
+    try:
+        import threading
+        threading.Thread(target=_bg, daemon=True).start()
+    except Exception:
+        _bg()
+
+
+@app.before_request
+def _alertes_retard_before_request():
+    try:
+        _alertes_retard_daily_tick()
+    except Exception:
+        pass
+
+
+@app.route('/cron/alertes-retard')
+def cron_alertes_retard():
+    """Déclenche manuellement le rapport (admin connecté OU clé ?key=).
+    ?force=1 pour envoyer même sans retard ; ?dry=1 pour seulement compter sans envoyer."""
+    user = get_user_by_id(session['user_id']) if session.get('user_id') else None
+    is_admin = bool(user and user.get('role') == 'admin')
+    key_ok = False
+    _k = get_notif_config('alertes_cron_key', '')
+    if _k and request.args.get('key', '') == _k:
+        key_ok = True
+    if not (is_admin or key_ok):
+        return ("Accès refusé", 403)
+    if request.args.get('dry') == '1':
+        agg = _alertes_retard_scan_all()
+        _, _, total = _alertes_retard_render(agg)
+        return jsonify({'total': total, 'pointage': len(agg['pointage']),
+                        'recharge': len(agg['recharge']), 'tracking': len(agg['tracking'])})
+    sent, total, err = _alertes_retard_send(force=(request.args.get('force') == '1'))
+    return jsonify({'envoye': bool(sent), 'total': total, 'erreur': err,
+                    'destinataire': get_notif_config('alertes_retard_email', '') or ALERTES_RETARD_DEFAULT_EMAIL})
