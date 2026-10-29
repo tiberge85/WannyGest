@@ -5110,6 +5110,50 @@ except Exception as _e:
     print(f"[v197c-Perms] Erreur : {_e}", flush=True)
 
 
+# v198c : colonnes récentes de caisse_sorties garanties sur TOUTES les agences.
+# Les migrations v116 (comptabilise_par, montant_paye, reste, paiement_partiel, refus_*) ne
+# tournaient qu'au démarrage sur l'agence principale → sur une agence secondaire (ex. Bouaflé)
+# ces colonnes manquaient et l'UPDATE du décaissement plantait (500). On les ajoute partout,
+# et on auto-répare aussi à la volée dans la route de décaissement.
+def _ensure_caisse_sorties_cols(conn):
+    try:
+        have = {r[1] for r in conn.execute("PRAGMA table_info(caisse_sorties)")}
+        needed = {
+            'comptabilise_par': 'TEXT', 'comptabilise_at': 'TEXT',
+            'montant_paye': 'REAL DEFAULT 0', 'reste': 'REAL DEFAULT 0',
+            'paiement_partiel': 'INTEGER DEFAULT 0',
+            'refus_motif': 'TEXT', 'refus_par': 'TEXT', 'refus_par_role': 'TEXT',
+            'refus_at': 'TEXT', 'valideur_role': 'TEXT',
+        }
+        for _col, _ddl in needed.items():
+            if _col not in have:
+                try: conn.execute(f"ALTER TABLE caisse_sorties ADD COLUMN {_col} {_ddl}")
+                except Exception: pass
+    except Exception:
+        pass
+
+try:
+    from models import (get_db as _v198c_db, list_agencies as _v198c_list,
+                        set_forced_agency as _v198c_set, clear_forced_agency as _v198c_clear)
+    try: _ags198c = _v198c_list() or [{'id': 1}]
+    except Exception: _ags198c = [{'id': 1}]
+    _n198c = 0
+    for _ag in _ags198c:
+        try:
+            _v198c_set(_ag.get('id', 1))
+            _c = _v198c_db()
+            _ensure_caisse_sorties_cols(_c)
+            _c.commit(); _c.close(); _n198c += 1
+        except Exception:
+            pass
+        finally:
+            try: _v198c_clear()
+            except Exception: pass
+    print(f"[v198c-Cols] caisse_sorties vérifiée sur {_n198c} agence(s)", flush=True)
+except Exception as _e:
+    print(f"[v198c-Cols] Erreur : {_e}", flush=True)
+
+
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -37148,6 +37192,7 @@ def caisse_comptabiliser(sid):
         return redirect(url_for('caisse_sortie'))
 
     conn = get_db()
+    _ensure_caisse_sorties_cols(conn)  # v198c : auto-répare les colonnes manquantes (agences secondaires)
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
     if not s:
         conn.close(); flash("Sortie introuvable", "error"); return redirect(url_for('caisse_sortie'))
@@ -37282,8 +37327,9 @@ def caisse_refuser_compta(sid):
     if not motif or len(motif) < 5:
         flash("⚠️ Motif de refus obligatoire (au moins 5 caractères)", "error")
         return redirect(f'/caisse-sortie/{sid}/preview')
-    
+
     conn = get_db()
+    _ensure_caisse_sorties_cols(conn)  # v198c : auto-répare les colonnes manquantes (agences secondaires)
     s = conn.execute("SELECT * FROM caisse_sorties WHERE id=?", (sid,)).fetchone()
     if not s:
         conn.close()
