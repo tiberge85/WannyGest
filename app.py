@@ -4545,17 +4545,42 @@ except Exception as _e:
 
 # v114 : Helper pour récupérer l'id de la caisse de fonctionnement
 def get_caisse_fonctionnement_id():
-    """Retourne l'id de la caisse de fonctionnement (créée auto par v114)."""
+    """Retourne l'id de la caisse de fonctionnement de l'AGENCE COURANTE.
+    v198b : AUTO-RÉPARATION multi-agences. Le bloc v114 ne s'exécute qu'au démarrage
+    (contexte agence 1), donc les agences créées ensuite (ex. Bouaflé) n'avaient PAS la clé
+    'caisse_fonctionnement_id' dans leur base → l'id ressortait None → solde affiché 0 et
+    décaissement bloqué. On répare à la volée : clé valide ? sinon on retrouve la caisse
+    « fonctionnement » existante (et approvisionnée) par son nom et on l'enregistre ; à défaut
+    on en crée une. Tout se fait dans la base de l'agence courante."""
     try:
         from models import get_db as _gdb_helper
         conn = _gdb_helper()
+        # 1) Clé déjà enregistrée ET caisse correspondante toujours active → on la garde
         row = conn.execute(
             "SELECT value FROM app_settings WHERE key='caisse_fonctionnement_id'").fetchone()
-        conn.close()
         if row and row['value']:
-            return int(row['value'])
-    except: pass
-    return None
+            try:
+                cid = int(row['value'])
+                if conn.execute("SELECT 1 FROM caisses WHERE id=? AND COALESCE(is_active,1)=1", (cid,)).fetchone():
+                    conn.close(); return cid
+            except Exception:
+                pass
+        # 2) Sinon : retrouver une caisse « fonctionnement » existante (celle approvisionnée) et l'enregistrer
+        ex = conn.execute(
+            "SELECT id FROM caisses WHERE LOWER(name) LIKE '%fonctionnement%' AND COALESCE(is_active,1)=1 ORDER BY id LIMIT 1"
+        ).fetchone()
+        if ex:
+            conn.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('caisse_fonctionnement_id', ?, datetime('now'))", (str(ex['id']),))
+            conn.commit(); _id = int(ex['id']); conn.close(); return _id
+        # 3) À défaut : en créer une (comportement v114)
+        conn.execute("""INSERT INTO caisses (name, description, solde_initial, solde_actuel, is_active, created_at)
+            VALUES (?,?,0,0,1,datetime('now'))""",
+            ('Caisse de fonctionnement', 'Caisse principale pour les sorties courantes (auto)'))
+        _id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('caisse_fonctionnement_id', ?, datetime('now'))", (str(_id),))
+        conn.commit(); conn.close(); return int(_id)
+    except Exception:
+        return None
 
 
 # v115 : Helper unifié pour calculer le solde de la caisse de fonctionnement
