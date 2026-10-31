@@ -50450,76 +50450,104 @@ def client_finances(cid):
                            fifo=fifo)
 
 
+
 # ============================================================================
-# v198 — RAPPORT QUOTIDIEN DES ALERTES EN RETARD DE TRAITEMENT (> 1 jour)
-#   Sources : pointage (presence_anomalies), recharge internet (it_internet_recharge),
-#             balises tracking (tracking_alerts). Rappel CHAQUE JOUR tant que non traité.
-#   Envoi automatique par email à la direction (direction@ramyaci.tech par défaut).
+# v199 — RAPPORT HEBDOMADAIRE À LA DIRECTION (chaque vendredi à 14h)
+#   3 tableaux : (1) remontées à traiter (états + urgence),
+#                (2) recharges non effectuées (internet + balises GPS),
+#                (3) synthèse des deux. Envoi email à direction@ramyaci.tech.
 # ============================================================================
 ALERTES_RETARD_DEFAULT_EMAIL = 'direction@ramyaci.tech'
-_alertes_retard_last_check = {'date': None}
+# Mémoire du dernier envoi (par semaine ISO) pour éviter les doublons
+_alertes_retard_last_check = {'week': None}
+
+# Statuts de remontée considérés comme TERMINÉS (plus rien à faire)
+_RI_STATUTS_TERMINES = ('traitee', 'classee', 'transformee_projet',
+                        'transformee_intervention', 'transformee_opportunite')
 
 
 def _ar_days_since(datestr, today):
     try:
         d = datetime.strptime((datestr or '')[:10], '%Y-%m-%d').date()
-        return max(0, (today - d).days)
+        return (today - d).days
     except Exception:
-        return 0
+        return None
 
 
-def _alertes_retard_scan_one(conn, agence):
-    """Scanne UNE base agence : alertes non traitées en retard d'au moins 1 jour."""
+def _alertes_scan_one(conn, agence):
+    """Scanne UNE base agence : remontées ouvertes + recharges non effectuées."""
     today = datetime.now().date()
-    cutoff = (today - timedelta(days=1)).strftime('%Y-%m-%d')  # échéance/date <= cutoff => ≥ 1 jour de retard
-    out = {'pointage': [], 'recharge': [], 'tracking': []}
-    # 1) POINTAGE — anomalies de présence non corrigées
+    out = {'remontees': [], 'recharges': []}
+    # --- (1) REMONTÉES à traiter (tout ce qui n'est pas terminé) ---
     try:
-        for r in conn.execute("""SELECT employee_name, date, anomaly_type, status,
-                   COALESCE(created_at, date) AS d FROM presence_anomalies
-            WHERE COALESCE(status,'') NOT IN ('corrigee','ignoree','resolue','traitee')
-              AND substr(COALESCE(created_at, date),1,10) <= ?
-            ORDER BY d""", (cutoff,)).fetchall():
+        ph = ','.join('?' * len(_RI_STATUTS_TERMINES))
+        rows = conn.execute(f"""SELECT reference, client_name, site_name, type_info, description,
+                   priorite, statut, date_constat, auteur_name
+            FROM field_reports
+            WHERE COALESCE(statut,'recue') NOT IN ({ph})
+            ORDER BY CASE COALESCE(priorite,'moyen')
+                        WHEN 'urgent' THEN 1 WHEN 'eleve' THEN 2
+                        WHEN 'moyen' THEN 3 ELSE 4 END, date_constat DESC""",
+            _RI_STATUTS_TERMINES).fetchall()
+        for r in rows:
             r = dict(r)
-            out['pointage'].append({'agence': agence, 'employe': r.get('employee_name') or '—',
-                'date': (r.get('date') or '')[:10], 'type': r.get('anomaly_type') or 'Anomalie',
-                'retard': _ar_days_since(r.get('d'), today)})
+            pr = r.get('priorite') or 'moyen'
+            st = r.get('statut') or 'recue'
+            out['remontees'].append({
+                'agence': agence,
+                'reference': r.get('reference') or '—',
+                'cible': (r.get('client_name') or '') + ((' / ' + r.get('site_name')) if r.get('site_name') else ''),
+                'type': FIELD_REPORT_TYPES.get(r.get('type_info'), r.get('type_info') or '—'),
+                'description': (r.get('description') or '')[:120],
+                'urgence': FIELD_REPORT_PRIORITIES.get(pr, (pr, '#888'))[0],
+                'urgence_rang': {'urgent': 1, 'eleve': 2, 'moyen': 3, 'faible': 4}.get(pr, 5),
+                'etat': FIELD_REPORT_STATUTS.get(st, (st, '#888'))[0],
+                'date': (r.get('date_constat') or '')[:10],
+                'auteur': r.get('auteur_name') or '—',
+            })
     except Exception:
         pass
-    # 2) RECHARGE INTERNET — recharges actives dont l'échéance est dépassée
+    # --- (2a) RECHARGES INTERNET non effectuées (échéance atteinte/dépassée) ---
     try:
         for r in conn.execute("""SELECT equipment_name, operator, amount, next_due, location, sim_number
             FROM it_internet_recharge WHERE status='actif'
               AND next_due IS NOT NULL AND TRIM(next_due)<>'' AND substr(next_due,1,10) <= ?
-            ORDER BY next_due""", (cutoff,)).fetchall():
+            ORDER BY next_due""", (today.strftime('%Y-%m-%d'),)).fetchall():
             r = dict(r)
-            out['recharge'].append({'agence': agence, 'equipement': r.get('equipment_name') or '—',
-                'operateur': r.get('operator') or '', 'montant': float(r.get('amount') or 0),
-                'echeance': (r.get('next_due') or '')[:10], 'lieu': r.get('location') or '',
-                'sim': r.get('sim_number') or '', 'retard': _ar_days_since(r.get('next_due'), today)})
+            out['recharges'].append({
+                'agence': agence, 'canal': '🌐 Internet',
+                'cible': r.get('equipment_name') or '—',
+                'detail': (r.get('operator') or '') + ((' · ' + r.get('location')) if r.get('location') else ''),
+                'montant': float(r.get('amount') or 0),
+                'echeance': (r.get('next_due') or '')[:10],
+                'retard': _ar_days_since(r.get('next_due'), today),
+            })
     except Exception:
         pass
-    # 3) BALISES TRACKING — alertes non acquittées
+    # --- (2b) RECHARGES BALISES GPS non effectuées (recharge_due atteinte/dépassée) ---
     try:
-        for r in conn.execute("""SELECT a.alert_type, a.message, a.created_at,
-                   v.immatriculation, v.proprietaire
-            FROM tracking_alerts a LEFT JOIN tracking_vehicles v ON v.id=a.vehicle_id
-            WHERE COALESCE(a.acknowledged,0)=0 AND a.created_at IS NOT NULL
-              AND substr(a.created_at,1,10) <= ?
-            ORDER BY a.created_at""", (cutoff,)).fetchall():
+        for r in conn.execute("""SELECT immatriculation, proprietaire, recharge_due, gps_sim, status
+            FROM tracking_vehicles
+            WHERE recharge_due IS NOT NULL AND TRIM(recharge_due)<>''
+              AND substr(recharge_due,1,10) <= ? AND COALESCE(status,'') <> 'maintenance'
+            ORDER BY recharge_due""", (today.strftime('%Y-%m-%d'),)).fetchall():
             r = dict(r)
-            out['tracking'].append({'agence': agence, 'vehicule': r.get('immatriculation') or '—',
-                'proprietaire': r.get('proprietaire') or '', 'type': r.get('alert_type') or 'Alerte',
-                'message': r.get('message') or '', 'date': (r.get('created_at') or '')[:16],
-                'retard': _ar_days_since(r.get('created_at'), today)})
+            out['recharges'].append({
+                'agence': agence, 'canal': '📡 Balise GPS',
+                'cible': r.get('immatriculation') or '—',
+                'detail': (r.get('proprietaire') or '') + ((' · SIM ' + r.get('gps_sim')) if r.get('gps_sim') else ''),
+                'montant': 0.0,
+                'echeance': (r.get('recharge_due') or '')[:10],
+                'retard': _ar_days_since(r.get('recharge_due'), today),
+            })
     except Exception:
         pass
     return out
 
 
-def _alertes_retard_scan_all():
+def _alertes_scan_all():
     """Scanne TOUTES les agences et consolide."""
-    agg = {'pointage': [], 'recharge': [], 'tracking': []}
+    agg = {'remontees': [], 'recharges': []}
     try:
         from models import list_agencies as _la, set_forced_agency as _sf, clear_forced_agency as _cf
         try:
@@ -50530,7 +50558,7 @@ def _alertes_retard_scan_all():
             try:
                 _sf(ag.get('id', 1))
                 c = _gdb()
-                part = _alertes_retard_scan_one(c, ag.get('nom') or ag.get('code') or f"Agence {ag.get('id')}")
+                part = _alertes_scan_one(c, ag.get('nom') or ag.get('code') or f"Agence {ag.get('id')}")
                 c.close()
                 for k in agg:
                     agg[k].extend(part[k])
@@ -50540,10 +50568,9 @@ def _alertes_retard_scan_all():
                 try: _cf()
                 except Exception: pass
     except Exception:
-        # Mono-agence / fallback
         try:
             c = _gdb()
-            part = _alertes_retard_scan_one(c, 'Siège')
+            part = _alertes_scan_one(c, 'Siège')
             c.close()
             for k in agg:
                 agg[k].extend(part[k])
@@ -50552,88 +50579,142 @@ def _alertes_retard_scan_all():
     return agg
 
 
-def _alertes_retard_render(agg):
-    """Construit (html, texte, total) du rapport."""
+def _alertes_render(agg):
+    """Construit (html, texte, total) du rapport à 3 tableaux."""
     def _m(v): return '{:,.0f}'.format(v or 0).replace(',', ' ')
-    np, nr, nt = len(agg['pointage']), len(agg['recharge']), len(agg['tracking'])
-    total = np + nr + nt
+    def _rj(v): return (f"{v} j" if isinstance(v, int) else '—')
+    rem = agg['remontees']
+    rec = agg['recharges']
+    total = len(rem) + len(rec)
     d = datetime.now().strftime('%d/%m/%Y')
-    # --- HTML ---
-    h = [f"""<div style="font-family:Arial,sans-serif;color:#222;max-width:760px">
-      <h2 style="color:#1A7A6D">⚠️ Alertes en retard de traitement — {d}</h2>
-      <p style="font-size:13px;color:#555">{total} alerte(s) non traitée(s) depuis plus d'un jour :
-      <b>{np}</b> pointage · <b>{nr}</b> recharge internet · <b>{nt}</b> balise tracking.</p>"""]
-    t = [f"ALERTES EN RETARD DE TRAITEMENT — {d}",
-         f"{total} alerte(s) : {np} pointage, {nr} recharge internet, {nt} balise tracking.", ""]
-    if agg['pointage']:
-        h.append('<h3 style="color:#c0392b">🕒 Pointage — anomalies non corrigées</h3>'
-                 '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:12px;width:100%">'
-                 '<tr style="background:#f3f0fa"><th>Agence</th><th>Employé</th><th>Date</th><th>Type</th><th>Retard</th></tr>')
-        t.append("== POINTAGE ==")
-        for a in agg['pointage']:
-            h.append(f"<tr><td>{a['agence']}</td><td>{a['employe']}</td><td>{a['date']}</td><td>{a['type']}</td><td>{a['retard']} j</td></tr>")
-            t.append(f"- [{a['agence']}] {a['employe']} — {a['type']} du {a['date']} — retard {a['retard']} j")
-        h.append('</table><br>')
-    if agg['recharge']:
-        h.append('<h3 style="color:#c0392b">🌐 Recharge internet — échéances dépassées</h3>'
-                 '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:12px;width:100%">'
-                 '<tr style="background:#f3f0fa"><th>Agence</th><th>Équipement</th><th>Opérateur</th><th>Échéance</th><th>Montant</th><th>Retard</th></tr>')
-        t.append("== RECHARGE INTERNET ==")
-        for a in agg['recharge']:
-            h.append(f"<tr><td>{a['agence']}</td><td>{a['equipement']}</td><td>{a['operateur']}</td><td>{a['echeance']}</td><td>{_m(a['montant'])} F</td><td>{a['retard']} j</td></tr>")
-            t.append(f"- [{a['agence']}] {a['equipement']} ({a['operateur']}) — échéance {a['echeance']} — {_m(a['montant'])} F — retard {a['retard']} j")
-        h.append('</table><br>')
-    if agg['tracking']:
-        h.append('<h3 style="color:#c0392b">📡 Balises tracking — alertes non acquittées</h3>'
-                 '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:12px;width:100%">'
-                 '<tr style="background:#f3f0fa"><th>Agence</th><th>Véhicule</th><th>Type</th><th>Message</th><th>Depuis</th><th>Retard</th></tr>')
-        t.append("== BALISES TRACKING ==")
-        for a in agg['tracking']:
-            h.append(f"<tr><td>{a['agence']}</td><td>{a['vehicule']}</td><td>{a['type']}</td><td>{a['message']}</td><td>{a['date']}</td><td>{a['retard']} j</td></tr>")
-            t.append(f"- [{a['agence']}] {a['vehicule']} — {a['type']} : {a['message']} (depuis {a['date']}) — retard {a['retard']} j")
-        h.append('</table><br>')
-    h.append('<p style="font-size:11px;color:#888">Rapport automatique WannyGest — RAMYA Technologie & Innovation. '
-             'Vous recevez ce message chaque jour tant que ces alertes ne sont pas traitées.</p></div>')
+    # Synthèse
+    urg = {'urgent': 0, 'eleve': 0, 'moyen': 0, 'faible': 0}
+    for a in rem:
+        rk = a.get('urgence_rang', 5)
+        if rk == 1: urg['urgent'] += 1
+        elif rk == 2: urg['eleve'] += 1
+        elif rk == 3: urg['moyen'] += 1
+        else: urg['faible'] += 1
+    rec_net = [x for x in rec if x['canal'].endswith('Internet')]
+    rec_gps = [x for x in rec if 'Balise' in x['canal']]
+    montant_net = sum(x['montant'] for x in rec_net)
+
+    def _tbl(headers, rows_html):
+        th = ''.join(f'<th style="padding:6px 8px;text-align:left;background:#1A7A6D;color:#fff;font-size:12px">{h}</th>' for h in headers)
+        return f'<table border="1" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:12px;margin-bottom:6px"><tr>{th}</tr>{rows_html}</table>'
+
+    h = [f"""<div style="font-family:Arial,sans-serif;color:#222;max-width:820px">
+      <h2 style="color:#1A7A6D">📋 Rapport hebdomadaire — {d}</h2>
+      <p style="font-size:13px;color:#555">RAMYA Technologie &amp; Innovation — point de la semaine.</p>"""]
+    t = [f"RAPPORT HEBDOMADAIRE — {d}", ""]
+
+    # ---- TABLEAU 1 : REMONTÉES À TRAITER ----
+    h.append(f'<h3 style="color:#c0392b">1️⃣ À traiter — remontées ouvertes ({len(rem)})</h3>')
+    t.append(f"== 1) À TRAITER — REMONTÉES OUVERTES ({len(rem)}) ==")
+    if rem:
+        rows = ''
+        for a in rem:
+            rows += (f"<tr><td style='padding:5px 8px'>{a['agence']}</td>"
+                     f"<td style='padding:5px 8px'>{a['reference']}</td>"
+                     f"<td style='padding:5px 8px'>{a['cible'] or '—'}</td>"
+                     f"<td style='padding:5px 8px'>{a['type']}</td>"
+                     f"<td style='padding:5px 8px'>{a['description']}</td>"
+                     f"<td style='padding:5px 8px;font-weight:700'>{a['urgence']}</td>"
+                     f"<td style='padding:5px 8px'>{a['etat']}</td>"
+                     f"<td style='padding:5px 8px'>{a['date']}</td>"
+                     f"<td style='padding:5px 8px'>{a['auteur']}</td></tr>")
+            t.append(f"- [{a['agence']}] {a['reference']} — {a['type']} — {a['urgence']} — état: {a['etat']} — {a['cible']} — {a['date']}")
+        h.append(_tbl(['Agence', 'Réf.', 'Client / Site', 'Type', 'Description', 'Urgence', 'État', 'Date', 'Auteur'], rows))
+    else:
+        h.append('<p style="color:#2e7d32">✅ Aucune remontée en attente.</p>')
+        t.append("Aucune remontée en attente.")
+
+    # ---- TABLEAU 2 : RECHARGES NON EFFECTUÉES ----
+    h.append(f'<h3 style="color:#c0392b;margin-top:18px">2️⃣ Recharges non effectuées ({len(rec)})</h3>')
+    t.append("")
+    t.append(f"== 2) RECHARGES NON EFFECTUÉES ({len(rec)}) ==")
+    if rec:
+        rows = ''
+        for a in rec:
+            rows += (f"<tr><td style='padding:5px 8px'>{a['agence']}</td>"
+                     f"<td style='padding:5px 8px'>{a['canal']}</td>"
+                     f"<td style='padding:5px 8px'>{a['cible']}</td>"
+                     f"<td style='padding:5px 8px'>{a['detail'] or '—'}</td>"
+                     f"<td style='padding:5px 8px'>{a['echeance']}</td>"
+                     f"<td style='padding:5px 8px'>{_rj(a['retard'])}</td>"
+                     f"<td style='padding:5px 8px;text-align:right'>{(_m(a['montant'])+' F') if a['montant'] else '—'}</td></tr>")
+            t.append(f"- [{a['agence']}] {a['canal']} {a['cible']} ({a['detail']}) — échéance {a['echeance']} — retard {_rj(a['retard'])}" + (f" — {_m(a['montant'])} F" if a['montant'] else ''))
+        h.append(_tbl(['Agence', 'Canal', 'Équipement / Véhicule', 'Détail', 'Échéance', 'Retard', 'Montant'], rows))
+    else:
+        h.append('<p style="color:#2e7d32">✅ Toutes les recharges sont à jour.</p>')
+        t.append("Toutes les recharges sont à jour.")
+
+    # ---- TABLEAU 3 : SYNTHÈSE ----
+    h.append('<h3 style="color:#1A7A6D;margin-top:18px">3️⃣ Synthèse</h3>')
+    syn_rows = (
+        f"<tr><td style='padding:6px 8px'>Remontées à traiter</td><td style='padding:6px 8px;text-align:right;font-weight:700'>{len(rem)}</td>"
+        f"<td style='padding:6px 8px;color:#777'>🔴 {urg['urgent']} urgentes · 🟠 {urg['eleve']} élevées · 🟡 {urg['moyen']} moyennes · 🟢 {urg['faible']} faibles</td></tr>"
+        f"<tr><td style='padding:6px 8px'>Recharges internet en retard</td><td style='padding:6px 8px;text-align:right;font-weight:700'>{len(rec_net)}</td>"
+        f"<td style='padding:6px 8px;color:#777'>Montant estimé : {_m(montant_net)} F</td></tr>"
+        f"<tr><td style='padding:6px 8px'>Recharges balises GPS en retard</td><td style='padding:6px 8px;text-align:right;font-weight:700'>{len(rec_gps)}</td>"
+        f"<td style='padding:6px 8px;color:#777'>Véhicules à recharger</td></tr>"
+        f"<tr style='background:#f3f0fa'><td style='padding:6px 8px;font-weight:800'>TOTAL alertes</td><td style='padding:6px 8px;text-align:right;font-weight:800'>{total}</td><td></td></tr>"
+    )
+    h.append(_tbl(['Indicateur', 'Nombre', 'Détail'], syn_rows))
+    t.append("")
+    t.append("== 3) SYNTHÈSE ==")
+    t.append(f"- Remontées à traiter : {len(rem)} (urgentes {urg['urgent']}, élevées {urg['eleve']}, moyennes {urg['moyen']}, faibles {urg['faible']})")
+    t.append(f"- Recharges internet en retard : {len(rec_net)} (≈ {_m(montant_net)} F)")
+    t.append(f"- Recharges balises GPS en retard : {len(rec_gps)}")
+    t.append(f"- TOTAL alertes : {total}")
+
+    h.append('<p style="font-size:11px;color:#888;margin-top:14px">Rapport automatique WannyGest — envoyé chaque vendredi à 14h.</p></div>')
     return '\n'.join(h), '\n'.join(t), total
 
 
-def _alertes_retard_send(force=False):
-    """Construit et envoie le rapport à la direction. Retourne (envoye, total, erreur)."""
-    agg = _alertes_retard_scan_all()
-    html, text, total = _alertes_retard_render(agg)
+def _alertes_send(force=False):
+    """Construit et envoie le rapport hebdomadaire. Retourne (envoye, total, erreur)."""
+    agg = _alertes_scan_all()
+    html, text, total = _alertes_render(agg)
     if total == 0 and not force:
-        return False, 0, None  # rien à signaler
+        return False, 0, None
     to_email = get_notif_config('alertes_retard_email', '') or ALERTES_RETARD_DEFAULT_EMAIL
-    subject = f"⚠️ {total} alerte(s) en retard de traitement — {datetime.now().strftime('%d/%m/%Y')}"
+    subject = f"📋 Rapport hebdomadaire RAMYA — {datetime.now().strftime('%d/%m/%Y')} ({total} alerte(s))"
     ok, err = _send_email_smtp(to_email, subject, text, html=html)
     try:
         from flask import has_request_context as _hrc
-        user_id = session.get('user_id') if _hrc() else None
+        uid = session.get('user_id') if _hrc() else None
     except Exception:
-        user_id = None
+        uid = None
     try:
-        log_activity(user_id or 0, 'Système', 'Alertes',
-                     f"Rapport alertes retard envoyé à {to_email} ({total}) — {'OK' if ok else 'ÉCHEC: '+str(err)}", '')
+        log_activity(uid or 0, 'Système', 'Rapport hebdo',
+                     f"Rapport hebdomadaire envoyé à {to_email} ({total}) — {'OK' if ok else 'ÉCHEC: '+str(err)}", '')
     except Exception:
         pass
     return ok, total, err
 
 
-def _alertes_retard_daily_tick():
-    """Déclenche l'envoi une fois par jour (appelé en before_request, non bloquant)."""
-    today = datetime.now().strftime('%Y-%m-%d')
-    if _alertes_retard_last_check['date'] == today:
+def _alertes_weekly_tick():
+    """Déclenche l'envoi une fois par semaine — vendredi à partir de 14h (rattrapage le week-end)."""
+    now = datetime.now()
+    iso = now.isocalendar()
+    week_key = f"{iso[0]}-W{iso[1]:02d}"
+    if _alertes_retard_last_check['week'] == week_key:
         return
-    _alertes_retard_last_check['date'] = today  # évite les tentatives répétées dans ce process
+    # Vendredi (weekday 4) à partir de 14h, ou rattrapage samedi/dimanche si pas encore envoyé
+    wd = now.weekday()
+    if not ((wd == 4 and now.hour >= 14) or wd in (5, 6)):
+        return
+    _alertes_retard_last_check['week'] = week_key  # évite les tentatives répétées dans ce process
     # Drapeau en base (agence principale) pour éviter les doublons entre workers
     claimed = False
     try:
         from models import set_forced_agency as _sf, clear_forced_agency as _cf
         _sf(1)
         c = _gdb()
-        row = c.execute("SELECT value FROM app_settings WHERE key='alertes_retard_report_date'").fetchone()
-        if not row or row[0] != today:
-            c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('alertes_retard_report_date', ?, datetime('now'))", (today,))
+        row = c.execute("SELECT value FROM app_settings WHERE key='alertes_retard_report_week'").fetchone()
+        if not row or row[0] != week_key:
+            c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('alertes_retard_report_week', ?, datetime('now'))", (week_key,))
             c.commit()
             claimed = True
         c.close()
@@ -50643,13 +50724,13 @@ def _alertes_retard_daily_tick():
         except Exception: pass
     if not claimed:
         return
-    # Envoi en arrière-plan pour ne pas bloquer la requête utilisateur
+
     def _bg():
         try:
-            sent, total, err = _alertes_retard_send()
-            print(f"[v198] Rapport alertes retard : {total} alerte(s), envoyé={sent}" + (f", err={err}" if err else ""), flush=True)
+            sent, total, err = _alertes_send(force=True)  # rapport hebdo envoyé même si RAS
+            print(f"[v199] Rapport hebdo : {total} alerte(s), envoyé={sent}" + (f", err={err}" if err else ""), flush=True)
         except Exception as _e:
-            print(f"[v198] err rapport alertes : {_e}", flush=True)
+            print(f"[v199] err rapport hebdo : {_e}", flush=True)
     try:
         import threading
         threading.Thread(target=_bg, daemon=True).start()
@@ -50658,17 +50739,17 @@ def _alertes_retard_daily_tick():
 
 
 @app.before_request
-def _alertes_retard_before_request():
+def _alertes_weekly_before_request():
     try:
-        _alertes_retard_daily_tick()
+        _alertes_weekly_tick()
     except Exception:
         pass
 
 
 @app.route('/cron/alertes-retard')
 def cron_alertes_retard():
-    """Déclenche manuellement le rapport (admin connecté OU clé ?key=).
-    ?force=1 pour envoyer même sans retard ; ?dry=1 pour seulement compter sans envoyer."""
+    """Déclenche manuellement le rapport hebdomadaire (admin connecté OU clé ?key=).
+    ?force=1 pour envoyer même si RAS ; ?dry=1 pour seulement compter sans envoyer."""
     user = get_user_by_id(session['user_id']) if session.get('user_id') else None
     is_admin = bool(user and user.get('role') == 'admin')
     key_ok = False
@@ -50678,10 +50759,9 @@ def cron_alertes_retard():
     if not (is_admin or key_ok):
         return ("Accès refusé", 403)
     if request.args.get('dry') == '1':
-        agg = _alertes_retard_scan_all()
-        _, _, total = _alertes_retard_render(agg)
-        return jsonify({'total': total, 'pointage': len(agg['pointage']),
-                        'recharge': len(agg['recharge']), 'tracking': len(agg['tracking'])})
-    sent, total, err = _alertes_retard_send(force=(request.args.get('force') == '1'))
+        agg = _alertes_scan_all()
+        _, _, total = _alertes_render(agg)
+        return jsonify({'total': total, 'remontees': len(agg['remontees']), 'recharges': len(agg['recharges'])})
+    sent, total, err = _alertes_send(force=(request.args.get('force') == '1'))
     return jsonify({'envoye': bool(sent), 'total': total, 'erreur': err,
                     'destinataire': get_notif_config('alertes_retard_email', '') or ALERTES_RETARD_DEFAULT_EMAIL})
