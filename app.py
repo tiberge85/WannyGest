@@ -50678,7 +50678,9 @@ def _alertes_send(force=False):
     html, text, total = _alertes_render(agg)
     if total == 0 and not force:
         return False, 0, None
-    to_email = get_notif_config('alertes_retard_email', '') or ALERTES_RETARD_DEFAULT_EMAIL
+    # v199b : destinataire UNIQUE — direction@ramyaci.tech. On ignore toute liste/adresse
+    # multiple éventuelle et on n'ajoute AUCUN autre destinataire (pas de Cc/Bcc).
+    to_email = ALERTES_RETARD_DEFAULT_EMAIL
     subject = f"📋 Rapport hebdomadaire RAMYA — {datetime.now().strftime('%d/%m/%Y')} ({total} alerte(s))"
     ok, err = _send_email_smtp(to_email, subject, text, html=html)
     try:
