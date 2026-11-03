@@ -6558,9 +6558,18 @@ def _proforma_audit(did, limit=50):
     except Exception:
         return []
 
+def _cost_key(s):
+    """v200b : clé de rapprochement normalisée (minuscules, sans accents, espaces/ponctuation compactés)."""
+    try:
+        return _norm_txt(s)
+    except Exception:
+        return ' '.join(str(s or '').strip().lower().split())
+
+
 def _catalog_cost_map():
-    """Coût d'achat unitaire du catalogue, indexé par référence ET par désignation (minuscules).
-    Le coût = mg_stock_articles.prix_unitaire."""
+    """Coût d'achat unitaire du catalogue, indexé par référence ET par désignation (normalisées).
+    Le coût = mg_stock_articles.prix_unitaire. v200b : clés normalisées (accents/espaces/casse
+    ignorés) pour que davantage de lignes du devis soient reconnues et chiffrées."""
     ref_map, des_map = {}, {}
     try:
         conn = _gdb()
@@ -6569,9 +6578,9 @@ def _catalog_cost_map():
         for r in rows:
             pu = float(r['pu'] or 0)
             if r['reference']:
-                ref_map[str(r['reference']).strip().lower()] = pu
+                ref_map[_cost_key(r['reference'])] = pu
             if r['designation']:
-                des_map[str(r['designation']).strip().lower()] = pu
+                des_map[_cost_key(r['designation'])] = pu
     except Exception:
         pass
     return ref_map, des_map
@@ -6592,15 +6601,18 @@ def _parse_items(raw):
     return []
 
 def _catalog_cost_for(line, ref_map, des_map):
-    """Coût catalogue d'une ligne : par 'detail' (souvent la réf) puis par désignation. None si introuvable."""
-    det = str(line.get('detail') or '').strip().lower()
-    des = str(line.get('designation') or '').strip().lower()
+    """Coût catalogue d'une ligne : par 'detail' (souvent la réf) puis par désignation.
+    v200b : rapprochement normalisé (accents/espaces/casse ignorés). None si introuvable."""
+    det = _cost_key(line.get('detail'))
+    des = _cost_key(line.get('designation'))
     if det and det in ref_map:
         return ref_map[det]
     if des and des in des_map:
         return des_map[des]
     if det and det in des_map:
         return des_map[det]
+    if des and des in ref_map:
+        return ref_map[des]
     return None
 
 def _to_float(v, d=0.0):
