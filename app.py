@@ -4367,7 +4367,9 @@ def notify_user(user_id, title, message, link=None, type='info', module=None,
     if module and not force and not is_module_notif_enabled(module):
         return None
     if channels is None:
-        channels = ('internal', 'push', 'email', 'whatsapp')
+        # v200 : par défaut, une notification reste INTERNE (+ push). Plus d'email automatique
+        # à chaque notification — la direction ne doit recevoir QUE le rapport hebdomadaire.
+        channels = ('internal', 'push')
     
     conn = _gdb()
     # 1. Notification interne (toujours créée)
@@ -4437,7 +4439,11 @@ def notify_user(user_id, title, message, link=None, type='info', module=None,
         else: _outbox_mark_failed('push', err)
     
     # EMAIL
-    if 'email' in channels and (force or prefs.get('email', True)) and user_email:
+    # v200 : interrupteur maître — l'email sur notification est DÉSACTIVÉ par défaut
+    # (évite l'envoi d'un mail à chaque notification pour tous les utilisateurs).
+    # Réactivable au besoin via le réglage 'notif_email_enabled' = '1'.
+    _notif_email_on = (get_notif_config('notif_email_enabled', '0') == '1')
+    if _notif_email_on and 'email' in channels and (force or prefs.get('email', True)) and user_email:
         _outbox_add('email', user_email, title, message)
         body_text = f"{message}\n\n"
         if link:
@@ -49974,8 +49980,14 @@ def _rap_email_report(rid, ag=None):
         body = "\n".join(lines)
         html = "<pre style='font-family:Arial,sans-serif;font-size:13px;white-space:pre-wrap'>" + \
                (body.replace('&', '&amp;').replace('<', '&lt;')) + "</pre>"
+        # v199c : la DIRECTION ne reçoit QUE le rapport HEBDOMADAIRE (vendredi).
+        # Les rapports JOURNALIERS (lun→jeu) ne lui sont plus envoyés (ils restent
+        # consultables dans le logiciel et continuent de partir aux autres destinataires, ex. admin@).
+        _recipients = _rap_emails()
+        if r.get('report_type') != 'weekly':
+            _recipients = [e for e in _recipients if not e.strip().lower().startswith('direction@')]
         ok_any = False
-        for to in _rap_emails():
+        for to in _recipients:
             ok, _err = _send_email_smtp(to, subject, body, html)
             ok_any = ok_any or ok
         if ok_any:
