@@ -36883,8 +36883,9 @@ def caisse_sortie():
     user_dept = user.get('department') if user else None
     
     # v190 : Seuls la comptable et les admin voient l'INTÉGRALITÉ des sorties/demandes de caisse.
+    # v201 : la CAISSIÈRE voit aussi toutes les demandes émises (pour apposer sa signature « Caisse »).
     # Tous les autres utilisateurs ne voient que LEURS PROPRES demandes (suivi de leur évolution).
-    roles_voient_tout = ('admin', 'comptable', 'comptabilite')
+    roles_voient_tout = ('admin', 'comptable', 'comptabilite', 'caissiere')
     voit_tout = user_role in roles_voient_tout
 
     # Filtrer : tout (comptable/admin) OU uniquement les demandes de l'utilisateur
@@ -37016,6 +37017,16 @@ def caisse_demande():
                      f"💰 Demande sortie caisse — {montant:,.0f} F",
                      f"{ref} · {request.form['beneficiaire']} · {request.form.get('motif','')[:50]}",
                      "/caisse-sortie"))
+        except: pass
+        # v201 : notifier la CAISSIÈRE (et la comptabilité) — signature « Caisse » à apposer en premier
+        try:
+            for u in conn.execute("SELECT id FROM users WHERE role IN ('caissiere','comptable','comptabilite') AND is_active=1").fetchall():
+                conn.execute("""INSERT INTO notifications (user_id, type, title, message, link)
+                    VALUES (?,?,?,?,?)""",
+                    (u['id'], 'caisse_demande',
+                     f"✍️ Sortie caisse à signer — {montant:,.0f} F",
+                     f"{ref} · {request.form['beneficiaire']} · {request.form.get('motif','')[:50]} — signature « Caisse » requise.",
+                     "/caisse-sortie?status=en_attente"))
         except: pass
         conn.commit(); conn.close()
         log_activity(session['user_id'], user['full_name'] if user else '?',
@@ -37526,7 +37537,8 @@ def caisse_signer(sid):
     # Caisse RÉSERVÉE strictement à la comptabilité (plus de RH/DG en secours)
     allowed_roles_by_sig = {
         'beneficiaire': None,  # Tout le monde
-        'caisse': ('admin', 'comptable', 'comptabilite', 'tresorerie'),
+        # v201 : la CAISSIÈRE peut apposer la signature de contrôle « Caisse »
+        'caisse': ('admin', 'comptable', 'comptabilite', 'tresorerie', 'caissiere'),
         'autorisation': ('admin', 'dg', 'directeur', 'rh'),
     }
     
@@ -37539,7 +37551,7 @@ def caisse_signer(sid):
         if sig_type == 'autorisation':
             flash(f"⚠️ La signature « Autorisation » est réservée au DG, au directeur, à la RH ou à l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
         elif sig_type == 'caisse':
-            flash(f"⚠️ La signature « Caisse » est réservée à la comptabilité, la trésorerie ou l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
+            flash(f"⚠️ La signature « Caisse » est réservée à la caissière, la comptabilité, la trésorerie ou l'admin. Votre rôle ({user['role']}) ne permet pas cette action.", "error")
         else:
             flash(f"⚠️ Vous n'êtes pas autorisé à apposer cette signature ({user['role']})", "error")
         return redirect(f'/caisse-sortie/{sid}/preview')

@@ -85,8 +85,8 @@
                 <img src="{{ s.sig_caisse }}" alt="Signature caisse">
                 <div style="font-size:10px;color:#2e7d32;margin-top:4px">✅ Signé</div>
             {% else %}
-                {# v117 : signature caisse RÉSERVÉE strictement à la comptabilité (plus de DG/RH secours) #}
-                {% if current_user.role in ('admin','comptable','comptabilite','tresorerie') %}
+                {# v117 : signature caisse (caissière / comptabilité / trésorerie) — v201 : caissière ajoutée #}
+                {% if current_user.role in ('admin','comptable','comptabilite','tresorerie','caissiere') %}
                 <canvas class="sig-canvas" id="sigCaisse"></canvas>
                 <div class="sig-actions">
                     <button class="btn btn-outline btn-sm" style="font-size:10px" onclick="clearCanvas('sigCaisse')">Effacer</button>
