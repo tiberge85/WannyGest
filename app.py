@@ -5160,6 +5160,48 @@ except Exception as _e:
     print(f"[v198c-Cols] Erreur : {_e}", flush=True)
 
 
+# v200c : PÉRIMÈTRE DES PERMISSIONS DE LA CAISSIÈRE remis au set recommandé (1 fois / agence).
+#   Coche l'essentiel + utile (encaissement, caisse en lecture, créances, factures, CRM, pointage),
+#   décoche le superflu (technique/roadmap, validation des achats MG), et garantit l'ABSENCE des
+#   droits interdits (décaissement, admin, gestion/purge des caisses) — séparation des tâches.
+#   Flag « v200c_caissiere_perms » → ne tourne qu'une fois, puis respecte les réglages manuels.
+_CAISSIERE_ALLOW = [
+    'caissiere_view', 'caissiere_validate', 'section_caissiere',
+    'tresorerie', 'section_tresorerie',
+    'comptabilite', 'section_compta', 'creances_view', 'creances_edit', 'facture_edit',
+    'clients', 'proforma', 'section_crm', 'prestataires_view',
+    'dashboard', 'dashboard_general', 'pointage', 'pointage_view', 'section_calendrier',
+]
+try:
+    from models import (get_db as _v200cdb, list_agencies as _v200clist,
+                        set_forced_agency as _v200cset, clear_forced_agency as _v200cclear)
+    try: _ags200c = _v200clist() or [{'id': 1}]
+    except Exception: _ags200c = [{'id': 1}]
+    _n200c = 0
+    for _ag in _ags200c:
+        try:
+            _v200cset(_ag.get('id', 1))
+            _c = _v200cdb()
+            _f = _c.execute("SELECT value FROM app_settings WHERE key='v200c_caissiere_perms'").fetchone()
+            if not _f:
+                _c.execute("DELETE FROM permissions WHERE role='caissiere'")
+                for _p in _CAISSIERE_ALLOW:
+                    try: _c.execute("INSERT OR IGNORE INTO permissions (role, permission) VALUES ('caissiere', ?)", (_p,))
+                    except Exception: pass
+                _c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v200c_caissiere_perms','1',datetime('now'))")
+                _c.commit(); _n200c += 1
+            _c.close()
+        except Exception:
+            pass
+        finally:
+            try: _v200cclear()
+            except Exception: pass
+    if _n200c:
+        print(f"[v200c-Perms] Permissions caissière réglées sur {_n200c} agence(s)", flush=True)
+except Exception as _e:
+    print(f"[v200c-Perms] Erreur : {_e}", flush=True)
+
+
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
