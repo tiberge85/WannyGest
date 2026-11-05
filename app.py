@@ -37258,8 +37258,8 @@ def caisse_comptabiliser(sid):
     user = get_user_by_id(session['user_id'])
     # v197c : la COMPTABILITÉ ne décaisse plus (retirée à la demande de la direction).
     # Le décaissement est réservé à : trésorerie, DG, directeur, RH, admin.
-    if not user or user['role'] not in ('admin', 'tresorerie', 'dg', 'directeur', 'rh'):
-        flash("⚠️ Seuls la trésorerie, le DG, le directeur, la RH ou l'admin peuvent décaisser une sortie", "error")
+    if not user or user['role'] not in ('admin', 'caissiere', 'tresorerie', 'dg', 'directeur', 'rh'):
+        flash("⚠️ Seuls la caissière, la trésorerie, le DG, le directeur, la RH ou l'admin peuvent décaisser une sortie", "error")
         return redirect(url_for('caisse_sortie'))
 
     conn = get_db()
@@ -37372,7 +37372,7 @@ def caisse_comptabiliser(sid):
         except Exception: pass
 
     conn.commit(); conn.close()
-    label = 'comptable' if user['role'] in ('comptable','comptabilite','tresorerie') else ('DG' if user['role'] in ('dg','directeur') else ('RH' if user['role']=='rh' else 'Admin'))
+    label = 'Caissière' if user['role']=='caissiere' else ('comptable' if user['role'] in ('comptable','comptabilite','tresorerie') else ('DG' if user['role'] in ('dg','directeur') else ('RH' if user['role']=='rh' else 'Admin')))
     if is_full:
         flash(f"✅ Décaissement TOTAL effectué par {label} ({user['full_name']}) — {new_paid:,.0f} F. Solde caisse, journal et écriture mis à jour.", "success")
     else:
@@ -37391,8 +37391,8 @@ def caisse_refuser_compta(sid):
     v197c : réservé à : tresorerie, admin, DG, directeur, RH (la comptabilité n'intervient plus au décaissement)."""
     from models import get_db, recompute_budget_spent
     user = get_user_by_id(session['user_id'])
-    if not user or user['role'] not in ('admin', 'tresorerie', 'dg', 'directeur', 'rh'):
-        flash("⚠️ Seul la trésorerie, le DG, le directeur, la RH ou l'admin peut refuser une sortie", "error")
+    if not user or user['role'] not in ('admin', 'caissiere', 'tresorerie', 'dg', 'directeur', 'rh'):
+        flash("⚠️ Seul la caissière, la trésorerie, le DG, le directeur, la RH ou l'admin peut refuser une sortie", "error")
         return redirect(url_for('caisse_sortie'))
     motif = (request.form.get('motif', '') or '').strip()
     if not motif or len(motif) < 5:
@@ -37429,7 +37429,7 @@ def caisse_refuser_compta(sid):
     try: conn.execute("ALTER TABLE caisse_sorties ADD COLUMN comptabilise_par TEXT")
     except: pass
     
-    role_label = 'Comptable' if user['role'] in ('comptable','comptabilite','tresorerie') else ('DG' if user['role'] in ('dg','directeur') else ('RH' if user['role']=='rh' else 'Admin'))
+    role_label = 'Caissière' if user['role']=='caissiere' else ('Comptable' if user['role'] in ('comptable','comptabilite','tresorerie') else ('DG' if user['role'] in ('dg','directeur') else ('RH' if user['role']=='rh' else 'Admin')))
     conn.execute("""UPDATE caisse_sorties SET 
         status='refuse', 
         refus_motif=?,

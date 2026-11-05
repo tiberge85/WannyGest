@@ -157,7 +157,7 @@
         
         {% if not s.comptabilise %}
             {# v116 : Décaissement accessible à comptable, comptabilité, trésorerie, DG, directeur, RH, admin #}
-            {% if current_user.role in ('admin','tresorerie','dg','directeur','rh') %}
+            {% if current_user.role in ('admin','caissiere','tresorerie','dg','directeur','rh') %}
             <div style="margin-top:12px;padding-top:12px;border-top:1px dashed #2e7d32">
                 <div style="font-size:13px;color:#1a3a5c;margin-bottom:8px"><strong>💰 Décaissement</strong>
                     {% if current_user.role in ('dg','directeur','rh') %}
