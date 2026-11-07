@@ -234,6 +234,9 @@ def update_agency(aid, nom=None, code=None, adresse=None, telephone=None, email=
     c.commit(); c.close()
     _AGENCY_PATH_CACHE.pop(aid, None)
 
+LAST_GENERATED_ADMIN_PASSWORD = None  # renseigné par init_db() quand il crée le compte admin
+
+
 def init_db():
     """Crée les tables si elles n'existent pas."""
     conn = get_db()
@@ -449,10 +452,20 @@ def init_db():
         except: pass
     
     # Créer admin par défaut si aucun utilisateur
+    # SÉCURITÉ (audit 2026-11) : l'ancien mot de passe fixe était public (dépôt GitHub public)
+    # et redonné à chaque nouvelle agence. Désormais : INITIAL_ADMIN_PASSWORD si défini,
+    # sinon un mot de passe aléatoire, affiché une seule fois (logs + message à la création
+    # d'agence via LAST_GENERATED_ADMIN_PASSWORD).
+    global LAST_GENERATED_ADMIN_PASSWORD
     cursor = conn.execute("SELECT COUNT(*) as cnt FROM users")
     if cursor.fetchone()['cnt'] == 0:
         salt = secrets.token_hex(16)
-        pwd_hash = hash_password('admin2026', salt)
+        initial_pwd = os.environ.get('INITIAL_ADMIN_PASSWORD') or secrets.token_urlsafe(12)
+        LAST_GENERATED_ADMIN_PASSWORD = initial_pwd
+        if not os.environ.get('INITIAL_ADMIN_PASSWORD'):
+            print(f"[init_db] Compte 'admin' créé avec le mot de passe initial : {initial_pwd} "
+                  f"(à changer dès la première connexion)", flush=True)
+        pwd_hash = hash_password(initial_pwd, salt)
         conn.execute("""
             INSERT INTO users (username, email, password_hash, salt, full_name, role)
             VALUES (?, ?, ?, ?, ?, ?)

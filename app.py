@@ -66,6 +66,23 @@ if _SENTRY_DSN:
         print(f"[Sentry] init échouée (ignorée): {_se}")
 
 app = Flask(__name__, template_folder=BASE_DIR, static_folder=BASE_DIR, static_url_path='/static')
+
+# SÉCURITÉ (audit 2026-11) : static_folder=BASE_DIR publiait TOUT le dossier de l'application
+# (app.py, models.py, data/ramya.db, backups/, uploads/, .git/). On ne sert désormais sous
+# /static/ que des fichiers d'images/polices/CSS/JS situés à la RACINE (pas de sous-dossier).
+# Ce hook est enregistré en premier : il passe avant tous les autres before_request.
+_STATIC_ALLOWED_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico',
+                       '.css', '.js', '.woff', '.woff2', '.ttf'}
+
+@app.before_request
+def _guard_static_files():
+    if request.endpoint != 'static':
+        return
+    fname = (request.view_args or {}).get('filename', '') or ''
+    low = fname.lower()
+    if ('/' in low or '\\' in low or low.startswith('.') or '..' in low
+            or os.path.splitext(low)[1] not in _STATIC_ALLOWED_EXT):
+        abort(404)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 8  # 8 heures
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 Mo
@@ -5286,9 +5303,31 @@ def _rh_bypass(user, perm):
     }
     if perm in ADMIN_ONLY_HARD_PERMS:
         return False
-    
-    # RH (détectée par rôle ou département) → bypass total
+
+    # SÉCURITÉ (audit 2026-11) : le bypass RH donnait aussi la permission 'admin', donc la
+    # gestion des comptes (changer le rôle / mot de passe de n'importe qui, y compris l'admin),
+    # la matrice des permissions, les sauvegardes complètes de la base et la remise à zéro.
+    # Comme la RH est aussi détectée par DÉPARTEMENT, toute personne rangée dans le
+    # département « RH » devenait administrateur. Sur ces routes, la RH passe désormais par
+    # les permissions normales de son rôle (ex. users_manage, avec les garde-fous v192).
+    try:
+        if request.endpoint in _RH_NO_BYPASS_ENDPOINTS:
+            return False
+    except RuntimeError:
+        pass  # hors contexte de requête
+
+    # RH (détectée par rôle ou département) → bypass sur le reste
     return True
+
+
+# Routes d'administration où le bypass RH ne s'applique JAMAIS (voir _rh_bypass).
+_RH_NO_BYPASS_ENDPOINTS = {
+    'admin_add_user', 'admin_edit_user', 'admin_toggle_user', 'admin_delete_user',
+    'admin_permissions', 'admin_reset', 'admin_smtp_save', 'admin_security_logs',
+    'admin_backup', 'admin_backup_download', 'admin_backup_list',
+    'admin_backup_inspect_caisses', 'admin_backup_restore_caisse_to_trash',
+    'admin_module_toggle', 'admin_modules_reset', 'admin_switch_agency',
+}
 
 
 def permission_required(perm):
@@ -7083,7 +7122,13 @@ def login():
             sel_agency = 1
         if sel_agency not in {a['id'] for a in agences}:
             sel_agency = 1
-        session['agency_id'] = sel_agency
+        # SÉCURITÉ (audit 2026-11) : toute tentative de connexion repart d'une session VIDE.
+        # Avant, agency_id était écrit dans la session courante avant la vérification du mot
+        # de passe, et un échec ne la vidait pas : un utilisateur connecté de l'agence B qui
+        # postait /login avec agency_id=A et un faux mot de passe devenait l'utilisateur de
+        # même user_id dans la base de A (souvent l'admin, id 1).
+        session.clear()
+        session['agency_id'] = sel_agency  # nécessaire pour router authenticate_user vers SA base
 
         # Rate limiting par IP (anti brute-force distribué)
         if not _check_login_rate_limit(ip):
@@ -7131,6 +7176,12 @@ def login():
         if cu:
             cu = dict(cu)
             ph = hashlib.sha256((request.form['password'] + (cu.get('salt','') or '')).encode()).hexdigest()
+            # SÉCURITÉ (audit 2026-11) : /login ne vérifiait pas account_status — un compte client
+            # « en attente » ou « refusé » pouvait se connecter ici (seul /portail/login vérifiait).
+            if ph == cu['password_hash'] and (cu.get('account_status') or 'approved') != 'approved':
+                conn.close()
+                flash("⏳ Ce compte client n'est pas (encore) validé par l'administrateur.", "warning")
+                return render_template('login.html', agences=agences)
             if ph == cu['password_hash']:
                 _record_login_attempt(ip, True)
                 session.clear()
@@ -14703,7 +14754,24 @@ def rh_paie_status(pid, status):
     
     user = get_user_by_id(session['user_id'])
     uname = user['full_name'] if user else '?'
-    
+
+    # SÉCURITÉ (audit 2026-11) : n'importe quel connecté pouvait changer le statut d'un bulletin
+    # (ex. le passer en « valide_compta » sans la comptabilité, ou en « envoye »).
+    #  - en_attente_compta / envoye : côté RH (gestion des bulletins)
+    #  - valide_compta : comptabilité UNIQUEMENT (permissions réelles du rôle, sans bypass RH,
+    #    pour garder la séparation RH ↔ compta)
+    #  - brouillon (rejet / retour) : RH ou comptabilité
+    _role_perms = set(get_role_permissions(user['role'])) if user else set()
+    _is_admin = bool(user) and user['role'] == 'admin'
+    _rh_side = _is_admin or bool(_role_perms & {'payslips', 'payslips_edit', 'fichiers', 'admin'}) \
+        or _rh_bypass(user, 'payslips_edit')
+    _compta_side = _is_admin or bool(_role_perms & {'comptabilite', 'comptabilite_edit', 'compta_pro'})
+    _allowed = {'en_attente_compta': _rh_side, 'envoye': _rh_side,
+                'valide_compta': _compta_side, 'brouillon': _rh_side or _compta_side}[status]
+    if not _allowed:
+        flash("Accès non autorisé pour ce changement de statut.", "error")
+        return redirect('/dashboard')
+
     update_payslip(pid, status=status)
     if status == 'envoye':
         # v194c : passer un bulletin en « Envoyé » le publie aussi dans l'espace « Mes bulletins »
@@ -15303,7 +15371,23 @@ def concierge_reservation_delete(rid):
 def rh_paie_sign(pid):
     p = get_payslip_detail_v2(pid)
     if not p: flash("Non trouvé","error"); return redirect('/notifications')
-    
+
+    # SÉCURITÉ (audit 2026-11) : la route n'avait que @login_required → tout employé pouvait
+    # afficher le bulletin (nom, poste, net à payer) de n'importe qui en énumérant pid, et
+    # signer / écraser la signature d'un autre. Désormais : seul le titulaire signe ; le
+    # personnel RH/compta peut seulement consulter.
+    _u = get_user_by_id(session['user_id'])
+    _perms = get_role_permissions(_u['role']) if _u else []
+    _conn = _gdb()
+    _emp_id = _my_employee_id(_conn, _u) if _u else None
+    _conn.close()
+    _is_owner = _emp_id is not None and _emp_id == p.get('employee_id')
+    if not _is_owner and not _payslip_is_staff(_perms) and not (_u and _u['role'] == 'admin'):
+        flash("Accès non autorisé", "error"); return redirect('/dashboard')
+    if request.method == 'POST' and not _is_owner:
+        flash("Seul le titulaire du bulletin peut le signer.", "error")
+        return redirect('/notifications')
+
     if request.method == 'POST':
         sig_data = request.form.get('signature','')
         if sig_data and len(sig_data) > 50:
@@ -15483,6 +15567,10 @@ def portail_login():
                 flash(f"❌ Votre demande d'inscription a été refusée. {('Motif : ' + reason) if reason else 'Contactez l''administrateur.'}", "error")
                 return redirect('/portail')
             # approved → login OK
+            _aid = session.get('agency_id')
+            session.clear()  # SÉCURITÉ (audit 2026-11) : pas de mélange avec une session existante
+            if _aid:
+                session['agency_id'] = _aid
             session['client_user_id'] = cu['id']
             session['client_id'] = cu['client_id']
             session['client_name'] = cu['full_name']
@@ -15504,6 +15592,22 @@ def portail_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if 'client_user_id' not in session:
+            return redirect('/portail')
+        # SÉCURITÉ (audit 2026-11) : un compte désactivé, refusé ou non approuvé perd l'accès
+        # immédiatement (avant, seule la présence de la clé en session était vérifiée).
+        try:
+            _c = _gdb()
+            _cu = _c.execute("SELECT is_active, account_status, client_id FROM client_users WHERE id=?",
+                             (session['client_user_id'],)).fetchone()
+            _c.close()
+        except Exception:
+            _cu = None
+        if (not _cu or not _cu['is_active']
+                or (_cu['account_status'] or 'approved') != 'approved'
+                or _cu['client_id'] != session.get('client_id')):
+            for _k in ('client_user_id', 'client_id', 'client_name'):
+                session.pop(_k, None)
+            flash("Votre accès au portail n'est pas (ou plus) actif.", "warning")
             return redirect('/portail')
         return f(*args, **kwargs)
     return decorated
@@ -16111,7 +16215,7 @@ def admin_client_user_approve(cuid):
     cu = dict(cu)
     now_iso = datetime.now().isoformat()
     try:
-        conn.execute("""UPDATE client_users SET account_status='approved',
+        conn.execute("""UPDATE client_users SET account_status='approved', is_active=1,
                         approved_by=?, approved_at=?, reject_reason='' WHERE id=?""",
                      (session['user_id'], now_iso, cuid))
     except: pass
@@ -16130,7 +16234,7 @@ def admin_client_user_reject(cuid):
     cu = conn.execute("SELECT username, full_name, client_id FROM client_users WHERE id=?", (cuid,)).fetchone()
     if not cu: flash("Compte introuvable", "error"); conn.close(); return redirect('/admin/client-users/pending')
     try:
-        conn.execute("UPDATE client_users SET account_status='rejected', reject_reason=? WHERE id=?",
+        conn.execute("UPDATE client_users SET account_status='rejected', is_active=0, reject_reason=? WHERE id=?",
                      (reason, cuid))
     except: pass
     conn.commit(); conn.close()
@@ -16219,7 +16323,14 @@ def portail_register():
             conn.close(); return redirect('/portail/register')
         
         # Create or find client
-        client = conn.execute("SELECT id FROM clients WHERE name=? OR email=?", (company, email)).fetchone()
+        # SÉCURITÉ (audit 2026-11) : avec un email vide, « email=? » tombait sur n'importe quel
+        # client sans email. Le rattachement reste soumis à l'approbation de l'admin, qui voit
+        # le nom du client rattaché dans /admin/client-users/pending.
+        if email:
+            client = conn.execute("SELECT id FROM clients WHERE name=? OR (email<>'' AND email=?)",
+                                  (company, email)).fetchone()
+        else:
+            client = conn.execute("SELECT id FROM clients WHERE name=?", (company,)).fetchone()
         if client:
             client_id = client['id']
         else:
@@ -39709,8 +39820,17 @@ def super_admin_agences_create():
     telephone = request.form.get('telephone', '').strip()
     email = request.form.get('email', '').strip()
     try:
+        import models as _models_mod
+        _models_mod.LAST_GENERATED_ADMIN_PASSWORD = None
         aid = create_agency(nom, code, adresse, telephone, email)
-        flash(f"✅ Agence « {nom} » créée : base dédiée initialisée, compte admin par défaut « admin / admin2026 ».", "success")
+        _pwd = _models_mod.LAST_GENERATED_ADMIN_PASSWORD
+        _models_mod.LAST_GENERATED_ADMIN_PASSWORD = None
+        if _pwd:
+            flash(f"✅ Agence « {nom} » créée : base dédiée initialisée. Compte « admin », mot de passe "
+                  f"initial : {_pwd} — notez-le maintenant (il ne sera plus affiché) et changez-le "
+                  f"dès la première connexion.", "success")
+        else:
+            flash(f"✅ Agence « {nom} » créée : base dédiée initialisée.", "success")
     except Exception as e:
         flash(f"❌ Impossible de créer l'agence : {e}", "error")
     return redirect(url_for('super_admin_agences'))

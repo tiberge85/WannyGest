@@ -49,8 +49,11 @@
         </div>
     </div>
     
-    <div style="font-size:14px;color:#333;line-height:1.7;margin-top:14px;padding:14px;background:#fafbfc;border-radius:10px;border-left:4px solid #1A7A6D">
-        {% if notif.message %}{{ notif.message|replace('\n', '<br>')|safe }}{% else %}Pas de contenu{% endif %}
+    {# SÉCURITÉ (audit 2026-11) : plus de |safe — le message contient des saisies utilisateur
+       (ex. nom d'entreprise de /portail/register, sans compte) → XSS chez l'admin.
+       Les retours à la ligne sont rendus par white-space:pre-line. #}
+    <div style="font-size:14px;color:#333;line-height:1.7;margin-top:14px;padding:14px;background:#fafbfc;border-radius:10px;border-left:4px solid #1A7A6D;white-space:pre-line">
+        {% if notif.message %}{{ notif.message }}{% else %}Pas de contenu{% endif %}
     </div>
     
     {% if notif.link %}

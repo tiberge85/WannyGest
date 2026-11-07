@@ -2,6 +2,9 @@ import os, tempfile, sys
 sys.path.insert(0, 'os.path.dirname(os.path.abspath(__file__))')
 tmp = tempfile.mkdtemp(prefix="wg_p3_")
 os.environ['PERSISTENT_DIR'] = tmp
+# Depuis l'audit sécurité 2026-11, le mot de passe admin initial n'est plus fixe :
+# on le fixe ici via INITIAL_ADMIN_PASSWORD pour ce test.
+os.environ['INITIAL_ADMIN_PASSWORD'] = 'admin2026'
 import app as A
 import models
 
