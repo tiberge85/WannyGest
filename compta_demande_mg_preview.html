@@ -111,15 +111,22 @@
         {% endif %}
         
         <!-- Action Compta -->
-        {% if demande.compta_status == 'a_valider' %}
+        {# v201c : le formulaire reste accessible sur une demande PARTIELLEMENT réglée pour payer le solde #}
+        {% if demande.compta_status in ('a_valider', 'partiel') %}
         <div class="card" style="border:3px solid #e8672a">
             <div class="card-header" style="background:#e8672a;color:#fff">
-                <h3 style="margin:0;color:#fff;font-size:14px">💰 Décision Comptabilité</h3>
+                <h3 style="margin:0;color:#fff;font-size:14px">💰 Décision Comptabilité{% if demande.compta_status == 'partiel' %} — Régler le solde restant{% endif %}</h3>
             </div>
             <div class="card-body">
+                {% if demande.compta_status == 'partiel' %}
+                <p style="font-size:13px;color:#b8561f;margin-bottom:14px;background:#fff3e0;border:1px solid #f0c987;border-radius:6px;padding:8px 10px">
+                    🟠 Demande <strong>partiellement réglée</strong>. Déjà payé : <strong>{{ '{:,.0f}'.format(demande.montant_paye or 0).replace(',', ' ') }} F</strong> — reste à payer : <strong>{{ '{:,.0f}'.format(demande.montant_restant or 0).replace(',', ' ') }} F</strong>. Choisissez « Valider » pour régler le solde (total ou nouveau partiel).
+                </p>
+                {% else %}
                 <p style="font-size:13px;color:#666;margin-bottom:14px">
                     En tant que comptable, vous devez <strong>valider</strong> ou <strong>refuser</strong> cette demande budgétairement.
                 </p>
+                {% endif %}
                 <form method="post" action="/comptabilite/demandes-mg/{{ demande.id }}/decision">
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
                         <label style="background:#2e7d32;color:#fff;padding:14px;border-radius:8px;cursor:pointer;text-align:center;font-weight:700">
