@@ -1421,6 +1421,7 @@ function toggleDetail() {
 {% elif page == 'caisses' %}
 <div class="page-header"><h1>💰 Multi-caisses</h1>
 <div style="display:flex;gap:6px;flex-wrap:wrap">
+<a href="/comptabilite/caisses/reconciliation" class="btn btn-outline btn-sm" style="background:#fff3e0;color:#b8561f;border-color:#e8672a">⚖️ Réconciliation (écarts)</a>
 <a href="/comptabilite/virements" class="btn btn-outline btn-sm">🏦 Virements banque → caisse</a>
 <button class="btn btn-primary btn-sm" onclick="document.getElementById('addCaisseM').classList.add('active')">+ Nouvelle caisse</button>
 {# v113 : Bouton PURGE TOTALE — permission 'caisse_purge_all' (admin uniquement par défaut) #}

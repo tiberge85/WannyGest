@@ -17620,6 +17620,67 @@ def compta_caisses():
     return render_template('extra_pages.html', page='caisses', caisses=caisses, users=users, total=total,
                            can_edit_caisse=can_edit_caisse, search_ref=search_ref, search_results=search_results)
 
+
+@app.route('/comptabilite/caisses/reconciliation')
+@login_required
+def compta_caisses_reconciliation():
+    """v202 : Réconciliation des caisses — décompose le solde de CHAQUE caisse
+    (solde initial + entrées + transferts entrants − sorties − transferts sortants) pour
+    expliquer un écart entre le total logiciel et le cumul physique. Met en évidence :
+    les caisses inactives qui gardent un solde, les soldes initiaux ≠ 0, les transferts
+    non équilibrés, et tout écart entre le solde stocké et le solde recalculé."""
+    user = get_user_by_id(session['user_id'])
+    from models import has_permission as _hp
+    if not (user and (user['role'] == 'admin' or _hp(user['role'], 'caisse_view') or _hp(user['role'], 'comptabilite'))):
+        flash("⚠️ Accès réservé (comptabilité / admin)", "error")
+        return redirect('/dashboard')
+    conn = _gdb()
+    rows = [dict(r) for r in conn.execute("SELECT * FROM caisses ORDER BY name").fetchall()]
+
+    def _s(sql, params):
+        try: return float(conn.execute(sql, params).fetchone()[0] or 0)
+        except Exception: return 0.0
+
+    lignes = []
+    tot = {'init': 0, 'entrees': 0, 'sorties': 0, 'tin': 0, 'tout': 0, 'calc': 0, 'stored': 0,
+           'calc_actives': 0, 'calc_inactives': 0, 'nb': 0, 'nb_actives': 0, 'nb_inactives': 0}
+    for ca in rows:
+        cid = ca['id']
+        entrees = _s("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='entree'", (cid,))
+        sorties = _s("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE caisse_id=? AND type='sortie'", (cid,))
+        tin = _s("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE dest_caisse_id=? AND type='transfert'", (cid,))
+        tout = _s("SELECT COALESCE(SUM(amount),0) FROM caisse_operations WHERE source_caisse_id=? AND type='transfert'", (cid,))
+        init = float(ca.get('solde_initial') or 0)
+        calc = init + entrees + tin - sorties - tout
+        stored = float(ca.get('solde_actuel') or 0)
+        try:
+            nb = int(conn.execute("SELECT COUNT(*) FROM caisse_operations WHERE caisse_id=? OR source_caisse_id=? OR dest_caisse_id=?", (cid, cid, cid)).fetchone()[0] or 0)
+        except Exception:
+            nb = 0
+        _a = ca.get('is_active')
+        active = 1 if (_a is None or int(_a) == 1) else 0
+        flags = []
+        if not active and abs(calc) > 0.5:
+            flags.append("⚠️ Caisse INACTIVE qui garde un solde")
+        if abs(init) > 0.5:
+            flags.append("Solde initial ≠ 0")
+        if abs(calc - stored) > 0.5:
+            flags.append("Écart solde stocké / recalculé")
+        lignes.append({'id': cid, 'name': ca.get('name') or f"Caisse #{cid}", 'active': active,
+                       'resp': ca.get('responsible_name') or '', 'init': init, 'entrees': entrees,
+                       'sorties': sorties, 'tin': tin, 'tout': tout, 'calc': calc, 'stored': stored,
+                       'nb': nb, 'flags': flags})
+        tot['init'] += init; tot['entrees'] += entrees; tot['sorties'] += sorties
+        tot['tin'] += tin; tot['tout'] += tout; tot['calc'] += calc; tot['stored'] += stored; tot['nb'] += nb
+        if active:
+            tot['calc_actives'] += calc; tot['nb_actives'] += 1
+        else:
+            tot['calc_inactives'] += calc; tot['nb_inactives'] += 1
+    conn.close()
+    tot['transfert_desequilibre'] = tot['tin'] - tot['tout']
+    return render_template('caisses_reconciliation.html', page='caisses', lignes=lignes, tot=tot)
+
+
 @app.route('/comptabilite/caisses/add', methods=['POST'])
 @permission_required('comptabilite_edit')
 def compta_caisse_add():
