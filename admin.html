@@ -116,9 +116,17 @@
         <form method="post" action="/admin/permissions">
             <div class="table-wrap">
                 <table id="permTable">
+                    {% set role_labels = {
+                        'admin':'Admin','dg':'DG','rh':'RH','technicien':'Technicien',
+                        'responsable_technique':'Resp. Technique','commercial':'Commercial',
+                        'responsable_commercial':'Resp. Commercial','comptable':'Comptable',
+                        'moyens_generaux':'Achat / Appro','agent_recouvreur':'Recouvreur',
+                        'caissiere':'Caissière','informatique':'Informatique',
+                        'coordinateur':'Coordinateur','proprietaire':'Propriétaire',
+                        'concierge':'Concierge','secretaire':'Secrétaire','chef_agence':'Chef agence'} %}
                     <thead><tr><th style="min-width:240px;background:#1a3a5c;color:#fff">Permission</th>
                     {% for role in ['admin','dg','rh','technicien','responsable_technique','commercial','responsable_commercial','comptable','moyens_generaux','agent_recouvreur','caissiere','informatique','coordinateur','proprietaire','concierge','secretaire','chef_agence'] %}
-                    <th style="font-size:10px;text-align:center;writing-mode:vertical-lr;transform:rotate(180deg);height:80px;background:#1a3a5c;color:#fff">{{ role }}</th>
+                    <th style="font-size:11px;text-align:left;writing-mode:vertical-lr;transform:rotate(180deg);height:132px;white-space:nowrap;padding:8px 3px;background:#1a3a5c;color:#fff">{{ role_labels.get(role, role) }}</th>
                     {% endfor %}</tr></thead>
                     <tbody>
                     {% for category, perms in perm_categories.items() %}
