@@ -5243,7 +5243,14 @@ try:
             _v203set(_ag.get('id', 1))
             _c = _v203db()
             _f = _c.execute("SELECT value FROM app_settings WHERE key='v203_resp_commercial_seeded'").fetchone()
-            if not _f:
+            # v203e : auto-réparation — repeuple si le drapeau est posé mais que le rôle est vide
+            # (cas des agences où un ancien déploiement avait posé le drapeau sans insérer les perms)
+            try:
+                _cnt203 = _c.execute("SELECT COUNT(*) FROM permissions WHERE role='responsable_commercial'").fetchone()
+                _cnt203 = (_cnt203[0] if _cnt203 else 0)
+            except Exception:
+                _cnt203 = 0
+            if (not _f) or (_cnt203 == 0):
                 for _p in _RESP_COMMERCIAL_PERMS:
                     try:
                         if not _c.execute("SELECT 1 FROM permissions WHERE role='responsable_commercial' AND permission=?", (_p,)).fetchone():
