@@ -9022,7 +9022,10 @@ def admin_permissions():
         for _p, _l in _perms:
             matrix_perms.add(_p)
     # Rôles affichés en colonnes dans admin.html (doit rester synchronisé avec le template)
-    matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable',
+    # v203d : 'responsable_commercial' ajouté — sans lui, ses cases n'étaient jamais enregistrées
+    # (elles revenaient décochées après validation).
+    matrix_roles = ['dg', 'rh', 'technicien', 'responsable_technique', 'commercial',
+                    'responsable_commercial', 'comptable',
                     'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique',
                     'coordinateur', 'proprietaire', 'concierge', 'secretaire', 'chef_agence']
     for role in matrix_roles:
