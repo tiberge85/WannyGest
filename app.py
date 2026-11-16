@@ -5229,6 +5229,7 @@ _RESP_COMMERCIAL_PERMS = [
     'visites', 'visites_edit', 'contrats',
     'field_report_create', 'field_report_view_all',
     'creances_view', 'recouvrement_view', 'comptabilite',
+    'section_projets', 'resp_projet',
     'roadmap_view', 'project_create', 'project_close', 'project_contract',
     'section_calendrier', 'pointage', 'pointage_view',
 ]
@@ -5268,6 +5269,27 @@ try:
             except Exception: pass
     if _n203:
         print(f"[v203-Perms] Rôle 'responsable_commercial' initialisé sur {_n203} agence(s)", flush=True)
+    # v203f : s'assurer que la section PROJETS est visible pour le responsable commercial
+    # (ajout ciblé même si le rôle a déjà été personnalisé — n'enlève rien)
+    _n203f = 0
+    for _ag in _ags203:
+        try:
+            _v203set(_ag.get('id', 1))
+            _c = _v203db()
+            for _p in ('section_projets', 'resp_projet'):
+                try:
+                    if not _c.execute("SELECT 1 FROM permissions WHERE role='responsable_commercial' AND permission=?", (_p,)).fetchone():
+                        _c.execute("INSERT INTO permissions (role, permission) VALUES ('responsable_commercial', ?)", (_p,))
+                        _n203f += 1
+                except Exception: pass
+            _c.commit(); _c.close()
+        except Exception:
+            pass
+        finally:
+            try: _v203clear()
+            except Exception: pass
+    if _n203f:
+        print(f"[v203f-Perms] Section PROJETS activée pour responsable_commercial ({_n203f} ajout(s))", flush=True)
 except Exception as _e:
     print(f"[v203-Perms] Erreur : {_e}", flush=True)
 
