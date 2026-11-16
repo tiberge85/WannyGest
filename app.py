@@ -5219,6 +5219,52 @@ except Exception as _e:
     print(f"[v200c-Perms] Erreur : {_e}", flush=True)
 
 
+# v203 : nouveau rôle RESPONSABLE COMMERCIAL — pilote l'activité commerciale (CRM, devis,
+#   prospects, visites, remontées, roadmap, suivi créances/factures en lecture). Superset du
+#   rôle « commercial ». Initialisé une fois par agence ; l'admin peut ensuite ajuster.
+_RESP_COMMERCIAL_PERMS = [
+    'dashboard', 'dashboard_general',
+    'section_crm', 'clients', 'clients_edit', 'prospects',
+    'proforma', 'proforma_edit', 'convertir_devis',
+    'visites', 'visites_edit', 'contrats',
+    'field_report_create', 'field_report_view_all',
+    'creances_view', 'recouvrement_view', 'comptabilite',
+    'roadmap_view', 'project_create', 'project_close', 'project_contract',
+    'section_calendrier', 'pointage', 'pointage_view',
+]
+try:
+    from models import (get_db as _v203db, list_agencies as _v203list,
+                        set_forced_agency as _v203set, clear_forced_agency as _v203clear)
+    try: _ags203 = _v203list() or [{'id': 1}]
+    except Exception: _ags203 = [{'id': 1}]
+    _n203 = 0
+    for _ag in _ags203:
+        try:
+            _v203set(_ag.get('id', 1))
+            _c = _v203db()
+            _f = _c.execute("SELECT value FROM app_settings WHERE key='v203_resp_commercial_seeded'").fetchone()
+            if not _f:
+                for _p in _RESP_COMMERCIAL_PERMS:
+                    try:
+                        if not _c.execute("SELECT 1 FROM permissions WHERE role='responsable_commercial' AND permission=?", (_p,)).fetchone():
+                            _c.execute("INSERT INTO permissions (role, permission) VALUES ('responsable_commercial', ?)", (_p,))
+                    except Exception: pass
+                try:
+                    _c.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('v203_resp_commercial_seeded','1',datetime('now'))")
+                except Exception: pass
+                _c.commit(); _n203 += 1
+            _c.close()
+        except Exception:
+            pass
+        finally:
+            try: _v203clear()
+            except Exception: pass
+    if _n203:
+        print(f"[v203-Perms] Rôle 'responsable_commercial' initialisé sur {_n203} agence(s)", flush=True)
+except Exception as _e:
+    print(f"[v203-Perms] Erreur : {_e}", flush=True)
+
+
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -8781,7 +8827,7 @@ def admin_page():
     stats = get_dashboard_stats()
     # v162 : inclure TOUTES les colonnes de la matrice (sinon leurs cases s'affichent toujours
     # décochées même si la permission est bien enregistrée — ex. agent_recouvreur, caissiere)
-    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'comptable', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire', 'chef_agence']}
+    role_perms = {r: get_role_permissions(r) for r in ['admin', 'dg', 'rh', 'technicien', 'responsable_technique', 'commercial', 'responsable_commercial', 'comptable', 'moyens_generaux', 'agent_recouvreur', 'caissiere', 'informatique', 'resp_projet', 'coordinateur', 'gestionnaire_projet', 'proprietaire', 'concierge', 'secretaire', 'chef_agence']}
     # v162 : comptable et comptabilite = même rôle → la colonne « comptable » montre l'union des deux
     role_perms['comptable'] = sorted(set(role_perms.get('comptable', [])) | set(get_role_permissions('comptabilite')))
     conn = _gdb()

@@ -491,8 +491,8 @@ def create_user(username, email, password, full_name, role='technicien'):
     pwd_hash = hash_password(password, salt)
     try:
         conn.execute("""
-            INSERT INTO users (username, email, password_hash, salt, full_name, role)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (username, email, password_hash, salt, full_name, role, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
         """, (username, email, pwd_hash, salt, full_name, role))
         conn.commit()
         return True, "Compte créé avec succès"
@@ -527,7 +527,11 @@ def get_user_by_id(user_id):
 
 def get_all_users():
     conn = get_db()
-    users = conn.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+    # v203 : tri fiable « plus récents en premier » — repli sur l'id (auto-incrément) quand
+    # created_at est NULL (anciens comptes créés sans date), sinon un nouvel utilisateur
+    # se retrouvait en bas de liste et semblait « introuvable ».
+    users = conn.execute(
+        "SELECT * FROM users ORDER BY COALESCE(created_at,'') DESC, id DESC").fetchall()
     conn.close()
     return [dict(u) for u in users]
 
